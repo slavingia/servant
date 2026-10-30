@@ -1,5 +1,7 @@
+import { useCallback, useState } from "react";
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
+import { api, type Release } from "../../lib/hub";
 import { Band, PageTitle } from "../../components/Band";
 import Constants from "expo-constants";
 import { useSession } from "../../lib/session";
@@ -16,6 +18,12 @@ function Row({ label, value, onPress }: { label: string; value?: string; onPress
 
 export default function Settings() {
   const { account, signOut } = useSession();
+  const [release, setRelease] = useState<Release | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      if (account) api.latestRelease(account).then(setRelease).catch(() => undefined);
+    }, [account]),
+  );
   if (!account) return null;
   const owner = account.user.role === "owner";
 
@@ -45,6 +53,23 @@ export default function Settings() {
         <Row label="Access" value={owner ? "Owner" : "Member"} />
       </View>
 
+      {release ? (
+        <>
+          <Text style={styles.section}>What's new</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityHint="Opens the notes and the thread to talk about them"
+            onPress={() => router.push({ pathname: "/thread", params: { conv: release.conversationId, root: release.messageId, title: "#whats-new" } })}
+            style={({ pressed }) => [styles.group, styles.notes, pressed && { backgroundColor: colors.surface }]}
+          >
+            <Text style={styles.notesText} numberOfLines={4}>
+              {release.text}
+            </Text>
+            <Text style={styles.notesLink}>Discuss</Text>
+          </Pressable>
+        </>
+      ) : null}
+
       {owner ? (
         <>
           <Text style={styles.section}>People</Text>
@@ -73,5 +98,8 @@ const styles = StyleSheet.create({
   rowValue: { fontSize: 17, color: colors.muted, flexShrink: 1, marginLeft: 12, textAlign: "right" },
   danger: { marginTop: 8, alignSelf: "center", minHeight: 44, justifyContent: "center", paddingHorizontal: 20 },
   dangerText: { color: colors.red, fontSize: 17 },
+  notes: { padding: 16 },
+  notesText: { fontSize: 16, lineHeight: 22, color: colors.ink },
+  notesLink: { marginTop: 10, color: colors.blue, fontSize: 17, fontWeight: "600" },
   version: { marginTop: 16, textAlign: "center", color: colors.muted, fontSize: 13 },
 });

@@ -10,6 +10,7 @@
 //   node hub/server.mjs invite --name Me --role owner   one-time invite for a named person
 //   node hub/server.mjs devices             list paired devices
 //   node hub/server.mjs revoke <deviceId>   revoke a device
+//   node hub/server.mjs release <build> <notes.md>   post a build's notes to #whats-new
 
 import http from "node:http";
 import crypto from "node:crypto";
@@ -57,6 +58,8 @@ export function loadConfig() {
     publicUrl: process.env.SERVANT_PUBLIC_URL || cfg.publicUrl || "",
     // Stable URL that always returns {"url": "<current publicUrl>"}.
     discoveryUrl: process.env.SERVANT_DISCOVERY_URL || cfg.discoveryUrl || "",
+    // Lets build scripts on this Mac post release notes. Never leaves the Mac.
+    adminKey: process.env.SERVANT_ADMIN_KEY || cfg.adminKey || "",
     upstreams: cfg.upstreams || {
       owner: { url: "http://127.0.0.1:8642", key: process.env.SERVANT_OWNER_KEY || "" },
       member: { url: "http://127.0.0.1:8643", key: process.env.SERVANT_MEMBER_KEY || "" },
@@ -339,6 +342,20 @@ async function handle(req, res, cfg) {
     return send(res, 201, { token, user: { id: user.id, name: user.name, role: user.role }, hub: { name: cfg.name } });
   }
 
+  // Build scripts on this Mac post release notes. Tunnel traffic always carries
+  // cf-connecting-ip, so it can't reach this even with the key.
+  if (method === "POST" && url.pathname === "/admin/releases") {
+    const local = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress) && !req.headers["cf-connecting-ip"];
+    const key = String(req.headers["x-servant-admin"] || "");
+    const ok = cfg.adminKey && key.length === cfg.adminKey.length && crypto.timingSafeEqual(Buffer.from(key), Buffer.from(cfg.adminKey));
+    if (!local || !ok) return fail(res, 403, "forbidden", "Not allowed");
+    const body = await readBody(req);
+    reload();
+    const owner = Object.values(state.users).find((u) => u.role === "owner");
+    if (!owner) return fail(res, 409, "no_owner", "Pair the owner first");
+    return send(res, 200, { release: messaging.postRelease({ build: body.build, notes: body.notes, authorId: owner.id }) });
+  }
+
   // Everything below needs a device token.
   if (parts[0] !== "v1") return fail(res, 404, "not_found", "Not found");
   reload();
@@ -606,6 +623,26 @@ if (isMain) {
     console.log(`Invite code: ${code}`);
     console.log(`Link:        ${pairLink(code)}`);
     console.log(`${named ? "Single use" : "Anyone with it can join"}. Expires ${new Date(expiresAt).toDateString()}.`);
+  } else if (cmd === "release") {
+    const [build, file] = process.argv.slice(3);
+    if (!build || !file) {
+      console.error("usage: server.mjs release <build> <notes.md>");
+      process.exit(2);
+    }
+    const raw = loadJson(CONFIG_FILE, {});
+    if (!raw.adminKey) saveJson(CONFIG_FILE, { ...raw, adminKey: crypto.randomBytes(24).toString("base64url") });
+    const cfg = loadConfig();
+    const r = await fetch(`http://127.0.0.1:${cfg.port}/admin/releases`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Servant-Admin": cfg.adminKey },
+      body: JSON.stringify({ build, notes: fs.readFileSync(file, "utf8") }),
+    }).catch((e) => ({ ok: false, status: 0, json: async () => ({ error: { message: e.message } }) }));
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      console.error(`Couldn't post the notes (${r.status}): ${data.error?.message || "hub not running?"}`);
+      process.exit(1);
+    }
+    console.log(`${data.release.updated ? "Updated" : "Posted"} build ${build} notes in #whats-new (message ${data.release.messageId})`);
   } else if (cmd === "devices") {
     for (const d of Object.values(state.devices).filter((x) => !x.revokedAt)) {
       const u = state.users[d.userId] || {};

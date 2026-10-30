@@ -277,6 +277,9 @@ export async function listen(account: Account, onEvent: (e: LiveEvent) => void, 
 
 const json = <T,>(r: Response) => r.json() as Promise<T>;
 
+// A build's notes, posted in #whats-new. Testers discuss it in the post's thread.
+export type Release = { build: string; conversationId: string; messageId: string; text: string; createdAt: number };
+
 export const api = {
   me: (a: Account, m?: (a: Account) => void) => request(a, "/v1/me", {}, m).then((r) => r.json()),
   chats: (a: Account, m?: (a: Account) => void) => request(a, "/v1/chats", {}, m).then((r) => r.json()).then((d) => d.chats as Chat[]),
@@ -317,5 +320,7 @@ export const api = {
   editPost: (a: Account, postId: string, text: string) =>
     request(a, `/v1/messages/${postId}`, { method: "PATCH", body: JSON.stringify({ text }) }).then(json<{ message: Post }>).then((d) => d.message),
   deletePost: (a: Account, postId: string) => request(a, `/v1/messages/${postId}`, { method: "DELETE" }),
+  latestRelease: (a: Account) =>
+    request(a, "/v1/releases/latest").then(json<{ release: Release | null }>).then((d) => d.release),
   signOut: (a: Account) => request(a, "/v1/signout", { method: "POST" }).catch(() => undefined),
 };

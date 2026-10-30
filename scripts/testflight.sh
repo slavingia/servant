@@ -1,9 +1,14 @@
 #!/bin/bash
 # Build Servant for TestFlight under the IRS team (EXBV39ZXGR) and upload.
-# Usage: scripts/testflight.sh <build-number> [--no-upload]
+# Usage: scripts/testflight.sh <build-number> --notes <notes.md> [--no-upload]
+# Notes are required: they become TestFlight's What to Test and the build's post
+# in Servant's #whats-new (scripts/notes.py).
 set -euo pipefail
 BUILD=${1:?build number}
-UPLOAD=${2:-}
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+NOTES=""; UPLOAD=""
+shift; while [ $# -gt 0 ]; do case "$1" in --notes) NOTES=$(cd "$(dirname "$2")" && pwd)/$(basename "$2"); shift 2;; --no-upload) UPLOAD=--no-upload; shift;; *) echo "unknown arg $1"; exit 2;; esac; done
+[ -n "$UPLOAD" ] || [ -s "$NOTES" ] || { echo "Add --notes <file>: what changed and what to test"; exit 2; }
 APP=$(cd "$(dirname "$0")/../app" && pwd)
 OUT=$HOME/wt/servant-build/$BUILD
 mkdir -p "$OUT"
@@ -42,3 +47,4 @@ echo "IPA: $OUT/export/Servant.ipa"
 [ "$UPLOAD" = "--no-upload" ] && exit 0
 cd "$OUT/export"
 xcrun altool --upload-app -f Servant.ipa -t ios -u sahil.lavingia@irs.gov -p @keychain:APP_SPECIFIC_PASSWORD
+python3 "$ROOT/scripts/notes.py" "$BUILD" "$NOTES" --testflight

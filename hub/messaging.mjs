@@ -13,6 +13,9 @@ import { isMention } from "./push.mjs";
 
 export const AGENT_ID = "agent";
 const MAX_TEXT = 8000;
+// Every build's notes go here, one post per build, so testers can see what
+// changed and talk about it in that post's thread.
+export const RELEASES_CHANNEL = "whats-new";
 const PAGE = 50;
 
 const SCHEMA = `
@@ -53,6 +56,11 @@ CREATE TABLE IF NOT EXISTS messages (
   pending INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS messages_conv ON messages(conversation_id, thread_root, seq);
+CREATE TABLE IF NOT EXISTS releases (
+  build TEXT PRIMARY KEY,
+  seq INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS agent_threads (
   key TEXT PRIMARY KEY,
   hermes_session_id TEXT NOT NULL,
@@ -140,6 +148,10 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     publicChannels: q("SELECT id FROM conversations WHERE kind = 'channel' AND private = 0 AND archived_at IS NULL AND name = 'general'"),
     agentThread: q("SELECT * FROM agent_threads WHERE key = ?"),
     putAgentThread: q("INSERT INTO agent_threads (key, hermes_session_id, last_seen_seq) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET last_seen_seq = excluded.last_seen_seq"),
+    release: q("SELECT * FROM releases WHERE build = ?"),
+    releaseBySeq: q("SELECT * FROM releases WHERE seq = ?"),
+    latestRelease: q("SELECT * FROM releases ORDER BY created_at DESC LIMIT 1"),
+    putRelease: q("INSERT INTO releases (build, seq, created_at) VALUES (?, ?, ?)"),
     since: q(`SELECT * FROM messages WHERE conversation_id = ? AND seq > ? AND deleted_at IS NULL AND pending = 0 AND activity IS NULL
               AND ((? IS NULL AND thread_root IS NULL) OR thread_root = ? OR seq = ?) ORDER BY seq DESC LIMIT 20`),
   };
@@ -203,21 +215,55 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
   }
 
   // ----- core operations (also used by tests and the CLI) -----
-  function ensureGeneral(createdBy = "system") {
-    let c = st.convByName.get("general");
+  function ensureChannel(name, topic, createdBy = "system") {
+    let c = st.convByName.get(name);
     if (!c) {
       const id = newId("ch");
-      st.insertConv.run(id, "channel", "general", "Everyone on this hub", 0, null, createdBy, now());
+      st.insertConv.run(id, "channel", name, topic, 0, null, createdBy, now());
       c = st.conv.get(id);
     }
     return c;
   }
+  const ensureGeneral = (createdBy) => ensureChannel("general", "Everyone on this hub", createdBy);
+  const ensureReleases = () => ensureChannel(RELEASES_CHANNEL, "What changed in each build and what to test. Reply in the thread");
 
   function joinDefaults(userId) {
-    const g = ensureGeneral();
-    addChannelMember(g, userId);
-    publish(g.id, "conversation.updated", { id: g.id });
+    for (const c of [ensureGeneral(), ensureReleases()]) {
+      addChannelMember(c, userId);
+      publish(c.id, "conversation.updated", { id: c.id });
+    }
   }
+
+  const releaseView = (r) => {
+    const m = r && st.msg.get(r.seq);
+    if (!m || m.deleted_at) return null;
+    return { build: r.build, conversationId: m.conversation_id, messageId: String(m.seq), text: m.text, createdAt: r.created_at };
+  };
+
+  // One post per build in #whats-new. Posting the same build again updates
+  // that post, so iOS and Android scripts can both call this.
+  function postRelease({ build, notes, authorId }) {
+    build = String(build || "").trim();
+    notes = String(notes || "").trim();
+    if (!/^[0-9A-Za-z._-]{1,20}$/.test(build)) throw httpError(400, "bad_build", "Give a build number");
+    if (!notes) throw httpError(400, "empty", "Write the notes first");
+    const text = `Build ${build} is out\n\n${notes}\n\nReply here with anything you find`.slice(0, MAX_TEXT);
+    const conv = ensureReleases();
+    for (const uid of Object.keys(users())) addChannelMember(conv, uid);
+    const existing = st.release.get(build);
+    if (existing && st.msg.get(existing.seq)) {
+      st.setText.run(text, now(), existing.seq);
+      publish(conv.id, "message.updated", msgView(st.msg.get(existing.seq)));
+      publish(conv.id, "conversation.updated", { id: conv.id });
+      return { ...releaseView(existing), updated: true };
+    }
+    db.prepare("DELETE FROM releases WHERE build = ?").run(build);
+    const m = post(conv, authorId, text);
+    st.putRelease.run(build, m.seq, now());
+    publish(conv.id, "conversation.updated", { id: conv.id });
+    return { ...releaseView(st.release.get(build)), updated: false };
+  }
+  const latestRelease = () => releaseView(st.latestRelease.get());
 
   function channelActivity(conv, userId, action) {
     const text = `${person(userId).name} ${action === "joined" ? "joined" : "left"} the channel`;
@@ -338,17 +384,25 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     if (!m.thread_root && membership.last_read_seq >= m.seq) return null;
     const participant = !!m.thread_root && !!db.prepare("SELECT 1 FROM messages WHERE conversation_id = ? AND (seq = ? OR thread_root = ?) AND user_id = ? AND deleted_at IS NULL AND seq < ? LIMIT 1").get(c.id, m.thread_root, m.thread_root, user.id, m.seq);
     const sender = person(m.user_id).name;
+    // New build notes reach everyone, like an @here.
+    const release = !m.thread_root && st.releaseBySeq.get(m.seq);
     const unread = st.mine.all(user.id, 0).reduce((n, c) => n + c.unread, 0);
-    return { kind: c.kind, conversationId: c.id, messageId: String(m.seq), threadRoot: m.thread_root,
-      mentioned: isMention(m.text, user), participant, badge: Math.max(1, unread),
-      title: c.kind === "channel" ? `${sender} in #${c.name}` : sender,
+    // Tapping a build's notes opens its thread, where testers discuss it.
+    return { kind: c.kind, conversationId: c.id, messageId: String(m.seq), threadRoot: release ? m.seq : m.thread_root,
+      mentioned: !!release || isMention(m.text, user), participant, badge: Math.max(1, unread),
+      title: release ? `Build ${release.build} is out` : c.kind === "channel" ? `${sender} in #${c.name}` : sender,
       body: m.text, };
   }
 
   // ----- HTTP -----
   async function handle(req, res, { user, method, parts, url, send, fail, readBody, cors }) {
     const r = parts[1];
-    if (!["people", "conversations", "channels", "messages", "events"].includes(r)) return false;
+    if (!["people", "conversations", "channels", "messages", "events", "releases"].includes(r)) return false;
+
+    if (method === "GET" && r === "releases" && parts[2] === "latest" && parts.length === 3) {
+      send(res, 200, { release: latestRelease() });
+      return true;
+    }
 
     if (method === "GET" && r === "people" && parts.length === 2) {
       const list = Object.values(users())
@@ -550,7 +604,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     return true;
   }
 
-  return { handle, notificationFor, joinDefaults, ensureGeneral, createChannel, openDm, post, agentReply, subscribe, close: () => db.close(), db };
+  return { handle, notificationFor, joinDefaults, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, subscribe, close: () => db.close(), db };
 }
 
 function httpError(status, code, message) {

@@ -537,6 +537,39 @@ test("notification settings and push registration are scoped to the authenticate
   assert.equal(Object.values(saved.devices).find(d => d.id === registration.json.deviceId).push, undefined);
 });
 
+test("build notes: one #whats-new post per build, everyone notified, tap opens its thread", () => {
+  const people = { o: { id: "o", name: "Owner", role: "owner" }, t: { id: "t", name: "Tester", role: "member" } };
+  const m = createMessaging({ file: path.join(dataDir, "releases.db"), users: () => people, agentName: () => "Agent", askAgent: async () => "" });
+  assert.equal(m.latestRelease(), null);
+  assert.throws(() => m.postRelease({ build: "5", notes: " ", authorId: "o" }), /notes/);
+  const first = m.postRelease({ build: "5", notes: "Keyboard no longer covers the composer", authorId: "o" });
+  assert.equal(first.updated, false);
+  assert.match(first.text, /^Build 5 is out\n\nKeyboard no longer covers the composer/);
+  // Android and iOS scripts both post the same build: it updates, never duplicates.
+  const again = m.postRelease({ build: "5", notes: "Keyboard fix. Try typing in a thread", authorId: "o" });
+  assert.equal(again.updated, true);
+  assert.equal(again.messageId, first.messageId);
+  assert.equal(m.latestRelease().messageId, first.messageId);
+  const ch = m.db.prepare("SELECT * FROM conversations WHERE name = 'whats-new'").get();
+  assert.ok(m.db.prepare("SELECT 1 FROM members WHERE conversation_id = ? AND user_id = 't'").get(ch.id), "everyone is in #whats-new");
+  const n = m.notificationFor(first.messageId, people.t);
+  assert.equal(n.title, "Build 5 is out");
+  assert.equal(n.mentioned, true, "reaches people on mentions-only");
+  assert.equal(String(n.threadRoot), first.messageId, "tapping opens the discussion thread");
+  const reply = m.post(ch, "t", "Works on my phone", Number(first.messageId));
+  assert.equal(m.notificationFor(String(reply.seq), people.o).title, "Tester in #whats-new");
+  assert.equal(m.postRelease({ build: "6", notes: "Next", authorId: "o" }).build, "6");
+  assert.equal(m.latestRelease().build, "6");
+  m.close();
+});
+
+test("release notes can only be posted from this Mac with the admin key", async () => {
+  const r = await fetch(`${base}/admin/releases`, { method: "POST", headers: { "Content-Type": "application/json", "cf-connecting-ip": "1.2.3.4", "X-Servant-Admin": "x" }, body: JSON.stringify({ build: "1", notes: "n" }) });
+  assert.equal(r.status, 403);
+  const r2 = await fetch(`${base}/admin/releases`, { method: "POST", headers: { "Content-Type": "application/json", "X-Servant-Admin": "" }, body: JSON.stringify({ build: "1", notes: "n" }) });
+  assert.equal(r2.status, 403);
+});
+
 test("ten wrong codes lock out pairing from that address; good pairings don't count", async () => {
   // Earlier tests already used one wrong code from this address.
   const statuses = [];
