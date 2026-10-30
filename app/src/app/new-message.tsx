@@ -53,7 +53,7 @@ export default function NewMessage() {
           people === null ? (
             <ActivityIndicator style={{ marginTop: 40 }} color={colors.blue} />
           ) : (
-            <Text style={styles.empty}>{error ?? (people.length ? "No one matches" : "No one else is on this hub yet. Invite someone from the You tab")}</Text>
+            <Text style={styles.empty}>{error ?? (people.length ? "No one matches" : "No one else is on this server yet. Invite someone from the You tab")}</Text>
           )
         }
         renderItem={({ item }) => {

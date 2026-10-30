@@ -593,7 +593,7 @@ export function startServer(fixedCfg) {
       if (res.headersSent) return res.end();
       const status = err.status || 500;
       if (status === 500) console.error("[servant]", err);
-      fail(res, status, status === 500 ? "server_error" : err.code || "bad_request", status === 500 ? "Something went wrong on the hub" : err.message);
+      fail(res, status, status === 500 ? "server_error" : err.code || "bad_request", status === 500 ? "Something went wrong on the server" : err.message);
     });
   });
   server.on("close", () => { push?.close(); push = null; });

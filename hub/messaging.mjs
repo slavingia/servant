@@ -252,7 +252,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     for (const uid of Object.keys(users())) addChannelMember(conv, uid);
     const existing = st.release.get(build);
     if (existing && st.msg.get(existing.seq)) {
-      st.setText.run(text, now(), existing.seq);
+      st.setAgentText.run(text, 0, existing.seq); // same build, fresher notes: not an "edit"
       publish(conv.id, "message.updated", msgView(st.msg.get(existing.seq)));
       publish(conv.id, "conversation.updated", { id: conv.id });
       return { ...releaseView(existing), updated: true };

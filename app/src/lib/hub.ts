@@ -82,9 +82,9 @@ const trim = (u: string) => u.replace(/\/+$/, "");
 // has the current one.
 export async function discover(discovery: string): Promise<string> {
   const res = await fetch(`${discovery}${discovery.includes("?") ? "&" : "?"}t=${Date.now()}`);
-  if (!res.ok) throw new HubError("Couldn't find the hub", res.status);
+  if (!res.ok) throw new HubError("Couldn't find the server", res.status);
   const data = await res.json();
-  if (typeof data.url !== "string" || !/^https?:\/\//.test(data.url)) throw new HubError("Couldn't find the hub");
+  if (typeof data.url !== "string" || !/^https?:\/\//.test(data.url)) throw new HubError("Couldn't find the server");
   return trim(data.url);
 }
 
@@ -96,7 +96,7 @@ async function readError(res: Response): Promise<HubError> {
     /* not JSON (for example a tunnel error page) */
   }
   if (res.status === 530 || res.status === 502 || res.status === 503 || res.status === 404) {
-    return new HubError("The hub isn't reachable right now", res.status, "unreachable");
+    return new HubError("The server isn't reachable right now", res.status, "unreachable");
   }
   return new HubError(`Something went wrong (${res.status})`, res.status, "http");
 }
@@ -115,11 +115,11 @@ export async function pair(invite: Invite, name?: string): Promise<Account> {
       body: JSON.stringify({ code: invite.code, device: deviceLabel(), ...(name ? { name } : {}) }),
     });
   } catch {
-    throw new HubError("The hub isn't reachable right now");
+    throw new HubError("The server isn't reachable right now");
   }
   if (!res.ok) throw await readError(res);
   const data = await res.json();
-  const account: Account = { token: data.token, hubUrl, discovery: invite.discovery, hubName: data.hub?.name || "Hub", user: data.user };
+  const account: Account = { token: data.token, hubUrl, discovery: invite.discovery, hubName: data.hub?.name || "Server", user: data.user };
   await saveAccount(account);
   return account;
 }
@@ -159,7 +159,7 @@ export async function request(account: Account, path: string, init: RequestInit 
     onMove?.(moved);
     res = await go(moved.hubUrl).catch(() => null);
   }
-  if (!res) throw new HubError("The hub isn't reachable right now");
+  if (!res) throw new HubError("The server isn't reachable right now");
   if (!res.ok) throw await readError(res);
   return res;
 }
@@ -195,7 +195,7 @@ export async function sendMessage(
       res = await go(moved.hubUrl);
     }
   }
-  if (!res) throw new HubError("The hub isn't reachable right now");
+  if (!res) throw new HubError("The server isn't reachable right now");
   if (!res.ok) throw await readError(res as unknown as Response);
   if (!res.body) throw new HubError("The agent didn't answer");
   const reader = res.body.getReader();

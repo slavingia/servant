@@ -53,7 +53,7 @@ export default function Messages() {
           ) : (
             <View style={styles.empty}>
               <Text style={styles.emptyTitle}>No messages yet</Text>
-              <Text style={styles.emptyBody}>Message anyone on this hub, one to one or in a small group</Text>
+              <Text style={styles.emptyBody}>Message anyone on this server, one to one or in a small group</Text>
             </View>
           )
         }

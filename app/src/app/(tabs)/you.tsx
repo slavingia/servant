@@ -62,8 +62,9 @@ export default function Settings() {
             onPress={() => router.push({ pathname: "/thread", params: { conv: release.conversationId, root: release.messageId, title: "#whats-new" } })}
             style={({ pressed }) => [styles.group, styles.notes, pressed && { backgroundColor: colors.surface }]}
           >
-            <Text style={styles.notesText} numberOfLines={4}>
-              {release.text}
+            <Text style={styles.notesTitle}>Build {release.build}</Text>
+            <Text style={styles.notesText} numberOfLines={3}>
+              {release.text.split("\n").slice(1).join("\n").trim()}
             </Text>
             <Text style={styles.notesLink}>Discuss</Text>
           </Pressable>
@@ -99,6 +100,7 @@ const styles = StyleSheet.create({
   danger: { marginTop: 8, alignSelf: "center", minHeight: 44, justifyContent: "center", paddingHorizontal: 20 },
   dangerText: { color: colors.red, fontSize: 17 },
   notes: { padding: 16 },
+  notesTitle: { fontSize: 17, fontWeight: "600", color: colors.ink, marginBottom: 4 },
   notesText: { fontSize: 16, lineHeight: 22, color: colors.ink },
   notesLink: { marginTop: 10, color: colors.blue, fontSize: 17, fontWeight: "600" },
   version: { marginTop: 16, textAlign: "center", color: colors.muted, fontSize: 13 },
