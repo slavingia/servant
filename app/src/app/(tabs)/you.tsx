@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
-import { api, type Release } from "../../lib/hub";
+import { api, type Release } from "../../lib/server";
 import { Band, PageTitle } from "../../components/Band";
 import Constants from "expo-constants";
 import { useSession } from "../../lib/session";
@@ -49,7 +49,7 @@ export default function Settings() {
       <View style={styles.group}>
         <Row label="Name" value={account.user.name} />
         <Row label="Notifications" onPress={() => router.push("/notifications")} />
-        <Row label="Server" value={account.hubName} />
+        <Row label="Server" value={account.serverName} />
         <Row label="Access" value={owner ? "Owner" : "Member"} />
       </View>
 

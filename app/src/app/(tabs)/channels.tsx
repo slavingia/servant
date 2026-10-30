@@ -3,7 +3,7 @@ import { ActivityIndicator, FlatList, Modal, Pressable, RefreshControl, StyleShe
 import { router, useFocusEffect } from "expo-router";
 import { Band, PageTitle } from "../../components/Band";
 import { SwipeChannelRow } from "../../components/SwipeChannelRow";
-import { api, HubError, type Conversation } from "../../lib/hub";
+import { api, ServerError, type Conversation } from "../../lib/server";
 import { useLive } from "../../lib/live";
 import { useSession } from "../../lib/session";
 import { colors } from "../../lib/theme";
@@ -32,7 +32,7 @@ export default function Channels() {
       setOpenId(null);
       await refresh();
     } catch (e) {
-      setActionError(e instanceof HubError ? e.message : "Couldn't update the channel. Try again");
+      setActionError(e instanceof ServerError ? e.message : "Couldn't update the channel. Try again");
     } finally {
       busy.current = false;
       setBusyId(null);

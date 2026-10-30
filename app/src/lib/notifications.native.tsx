@@ -5,7 +5,7 @@ import * as Notifications from 'expo-notifications';
 import { AndroidImportance, IosAuthorizationStatus } from 'expo-notifications';
 import { useSession } from './session';
 import { useLive } from './live';
-import { HubError } from './hub';
+import { ServerError } from './server';
 import { notificationApi, defaultNotifications, type NotificationPreferences } from './notifications-api';
 import { notificationRoute } from './notification-route';
 import type { NotificationState } from './notifications';
@@ -48,7 +48,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       } else await notificationApi.register(a, null);
       if (latest.current?.token === a.token) setEnabled(allowed);
     } catch (e) {
-      if (latest.current?.token === a.token) { setEnabled(false); setError(e instanceof HubError ? e.message : 'Could not enable push notifications. Try again'); }
+      if (latest.current?.token === a.token) { setEnabled(false); setError(e instanceof ServerError ? e.message : 'Could not enable push notifications. Try again'); }
     } finally { setBusy(false); }
   }, []);
   const enable = useCallback(async () => {
@@ -60,7 +60,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     const a = latest.current; if (!a) return;
     setBusy(true); setError(null);
     try { const result = await notificationApi.update(a, prefs); if (latest.current?.token === a.token) setPreferences(result.preferences); }
-    catch (e) { setError(e instanceof HubError ? e.message : 'Could not save notification settings'); }
+    catch (e) { setError(e instanceof ServerError ? e.message : 'Could not save notification settings'); }
     finally { setBusy(false); }
   }, []);
 

@@ -3,7 +3,7 @@ import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Tex
 import { router, useFocusEffect } from "expo-router";
 import { Band, PageTitle } from "../../components/Band";
 import { Avatar } from "../../components/Messaging";
-import { api, HubError, type Person } from "../../lib/hub";
+import { api, ServerError, type Person } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { colors } from "../../lib/theme";
 
@@ -21,7 +21,7 @@ export default function Members() {
       setDirectory({ token: account.token, people: result.people });
       setError(null);
     } catch (e) {
-      setError(e instanceof HubError ? e.message : "Couldn't load members. Pull down to try again");
+      setError(e instanceof ServerError ? e.message : "Couldn't load members. Pull down to try again");
     } finally { setRefreshing(false); }
   }, [account]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
@@ -35,7 +35,7 @@ export default function Members() {
       const conversation = await api.openDm(account, [person.id]);
       router.push({ pathname: "/c/[id]", params: { id: conversation.id } });
     } catch (e) {
-      setError(e instanceof HubError ? e.message : "Couldn't open the conversation. Try again");
+      setError(e instanceof ServerError ? e.message : "Couldn't open the conversation. Try again");
     } finally { setOpening(null); }
   };
   return <View style={styles.root}>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Animated, PanResponder, Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import type { Conversation } from "../lib/hub";
+import type { Conversation } from "../lib/server";
 import { colors } from "../lib/theme";
 import { ConversationRow } from "./Messaging";
 

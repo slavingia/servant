@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, 
 import { router, useLocalSearchParams } from "expo-router";
 import { Button } from "../components/Button";
 import { Avatar } from "../components/Messaging";
-import { api, HubError, type Conversation, type Person } from "../lib/hub";
+import { api, ServerError, type Conversation, type Person } from "../lib/server";
 import { useLive } from "../lib/live";
 import { useSession } from "../lib/session";
 import { colors } from "../lib/theme";
@@ -28,7 +28,7 @@ export default function ChannelInfo() {
       setTopic(c.conversation.topic);
       setEveryone(p.people);
     } catch (e) {
-      setError(e instanceof HubError ? e.message : "Couldn't load the channel");
+      setError(e instanceof ServerError ? e.message : "Couldn't load the channel");
     }
   }, [account, id]);
   useEffect(() => {
@@ -46,7 +46,7 @@ export default function ChannelInfo() {
       setError(null);
       refresh();
     } catch (e) {
-      setError(e instanceof HubError ? e.message : "Couldn't save");
+      setError(e instanceof ServerError ? e.message : "Couldn't save");
     }
   };
   const add = async (p: Person) => {
@@ -54,7 +54,7 @@ export default function ChannelInfo() {
       await api.addMembers(account, id, [p.id]);
       await load();
     } catch (e) {
-      setError(e instanceof HubError ? e.message : "Couldn't add them");
+      setError(e instanceof ServerError ? e.message : "Couldn't add them");
     }
   };
   const message = async (person: Person) => {
@@ -65,7 +65,7 @@ export default function ChannelInfo() {
       const conversation = await api.openDm(account, [person.id]);
       router.push({ pathname: "/c/[id]", params: { id: conversation.id } });
     } catch (e) {
-      setError(e instanceof HubError ? e.message : "Couldn't open the conversation. Try again");
+      setError(e instanceof ServerError ? e.message : "Couldn't open the conversation. Try again");
     } finally {
       setOpening(null);
     }
@@ -77,7 +77,7 @@ export default function ChannelInfo() {
         refresh();
         router.dismissTo("/channels");
       } catch (e) {
-        setError(e instanceof HubError ? e.message : "Couldn't leave");
+        setError(e instanceof ServerError ? e.message : "Couldn't leave");
       }
     };
     if (Platform.OS === "web") return void go();

@@ -3,7 +3,7 @@ import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, Vi
 import { router } from "expo-router";
 import { Button } from "../components/Button";
 import { Avatar } from "../components/Messaging";
-import { api, HubError, type Person } from "../lib/hub";
+import { api, ServerError, type Person } from "../lib/server";
 import { useSession } from "../lib/session";
 import { colors } from "../lib/theme";
 
@@ -22,7 +22,7 @@ export default function NewMessage() {
       (d) => setPeople(d.people.filter((p) => p.id !== d.me)),
       (e) => {
         setPeople([]);
-        setError(e instanceof HubError ? e.message : "Couldn't load people");
+        setError(e instanceof ServerError ? e.message : "Couldn't load people");
       },
     );
   }, [account]);
@@ -36,7 +36,7 @@ export default function NewMessage() {
       const c = await api.openDm(account, picked);
       router.replace({ pathname: "/c/[id]", params: { id: c.id } });
     } catch (e) {
-      setError(e instanceof HubError ? e.message : "Couldn't start the conversation");
+      setError(e instanceof ServerError ? e.message : "Couldn't start the conversation");
       setBusy(false);
     }
   };

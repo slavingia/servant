@@ -1,16 +1,16 @@
 #!/usr/bin/env node
-// Servant hub. Zero dependencies. Runs on the owner's Mac.
+// Servant server. Zero dependencies. Runs on the owner's Mac.
 //
-// Phones talk to the hub (through a tunnel). The hub checks the device token,
+// Phones talk to the server (through a tunnel). The server checks the device token,
 // keeps each person's chats separate, and forwards messages to a Hermes API
 // server on localhost. Hermes API keys never leave this machine.
 //
-//   node hub/server.mjs                     start the hub
-//   node hub/server.mjs invite              print the team's join link (reusable until it expires)
-//   node hub/server.mjs invite --name Me --role owner   one-time invite for a named person
-//   node hub/server.mjs devices             list paired devices
-//   node hub/server.mjs revoke <deviceId>   revoke a device
-//   node hub/server.mjs release <build> <notes.md>   post a build's notes to #whats-new
+//   node server/server.mjs                     start the server
+//   node server/server.mjs invite              print the team's join link (reusable until it expires)
+//   node server/server.mjs invite --name Me --role owner   one-time invite for a named person
+//   node server/server.mjs devices             list paired devices
+//   node server/server.mjs revoke <deviceId>   revoke a device
+//   node server/server.mjs release <build> <notes.md>   post a build's notes to #whats-new
 
 import http from "node:http";
 import crypto from "node:crypto";
@@ -54,7 +54,7 @@ export function loadConfig() {
     host: process.env.SERVANT_HOST || cfg.host || "127.0.0.1",
     port: Number(process.env.SERVANT_PORT ?? cfg.port ?? 8787),
     name: cfg.name || "Servant",
-    // Where the hub can be reached from phones. Filled in by the tunnel script.
+    // Where the server can be reached from phones. Filled in by the tunnel script.
     publicUrl: process.env.SERVANT_PUBLIC_URL || cfg.publicUrl || "",
     // Stable URL that always returns {"url": "<current publicUrl>"}.
     discoveryUrl: process.env.SERVANT_DISCOVERY_URL || cfg.discoveryUrl || "",
@@ -91,7 +91,7 @@ function inviteCode() {
 }
 const normalizeCode = (c) => String(c || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
 
-// userId: pair another device (phone, iPad) for someone who's already on the hub.
+// userId: pair another device (phone, iPad) for someone who's already on the server.
 export function createInvite({ name, role = "member", userId }) {
   reload();
   if (!["owner", "member"].includes(role)) throw new Error("role must be owner or member");
@@ -131,7 +131,7 @@ export function pairLink(code, cfg = loadConfig()) {
 
 // ---------- http helpers ----------
 
-// Auth is a bearer token, never a cookie, so any origin may call the hub
+// Auth is a bearer token, never a cookie, so any origin may call the server
 // (the web build of the app runs on its own origin).
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -293,7 +293,7 @@ let push;
 let messaging = null;
 
 async function handle(req, res, cfg) {
-  const url = new URL(req.url, "http://hub");
+  const url = new URL(req.url, "http://server");
   const parts = url.pathname.split("/").filter(Boolean);
   const method = req.method || "GET";
 
@@ -306,8 +306,8 @@ async function handle(req, res, cfg) {
     return send(res, 200, { ok: true, name: cfg.name });
   }
 
-  // Lets the app check a hub address before pairing (and re-discover it later).
-  if (method === "GET" && url.pathname === "/v1/hub") {
+  // Lets the app check a server address before pairing (and re-discover it later).
+  if (method === "GET" && (url.pathname === "/v1/server" || url.pathname === "/v1/hub")) {
     return send(res, 200, { name: cfg.name, publicUrl: cfg.publicUrl || null });
   }
 
@@ -339,7 +339,7 @@ async function handle(req, res, cfg) {
     state.devices[sha256(token)] = device;
     persist();
     messaging?.joinDefaults(user.id);
-    return send(res, 201, { token, user: { id: user.id, name: user.name, role: user.role }, hub: { name: cfg.name } });
+    return send(res, 201, { token, user: { id: user.id, name: user.name, role: user.role }, server: { name: cfg.name }, hub: { name: cfg.name } });
   }
 
   // Build scripts on this Mac post release notes. Tunnel traffic always carries
@@ -365,7 +365,7 @@ async function handle(req, res, cfg) {
 
   if (method === "GET" && url.pathname === "/v1/me") {
     persist();
-    return send(res, 200, { user: { id: user.id, name: user.name, role: user.role }, device: { id: device.id, label: device.label }, hub: { name: cfg.name } });
+    return send(res, 200, { user: { id: user.id, name: user.name, role: user.role }, device: { id: device.id, label: device.label }, server: { name: cfg.name }, hub: { name: cfg.name } });
   }
 
   if (method === "POST" && url.pathname === "/v1/signout") {
@@ -429,7 +429,7 @@ async function handle(req, res, cfg) {
   // ----- chats with the agent -----
   if (parts[1] !== "chats") return fail(res, 404, "not_found", "Not found");
   const up = upstreamFor(user, cfg);
-  if (!up) return fail(res, 503, "agent_unavailable", "The agent isn't set up on this hub yet");
+  if (!up) return fail(res, 503, "agent_unavailable", "The agent isn't set up on this server yet");
   const mine = Object.values(state.chats).filter((c) => c.userId === user.id && !c.deletedAt);
 
   if (method === "GET" && parts.length === 2) {
@@ -563,7 +563,7 @@ export function startServer(fixedCfg) {
     // as the limited member profile, never the owner's.
     askAgent: async ({ sessionId, sessionKey: key, fresh, text, onDelta }) => {
       const up = upstreamFor({ role: "member" }, fixedCfg || loadConfig());
-      if (!up) return "The agent isn't set up on this hub yet";
+      if (!up) return "The agent isn't set up on this server yet";
       if (fresh) {
         const made = await hermes(up, "POST", "/api/sessions", { id: sessionId, title: `Servant · ${sessionId.slice(8, 30)}` });
         if (!made.ok && made.status !== 409) throw new Error(`session ${made.status}`);
@@ -639,7 +639,7 @@ if (isMain) {
     }).catch((e) => ({ ok: false, status: 0, json: async () => ({ error: { message: e.message } }) }));
     const data = await r.json().catch(() => ({}));
     if (!r.ok) {
-      console.error(`Couldn't post the notes (${r.status}): ${data.error?.message || "hub not running?"}`);
+      console.error(`Couldn't post the notes (${r.status}): ${data.error?.message || "server not running?"}`);
       process.exit(1);
     }
     console.log(`${data.release.updated ? "Updated" : "Posted"} build ${build} notes in #whats-new (message ${data.release.messageId})`);
@@ -661,7 +661,7 @@ if (isMain) {
     const cfg = loadConfig();
     const server = await startServer();
     const { port } = server.address();
-    console.log(`[servant] hub listening on http://${cfg.host}:${port}`);
+    console.log(`[servant] server listening on http://${cfg.host}:${port}`);
     for (const [role, up] of Object.entries(cfg.upstreams)) {
       console.log(`[servant] ${role} agent: ${up.url}${up.key ? "" : " (no key set)"}`);
     }

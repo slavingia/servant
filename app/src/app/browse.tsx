@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
-import { api, HubError, type BrowseChannel } from "../lib/hub";
+import { api, ServerError, type BrowseChannel } from "../lib/server";
 import { useSession } from "../lib/session";
 import { colors } from "../lib/theme";
 
@@ -13,7 +13,7 @@ export default function Browse() {
     if (!account) return;
     api.browse(account).then(setChannels, (e) => {
       setChannels([]);
-      setError(e instanceof HubError ? e.message : "Couldn't load channels");
+      setError(e instanceof ServerError ? e.message : "Couldn't load channels");
     });
   }, [account]);
   return (

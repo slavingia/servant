@@ -2,9 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>gov.irs.servant.hub</string>
+  <key>Label</key><string>gov.irs.servant.server</string>
   <key>ProgramArguments</key>
-  <array><string>/bin/bash</string><string>/Users/sahil-irs/servant/hub/run.sh</string></array>
+  <array><string>/bin/bash</string><string>/Users/sahil-irs/servant/server/run.sh</string></array>
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key><string>/Users/sahil-irs</string>
@@ -13,7 +13,7 @@
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>10</integer>
-  <key>StandardOutPath</key><string>/Users/sahil-irs/servant/hub/data/hub.log</string>
-  <key>StandardErrorPath</key><string>/Users/sahil-irs/servant/hub/data/hub.log</string>
+  <key>StandardOutPath</key><string>/Users/sahil-irs/servant/server/data/server.log</string>
+  <key>StandardErrorPath</key><string>/Users/sahil-irs/servant/server/data/server.log</string>
 </dict>
 </plist>

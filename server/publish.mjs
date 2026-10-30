@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-// Publish the hub's current public URL so paired phones can find it after the
+// Publish the server's current public URL so paired phones can find it after the
 // tunnel address changes.
 //
-//   node hub/publish.mjs https://<current>.trycloudflare.com
+//   node server/publish.mjs https://<current>.trycloudflare.com
 //
 // Writes publicUrl into data/config.json and, unless discovery is "off",
 // updates a secret GitHub gist (created on first run via `gh`) holding
 // {"url": "..."}. The gist's raw URL is the stable discovery URL baked into
 // pair links. The gist only reveals the tunnel address; every request to the
-// hub still needs a device token.
+// server still needs a device token.
 
 import fs from "node:fs";
 import os from "node:os";

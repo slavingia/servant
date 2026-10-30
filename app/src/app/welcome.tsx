@@ -16,7 +16,7 @@ export default function Welcome() {
       setError("That isn't an invite link. Ask the person who invited you to send it again");
       return;
     }
-    router.push({ pathname: "/pair", params: { code: invite.code, d: invite.discovery ?? "", hub: invite.hub ?? "" } });
+    router.push({ pathname: "/pair", params: { code: invite.code, d: invite.discovery ?? "", server: invite.server ?? "" } });
   };
 
   return (

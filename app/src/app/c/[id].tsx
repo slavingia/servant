@@ -4,12 +4,12 @@ import { router, Stack, useIsFocused, useLocalSearchParams } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { Button } from "../../components/Button";
 import { Composer, PostRow } from "../../components/Messaging";
-import { api, HubError, type Conversation, type Post } from "../../lib/hub";
+import { api, ServerError, type Conversation, type Post } from "../../lib/server";
 import { useLive } from "../../lib/live";
 import { useSession } from "../../lib/session";
 import { colors } from "../../lib/theme";
 
-const errorText = (e: unknown, fallback: string) => (e instanceof HubError ? e.message : fallback);
+const errorText = (e: unknown, fallback: string) => (e instanceof ServerError ? e.message : fallback);
 
 // Merge posts by id, keeping order by id (ids are increasing numbers).
 function merge(list: Post[], incoming: Post[]) {

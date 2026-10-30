@@ -1,4 +1,4 @@
-// Native FCM v1 and APNs delivery. Credentials never leave this hub except
+// Native FCM v1 and APNs delivery. Credentials never leave this server except
 // signed, short-lived authorization tokens sent to their respective provider.
 import fs from 'node:fs';
 import crypto from 'node:crypto';

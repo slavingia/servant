@@ -17,8 +17,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP_ID = "6828900254"
 
 
-def hub(build, path):
-    r = subprocess.run(["node", os.path.join(ROOT, "hub/server.mjs"), "release", build, path], capture_output=True, text=True)
+def server(build, path):
+    r = subprocess.run(["node", os.path.join(ROOT, "server/server.mjs"), "release", build, path], capture_output=True, text=True)
     print((r.stdout or r.stderr).strip())
     return r.returncode == 0
 
@@ -56,7 +56,7 @@ if __name__ == "__main__":
     text = open(path).read().strip()
     if not text:
         sys.exit("The notes file is empty")
-    ok = hub(build, path)
+    ok = server(build, path)
     if "--testflight" in sys.argv:
         ok = testflight(build, text) and ok
     sys.exit(0 if ok else 1)

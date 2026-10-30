@@ -3,7 +3,7 @@ import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable,
 import { Stack, useLocalSearchParams } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { api, sendMessage, HubError, type Message } from "../../lib/hub";
+import { api, sendMessage, ServerError, type Message } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { colors } from "../../lib/theme";
 
@@ -30,7 +30,7 @@ export default function ChatScreen() {
       .then((m) => setMessages(m))
       .catch((e) => {
         setMessages([]);
-        setLoadError(e instanceof HubError ? e.message : "Couldn't load this chat");
+        setLoadError(e instanceof ServerError ? e.message : "Couldn't load this chat");
       });
     return () => abort.current?.abort();
   }, [account, id]);
@@ -68,7 +68,7 @@ export default function ChatScreen() {
         setAccount,
       );
     } catch (e) {
-      update((r) => ({ ...r, pending: false, failed: true, text: e instanceof HubError ? e.message : "Couldn't send. Check your connection" }));
+      update((r) => ({ ...r, pending: false, failed: true, text: e instanceof ServerError ? e.message : "Couldn't send. Check your connection" }));
     } finally {
       update((r) => ({ ...r, pending: false }));
       setBusy(false);
@@ -95,7 +95,7 @@ export default function ChatScreen() {
               messages.length === 0 ? (
                 <View style={styles.empty}>
                   <Text style={styles.emptyTitle}>{loadError ?? "What can I help with?"}</Text>
-                  {!loadError ? <Text style={styles.emptyBody}>Your messages go to {account.hubName}</Text> : null}
+                  {!loadError ? <Text style={styles.emptyBody}>Your messages go to {account.serverName}</Text> : null}
                 </View>
               ) : undefined
             }

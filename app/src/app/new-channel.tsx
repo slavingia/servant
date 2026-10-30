@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { Button } from "../components/Button";
-import { api, HubError } from "../lib/hub";
+import { api, ServerError } from "../lib/server";
 import { useLive } from "../lib/live";
 import { useSession } from "../lib/session";
 import { colors } from "../lib/theme";
@@ -26,7 +26,7 @@ export default function NewChannel() {
       refresh();
       router.replace({ pathname: "/c/[id]", params: { id: c.id } });
     } catch (e) {
-      setError(e instanceof HubError ? e.message : "Couldn't make the channel");
+      setError(e instanceof ServerError ? e.message : "Couldn't make the channel");
       setBusy(false);
     }
   };

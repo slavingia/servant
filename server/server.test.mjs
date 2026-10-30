@@ -1,5 +1,5 @@
-// node --test hub/
-// Runs the real hub against a fake Hermes API server that speaks the same
+// node --test server/
+// Runs the real server against a fake Hermes API server that speaks the same
 // session + SSE protocol as gateway/platforms/api_server.py.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -71,7 +71,7 @@ function fakeHermes(key, label) {
 
 const owner = fakeHermes("owner-key", "owner-agent");
 const member = fakeHermes("member-key", "member-agent");
-let hub;
+let server;
 let base;
 let mod;
 
@@ -82,7 +82,7 @@ before(async () => {
     path.join(dataDir, "config.json"),
     JSON.stringify({
       port: 0,
-      name: "Test hub",
+      name: "Test server",
       discoveryUrl: "https://example.test/hub.json",
       upstreams: {
         owner: { url: `http://127.0.0.1:${owner.server.address().port}`, key: "owner-key" },
@@ -91,12 +91,12 @@ before(async () => {
     }),
   );
   mod = await import("./server.mjs");
-  hub = await mod.startServer();
-  base = `http://127.0.0.1:${hub.address().port}`;
+  server = await mod.startServer();
+  base = `http://127.0.0.1:${server.address().port}`;
 });
 
 after(() => {
-  hub.close();
+  server.close();
   owner.server.close();
   member.server.close();
   fs.rmSync(dataDir, { recursive: true, force: true });
@@ -137,6 +137,14 @@ test("everything except health and pairing needs a token", async () => {
   assert.equal((await api("GET", "/health")).status, 200);
   assert.equal((await api("GET", "/v1/chats")).status, 401);
   assert.equal((await api("GET", "/v1/me", { token: "nope" })).status, 401);
+});
+
+test("server info answers on /v1/server and the older /v1/hub", async () => {
+  for (const p of ["/v1/server", "/v1/hub"]) {
+    const r = await api("GET", p);
+    assert.equal(r.status, 200);
+    assert.equal(r.json.name, "Test server");
+  }
 });
 
 test("invites are single use and pair link carries the discovery URL", async () => {
@@ -455,7 +463,7 @@ test("channel deletion enforces permissions, protects general, and removes threa
     assert.equal((await api("PATCH", `/v1/messages/${root.id}`, { token: creator, body: { text: "No" } })).status, 404);
     assert.ok(!(await api("GET", "/v1/conversations?includeArchived=1", { token: other })).json.conversations.some(c => c.id === ch.id));
   } finally { live.close(); }
-  // Name can be reused after deletion; the hub owner can delete a member-created channel.
+  // Name can be reused after deletion; the server owner can delete a member-created channel.
   const again = await api("POST", "/v1/conversations", { token: creator, body: { name: "delete-test" } });
   assert.equal(again.status, 201);
   assert.equal((await api("DELETE", `/v1/conversations/${again.json.conversation.id}`, { token: ownerToken })).status, 200);

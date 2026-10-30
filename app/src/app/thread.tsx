@@ -3,7 +3,7 @@ import { ActivityIndicator, FlatList, Keyboard, KeyboardAvoidingView, Platform, 
 import { Stack, useLocalSearchParams } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { Composer, PostRow } from "../components/Messaging";
-import { api, HubError, type Post } from "../lib/hub";
+import { api, ServerError, type Post } from "../lib/server";
 import { useLive } from "../lib/live";
 import { useSession } from "../lib/session";
 import { colors } from "../lib/theme";
@@ -41,7 +41,7 @@ export default function ThreadScreen() {
       setReplies(t.replies);
       setError(null);
     } catch (e) {
-      setError(e instanceof HubError ? e.message : "Couldn't load this thread");
+      setError(e instanceof ServerError ? e.message : "Couldn't load this thread");
       setReplies((r) => r ?? []);
     }
   }, [account, conv, root]);
@@ -70,7 +70,7 @@ export default function ThreadScreen() {
       setError(null);
       return true;
     } catch (e) {
-      setError(e instanceof HubError ? e.message : "Couldn't send. Check your connection");
+      setError(e instanceof ServerError ? e.message : "Couldn't send. Check your connection");
       return false;
     }
   };
@@ -83,7 +83,7 @@ export default function ThreadScreen() {
       setEditing(null);
       return true;
     } catch (e) {
-      setError(e instanceof HubError ? e.message : "Couldn't save the change");
+      setError(e instanceof ServerError ? e.message : "Couldn't save the change");
       return false;
     }
   };
@@ -94,7 +94,7 @@ export default function ThreadScreen() {
       if (p.id === root) setHead(gone);
       else upsert(gone);
     } catch (e) {
-      setError(e instanceof HubError ? e.message : "Couldn't delete the message");
+      setError(e instanceof ServerError ? e.message : "Couldn't delete the message");
     }
   };
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Alert, Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View, type PressableProps } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { Conversation, Post } from "../lib/hub";
+import type { Conversation, Post } from "../lib/server";
 import { colors } from "../lib/theme";
 
 export function when(ms: number) {

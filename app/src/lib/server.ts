@@ -6,9 +6,9 @@ import type { Invite } from "./invite";
 export type Role = "owner" | "member";
 export type Account = {
   token: string;
-  hubUrl: string;
+  serverUrl: string;
   discovery?: string;
-  hubName: string;
+  serverName: string;
   user: { id: string; name: string; role: Role };
 };
 export type Chat = { id: string; title: string; createdAt: number; updatedAt: number };
@@ -53,7 +53,7 @@ export type LiveEvent =
 
 const KEY = "servant.account";
 
-export class HubError extends Error {
+export class ServerError extends Error {
   constructor(
     message: string,
     public status = 0,
@@ -67,7 +67,10 @@ export async function loadAccount(): Promise<Account | null> {
   const raw = await getItem(KEY);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as Account;
+    // Accounts saved before the hub → server rename used hubUrl / hubName.
+    const saved = JSON.parse(raw) as Account & { hubUrl?: string; hubName?: string };
+    const { hubUrl, hubName, ...rest } = saved;
+    return { ...rest, serverUrl: rest.serverUrl ?? hubUrl ?? "", serverName: rest.serverName ?? hubName ?? "Server" };
   } catch {
     return null;
   }
@@ -78,27 +81,27 @@ export const clearAccount = () => removeItem(KEY);
 
 const trim = (u: string) => u.replace(/\/+$/, "");
 
-// The tunnel address changes when the hub restarts; the discovery file always
+// The tunnel address changes when the server restarts; the discovery file always
 // has the current one.
 export async function discover(discovery: string): Promise<string> {
   const res = await fetch(`${discovery}${discovery.includes("?") ? "&" : "?"}t=${Date.now()}`);
-  if (!res.ok) throw new HubError("Couldn't find the server", res.status);
+  if (!res.ok) throw new ServerError("Couldn't find the server", res.status);
   const data = await res.json();
-  if (typeof data.url !== "string" || !/^https?:\/\//.test(data.url)) throw new HubError("Couldn't find the server");
+  if (typeof data.url !== "string" || !/^https?:\/\//.test(data.url)) throw new ServerError("Couldn't find the server");
   return trim(data.url);
 }
 
-async function readError(res: Response): Promise<HubError> {
+async function readError(res: Response): Promise<ServerError> {
   try {
     const body = await res.json();
-    if (body?.error?.message) return new HubError(body.error.message, res.status, body.error.code);
+    if (body?.error?.message) return new ServerError(body.error.message, res.status, body.error.code);
   } catch {
     /* not JSON (for example a tunnel error page) */
   }
   if (res.status === 530 || res.status === 502 || res.status === 503 || res.status === 404) {
-    return new HubError("The server isn't reachable right now", res.status, "unreachable");
+    return new ServerError("The server isn't reachable right now", res.status, "unreachable");
   }
-  return new HubError(`Something went wrong (${res.status})`, res.status, "http");
+  return new ServerError(`Something went wrong (${res.status})`, res.status, "http");
 }
 
 function deviceLabel() {
@@ -106,32 +109,32 @@ function deviceLabel() {
 }
 
 export async function pair(invite: Invite, name?: string): Promise<Account> {
-  const hubUrl = invite.discovery ? await discover(invite.discovery) : trim(invite.hub!);
+  const serverUrl = invite.discovery ? await discover(invite.discovery) : trim(invite.server!);
   let res: Response;
   try {
-    res = await fetch(`${hubUrl}/v1/pair`, {
+    res = await fetch(`${serverUrl}/v1/pair`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code: invite.code, device: deviceLabel(), ...(name ? { name } : {}) }),
     });
   } catch {
-    throw new HubError("The server isn't reachable right now");
+    throw new ServerError("The server isn't reachable right now");
   }
   if (!res.ok) throw await readError(res);
   const data = await res.json();
-  const account: Account = { token: data.token, hubUrl, discovery: invite.discovery, hubName: data.hub?.name || "Server", user: data.user };
+  const account: Account = { token: data.token, serverUrl, discovery: invite.discovery, serverName: data.server?.name || data.hub?.name || "Server", user: data.user };
   await saveAccount(account);
   return account;
 }
 
-// The quick tunnel's address changes when the hub restarts. Returns the account
+// The quick tunnel's address changes when the server restarts. Returns the account
 // pointed at the current address (saved), or null if it hasn't moved.
 export async function relocate(account: Account): Promise<Account | null> {
   if (!account.discovery) return null;
   try {
     const fresh = await discover(account.discovery);
-    if (fresh === account.hubUrl) return null;
-    const moved = { ...account, hubUrl: fresh };
+    if (fresh === account.serverUrl) return null;
+    const moved = { ...account, serverUrl: fresh };
     await saveAccount(moved);
     return moved;
   } catch {
@@ -139,7 +142,7 @@ export async function relocate(account: Account): Promise<Account | null> {
   }
 }
 
-// A request that re-discovers the hub once if the tunnel moved.
+// A request that re-discovers the server once if the tunnel moved.
 export async function request(account: Account, path: string, init: RequestInit = {}, onMove?: (a: Account) => void): Promise<Response> {
   const go = (base: string) =>
     fetch(`${base}${path}`, {
@@ -148,7 +151,7 @@ export async function request(account: Account, path: string, init: RequestInit 
     });
   let res: Response | null = null;
   try {
-    res = await go(account.hubUrl);
+    res = await go(account.serverUrl);
   } catch {
     res = null;
   }
@@ -157,9 +160,9 @@ export async function request(account: Account, path: string, init: RequestInit 
   if (moved) {
     account = moved;
     onMove?.(moved);
-    res = await go(moved.hubUrl).catch(() => null);
+    res = await go(moved.serverUrl).catch(() => null);
   }
-  if (!res) throw new HubError("The server isn't reachable right now");
+  if (!res) throw new ServerError("The server isn't reachable right now");
   if (!res.ok) throw await readError(res);
   return res;
 }
@@ -187,17 +190,17 @@ export async function sendMessage(
       body: JSON.stringify({ text }),
       signal,
     });
-  let res = await go(account.hubUrl).catch(() => null);
+  let res = await go(account.serverUrl).catch(() => null);
   if (!res || res.status === 530) {
     const moved = await relocate(account);
     if (moved) {
       onMove?.(moved);
-      res = await go(moved.hubUrl);
+      res = await go(moved.serverUrl);
     }
   }
-  if (!res) throw new HubError("The server isn't reachable right now");
+  if (!res) throw new ServerError("The server isn't reachable right now");
   if (!res.ok) throw await readError(res as unknown as Response);
-  if (!res.body) throw new HubError("The agent didn't answer");
+  if (!res.body) throw new ServerError("The agent didn't answer");
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
@@ -236,18 +239,18 @@ export async function sendMessage(
   if (!finished) onEvent({ type: "done" });
 }
 
-// Opens the hub's live event stream. Resolves when the stream ends; throws on
+// Opens the server's live event stream. Resolves when the stream ends; throws on
 // connection errors so the caller can back off and reconnect.
 export async function listen(account: Account, onEvent: (e: LiveEvent) => void, signal: AbortSignal): Promise<void> {
   // POST, not GET: Cloudflare's quick tunnel holds streamed GET responses until they end.
-  const res = await expoFetch(`${account.hubUrl}/v1/events`, {
+  const res = await expoFetch(`${account.serverUrl}/v1/events`, {
     method: "POST",
     body: "{}",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${account.token}`, Accept: "text/event-stream" },
     signal,
   });
   if (!res.ok) throw await readError(res as unknown as Response);
-  if (!res.body) throw new HubError("No live updates");
+  if (!res.body) throw new ServerError("No live updates");
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = "";

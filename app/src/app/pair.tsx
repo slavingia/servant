@@ -2,14 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Button } from "../components/Button";
-import { pair, HubError } from "../lib/hub";
+import { pair, ServerError } from "../lib/server";
 import { useSession } from "../lib/session";
 import { colors } from "../lib/theme";
 
 // Opened by servant://pair?code=…&d=… links, the QR scanner, or Welcome.
 // The team link asks for a name; a one-time invite already has one.
 export default function Pair() {
-  const params = useLocalSearchParams<{ code?: string; d?: string; hub?: string }>();
+  const params = useLocalSearchParams<{ code?: string; d?: string; server?: string; hub?: string }>();
+  // Links from the server still say "hub" so builds 2 and 3 can read them.
+  const direct = params.server || params.hub || undefined;
   const { account, setAccount } = useSession();
   const [error, setError] = useState<string | null>(null);
   const [askName, setAskName] = useState(false);
@@ -21,12 +23,12 @@ export default function Pair() {
     setError(null);
     setBusy(true);
     try {
-      const a = await pair({ code: String(params.code || ""), discovery: params.d || undefined, hub: params.hub || undefined }, withName);
+      const a = await pair({ code: String(params.code || ""), discovery: params.d || undefined, server: direct }, withName);
       setAccount(a);
       router.replace("/channels");
     } catch (e) {
-      if (e instanceof HubError && e.code === "name_required") setAskName(true);
-      else setError(e instanceof HubError ? e.message : "Couldn't join. Try again");
+      if (e instanceof ServerError && e.code === "name_required") setAskName(true);
+      else setError(e instanceof ServerError ? e.message : "Couldn't join. Try again");
     } finally {
       setBusy(false);
     }
@@ -35,7 +37,7 @@ export default function Pair() {
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    if (!params.code || (!params.d && !params.hub)) {
+    if (!params.code || (!params.d && !direct)) {
       setError("That invite link is incomplete. Ask for a new one");
       return;
     }

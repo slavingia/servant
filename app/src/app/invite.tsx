@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, Platform, ScrollView, Share, StyleSheet, Text
 import * as Clipboard from "expo-clipboard";
 import QRCode from "react-native-qrcode-svg";
 import { Button } from "../components/Button";
-import { api, HubError } from "../lib/hub";
+import { api, ServerError } from "../lib/server";
 import { useSession } from "../lib/session";
 import { colors } from "../lib/theme";
 
@@ -22,7 +22,7 @@ export default function Invite() {
         setInvite(l);
         setCopied(false);
       },
-      (e) => setError(e instanceof HubError ? e.message : "Couldn't get the invite link"),
+      (e) => setError(e instanceof ServerError ? e.message : "Couldn't get the invite link"),
     );
   const load = (fresh = false) => {
     setError(null);
@@ -52,7 +52,7 @@ export default function Invite() {
   }
 
   const until = new Date(invite.expiresAt).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
-  const message = `Join ${account.hubName} on Servant. Open this on your phone: ${invite.link}`;
+  const message = `Join ${account.serverName} on Servant. Open this on your phone: ${invite.link}`;
   const replace = () => {
     const go = () => load(true);
     if (Platform.OS === "web") return go();
@@ -64,7 +64,7 @@ export default function Invite() {
 
   return (
     <ScrollView contentContainerStyle={styles.body}>
-      <Text style={styles.lead}>Anyone with this link can join {account.hubName}</Text>
+      <Text style={styles.lead}>Anyone with this link can join {account.serverName}</Text>
       <View style={styles.qr}>
         <QRCode value={invite.link} size={220} />
       </View>

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { clearAccount, loadAccount, api, type Account } from "./hub";
+import { clearAccount, loadAccount, api, type Account } from "./server";
 
 type Session = {
   ready: boolean;

@@ -1,8 +1,8 @@
-// One live connection to the hub for the whole app. Screens subscribe to the
+// One live connection to the server for the whole app. Screens subscribe to the
 // events they care about; the conversation list and unread badges live here.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppState } from "react-native";
-import { api, listen, relocate, HubError, type Conversation, type LiveEvent } from "./hub";
+import { api, listen, relocate, ServerError, type Conversation, type LiveEvent } from "./server";
 import { useSession } from "./session";
 
 type Live = {
@@ -34,9 +34,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       setConversations(list.map((c) => (c.id === open.current && AppState.currentState === "active" ? { ...c, unread: 0 } : c)));
       setError(null);
     } catch (e) {
-      if (e instanceof HubError && e.status === 401) return void signOut();
+      if (e instanceof ServerError && e.status === 401) return void signOut();
       // Keep what's on screen; only say the refresh failed.
-      setError(e instanceof HubError ? e.message : "Couldn't load conversations");
+      setError(e instanceof ServerError ? e.message : "Couldn't load conversations");
     }
   }, [account, setAccount, signOut]);
 
@@ -73,12 +73,12 @@ export function LiveProvider({ children }: { children: ReactNode }) {
             ctrl.signal,
           );
         } catch (e) {
-          if (e instanceof HubError && e.status === 401) {
+          if (e instanceof ServerError && e.status === 401) {
             stopped = true;
             signOut();
             return;
           }
-          // Hub restarted on a new tunnel address: switch to it (this effect restarts).
+          // Server restarted on a new tunnel address: switch to it (this effect restarts).
           const moved = await relocate(account);
           if (moved && !stopped) {
             stopped = true;

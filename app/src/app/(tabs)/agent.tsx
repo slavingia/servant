@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { Band, PageTitle } from "../../components/Band";
-import { api, HubError, type Chat } from "../../lib/hub";
+import { api, ServerError, type Chat } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { colors } from "../../lib/theme";
 
@@ -26,13 +26,13 @@ export default function Chats() {
       setChats(await api.chats(account, setAccount));
       setError(null);
     } catch (e) {
-      if (e instanceof HubError && e.status === 401) {
+      if (e instanceof ServerError && e.status === 401) {
         await signOut();
         router.replace("/welcome");
         return;
       }
       // Keep the list we already have; just say the refresh failed.
-      setError(e instanceof HubError ? e.message : "Couldn't load chats");
+      setError(e instanceof ServerError ? e.message : "Couldn't load chats");
     }
   }, [account, setAccount, signOut]);
 
@@ -50,7 +50,7 @@ export default function Chats() {
       const chat = await api.newChat(account);
       router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title } });
     } catch (e) {
-      setError(e instanceof HubError ? e.message : "Couldn't start a chat");
+      setError(e instanceof ServerError ? e.message : "Couldn't start a chat");
     } finally {
       setStarting(false);
     }
@@ -81,7 +81,7 @@ export default function Chats() {
         ListHeaderComponent={
           <View>
             <PageTitle>Agent</PageTitle>
-            <Text style={styles.sub}>Private chats with the agent on {account.hubName}. Only you can see them</Text>
+            <Text style={styles.sub}>Private chats with the agent on {account.serverName}. Only you can see them</Text>
             {error ? <Text style={styles.error}>{error}</Text> : null}
           </View>
         }

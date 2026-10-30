@@ -1,4 +1,4 @@
-import { request, type Account } from './hub';
+import { request, type Account } from './server';
 export type NotificationPreferences = { mode: 'all' | 'mentions' | 'none'; previews: boolean; pausedUntil: number };
 export type NotificationSettings = { preferences: NotificationPreferences; registered: boolean; deviceId: string };
 export const defaultNotifications: NotificationPreferences = { mode: 'mentions', previews: true, pausedUntil: 0 };

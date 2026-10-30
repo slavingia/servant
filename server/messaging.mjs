@@ -1,8 +1,8 @@
 // Channels, direct messages and threads. People talk to each other here; the
 // agent joins in when someone mentions @agent.
 //
-// Storage is node:sqlite (built into Node, so the hub still has no npm
-// dependencies). People (users) live in the hub's state.json; this module only
+// Storage is node:sqlite (built into Node, so the server still has no npm
+// dependencies). People (users) live in the server's state.json; this module only
 // stores their ids.
 
 import { DatabaseSync } from "node:sqlite";
@@ -224,7 +224,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     }
     return c;
   }
-  const ensureGeneral = (createdBy) => ensureChannel("general", "Everyone on this hub", createdBy);
+  const ensureGeneral = (createdBy) => ensureChannel("general", "Everyone on this server", createdBy);
   const ensureReleases = () => ensureChannel(RELEASES_CHANNEL, "What changed in each build and what to test. Reply in the thread");
 
   function joinDefaults(userId) {
@@ -476,7 +476,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       }
       if (!sub && method === "DELETE") {
         if (conv.kind !== "channel" || (conv.created_by !== user.id && user.role !== "owner"))
-          return fail(res, 403, "forbidden", "Only the channel creator or hub owner can delete it"), true;
+          return fail(res, 403, "forbidden", "Only the channel creator or server owner can delete it"), true;
         if (conv.name === "general") return fail(res, 400, "protected_channel", "#general stays open for everyone"), true;
         const memberIds = st.members.all(conv.id).map((m) => m.user_id);
         db.exec("BEGIN");

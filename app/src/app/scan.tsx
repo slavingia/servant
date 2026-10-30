@@ -30,7 +30,7 @@ export default function Scan() {
           const invite = parseInvite(data);
           if (!invite) return;
           done.current = true;
-          router.replace({ pathname: "/pair", params: { code: invite.code, d: invite.discovery ?? "", hub: invite.hub ?? "" } });
+          router.replace({ pathname: "/pair", params: { code: invite.code, d: invite.discovery ?? "", server: invite.server ?? "" } });
         }}
       />
       <View style={styles.hint}>
