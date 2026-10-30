@@ -31,7 +31,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     if (!account) return;
     try {
       const list = await api.conversations(account, setAccount);
-      setConversations(list.map((c) => (c.id === open.current ? { ...c, unread: 0 } : c)));
+      setConversations(list.map((c) => (c.id === open.current && AppState.currentState === "active" ? { ...c, unread: 0 } : c)));
       setError(null);
     } catch (e) {
       if (e instanceof HubError && e.status === 401) return void signOut();

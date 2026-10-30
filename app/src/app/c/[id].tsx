@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import { router, Stack, useLocalSearchParams } from "expo-router";
+import { ActivityIndicator, AppState, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { router, Stack, useIsFocused, useLocalSearchParams } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { Button } from "../../components/Button";
 import { Composer, PostRow } from "../../components/Messaging";
@@ -21,6 +21,9 @@ function merge(list: Post[], incoming: Post[]) {
 export default function ConversationScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { account } = useSession();
+  const focused = useIsFocused();
+  const visible = useRef(focused);
+  useEffect(() => { visible.current = focused; }, [focused]);
   const { subscribe, setOpen, refresh } = useLive();
   const headerHeight = useHeaderHeight();
   const [conv, setConv] = useState<Conversation | null>(null);
@@ -41,7 +44,7 @@ export default function ConversationScreen() {
       setPosts((old) => merge(old ?? [], p.messages));
       setMore(p.more);
       setError(null);
-      if (c.joined) api.markRead(account, id);
+      if (c.joined && visible.current && AppState.currentState === "active") void api.markRead(account, id).catch(() => {});
     } catch (e) {
       setError(errorText(e, "Couldn't load this conversation"));
       setPosts((old) => old ?? []);
@@ -50,12 +53,19 @@ export default function ConversationScreen() {
 
   useEffect(() => {
     load();
-    setOpen(id);
+    setOpen(focused ? id : null);
     return () => {
       setOpen(null);
       refresh();
     };
-  }, [load, id, setOpen, refresh]);
+  }, [load, id, setOpen, refresh, focused]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", state => {
+      if (state === "active" && visible.current) void load();
+    });
+    return () => sub.remove();
+  }, [load]);
 
   useEffect(
     () =>
@@ -65,7 +75,7 @@ export default function ConversationScreen() {
           const p = e.data;
           if (p.conversationId !== id || p.threadRoot) return;
           setPosts((old) => (old ? merge(old, [p]) : old));
-          if (e.event === "message.created" && p.user.id !== account.user.id) api.markRead(account, id, p.id);
+          if (e.event === "message.created" && p.user.id !== account.user.id && visible.current && AppState.currentState === "active") void api.markRead(account, id, p.id).catch(() => {});
         } else if (e.event === "conversation.updated" && e.data.id === id) {
           api.conversation(account, id).then((c) => {
             setConv(c.conversation);
