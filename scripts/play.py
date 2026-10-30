@@ -3,8 +3,8 @@
 
   play.py check                 does the app exist + can the key reach it?
   play.py upload <aab> [notes]  upload AAB, release it to the internal track (testers only)
-  play.py testers <email...>    set the internal track's Google Group list is console-only;
-                                this prints the current track state instead
+
+Tester lists are console-only (Testing > Internal testing > Testers).
 
 Credential: ~/.google-play/irs2go-release.json (IRS Play Console service account, chmod 600).
 Play cannot create apps via API; the app record must exist in Play Console first.
@@ -75,10 +75,8 @@ def main():
         if s != 200:
             print("track failed", s, t); sys.exit(1)
         s, c = call("POST", f"{API}/edits/{e}:commit", tok)
-        if s != 200:
-            # Draft apps (never published) only accept draft releases.
-            msg = c.get("error", {}).get("message", "")
-            print("commit failed", s, msg); sys.exit(1)
+        if s != 200:  # brand-new apps may only accept status "draft" until first rollout
+            print("commit failed", s, c.get("error", {}).get("message", "")); sys.exit(1)
         print("internal track: versionCode", vc, "released (completed)")
 
 
