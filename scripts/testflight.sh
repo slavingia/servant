@@ -47,4 +47,4 @@ echo "IPA: $OUT/export/Servant.ipa"
 [ "$UPLOAD" = "--no-upload" ] && exit 0
 cd "$OUT/export"
 xcrun altool --upload-app -f Servant.ipa -t ios -u sahil.lavingia@irs.gov -p @keychain:APP_SPECIFIC_PASSWORD
-python3 "$ROOT/scripts/notes.py" "$BUILD" "$NOTES" --testflight
+"${ASC_PY:-$HOME/wt/ascenv/bin/python}" "$ROOT/scripts/notes.py" "$BUILD" "$NOTES" --testflight  # needs cryptography

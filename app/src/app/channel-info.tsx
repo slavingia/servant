@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Button } from "../components/Button";
 import { Avatar } from "../components/Messaging";
@@ -18,6 +18,7 @@ export default function ChannelInfo() {
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [opening, setOpening] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!account) return;
@@ -54,6 +55,19 @@ export default function ChannelInfo() {
       await load();
     } catch (e) {
       setError(e instanceof HubError ? e.message : "Couldn't add them");
+    }
+  };
+  const message = async (person: Person) => {
+    if (opening || person.id === account.user.id) return;
+    setOpening(person.id);
+    setError(null);
+    try {
+      const conversation = await api.openDm(account, [person.id]);
+      router.push({ pathname: "/c/[id]", params: { id: conversation.id } });
+    } catch (e) {
+      setError(e instanceof HubError ? e.message : "Couldn't open the conversation. Try again");
+    } finally {
+      setOpening(null);
     }
   };
   const leave = () => {
@@ -114,13 +128,22 @@ export default function ChannelInfo() {
             </Pressable>
           ))
         : (conv.members ?? []).map((p) => (
-            <View key={p.id} style={styles.person}>
+            <Pressable
+              key={p.id}
+              accessibilityRole={p.id === account.user.id ? undefined : "button"}
+              accessibilityLabel={`${p.name}${p.id === account.user.id ? ", you" : ""}`}
+              accessibilityHint={p.id === account.user.id ? undefined : "Open direct message"}
+              disabled={p.id === account.user.id || !!opening}
+              onPress={() => void message(p)}
+              style={({ pressed }) => [styles.person, pressed && { backgroundColor: colors.surface }]}
+            >
               <Avatar name={p.name} size={32} />
               <Text style={styles.personName}>
                 {p.name}
                 {p.id === account.user.id ? " (you)" : ""}
               </Text>
-            </View>
+              {opening === p.id ? <ActivityIndicator color={colors.blue} /> : p.id !== account.user.id ? <Text style={styles.messageLink}>Message</Text> : null}
+            </Pressable>
           ))}
 
       {conv.name !== "general" ? (
@@ -142,6 +165,7 @@ const styles = StyleSheet.create({
   error: { marginTop: 12, color: colors.red, fontSize: 15 },
   sectionRow: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" },
   link: { color: colors.blue, fontSize: 16, fontWeight: "600", marginBottom: 8 },
+  messageLink: { color: colors.blue, fontSize: 15, marginLeft: 12 },
   person: { minHeight: 48, flexDirection: "row", alignItems: "center" },
   personName: { flex: 1, marginLeft: 12, fontSize: 17, color: colors.ink },
   danger: { marginTop: 32, alignSelf: "center", minHeight: 44, justifyContent: "center", paddingHorizontal: 20 },
