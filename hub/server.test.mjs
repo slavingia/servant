@@ -144,7 +144,26 @@ test("invites are single use and pair link carries the discovery URL", async () 
   assert.equal((await api("POST", "/v1/pair", { body: { code } })).status, 201);
   const again = await api("POST", "/v1/pair", { body: { code } });
   assert.equal(again.status, 403);
-  assert.equal(again.json.error.message, "That invite code doesn't work. Ask for a new one");
+  assert.equal(again.json.error.message, "That invite link doesn't work. Ask for a new one");
+});
+
+test("the join link works for many people, asks each for a name, and a fresh link retires it", async () => {
+  const { code } = mod.joinLink();
+  assert.equal(mod.joinLink().code, code, "same live link until replaced");
+  const noName = await api("POST", "/v1/pair", { body: { code } });
+  assert.equal(noName.status, 400);
+  assert.equal(noName.json.error.code, "name_required");
+  const a = await api("POST", "/v1/pair", { body: { code, name: "Gus" } });
+  const b = await api("POST", "/v1/pair", { body: { code, name: "Hana" } });
+  assert.equal(a.status, 201);
+  assert.equal(b.status, 201);
+  assert.equal(a.json.user.role, "member");
+  assert.notEqual(a.json.user.id, b.json.user.id);
+  assert.equal(b.json.user.name, "Hana");
+  const next = mod.joinLink({ fresh: true }).code;
+  assert.notEqual(next, code);
+  assert.equal((await api("POST", "/v1/pair", { body: { code, name: "Ivy" } })).status, 403);
+  assert.equal((await api("POST", "/v1/pair", { body: { code: next, name: "Ivy" } })).status, 201);
 });
 
 test("member chat streams from the member agent and hides tool details", async () => {
@@ -206,9 +225,11 @@ test("owner gets the owner agent and can invite and revoke", async () => {
   const memberToken = await pair("member", "Eve");
   assert.equal((await api("POST", "/v1/invites", { token: memberToken, body: { name: "x" } })).status, 403);
 
-  const inv = await api("POST", "/v1/invites", { token: ownerToken, body: { name: "Fay" } });
-  assert.equal(inv.status, 201);
+  const inv = await api("POST", "/v1/invites", { token: ownerToken, body: {} });
+  assert.equal(inv.status, 200);
   assert.match(inv.json.link, /^servant:\/\/pair\?code=/);
+  assert.equal((await api("POST", "/v1/invites", { token: ownerToken, body: {} })).json.code, inv.json.code);
+  assert.notEqual((await api("POST", "/v1/invites", { token: ownerToken, body: { fresh: true } })).json.code, inv.json.code);
 
   const devices = (await api("GET", "/v1/devices", { token: ownerToken })).json.devices;
   const eve = devices.find((d) => d.user.name === "Eve");

@@ -103,14 +103,14 @@ function deviceLabel() {
   return Platform.OS === "ios" ? "iPhone" : Platform.OS === "android" ? "Android phone" : "Browser";
 }
 
-export async function pair(invite: Invite): Promise<Account> {
+export async function pair(invite: Invite, name?: string): Promise<Account> {
   const hubUrl = invite.discovery ? await discover(invite.discovery) : trim(invite.hub!);
   let res: Response;
   try {
     res = await fetch(`${hubUrl}/v1/pair`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: invite.code, device: deviceLabel() }),
+      body: JSON.stringify({ code: invite.code, device: deviceLabel(), ...(name ? { name } : {}) }),
     });
   } catch {
     throw new HubError("The hub isn't reachable right now");
@@ -262,9 +262,8 @@ export const api = {
   newChat: (a: Account) => request(a, "/v1/chats", { method: "POST", body: "{}" }).then((r) => r.json()).then((d) => d.chat as Chat),
   deleteChat: (a: Account, id: string) => request(a, `/v1/chats/${id}`, { method: "DELETE" }),
   messages: (a: Account, id: string) => request(a, `/v1/chats/${id}/messages`).then((r) => r.json()).then((d) => d.messages as Message[]),
-  invite: (a: Account, name: string) =>
-    request(a, "/v1/invites", { method: "POST", body: JSON.stringify({ name, role: "member" }) })
-      .then((r) => r.json()) as Promise<{ code: string; link: string; expiresInDays: number }>,
+  joinLink: (a: Account, fresh = false) =>
+    request(a, "/v1/invites", { method: "POST", body: JSON.stringify({ fresh }) }).then(json<{ code: string; link: string; expiresAt: number }>),
   people: (a: Account) => request(a, "/v1/people").then(json<{ people: Person[]; agent: Person; me: string }>),
   conversations: (a: Account, m?: (a: Account) => void) =>
     request(a, "/v1/conversations", {}, m).then(json<{ conversations: Conversation[] }>).then((d) => d.conversations),

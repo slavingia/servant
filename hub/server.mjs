@@ -6,8 +6,8 @@
 // server on localhost. Hermes API keys never leave this machine.
 //
 //   node hub/server.mjs                     start the hub
-//   node hub/server.mjs invite --name Ana   print a one-time invite (member)
-//   node hub/server.mjs invite --name Me --role owner
+//   node hub/server.mjs invite              print the team's join link (reusable until it expires)
+//   node hub/server.mjs invite --name Me --role owner   one-time invite for a named person
 //   node hub/server.mjs devices             list paired devices
 //   node hub/server.mjs revoke <deviceId>   revoke a device
 
@@ -101,6 +101,19 @@ export function createInvite({ name, role = "member", userId }) {
   };
   persist();
   return code;
+}
+
+// The team's join link: anyone with it can join as a member (they type their own
+// name) until it expires. One live link at a time; fresh replaces the old one.
+export function joinLink({ fresh = false } = {}) {
+  reload();
+  const live = Object.values(state.invites).find((i) => i.reusable && !i.revokedAt && i.expiresAt > now());
+  if (live && !fresh) return { code: live.code, expiresAt: live.expiresAt };
+  if (live) live.revokedAt = now();
+  const code = inviteCode();
+  state.invites[sha256(normalizeCode(code))] = { reusable: true, code, role: "member", uses: 0, createdAt: now(), expiresAt: now() + INVITE_TTL_MS };
+  persist();
+  return { code, expiresAt: now() + INVITE_TTL_MS };
 }
 
 export function pairLink(code, cfg = loadConfig()) {
@@ -298,12 +311,15 @@ async function handle(req, res, cfg) {
     reload();
     const key = sha256(normalizeCode(body.code));
     const invite = state.invites[key];
-    if (!invite || invite.usedAt || invite.expiresAt < now()) {
+    if (!invite || invite.usedAt || invite.revokedAt || invite.expiresAt < now()) {
       pairFailed(ip);
-      return fail(res, 403, "invalid_invite", "That invite code doesn't work. Ask for a new one");
+      return fail(res, 403, "invalid_invite", "That invite link doesn't work. Ask for a new one");
     }
-    invite.usedAt = now();
-    const user = (invite.userId && state.users[invite.userId]) || { id: id("usr"), name: invite.name, role: invite.role, createdAt: now() };
+    const name = invite.reusable ? String(body.name || "").trim().slice(0, 80) : invite.name;
+    if (!name) return fail(res, 400, "name_required", "Enter your name");
+    if (invite.reusable) invite.uses += 1;
+    else invite.usedAt = now();
+    const user = (invite.userId && state.users[invite.userId]) || { id: id("usr"), name, role: invite.role, createdAt: now() };
     const token = crypto.randomBytes(32).toString("base64url");
     const device = {
       id: id("dev"),
@@ -342,9 +358,9 @@ async function handle(req, res, cfg) {
     if (user.role !== "owner") return fail(res, 403, "forbidden", "Only the owner can do that");
     if (method === "POST" && parts[1] === "invites" && parts.length === 2) {
       const body = await readBody(req);
-      const code = createInvite({ name: body.name, role: body.role === "owner" ? "owner" : "member" });
+      const { code, expiresAt } = joinLink({ fresh: body.fresh === true });
       reload();
-      return send(res, 201, { code, link: pairLink(code, cfg), expiresInDays: 7 });
+      return send(res, 200, { code, link: pairLink(code, cfg), expiresAt });
     }
     if (method === "GET" && parts[1] === "devices" && parts.length === 2) {
       const list = Object.values(state.devices)
@@ -536,10 +552,13 @@ const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPat
 if (isMain) {
   const cmd = process.argv[2];
   if (cmd === "invite") {
-    const code = createInvite({ name: arg("name", "Guest"), role: arg("role", "member"), userId: arg("user", "") || undefined });
+    const named = arg("name", "") || arg("user", "");
+    const { code, expiresAt } = named
+      ? { code: createInvite({ name: arg("name", ""), role: arg("role", "member"), userId: arg("user", "") || undefined }), expiresAt: now() + INVITE_TTL_MS }
+      : joinLink({ fresh: process.argv.includes("--fresh") });
     console.log(`Invite code: ${code}`);
     console.log(`Link:        ${pairLink(code)}`);
-    console.log("Single use. Expires in seven days.");
+    console.log(`${named ? "Single use" : "Anyone with it can join"}. Expires ${new Date(expiresAt).toDateString()}.`);
   } else if (cmd === "devices") {
     for (const d of Object.values(state.devices).filter((x) => !x.revokedAt)) {
       const u = state.users[d.userId] || {};
