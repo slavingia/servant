@@ -117,6 +117,7 @@ export function Composer({
   onTyping,
   members = [],
   me = "",
+  autoFocus = false,
 }: {
   placeholder: string;
   onSend: (text: string) => Promise<boolean>;
@@ -125,6 +126,7 @@ export function Composer({
   onCancel?: () => void;
   members?: Person[];
   me?: string;
+  autoFocus?: boolean;
   onTyping?: (text: string) => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -188,6 +190,7 @@ export function Composer({
       ) : null}
       <TextInput
         ref={input}
+        autoFocus={autoFocus}
         testID="composer-input"
         accessibilityLabel={placeholder}
         value={text}

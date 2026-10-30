@@ -20,7 +20,7 @@ function merge(list: Post[], incoming: Post[]) {
 }
 
 export default function ConversationScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, compose } = useLocalSearchParams<{ id: string; compose?: string }>();
   const { account } = useSession();
   const focused = useIsFocused();
   const visible = useRef(focused);
@@ -230,7 +230,7 @@ export default function ConversationScreen() {
         ) : editing ? (
           <Composer members={conv?.members} me={me} key={`edit-${editing.id}`} placeholder="Edit message" initial={editing.text} sendLabel="Save" onSend={saveEdit} onCancel={() => setEditing(null)} />
         ) : (
-          <Composer members={conv?.members} me={me} key="new" placeholder={conv ? `Message ${title}` : "Message"} onSend={send} onTyping={ping} />
+          <Composer autoFocus={compose === "1"} members={conv?.members} me={me} key="new" placeholder={conv ? `Message ${title}` : "Message"} onSend={send} onTyping={ping} />
         )}
       </KeyboardAvoidingView>
     </View>

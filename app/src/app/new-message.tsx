@@ -34,7 +34,7 @@ export default function NewMessage() {
     setError(null);
     try {
       const c = await api.openDm(account, picked);
-      router.replace({ pathname: "/c/[id]", params: { id: c.id } });
+      router.replace({ pathname: "/c/[id]", params: { id: c.id, compose: "1" } });
     } catch (e) {
       setError(e instanceof ServerError ? e.message : "Couldn't start the conversation");
       setBusy(false);

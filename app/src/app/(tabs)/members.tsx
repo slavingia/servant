@@ -33,7 +33,7 @@ export default function Members() {
     setOpening(person.id); setError(null);
     try {
       const conversation = await api.openDm(account, [person.id]);
-      router.push({ pathname: "/c/[id]", params: { id: conversation.id } });
+      router.push({ pathname: "/c/[id]", params: { id: conversation.id, compose: "1" } });
     } catch (e) {
       setError(e instanceof ServerError ? e.message : "Couldn't open the conversation. Try again");
     } finally { setOpening(null); }
