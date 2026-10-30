@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "Servant",
+    "slug": "servant",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "gov.irs.servant",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Servant uses the camera to read invite codes.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#112E51",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "gov.irs.servant"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-status-bar",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Servant uses the camera to read invite codes.",
+          "recordAudioAndroid": false
+        }
+      ]
+    ],
+    "scheme": "servant",
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}

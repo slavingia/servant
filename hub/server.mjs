@@ -16,6 +16,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createMessaging } from "./messaging.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.SERVANT_DATA_DIR || path.join(HERE, "data");
@@ -84,13 +85,17 @@ function inviteCode() {
 }
 const normalizeCode = (c) => String(c || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
 
-export function createInvite({ name, role = "member" }) {
+// userId: pair another device (phone, iPad) for someone who's already on the hub.
+export function createInvite({ name, role = "member", userId }) {
   reload();
   if (!["owner", "member"].includes(role)) throw new Error("role must be owner or member");
+  const existing = userId ? state.users[userId] : null;
+  if (userId && !existing) throw new Error("No such user");
   const code = inviteCode();
   state.invites[sha256(normalizeCode(code))] = {
-    name: String(name || "").slice(0, 80) || "Guest",
-    role,
+    name: existing ? existing.name : String(name || "").slice(0, 80) || "Guest",
+    role: existing ? existing.role : role,
+    ...(existing ? { userId: existing.id } : {}),
     createdAt: now(),
     expiresAt: now() + INVITE_TTL_MS,
   };
@@ -107,11 +112,21 @@ export function pairLink(code, cfg = loadConfig()) {
 
 // ---------- http helpers ----------
 
+// Auth is a bearer token, never a cookie, so any origin may call the hub
+// (the web build of the app runs on its own origin).
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept",
+  "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
+  "Access-Control-Max-Age": "600",
+};
+
 function send(res, status, body, headers = {}) {
   const data = body === undefined ? "" : JSON.stringify(body);
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
+    ...CORS,
     ...headers,
   });
   res.end(data);
@@ -144,14 +159,17 @@ function readBody(req) {
   });
 }
 
-// Simple per-IP limiter for unauthenticated pairing attempts.
-const pairAttempts = new Map();
+// Per-IP limiter on failed pairing codes. Successful pairings don't count, so
+// a whole team can pair from one office network.
+const pairFailures = new Map();
+const PAIR_WINDOW_MS = 10 * 60 * 1000;
 function pairAllowed(ip) {
-  const windowMs = 10 * 60 * 1000;
-  const list = (pairAttempts.get(ip) || []).filter((t) => now() - t < windowMs);
-  list.push(now());
-  pairAttempts.set(ip, list);
-  return list.length <= 10;
+  const list = (pairFailures.get(ip) || []).filter((t) => now() - t < PAIR_WINDOW_MS);
+  pairFailures.set(ip, list);
+  return list.length < 10;
+}
+function pairFailed(ip) {
+  pairFailures.set(ip, [...(pairFailures.get(ip) || []), now()]);
 }
 
 function clientIp(req) {
@@ -190,6 +208,49 @@ async function hermes(up, method, pathname, body, extraHeaders = {}) {
   return res;
 }
 
+// Sends one turn to Hermes and calls onEvent(name, payload) for each SSE event.
+// Resolves with the final assistant text.
+async function streamTurn(up, sessionId, text, key, onEvent, isClosed = () => false) {
+  const r = await hermes(
+    up,
+    "POST",
+    `/api/sessions/${encodeURIComponent(sessionId)}/chat/stream`,
+    { message: text },
+    { Accept: "text/event-stream", "X-Hermes-Session-Key": key },
+  );
+  if (!r.ok || !r.body) throw Object.assign(new Error(`The agent didn't answer (${r.status})`), { status: 502, code: "agent_error" });
+  const decoder = new TextDecoder();
+  let buf = "";
+  let final = "";
+  let deltas = "";
+  for await (const chunk of r.body) {
+    if (isClosed()) break;
+    buf += decoder.decode(chunk, { stream: true });
+    let idx;
+    while ((idx = buf.indexOf("\n\n")) >= 0) {
+      const block = buf.slice(0, idx);
+      buf = buf.slice(idx + 2);
+      let name = "message";
+      let data = "";
+      for (const line of block.split("\n")) {
+        if (line.startsWith("event:")) name = line.slice(6).trim();
+        else if (line.startsWith("data:")) data += line.slice(5).trim();
+      }
+      if (!data) continue;
+      let payload;
+      try {
+        payload = JSON.parse(data);
+      } catch {
+        continue; // ignore malformed upstream event
+      }
+      if (name === "assistant.delta") deltas += payload.delta || "";
+      if (name === "assistant.completed") final = payload.content || final;
+      onEvent(name, payload);
+    }
+  }
+  return final || deltas;
+}
+
 // Memory scope per person, so one member never sees another's long-term memory.
 const sessionKey = (user) => `servant:${user.id}`;
 
@@ -209,10 +270,17 @@ function textOf(content) {
 
 // ---------- routes ----------
 
+let messaging = null;
+
 async function handle(req, res, cfg) {
   const url = new URL(req.url, "http://hub");
   const parts = url.pathname.split("/").filter(Boolean);
   const method = req.method || "GET";
+
+  if (method === "OPTIONS") {
+    res.writeHead(204, CORS);
+    return res.end();
+  }
 
   if (method === "GET" && url.pathname === "/health") {
     return send(res, 200, { ok: true, name: cfg.name });
@@ -224,16 +292,18 @@ async function handle(req, res, cfg) {
   }
 
   if (method === "POST" && url.pathname === "/v1/pair") {
-    if (!pairAllowed(clientIp(req))) return fail(res, 429, "rate_limited", "Too many tries. Wait ten minutes");
+    const ip = clientIp(req);
+    if (!pairAllowed(ip)) return fail(res, 429, "rate_limited", "Too many tries. Wait ten minutes");
     const body = await readBody(req);
     reload();
     const key = sha256(normalizeCode(body.code));
     const invite = state.invites[key];
     if (!invite || invite.usedAt || invite.expiresAt < now()) {
+      pairFailed(ip);
       return fail(res, 403, "invalid_invite", "That invite code doesn't work. Ask for a new one");
     }
     invite.usedAt = now();
-    const user = { id: id("usr"), name: invite.name, role: invite.role, createdAt: now() };
+    const user = (invite.userId && state.users[invite.userId]) || { id: id("usr"), name: invite.name, role: invite.role, createdAt: now() };
     const token = crypto.randomBytes(32).toString("base64url");
     const device = {
       id: id("dev"),
@@ -245,6 +315,7 @@ async function handle(req, res, cfg) {
     state.users[user.id] = user;
     state.devices[sha256(token)] = device;
     persist();
+    messaging?.joinDefaults(user.id);
     return send(res, 201, { token, user: { id: user.id, name: user.name, role: user.role }, hub: { name: cfg.name } });
   }
 
@@ -291,7 +362,10 @@ async function handle(req, res, cfg) {
     return fail(res, 404, "not_found", "Not found");
   }
 
-  // ----- chats -----
+  // ----- channels, direct messages, threads -----
+  if (messaging && (await messaging.handle(req, res, { user, method, parts, url, send, fail, readBody, cors: CORS }))) return undefined;
+
+  // ----- chats with the agent -----
   if (parts[1] !== "chats") return fail(res, 404, "not_found", "Not found");
   const up = upstreamFor(user, cfg);
   if (!up) return fail(res, 503, "agent_unavailable", "The agent isn't set up on this hub yet");
@@ -351,20 +425,12 @@ async function handle(req, res, cfg) {
     if (!text) return fail(res, 400, "empty", "Type a message first");
     if (text.length > MAX_MESSAGE_CHARS) return fail(res, 413, "too_long", "That message is too long");
 
-    const r = await hermes(
-      chatUp,
-      "POST",
-      `/api/sessions/${encodeURIComponent(chat.hermesSessionId)}/chat/stream`,
-      { message: text },
-      { Accept: "text/event-stream", "X-Hermes-Session-Key": sessionKey(user) },
-    );
-    if (!r.ok || !r.body) return fail(res, 502, "agent_error", `The agent didn't answer (${r.status})`);
-
     if (chat.title === "New chat") chat.title = text.replace(/\s+/g, " ").slice(0, 60);
     chat.updatedAt = now();
     persist();
 
     res.writeHead(200, {
+      ...CORS,
       "Content-Type": "text/event-stream; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
       "X-Accel-Buffering": "no",
@@ -395,32 +461,10 @@ async function handle(req, res, cfg) {
       }
     };
 
-    const decoder = new TextDecoder();
-    let buf = "";
     try {
-      for await (const chunk of r.body) {
-        if (closed) break;
-        buf += decoder.decode(chunk, { stream: true });
-        let idx;
-        while ((idx = buf.indexOf("\n\n")) >= 0) {
-          const block = buf.slice(0, idx);
-          buf = buf.slice(idx + 2);
-          let name = "message";
-          let data = "";
-          for (const line of block.split("\n")) {
-            if (line.startsWith("event:")) name = line.slice(6).trim();
-            else if (line.startsWith("data:")) data += line.slice(5).trim();
-          }
-          if (!data) continue;
-          try {
-            forward(name, JSON.parse(data));
-          } catch {
-            /* ignore malformed upstream event */
-          }
-        }
-      }
-    } catch {
-      if (!closed) emit("error", { message: "Lost the connection to the agent" });
+      await streamTurn(chatUp, chat.hermesSessionId, text, sessionKey(user), forward, () => closed);
+    } catch (e) {
+      if (!closed) emit("error", { message: e.code === "agent_error" ? "The agent didn't answer. Try again" : "Lost the connection to the agent" });
     }
     clearInterval(keepalive);
     if (!closed) {
@@ -443,12 +487,34 @@ export function startServer(fixedCfg) {
   // Without a fixed config, re-read it per request so a new tunnel address
   // (written by publish.mjs) shows up without a restart.
   const cfg = fixedCfg || loadConfig();
+  process.umask(0o077); // messages.db and its WAL files are private to this user
+  messaging ??= createMessaging({
+    file: path.join(DATA_DIR, "messages.db"),
+    users: () => state.users,
+    agentName: () => (fixedCfg || loadConfig()).agentName || "Agent",
+    // In channels several people read the answer, so the agent always runs
+    // as the limited member profile, never the owner's.
+    askAgent: async ({ sessionId, sessionKey: key, fresh, text, onDelta }) => {
+      const up = upstreamFor({ role: "member" }, fixedCfg || loadConfig());
+      if (!up) return "The agent isn't set up on this hub yet";
+      if (fresh) {
+        const made = await hermes(up, "POST", "/api/sessions", { id: sessionId, title: `Servant · ${sessionId.slice(8, 30)}` });
+        if (!made.ok && made.status !== 409) throw new Error(`session ${made.status}`);
+      }
+      return streamTurn(up, sessionId, text, key, (name, p) => {
+        if (name === "assistant.delta") onDelta(p.delta || "");
+      });
+    },
+  });
+  messaging.ensureGeneral();
+  reload();
+  for (const uid of Object.keys(state.users)) messaging.joinDefaults(uid);
   const server = http.createServer((req, res) => {
     handle(req, res, fixedCfg || loadConfig()).catch((err) => {
       if (res.headersSent) return res.end();
       const status = err.status || 500;
       if (status === 500) console.error("[servant]", err);
-      fail(res, status, status === 500 ? "server_error" : "bad_request", status === 500 ? "Something went wrong on the hub" : err.message);
+      fail(res, status, status === 500 ? "server_error" : err.code || "bad_request", status === 500 ? "Something went wrong on the hub" : err.message);
     });
   });
   server.requestTimeout = 0; // agent turns can take minutes
@@ -470,7 +536,7 @@ const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPat
 if (isMain) {
   const cmd = process.argv[2];
   if (cmd === "invite") {
-    const code = createInvite({ name: arg("name", "Guest"), role: arg("role", "member") });
+    const code = createInvite({ name: arg("name", "Guest"), role: arg("role", "member"), userId: arg("user", "") || undefined });
     console.log(`Invite code: ${code}`);
     console.log(`Link:        ${pairLink(code)}`);
     console.log("Single use. Expires in seven days.");
