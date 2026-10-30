@@ -49,7 +49,7 @@ export default function Settings() {
       <View style={styles.group}>
         <Row label="Name" value={account.user.name} />
         <Row label="Notifications" onPress={() => router.push("/notifications")} />
-        <Row label="Hub" value={account.hubName} />
+        <Row label="Server" value={account.hubName} />
         <Row label="Access" value={owner ? "Owner" : "Member"} />
       </View>
 
