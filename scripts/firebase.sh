@@ -1,0 +1,43 @@
+#!/bin/bash
+# Build Servant for Android and ship to Firebase App Distribution (internal group "Servant internal").
+# Usage: scripts/firebase.sh <build-number> [--no-upload]
+# Key: .certs/servant-release.keystore (git-ignored), password in keychain item servant-android-key.
+set -euo pipefail
+BUILD=${1:?build number}
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+APP_ID=1:467107929396:android:aeb66fddbf38d4c7491961
+PROJECT=irs2go-apps
+GROUP=servant-internal
+FB="env -u GOOGLE_CLOUD_QUOTA_PROJECT -u GOOGLE_CLOUD_PROJECT -u CLOUDSDK_CORE_PROJECT -u GOOGLE_APPLICATION_CREDENTIALS firebase"
+PW=$(security find-generic-password -a servant -s servant-android-key -w)
+
+cd "$ROOT/app"
+npx expo prebuild --platform android --no-install >/dev/null
+G=android/app/build.gradle
+# Release signing from env; prebuild regenerates android/, so patch every build.
+python3 - "$G" "$BUILD" <<'EOF'
+import re,sys
+p,build=sys.argv[1:3]; s=open(p).read()
+if "SERVANT_KEYSTORE" not in s:
+    s=s.replace("signingConfigs {", """signingConfigs {
+        release {
+            storeFile file(System.getenv("SERVANT_KEYSTORE"))
+            storePassword System.getenv("SERVANT_KEY_PW")
+            keyAlias "servant"
+            keyPassword System.getenv("SERVANT_KEY_PW")
+        }""",1)
+    i=s.index("buildTypes {"); j=s.index("release {",i)
+    k=s.index("signingConfig signingConfigs.debug",j)
+    s=s[:k]+"signingConfig signingConfigs.release"+s[k+len("signingConfig signingConfigs.debug"):]
+s=re.sub(r"versionCode \d+", f"versionCode {build}", s)
+open(p,"w").write(s)
+EOF
+
+cd android
+SERVANT_KEYSTORE="$ROOT/.certs/servant-release.keystore" SERVANT_KEY_PW="$PW" ./gradlew -q assembleRelease
+APK=app/build/outputs/apk/release/app-release.apk
+"$(ls -d ~/Library/Android/sdk/build-tools/* | tail -1)/apksigner" verify --print-certs "$APK" | grep -m1 "certificate DN"
+[ "${2:-}" = "--no-upload" ] && { echo "$PWD/$APK"; exit 0; }
+
+$FB appdistribution:distribute "$APK" --app "$APP_ID" --groups "$GROUP" --project "$PROJECT" \
+  --release-notes "Servant build $BUILD (internal use only)" 2>&1 | grep -E "uploaded|distributed|console|Error|testing"

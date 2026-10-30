@@ -8,3 +8,4 @@ android/
 hub/data/
 .env
 .env.*
+.certs/
