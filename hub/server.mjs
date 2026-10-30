@@ -47,7 +47,7 @@ export function loadConfig() {
   const cfg = loadJson(CONFIG_FILE, {});
   return {
     host: process.env.SERVANT_HOST || cfg.host || "127.0.0.1",
-    port: Number(process.env.SERVANT_PORT || cfg.port || 8787),
+    port: Number(process.env.SERVANT_PORT ?? cfg.port ?? 8787),
     name: cfg.name || "Servant",
     // Where the hub can be reached from phones. Filled in by the tunnel script.
     publicUrl: process.env.SERVANT_PUBLIC_URL || cfg.publicUrl || "",
@@ -439,9 +439,12 @@ async function handle(req, res, cfg) {
   return fail(res, 404, "not_found", "Not found");
 }
 
-export function startServer(cfg = loadConfig()) {
+export function startServer(fixedCfg) {
+  // Without a fixed config, re-read it per request so a new tunnel address
+  // (written by publish.mjs) shows up without a restart.
+  const cfg = fixedCfg || loadConfig();
   const server = http.createServer((req, res) => {
-    handle(req, res, cfg).catch((err) => {
+    handle(req, res, fixedCfg || loadConfig()).catch((err) => {
       if (res.headersSent) return res.end();
       const status = err.status || 500;
       if (status === 500) console.error("[servant]", err);
@@ -450,7 +453,10 @@ export function startServer(cfg = loadConfig()) {
   });
   server.requestTimeout = 0; // agent turns can take minutes
   server.headersTimeout = 30000;
-  return new Promise((resolve) => server.listen(cfg.port, cfg.host, () => resolve(server)));
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(cfg.port, cfg.host, () => resolve(server));
+  });
 }
 
 // ---------- cli ----------
@@ -484,7 +490,7 @@ if (isMain) {
     console.log(`Revoked ${d.id}`);
   } else {
     const cfg = loadConfig();
-    const server = await startServer(cfg);
+    const server = await startServer();
     const { port } = server.address();
     console.log(`[servant] hub listening on http://${cfg.host}:${port}`);
     for (const [role, up] of Object.entries(cfg.upstreams)) {
