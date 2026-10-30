@@ -1,0 +1,8 @@
+{
+  "name": "servant-hub",
+  "private": true,
+  "type": "module",
+  "license": "CC0-1.0",
+  "scripts": { "start": "node server.mjs", "test": "node --test" },
+  "engines": { "node": ">=20" }
+}
