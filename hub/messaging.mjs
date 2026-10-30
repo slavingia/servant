@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS members (
   user_id TEXT NOT NULL,
   joined_at INTEGER NOT NULL,
   last_read_seq INTEGER NOT NULL DEFAULT 0,
+  archived_at INTEGER,
   PRIMARY KEY (conversation_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS members_user ON members(user_id);
@@ -91,6 +92,9 @@ export function createMessaging({ file, users, agentName, askAgent }) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(file);
   db.exec(SCHEMA);
+  if (!db.prepare("PRAGMA table_info(members)").all().some((column) => column.name === "archived_at")) {
+    db.exec("ALTER TABLE members ADD COLUMN archived_at INTEGER");
+  }
 
   const q = (sql) => db.prepare(sql);
   const st = {
@@ -117,7 +121,7 @@ export function createMessaging({ file, users, agentName, askAgent }) {
                   AND x.seq > m.last_read_seq AND x.user_id != m.user_id AND x.deleted_at IS NULL) AS unread,
                (SELECT MAX(seq) FROM messages x WHERE x.conversation_id = c.id AND x.thread_root IS NULL) AS last_seq
              FROM conversations c JOIN members m ON m.conversation_id = c.id
-             WHERE m.user_id = ? AND c.archived_at IS NULL`),
+             WHERE m.user_id = ? AND c.archived_at IS NULL AND (m.archived_at IS NULL OR ? = 1)`),
     browse: q(`SELECT c.*, (SELECT COUNT(*) FROM members m WHERE m.conversation_id = c.id) AS member_count
                FROM conversations c WHERE c.kind = 'channel' AND c.private = 0 AND c.archived_at IS NULL
                AND NOT EXISTS (SELECT 1 FROM members m WHERE m.conversation_id = c.id AND m.user_id = ?)
@@ -125,6 +129,9 @@ export function createMessaging({ file, users, agentName, askAgent }) {
     memberCount: q("SELECT COUNT(*) AS n FROM members WHERE conversation_id = ?"),
     updateConv: q("UPDATE conversations SET name = ?, topic = ? WHERE id = ?"),
     archive: q("UPDATE conversations SET archived_at = ? WHERE id = ?"),
+    archiveMember: q("UPDATE members SET archived_at = ? WHERE conversation_id = ? AND user_id = ?"),
+    deleteConv: q("DELETE FROM conversations WHERE id = ?"),
+    deleteAgentThreads: q("DELETE FROM agent_threads WHERE substr(key, 1, length(?) + 1) = ? || ':'"),
     publicChannels: q("SELECT id FROM conversations WHERE kind = 'channel' AND private = 0 AND archived_at IS NULL AND name = 'general'"),
     agentThread: q("SELECT * FROM agent_threads WHERE key = ?"),
     putAgentThread: q("INSERT INTO agent_threads (key, hermes_session_id, last_seen_seq) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET last_seen_seq = excluded.last_seen_seq"),
@@ -180,6 +187,7 @@ export function createMessaging({ file, users, agentName, askAgent }) {
       topic: c.topic,
       private: !!c.private,
       createdBy: c.created_by,
+      archived: !!st.member.get(c.id, me)?.archived_at,
       memberCount: memberIds.length,
       members: c.kind === "dm" || memberIds.length <= 50 ? memberIds.map(person) : undefined,
       unread: c.unread ?? 0,
@@ -240,6 +248,7 @@ export function createMessaging({ file, users, agentName, askAgent }) {
     const push = (force) => {
       if (!force && now() - lastPush < 250) return;
       lastPush = now();
+      if (!st.conv.get(conv.id)) return;
       st.setAgentText.run(text, force ? 0 : 1, reply.seq);
       publish(conv.id, "message.updated", msgView(st.msg.get(reply.seq)));
     };
@@ -260,7 +269,7 @@ export function createMessaging({ file, users, agentName, askAgent }) {
       text = text || "I hit a problem. Try asking again";
     }
     push(true);
-    st.putAgentThread.run(key, sessionId, reply.seq);
+    if (st.conv.get(conv.id)) st.putAgentThread.run(key, sessionId, reply.seq);
     return st.msg.get(reply.seq);
   }
 
@@ -340,7 +349,7 @@ export function createMessaging({ file, users, agentName, askAgent }) {
 
     if (r === "conversations" && parts.length === 2) {
       if (method === "GET") {
-        const list = st.mine.all(user.id).map((c) => convView(c, user.id));
+        const list = st.mine.all(user.id, url.searchParams.get("includeArchived") === "1" ? 1 : 0).map((c) => convView(c, user.id));
         list.sort((a, b) => b.updatedAt - a.updatedAt);
         send(res, 200, { conversations: list });
         return true;
@@ -365,6 +374,30 @@ export function createMessaging({ file, users, agentName, askAgent }) {
       const isMember = !!st.member.get(conv.id, user.id);
       const sub = parts[3];
 
+      if ((sub === "archive" || sub === "restore") && method === "POST") {
+        if (conv.kind !== "channel" || !isMember)
+          return fail(res, 403, "forbidden", "Join the channel first"), true;
+        st.archiveMember.run(sub === "archive" ? now() : null, conv.id, user.id);
+        publish(conv.id, "conversation.updated", { id: conv.id }, [user.id]);
+        send(res, 200, { ok: true });
+        return true;
+      }
+      if (!sub && method === "DELETE") {
+        if (conv.kind !== "channel" || (conv.created_by !== user.id && user.role !== "owner"))
+          return fail(res, 403, "forbidden", "Only the channel creator or hub owner can delete it"), true;
+        if (conv.name === "general") return fail(res, 400, "protected_channel", "#general stays open for everyone"), true;
+        const memberIds = st.members.all(conv.id).map((m) => m.user_id);
+        db.exec("BEGIN");
+        try {
+          st.deleteConv.run(conv.id);
+          st.deleteAgentThreads.run(conv.id, conv.id);
+          db.exec("COMMIT");
+        } catch (e) { db.exec("ROLLBACK"); throw e; }
+        publish(conv.id, "conversation.updated", { id: conv.id }, memberIds);
+        send(res, 200, { ok: true });
+        return true;
+      }
+
       if (!sub && method === "GET") {
         send(res, 200, { conversation: convView({ ...conv, last_seq: st.lastSeq.get(conv.id).seq }, user.id), joined: isMember });
         return true;
@@ -374,6 +407,7 @@ export function createMessaging({ file, users, agentName, askAgent }) {
         const body = await readBody(req);
         const name = body.name !== undefined ? channelName(body.name) : conv.name;
         if (!name) return fail(res, 400, "bad_name", "Give the channel a name"), true;
+        if (conv.name === "general" && name !== conv.name) return fail(res, 400, "protected_channel", "#general cannot be renamed"), true;
         const clash = st.convByName.get(name);
         if (clash && clash.id !== conv.id) return fail(res, 409, "name_taken", `#${name} already exists`), true;
         st.updateConv.run(name, body.topic !== undefined ? String(body.topic).slice(0, 250) : conv.topic, conv.id);

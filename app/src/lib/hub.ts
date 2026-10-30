@@ -37,6 +37,7 @@ export type Conversation = {
   topic: string;
   private: boolean;
   createdBy: string;
+  archived: boolean;
   memberCount: number;
   members?: Person[];
   unread: number;
@@ -266,7 +267,7 @@ export const api = {
     request(a, "/v1/invites", { method: "POST", body: JSON.stringify({ fresh }) }).then(json<{ code: string; link: string; expiresAt: number }>),
   people: (a: Account) => request(a, "/v1/people").then(json<{ people: Person[]; agent: Person; me: string }>),
   conversations: (a: Account, m?: (a: Account) => void) =>
-    request(a, "/v1/conversations", {}, m).then(json<{ conversations: Conversation[] }>).then((d) => d.conversations),
+    request(a, "/v1/conversations?includeArchived=1", {}, m).then(json<{ conversations: Conversation[] }>).then((d) => d.conversations),
   conversation: (a: Account, id: string) => request(a, `/v1/conversations/${id}`).then(json<{ conversation: Conversation; joined: boolean }>),
   browse: (a: Account) => request(a, "/v1/channels/browse").then(json<{ channels: BrowseChannel[] }>).then((d) => d.channels),
   createChannel: (a: Account, body: { name: string; topic?: string; private?: boolean; memberIds?: string[] }) =>
@@ -277,6 +278,9 @@ export const api = {
       .then((d) => d.conversation),
   updateChannel: (a: Account, id: string, body: { name?: string; topic?: string }) =>
     request(a, `/v1/conversations/${id}`, { method: "PATCH", body: JSON.stringify(body) }).then(json<{ conversation: Conversation }>),
+  archiveChannel: (a: Account, id: string) => request(a, `/v1/conversations/${id}/archive`, { method: "POST", body: "{}" }),
+  restoreChannel: (a: Account, id: string) => request(a, `/v1/conversations/${id}/restore`, { method: "POST", body: "{}" }),
+  deleteChannel: (a: Account, id: string) => request(a, `/v1/conversations/${id}`, { method: "DELETE" }),
   join: (a: Account, id: string) => request(a, `/v1/conversations/${id}/join`, { method: "POST", body: "{}" }),
   leave: (a: Account, id: string) => request(a, `/v1/conversations/${id}/leave`, { method: "POST", body: "{}" }),
   addMembers: (a: Account, id: string, userIds: string[]) =>

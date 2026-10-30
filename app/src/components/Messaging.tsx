@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View, type PressableProps } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Conversation, Post } from "../lib/hub";
 import { colors } from "../lib/theme";
@@ -165,7 +165,7 @@ export function Composer({
   );
 }
 
-export function ConversationRow({ c, onPress }: { c: Conversation; onPress: () => void }) {
+export function ConversationRow({ c, onPress, onLongPress, accessibilityActions, onAccessibilityAction }: { c: Conversation; onPress: () => void } & Pick<PressableProps, "onLongPress" | "accessibilityActions" | "onAccessibilityAction">) {
   const last = c.lastMessage;
   const preview = last ? (last.deleted ? "Message deleted" : `${c.kind === "channel" || (c.members?.length ?? 0) > 2 ? `${last.user.name}: ` : ""}${last.text || "Thinking…"}`) : c.topic || "No messages yet";
   const bold = c.unread > 0;
@@ -175,6 +175,10 @@ export function ConversationRow({ c, onPress }: { c: Conversation; onPress: () =
       accessibilityRole="button"
       accessibilityLabel={`${title}${c.private && c.kind === "channel" ? ", private" : ""}${bold ? `, ${c.unread} unread` : ""}. ${preview}`}
       onPress={onPress}
+      onLongPress={onLongPress}
+      accessibilityHint={onLongPress ? "Swipe left or long press for channel actions" : undefined}
+      accessibilityActions={accessibilityActions}
+      onAccessibilityAction={onAccessibilityAction}
       style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}
     >
       {c.kind === "dm" ? <Avatar name={c.title} size={40} /> : null}

@@ -7,6 +7,8 @@ import http from "node:http";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { createMessaging } from "./messaging.mjs";
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "servant-test-"));
 process.env.SERVANT_DATA_DIR = dataDir;
@@ -399,6 +401,87 @@ test("@agent in a channel replies in a thread, as the member agent, with live up
   });
   assert.equal(member.calls.filter((c) => c.url === "/api/sessions").length, sessionsBefore);
   live.close();
+});
+
+test("channel archive is personal, persistent, reversible, and still receives messages", async () => {
+  const a = await pair("member", "Archive A");
+  const b = await pair("member", "Archive B");
+  const outsider = await pair("member", "Archive outsider");
+  const ch = (await api("POST", "/v1/conversations", { token: a, body: { name: "archive-personal" } })).json.conversation;
+  const route = `/v1/conversations/${ch.id}`;
+  await api("POST", route + "/join", { token: b });
+  assert.equal((await api("POST", route + "/archive", { token: outsider })).status, 403);
+  const liveA = await events(a);
+  const liveB = await events(b);
+  try {
+    await waitFor(() => liveA.got.some(e => e.event === "ready") && liveB.got.some(e => e.event === "ready"));
+    assert.equal((await api("POST", route + "/archive", { token: a })).status, 200);
+    await waitFor(() => liveA.got.some(e => e.event === "conversation.updated" && e.data.id === ch.id));
+    assert.equal(liveB.got.filter(e => e.event === "conversation.updated" && e.data.id === ch.id).length, 0);
+    assert.ok(!(await api("GET", "/v1/conversations", { token: a })).json.conversations.some(c => c.id === ch.id));
+    assert.ok((await api("GET", "/v1/conversations", { token: b })).json.conversations.some(c => c.id === ch.id));
+    const archived = (await api("GET", "/v1/conversations?includeArchived=1", { token: a })).json.conversations.find(c => c.id === ch.id);
+    assert.equal(archived.archived, true);
+    assert.equal((await api("GET", route, { token: b })).json.conversation.archived, false);
+    assert.equal((await api("POST", route + "/messages", { token: b, body: { text: "Still here" } })).status, 201);
+    assert.equal((await api("GET", route + "/messages", { token: a })).json.messages[0].text, "Still here");
+    assert.equal((await api("GET", route, { token: a })).json.conversation.archived, true);
+    assert.equal((await api("POST", route + "/restore", { token: a })).status, 200);
+    assert.ok((await api("GET", "/v1/conversations", { token: a })).json.conversations.some(c => c.id === ch.id));
+    const general = (await api("GET", "/v1/conversations", { token: a })).json.conversations.find(c => c.name === "general");
+    assert.equal((await api("POST", `/v1/conversations/${general.id}/archive`, { token: a })).status, 200);
+    assert.equal((await api("POST", `/v1/conversations/${general.id}/restore`, { token: a })).status, 200);
+  } finally { liveA.close(); liveB.close(); }
+});
+
+test("channel deletion enforces permissions, protects general, and removes threads for all members", async () => {
+  const creator = await pair("member", "Delete creator");
+  const other = await pair("member", "Delete member");
+  const ownerToken = await pair("owner", "Delete owner");
+  const ch = (await api("POST", "/v1/conversations", { token: creator, body: { name: "delete-test" } })).json.conversation;
+  const route = `/v1/conversations/${ch.id}`;
+  await api("POST", route + "/join", { token: other });
+  const root = (await api("POST", route + "/messages", { token: creator, body: { text: "Root" } })).json.message;
+  await api("POST", route + "/messages", { token: other, body: { text: "Reply", threadRoot: root.id } });
+  assert.equal((await api("DELETE", route, { token: other })).status, 403);
+  await api("POST", route + "/archive", { token: creator });
+  const live = await events(other);
+  try {
+    await waitFor(() => live.got.some(e => e.event === "ready"));
+    assert.equal((await api("DELETE", route, { token: creator })).status, 200);
+    await waitFor(() => live.got.some(e => e.event === "conversation.updated" && e.data.id === ch.id));
+    assert.equal((await api("GET", route, { token: other })).status, 404);
+    assert.equal((await api("GET", route + `/threads/${root.id}`, { token: other })).status, 404);
+    assert.equal((await api("PATCH", `/v1/messages/${root.id}`, { token: creator, body: { text: "No" } })).status, 404);
+    assert.ok(!(await api("GET", "/v1/conversations?includeArchived=1", { token: other })).json.conversations.some(c => c.id === ch.id));
+  } finally { live.close(); }
+  // Name can be reused after deletion; the hub owner can delete a member-created channel.
+  const again = await api("POST", "/v1/conversations", { token: creator, body: { name: "delete-test" } });
+  assert.equal(again.status, 201);
+  assert.equal((await api("DELETE", `/v1/conversations/${again.json.conversation.id}`, { token: ownerToken })).status, 200);
+  const general = (await api("GET", "/v1/conversations", { token: ownerToken })).json.conversations.find(c => c.name === "general");
+  assert.equal((await api("DELETE", `/v1/conversations/${general.id}`, { token: ownerToken })).status, 400);
+  assert.equal((await api("PATCH", `/v1/conversations/${general.id}`, { token: ownerToken, body: { name: "renamed-general" } })).status, 400);
+  const otherId = (await api("GET", "/v1/me", { token: other })).json.user.id;
+  const dm = (await api("POST", "/v1/conversations", { token: creator, body: { kind: "dm", userIds: [otherId] } })).json.conversation;
+  assert.equal((await api("DELETE", `/v1/conversations/${dm.id}`, { token: creator })).status, 403);
+});
+
+test("legacy membership migration preserves history and personal archive survives reopen", () => {
+  const file = path.join(dataDir, "legacy.db");
+  const legacy = new DatabaseSync(file);
+  legacy.exec("CREATE TABLE members (conversation_id TEXT NOT NULL, user_id TEXT NOT NULL, joined_at INTEGER NOT NULL, last_read_seq INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (conversation_id, user_id))");
+  legacy.close();
+  const options = { file, users: () => ({ a: { id: "a", name: "A" } }), agentName: () => "Agent", askAgent: async () => "Done" };
+  let m = createMessaging(options);
+  const ch = m.createChannel({ id: "a" }, { name: "persist" });
+  m.post(ch, "a", "Keep this history");
+  m.db.prepare("UPDATE members SET archived_at = 123 WHERE user_id = 'a'").run();
+  m.close();
+  m = createMessaging(options);
+  assert.equal(m.db.prepare("SELECT archived_at FROM members WHERE user_id = 'a'").get().archived_at, 123);
+  assert.equal(m.db.prepare("SELECT text FROM messages").get().text, "Keep this history");
+  m.close();
 });
 
 test("ten wrong codes lock out pairing from that address; good pairings don't count", async () => {
