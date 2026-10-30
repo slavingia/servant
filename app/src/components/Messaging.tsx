@@ -57,6 +57,11 @@ type PostProps = {
 };
 
 export function PostRow({ post, me, compact, onOpenThread, onEdit, onDelete }: PostProps) {
+  if (post.activity) return (
+    <View accessible accessibilityLabel={`${post.text}, ${when(post.createdAt)}`} style={{ paddingHorizontal: 20, paddingVertical: 12, alignItems: "center" }}>
+      <Text style={{ color: colors.muted, fontSize: 14, lineHeight: 20, textAlign: "center" }}>{post.text} · {when(post.createdAt)}</Text>
+    </View>
+  );
   const mine = post.user.id === me;
   const actions = () => {
     if (post.deleted || post.pending) return;
@@ -167,7 +172,7 @@ export function Composer({
 
 export function ConversationRow({ c, onPress, onLongPress, accessibilityActions, onAccessibilityAction }: { c: Conversation; onPress: () => void } & Pick<PressableProps, "onLongPress" | "accessibilityActions" | "onAccessibilityAction">) {
   const last = c.lastMessage;
-  const preview = last ? (last.deleted ? "Message deleted" : `${c.kind === "channel" || (c.members?.length ?? 0) > 2 ? `${last.user.name}: ` : ""}${last.text || "Thinking…"}`) : c.topic || "No messages yet";
+  const preview = last ? (last.deleted ? "Message deleted" : `${!last.activity && (c.kind === "channel" || (c.members?.length ?? 0) > 2) ? `${last.user.name}: ` : ""}${last.text || "Thinking…"}`) : c.topic || "No messages yet";
   const bold = c.unread > 0;
   const title = c.kind === "channel" ? `#${c.title}` : c.title;
   return (

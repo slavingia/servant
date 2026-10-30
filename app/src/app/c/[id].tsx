@@ -204,7 +204,7 @@ export default function ConversationScreen() {
             }
             renderItem={({ item, index }) => {
               const above = data[index + 1];
-              const compact = !!above && above.user.id === item.user.id && item.createdAt - above.createdAt < 5 * 60 * 1000 && !above.replyCount;
+              const compact = !!above && !above.activity && !item.activity && above.user.id === item.user.id && item.createdAt - above.createdAt < 5 * 60 * 1000 && !above.replyCount;
               return (
                 <PostRow
                   post={item}

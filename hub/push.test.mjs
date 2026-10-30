@@ -46,6 +46,9 @@ test('message eligibility respects private membership, personal archive, sender,
   const m = createMessaging({ file: path.join(dir, 'messages.db'), users: () => people, agentName: () => 'Agent', askAgent: async () => 'Finished reply', onMessage: e => queued.push(e) });
   try {
     const ch = m.createChannel(people.a, { name: 'private', private: true, memberIds: ['b'] });
+    assert.equal(queued.length, 0, 'membership activity does not enqueue push notifications');
+    const activity = m.db.prepare("SELECT seq FROM messages WHERE activity IS NOT NULL LIMIT 1").get();
+    assert.equal(m.notificationFor(activity.seq, people.b), null);
     const root = m.post(ch, 'a', 'Hi @Bob');
     assert.equal(m.notificationFor(root.seq, people.a), null);
     assert.equal(m.notificationFor(root.seq, people.c), null);

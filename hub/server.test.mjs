@@ -331,8 +331,8 @@ test("everyone lands in #general and can make channels, DMs and threads", async 
   const nested = await api("POST", `/v1/conversations/${ch.id}/messages`, { token: ana, body: { text: "Thanks", threadRoot: reply.json.message.id } });
   assert.equal(nested.json.message.threadRoot, rootId);
   const page = (await api("GET", `/v1/conversations/${ch.id}/messages`, { token: ana })).json.messages;
-  assert.deepEqual(page.map((m) => m.text), ["Who has the Kim file?"]);
-  assert.equal(page[0].replyCount, 2);
+  assert.deepEqual(page.filter(m => !m.activity).map((m) => m.text), ["Who has the Kim file?"]);
+  assert.equal(page.find(m => m.id === rootId).replyCount, 2);
   const thread = (await api("GET", `/v1/conversations/${ch.id}/threads/${rootId}`, { token: cy })).json;
   assert.deepEqual(thread.replies.map((m) => [m.user.name, m.text]), [["Ben Okafor", "I do"], ["Ana Ruiz", "Thanks"]]);
 
@@ -424,7 +424,7 @@ test("channel archive is personal, persistent, reversible, and still receives me
     assert.equal(archived.archived, true);
     assert.equal((await api("GET", route, { token: b })).json.conversation.archived, false);
     assert.equal((await api("POST", route + "/messages", { token: b, body: { text: "Still here" } })).status, 201);
-    assert.equal((await api("GET", route + "/messages", { token: a })).json.messages[0].text, "Still here");
+    assert.equal((await api("GET", route + "/messages", { token: a })).json.messages.find(m => !m.activity).text, "Still here");
     assert.equal((await api("GET", route, { token: a })).json.conversation.archived, true);
     assert.equal((await api("POST", route + "/restore", { token: a })).status, 200);
     assert.ok((await api("GET", "/v1/conversations", { token: a })).json.conversations.some(c => c.id === ch.id));
@@ -476,12 +476,48 @@ test("legacy membership migration preserves history and personal archive survive
   let m = createMessaging(options);
   const ch = m.createChannel({ id: "a" }, { name: "persist" });
   m.post(ch, "a", "Keep this history");
+  m.joinDefaults("a");
+  const before = m.db.prepare("SELECT COUNT(*) AS n FROM messages WHERE activity IS NOT NULL").get().n;
+  m.joinDefaults("a");
+  assert.equal(m.db.prepare("SELECT COUNT(*) AS n FROM messages WHERE activity IS NOT NULL").get().n, before, "startup and second-device pairing must not repeat joins");
   m.db.prepare("UPDATE members SET archived_at = 123 WHERE user_id = 'a'").run();
   m.close();
   m = createMessaging(options);
   assert.equal(m.db.prepare("SELECT archived_at FROM members WHERE user_id = 'a'").get().archived_at, 123);
-  assert.equal(m.db.prepare("SELECT text FROM messages").get().text, "Keep this history");
+  assert.equal(m.db.prepare("SELECT text FROM messages WHERE activity IS NULL").get().text, "Keep this history");
   m.close();
+});
+
+test("channel membership activity is durable, quiet, immutable and emitted once per change", async () => {
+  const a = await pair("member", "Activity Creator"), b = await pair("member", "Activity Member");
+  const bid = (await api("GET", "/v1/me", { token: b })).json.user.id;
+  const ch = (await api("POST", "/v1/conversations", { token: a, body: { name: "activity-check" } })).json.conversation;
+  const route = `/v1/conversations/${ch.id}`;
+  const live = await events(a);
+  try {
+    await waitFor(() => live.got.some(e => e.event === "ready"));
+    await api("POST", route + "/join", { token: b });
+    await api("POST", route + "/join", { token: b });
+    await api("POST", route + "/leave", { token: b });
+    await api("POST", route + "/leave", { token: b });
+    assert.equal((await api("POST", route + "/members", { token: a, body: { userIds: [bid, bid] } })).json.added, 1);
+    assert.equal((await api("POST", route + "/members", { token: a, body: { userIds: [bid] } })).json.added, 0);
+    await api("POST", route + "/archive", { token: b });
+    await api("POST", route + "/restore", { token: b });
+    const messages = (await api("GET", route + "/messages", { token: a })).json.messages;
+    assert.deepEqual(messages.map(m => [m.activity, m.text]), [
+      ["joined", "Activity Creator joined the channel"],
+      ["joined", "Activity Member joined the channel"],
+      ["left", "Activity Member left the channel"],
+      ["joined", "Activity Member joined the channel"],
+    ]);
+    await waitFor(() => live.got.filter(e => e.event === "message.created" && e.data.activity).length === 3);
+    assert.equal((await api("GET", "/v1/conversations", { token: a })).json.conversations.find(c => c.id === ch.id).unread, 0);
+    const activity = messages[0].id;
+    assert.equal((await api("PATCH", `/v1/messages/${activity}`, { token: a, body: { text: "forged" } })).status, 403);
+    assert.equal((await api("DELETE", `/v1/messages/${activity}`, { token: a })).status, 403);
+    assert.equal((await api("POST", route + "/messages", { token: a, body: { text: "reply", threadRoot: activity } })).status, 400);
+  } finally { live.close(); }
 });
 
 test("notification settings and push registration are scoped to the authenticated device", async () => {

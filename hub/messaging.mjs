@@ -97,6 +97,9 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     db.exec("ALTER TABLE members ADD COLUMN archived_at INTEGER");
   }
 
+  if (!db.prepare("PRAGMA table_info(messages)").all().some(column => column.name === "activity")) {
+    db.exec("ALTER TABLE messages ADD COLUMN activity TEXT");
+  }
   const q = (sql) => db.prepare(sql);
   const st = {
     conv: q("SELECT * FROM conversations WHERE id = ?"),
@@ -109,6 +112,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     removeMember: q("DELETE FROM members WHERE conversation_id = ? AND user_id = ?"),
     lastSeq: q("SELECT COALESCE(MAX(seq), 0) AS seq FROM messages WHERE conversation_id = ?"),
     insertMsg: q("INSERT INTO messages (conversation_id, user_id, thread_root, text, created_at, pending) VALUES (?, ?, ?, ?, ?, ?)"),
+    insertActivity: q("INSERT INTO messages (conversation_id, user_id, text, created_at, activity) VALUES (?, ?, ?, ?, ?)"),
     msg: q("SELECT * FROM messages WHERE seq = ?"),
     bumpThread: q("UPDATE messages SET reply_count = reply_count + 1, last_reply_at = ? WHERE seq = ?"),
     page: q(`SELECT * FROM messages WHERE conversation_id = ? AND thread_root IS NULL AND seq < ? ORDER BY seq DESC LIMIT ?`),
@@ -119,7 +123,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     markRead: q("UPDATE members SET last_read_seq = MAX(last_read_seq, ?) WHERE conversation_id = ? AND user_id = ?"),
     mine: q(`SELECT c.*, m.last_read_seq,
                (SELECT COUNT(*) FROM messages x WHERE x.conversation_id = c.id AND x.thread_root IS NULL
-                  AND x.seq > m.last_read_seq AND x.user_id != m.user_id AND x.deleted_at IS NULL) AS unread,
+                  AND x.seq > m.last_read_seq AND x.user_id != m.user_id AND x.deleted_at IS NULL AND x.activity IS NULL) AS unread,
                (SELECT MAX(seq) FROM messages x WHERE x.conversation_id = c.id AND x.thread_root IS NULL) AS last_seq
              FROM conversations c JOIN members m ON m.conversation_id = c.id
              WHERE m.user_id = ? AND c.archived_at IS NULL AND (m.archived_at IS NULL OR ? = 1)`),
@@ -136,7 +140,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     publicChannels: q("SELECT id FROM conversations WHERE kind = 'channel' AND private = 0 AND archived_at IS NULL AND name = 'general'"),
     agentThread: q("SELECT * FROM agent_threads WHERE key = ?"),
     putAgentThread: q("INSERT INTO agent_threads (key, hermes_session_id, last_seen_seq) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET last_seen_seq = excluded.last_seen_seq"),
-    since: q(`SELECT * FROM messages WHERE conversation_id = ? AND seq > ? AND deleted_at IS NULL AND pending = 0
+    since: q(`SELECT * FROM messages WHERE conversation_id = ? AND seq > ? AND deleted_at IS NULL AND pending = 0 AND activity IS NULL
               AND ((? IS NULL AND thread_root IS NULL) OR thread_root = ? OR seq = ?) ORDER BY seq DESC LIMIT 20`),
   };
 
@@ -161,6 +165,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
   };
   const msgView = (m) => ({
     id: String(m.seq),
+    activity: m.activity || undefined,
     conversationId: m.conversation_id,
     user: person(m.user_id),
     threadRoot: m.thread_root ? String(m.thread_root) : null,
@@ -210,8 +215,19 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
 
   function joinDefaults(userId) {
     const g = ensureGeneral();
-    st.addMember.run(g.id, userId, now(), st.lastSeq.get(g.id).seq);
+    addChannelMember(g, userId);
     publish(g.id, "conversation.updated", { id: g.id });
+  }
+
+  function channelActivity(conv, userId, action) {
+    const text = `${person(userId).name} ${action === "joined" ? "joined" : "left"} the channel`;
+    const result = st.insertActivity.run(conv.id, userId, text, now(), action);
+    publish(conv.id, "message.created", msgView(st.msg.get(Number(result.lastInsertRowid))));
+  }
+  function addChannelMember(conv, userId, lastReadSeq = st.lastSeq.get(conv.id).seq) {
+    const result = st.addMember.run(conv.id, userId, now(), lastReadSeq);
+    if (result.changes) channelActivity(conv, userId, "joined");
+    return Number(result.changes);
   }
 
   function post(conv, userId, text, threadRoot = null, { pending = false } = {}) {
@@ -291,7 +307,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     const id = newId("ch");
     st.insertConv.run(id, "channel", n, String(topic).slice(0, 250), priv ? 1 : 0, null, user.id, now());
     const people = users();
-    for (const uid of new Set([user.id, ...memberIds])) if (people[uid]) st.addMember.run(id, uid, now(), 0);
+    for (const uid of new Set([user.id, ...memberIds])) if (people[uid]) addChannelMember(st.conv.get(id), uid, 0);
     publish(id, "conversation.updated", { id });
     return st.conv.get(id);
   }
@@ -314,7 +330,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
 
   function notificationFor(messageId, user) {
     const m = st.msg.get(Number(messageId));
-    if (!m || m.pending || m.deleted_at || m.user_id === user.id) return null;
+    if (!m || m.activity || m.pending || m.deleted_at || m.user_id === user.id) return null;
     const c = st.conv.get(m.conversation_id);
     const membership = c && st.member.get(c.id, user.id);
     if (!c || c.archived_at || !membership || membership.archived_at) return null;
@@ -439,7 +455,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       }
       if (sub === "join" && method === "POST") {
         if (conv.kind !== "channel") return fail(res, 400, "bad_request", "You can only join channels"), true;
-        st.addMember.run(conv.id, user.id, now(), st.lastSeq.get(conv.id).seq);
+        addChannelMember(conv, user.id);
         publish(conv.id, "conversation.updated", { id: conv.id });
         send(res, 200, { ok: true });
         return true;
@@ -447,7 +463,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       if (sub === "leave" && method === "POST") {
         if (conv.kind !== "channel") return fail(res, 400, "bad_request", "You can only leave channels"), true;
         if (conv.name === "general") return fail(res, 400, "bad_request", "Everyone stays in #general"), true;
-        st.removeMember.run(conv.id, user.id);
+        if (st.removeMember.run(conv.id, user.id).changes) channelActivity(conv, user.id, "left");
         publish(conv.id, "conversation.updated", { id: conv.id });
         publish(conv.id, "conversation.updated", { id: conv.id }, [user.id]);
         send(res, 200, { ok: true });
@@ -458,9 +474,10 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
         const body = await readBody(req);
         const people = users();
         const ids = (Array.isArray(body.userIds) ? body.userIds : []).map(String).filter((u) => people[u]);
-        for (const uid of ids) st.addMember.run(conv.id, uid, now(), 0);
+        let added = 0;
+        for (const uid of new Set(ids)) added += addChannelMember(conv, uid, 0);
         publish(conv.id, "conversation.updated", { id: conv.id });
-        send(res, 200, { ok: true, added: ids.length });
+        send(res, 200, { ok: true, added });
         return true;
       }
       if (sub === "read" && method === "POST") {
@@ -486,6 +503,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
         if (body.threadRoot) {
           const parent = st.msg.get(Number(body.threadRoot));
           if (!parent || parent.conversation_id !== conv.id) return fail(res, 404, "not_found", "That thread is gone"), true;
+          if (parent.activity) return fail(res, 400, "channel_activity", "Channel activity cannot have replies"), true;
           root = parent.thread_root || parent.seq;
         }
         const m = post(conv, user.id, text, root);
@@ -505,6 +523,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       const m = st.msg.get(Number(parts[2]));
       const conv = m && st.conv.get(m.conversation_id);
       if (!m || !canSee(conv, user.id)) return fail(res, 404, "not_found", "That message is gone"), true;
+      if (m.activity) return fail(res, 403, "channel_activity", "Channel activity cannot be changed"), true;
       if (m.deleted_at) return fail(res, 404, "not_found", "That message is gone"), true;
       if (method === "PATCH") {
         if (m.user_id !== user.id) return fail(res, 403, "forbidden", "You can only edit your own messages"), true;

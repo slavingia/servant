@@ -17,6 +17,7 @@ export type Message = { id: string; role: "user" | "assistant"; text: string; at
 // ----- channels, direct messages, threads -----
 export type Person = { id: string; name: string; agent?: boolean; owner?: boolean };
 export type Post = {
+  activity?: "joined" | "left";
   id: string;
   conversationId: string;
   user: Person;
