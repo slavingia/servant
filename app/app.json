@@ -12,7 +12,8 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Servant uses the camera to read invite codes.",
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "googleServicesFile": "./GoogleService-Info.plist"
     },
     "android": {
       "adaptiveIcon": {
@@ -22,7 +23,8 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "gov.irs.servant"
+      "package": "gov.irs.servant",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -37,6 +39,16 @@
         {
           "cameraPermission": "Servant uses the camera to read invite codes.",
           "recordAudioAndroid": false
+        }
+      ],
+      "@react-native-firebase/app",
+      "@react-native-firebase/crashlytics",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
         }
       ]
     ],

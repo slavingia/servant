@@ -9,3 +9,5 @@ hub/data/
 .env
 .env.*
 .certs/
+app/google-services.json
+app/GoogleService-Info.plist
