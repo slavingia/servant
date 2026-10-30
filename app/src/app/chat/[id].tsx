@@ -11,7 +11,7 @@ type Row = Message & { pending?: boolean; failed?: boolean };
 
 export default function ChatScreen() {
   const { id, title } = useLocalSearchParams<{ id: string; title?: string }>();
-  const { account } = useSession();
+  const { account, setAccount } = useSession();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const [messages, setMessages] = useState<Row[] | null>(null);
@@ -65,6 +65,7 @@ export default function ChatScreen() {
           else if (e.type === "done") update((r) => ({ ...r, pending: false }));
         },
         abort.current.signal,
+        setAccount,
       );
     } catch (e) {
       update((r) => ({ ...r, pending: false, failed: true, text: e instanceof HubError ? e.message : "Couldn't send. Check your connection" }));

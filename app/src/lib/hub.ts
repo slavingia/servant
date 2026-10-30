@@ -123,6 +123,21 @@ export async function pair(invite: Invite, name?: string): Promise<Account> {
   return account;
 }
 
+// The quick tunnel's address changes when the hub restarts. Returns the account
+// pointed at the current address (saved), or null if it hasn't moved.
+export async function relocate(account: Account): Promise<Account | null> {
+  if (!account.discovery) return null;
+  try {
+    const fresh = await discover(account.discovery);
+    if (fresh === account.hubUrl) return null;
+    const moved = { ...account, hubUrl: fresh };
+    await saveAccount(moved);
+    return moved;
+  } catch {
+    return null;
+  }
+}
+
 // A request that re-discovers the hub once if the tunnel moved.
 export async function request(account: Account, path: string, init: RequestInit = {}, onMove?: (a: Account) => void): Promise<Response> {
   const go = (base: string) =>
@@ -137,18 +152,11 @@ export async function request(account: Account, path: string, init: RequestInit 
     res = null;
   }
   const looksMoved = !res || res.status === 530 || res.status === 1033 || (res.status === 404 && !(res.headers.get("content-type") || "").includes("json"));
-  if (looksMoved && account.discovery) {
-    try {
-      const fresh = await discover(account.discovery);
-      if (fresh !== account.hubUrl) {
-        account = { ...account, hubUrl: fresh };
-        await saveAccount(account);
-        onMove?.(account);
-        res = await go(fresh);
-      }
-    } catch {
-      /* fall through */
-    }
+  const moved = looksMoved ? await relocate(account) : null;
+  if (moved) {
+    account = moved;
+    onMove?.(moved);
+    res = await go(moved.hubUrl).catch(() => null);
   }
   if (!res) throw new HubError("The hub isn't reachable right now");
   if (!res.ok) throw await readError(res);
@@ -169,13 +177,24 @@ export async function sendMessage(
   text: string,
   onEvent: (e: StreamEvent) => void,
   signal?: AbortSignal,
+  onMove?: (a: Account) => void,
 ): Promise<void> {
-  const res = await expoFetch(`${account.hubUrl}/v1/chats/${chatId}/messages`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${account.token}`, "Content-Type": "application/json", Accept: "text/event-stream" },
-    body: JSON.stringify({ text }),
-    signal,
-  });
+  const go = (base: string) =>
+    expoFetch(`${base}/v1/chats/${chatId}/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${account.token}`, "Content-Type": "application/json", Accept: "text/event-stream" },
+      body: JSON.stringify({ text }),
+      signal,
+    });
+  let res = await go(account.hubUrl).catch(() => null);
+  if (!res || res.status === 530) {
+    const moved = await relocate(account);
+    if (moved) {
+      onMove?.(moved);
+      res = await go(moved.hubUrl);
+    }
+  }
+  if (!res) throw new HubError("The hub isn't reachable right now");
   if (!res.ok) throw await readError(res as unknown as Response);
   if (!res.body) throw new HubError("The agent didn't answer");
   const reader = res.body.getReader();

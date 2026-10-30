@@ -2,7 +2,7 @@
 // events they care about; the conversation list and unread badges live here.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppState } from "react-native";
-import { api, listen, HubError, type Conversation, type LiveEvent } from "./hub";
+import { api, listen, relocate, HubError, type Conversation, type LiveEvent } from "./hub";
 import { useSession } from "./session";
 
 type Live = {
@@ -78,6 +78,13 @@ export function LiveProvider({ children }: { children: ReactNode }) {
             signOut();
             return;
           }
+          // Hub restarted on a new tunnel address: switch to it (this effect restarts).
+          const moved = await relocate(account);
+          if (moved && !stopped) {
+            stopped = true;
+            setAccount(moved);
+            return;
+          }
         }
         setConnected(false);
         if (stopped) return;
@@ -98,7 +105,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       ctrl?.abort();
       sub.remove();
     };
-  }, [account, refresh, softRefresh, signOut]);
+  }, [account, refresh, softRefresh, signOut, setAccount]);
 
   const subscribe = useCallback((fn: (e: LiveEvent) => void) => {
     subs.current.add(fn);
