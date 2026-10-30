@@ -217,7 +217,7 @@ const styles = StyleSheet.create({
   edited: { fontSize: 12, color: colors.muted, marginTop: 1 },
   replies: { flexDirection: "row", alignItems: "baseline", marginTop: 4, minHeight: 28 },
   repliesText: { color: colors.blue, fontWeight: "600", fontSize: 15 },
-  composer: { flexDirection: "row", alignItems: "flex-end", paddingHorizontal: 12, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line, backgroundColor: colors.white },
+  composer: { flexDirection: "row", alignItems: "flex-end", paddingHorizontal: 20, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line, backgroundColor: colors.white },
   input: { flex: 1, minHeight: 44, maxHeight: 140, borderRadius: 22, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 16, paddingTop: 11, paddingBottom: 11, fontSize: 17, color: colors.ink, backgroundColor: colors.surface },
   send: { marginLeft: 8, height: 44, paddingHorizontal: 16, borderRadius: 22, backgroundColor: colors.blue, alignItems: "center", justifyContent: "center" },
   sendText: { color: colors.white, fontSize: 16, fontWeight: "600" },

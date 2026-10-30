@@ -1,4 +1,4 @@
-import { ActivityIndicator, Pressable, StyleSheet, Text, type ViewStyle } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, type StyleProp, type ViewStyle } from "react-native";
 import { colors } from "../lib/theme";
 
 type Props = {
@@ -7,7 +7,7 @@ type Props = {
   kind?: "primary" | "secondary" | "link" | "danger";
   busy?: boolean;
   disabled?: boolean;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
 };
 
 export function Button({ label, onPress, kind = "primary", busy, disabled, style }: Props) {

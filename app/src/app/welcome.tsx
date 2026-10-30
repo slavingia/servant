@@ -46,8 +46,8 @@ export default function Welcome() {
           />
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
-          <Button label="Join" onPress={join} disabled={!text.trim()} style={{ marginTop: 16 }} />
-          {Platform.OS !== "web" ? <Button label="Scan an invite code" kind="link" onPress={() => router.push("/scan")} style={{ marginTop: 8 }} /> : null}
+          <Button label="Join" onPress={join} disabled={!text.trim()} style={styles.action} />
+          {Platform.OS !== "web" ? <Button label="Scan an invite code" kind="link" onPress={() => router.push("/scan")} style={[styles.action, { marginTop: 8 }]} /> : null}
 
           <Text style={styles.note}>For non-sensitive work only. Don't share taxpayer information here until your agency approves Servant for it</Text>
         </ScrollView>
@@ -74,6 +74,7 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
   },
   inputError: { borderColor: colors.red },
+  action: { marginTop: 16, marginHorizontal: 20 },
   error: { marginTop: 8, marginHorizontal: 20, color: colors.red, fontSize: 15, lineHeight: 21 },
   note: { marginTop: 32, marginHorizontal: 20, fontSize: 14, lineHeight: 20, color: colors.muted },
 });
