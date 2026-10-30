@@ -50,7 +50,7 @@ def call(method, url, tok, data=None, ctype="application/json"):
             return e.code, {}
 
 
-def main():
+def main(tries=3):
     cmd = sys.argv[1] if len(sys.argv) > 1 else "check"
     tok = token()
     s, edit = call("POST", API + "/edits", tok, {})
@@ -75,6 +75,8 @@ def main():
         if s != 200:
             print("track failed", s, t); sys.exit(1)
         s, c = call("POST", f"{API}/edits/{e}:commit", tok)
+        if s == 400 and "outside of this Edit" in str(c) and tries > 1:  # console edit raced us
+            time.sleep(30); return main(tries - 1)
         if s != 200:  # brand-new apps may only accept status "draft" until first rollout
             print("commit failed", s, c.get("error", {}).get("message", "")); sys.exit(1)
         print("internal track: versionCode", vc, "released (completed)")
