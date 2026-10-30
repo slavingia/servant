@@ -1,0 +1,121 @@
+import { DatabaseSync } from 'node:sqlite';
+
+export const defaults = { mode: 'mentions', previews: true, pausedUntil: 0 };
+export const preferences = (user) => ({ ...defaults, ...user?.notifications });
+export function isMention(text, user) {
+  const names = [user.id, user.name, user.name?.replace(/\s+/g, '-'), user.name?.split(/\s+/)[0], 'channel', 'here'].filter(Boolean);
+  return names.some(name => new RegExp(`(^|[^\\w@])@${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[^\\w-])`, 'i').test(text));
+}
+export function wantsNotification(info, settings, now = Date.now()) {
+  if (!info || settings.mode === 'none' || settings.pausedUntil > now) return false;
+  return !!(settings.mode === 'all' || info.kind === 'dm' || info.kind === 'agent' || info.mentioned || info.participant);
+}
+export function notificationPayload(info, user, deviceId) {
+  const p = preferences(user);
+  return {
+    title: p.previews ? info.title : 'Servant',
+    body: p.previews ? info.body.slice(0, 180) : 'You have a new message',
+    group: info.conversationId || info.chatId,
+    badge: info.badge || 1,
+    data: { userId: user.id, deviceId, ...(info.conversationId ? { conversationId: info.conversationId } : { chatId: info.chatId }),
+      ...(info.threadRoot ? { threadRoot: String(info.threadRoot) } : {}), ...(info.messageId ? { messageId: String(info.messageId) } : {}) },
+  };
+}
+
+// The durable queue stores routing references. Message previews are resolved
+// just before delivery, after checking current membership and device status.
+export function createPushService({ file, state, mutate, resolve, send, clock = Date.now, log = console.warn }) {
+  const db = new DatabaseSync(file);
+  db.exec(`PRAGMA journal_mode=WAL;
+    CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, device_id TEXT NOT NULL, user_id TEXT NOT NULL, event TEXT NOT NULL,
+      created_at INTEGER NOT NULL, due_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0);
+    CREATE INDEX IF NOT EXISTS jobs_due ON jobs(due_at);`);
+  const insert = db.prepare('INSERT OR IGNORE INTO jobs VALUES (?, ?, ?, ?, ?, ?, 0)');
+  const remove = db.prepare('DELETE FROM jobs WHERE id = ?');
+  const due = db.prepare('SELECT * FROM jobs WHERE due_at <= ? ORDER BY due_at LIMIT 50');
+  const postpone = db.prepare('UPDATE jobs SET due_at = ? WHERE id = ?');
+  const retry = db.prepare('UPDATE jobs SET attempts = attempts + 1, due_at = ? WHERE id = ?');
+  let running = false, stopped = false;
+  function enqueue(event) {
+    const s = state(); const now = clock();
+    for (const d of Object.values(s.devices)) {
+      const user = s.users[d.userId];
+      if (d.revokedAt || !d.push || !user) continue;
+      if (!wantsNotification(resolve(event, user), preferences(user), now)) continue;
+      const key = `${d.id}:${event.kind}:${event.messageId || event.eventId}`;
+      insert.run(key, d.id, user.id, JSON.stringify(event), now, now);
+    }
+    // Delivery is detached from HTTP message/SSE responses.
+    void drain();
+  }
+  async function drain() {
+    if (running || stopped) return;
+    running = true;
+    try {
+      for (const job of due.all(clock())) {
+        if (stopped) break;
+        const s = state(); const device = Object.values(s.devices).find(d => d.id === job.device_id); const user = s.users[job.user_id];
+        const event = JSON.parse(job.event);
+        const info = user && resolve(event, user);
+        if (!device?.push || device.revokedAt || device.userId !== user?.id || clock() - job.created_at > 3600000 || !wantsNotification(info, preferences(user), clock())) {
+          remove.run(job.id); continue;
+        }
+        if (device.pushPresence?.until > clock() && device.pushPresence.conversation === (info.conversationId || info.chatId)) {
+          // Give a background transition time to clear its presence lease.
+          // Ordinary messages are rechecked against read state before delivery.
+          if (event.kind === 'agent' && clock() - job.created_at >= 5000) remove.run(job.id);
+          else postpone.run(Math.min(device.pushPresence.until, clock() + 5000), job.id);
+          continue;
+        }
+        const token = device.push.token;
+        try {
+          const result = await send(device.push, notificationPayload(info, user, device.id));
+          if (stopped) break;
+          if (result.invalid) mutate(s => {
+            const d = Object.values(s.devices).find(d => d.id === job.device_id);
+            if (d?.push?.token === token) delete d.push;
+          });
+          if (result.ok || result.invalid || !result.retry || job.attempts >= 5) {
+            remove.run(job.id);
+            if (!result.ok && !result.invalid) log('[push] delivery rejected:', result.code);
+          } else retry.run(clock() + Math.min(300000, 5000 * 2 ** job.attempts), job.id);
+        } catch {
+          if (stopped) break;
+          if (job.attempts >= 5) { remove.run(job.id); log('[push] delivery unavailable after retries'); }
+          else retry.run(clock() + Math.min(300000, 5000 * 2 ** job.attempts), job.id);
+        }
+      }
+    } finally { running = false; }
+  }
+  const timer = setInterval(() => void drain(), 5000); timer.unref();
+  return { enqueue, drain, pending: () => db.prepare('SELECT COUNT(*) AS n FROM jobs').get().n,
+    close: () => { stopped = true; clearInterval(timer); db.close(); } };
+}
+
+export function updatePushRegistration(s, device, body) {
+  if (body.token === null) { delete device.push; delete device.pushPresence; return; }
+  const { platform, token, environment = 'production' } = body;
+  if (!['ios', 'android'].includes(platform) || typeof token !== 'string' || token.length < 20 || token.length > 4096 || /\s/.test(token) ||
+      (platform === 'ios' && !/^[a-f0-9]{64,200}$/i.test(token)) || !['development', 'production'].includes(environment)) {
+    throw Object.assign(new Error('Invalid notification registration'), { status: 400, code: 'bad_push_token' });
+  }
+  // A physical install belongs to only its latest paired account/device.
+  for (const other of Object.values(s.devices)) if (other.id !== device.id && other.push?.token === token) delete other.push;
+  device.push = { platform, token, environment };
+}
+export function updatePreferences(user, body, now = Date.now()) {
+  const p = preferences(user);
+  if (body.mode !== undefined) {
+    if (!['all', 'mentions', 'none'].includes(body.mode)) throw Object.assign(new Error('Choose all, mentions, or none'), { status: 400, code: 'bad_preference' });
+    p.mode = body.mode;
+  }
+  if (body.previews !== undefined) {
+    if (typeof body.previews !== 'boolean') throw Object.assign(new Error('Invalid preview preference'), { status: 400, code: 'bad_preference' });
+    p.previews = body.previews;
+  }
+  if (body.pausedUntil !== undefined) {
+    if (!Number.isFinite(body.pausedUntil) || body.pausedUntil < 0 || body.pausedUntil > now + 7 * 86400000) throw Object.assign(new Error('Pause for up to seven days'), { status: 400, code: 'bad_preference' });
+    p.pausedUntil = body.pausedUntil;
+  }
+  user.notifications = p;
+}

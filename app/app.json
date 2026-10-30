@@ -50,6 +50,14 @@
             "useFrameworks": "dynamic"
           }
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#0071BC",
+          "defaultChannel": "messages",
+          "mode": "production"
+        }
       ]
     ],
     "scheme": "servant",

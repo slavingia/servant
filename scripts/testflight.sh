@@ -15,7 +15,7 @@ npx expo prebuild -p ios --clean --no-install
 
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" ios/Servant/Info.plist
 # Manual signing on the app target only; Pods/SPM framework targets can't take a provisioning profile.
-GEM_HOME=/opt/homebrew/opt/cocoapods/libexec /opt/homebrew/opt/ruby/bin/ruby -rxcodeproj -e 'p=Xcodeproj::Project.open("ios/Servant.xcodeproj"); p.targets.find{|t|t.name=="Servant"}.build_configurations.each{|c| c.build_settings.merge!("CODE_SIGN_STYLE"=>"Manual","DEVELOPMENT_TEAM"=>"EXBV39ZXGR","PROVISIONING_PROFILE_SPECIFIER"=>"Servant App Store","CODE_SIGN_IDENTITY"=>"Apple Distribution")}; p.save'
+GEM_HOME=/opt/homebrew/opt/cocoapods/libexec /opt/homebrew/opt/ruby/bin/ruby -rxcodeproj -e 'p=Xcodeproj::Project.open("ios/Servant.xcodeproj"); p.targets.find{|t|t.name=="Servant"}.build_configurations.each{|c| c.build_settings.merge!("CODE_SIGN_STYLE"=>"Manual","DEVELOPMENT_TEAM"=>"EXBV39ZXGR","PROVISIONING_PROFILE_SPECIFIER"=>"Servant Push App Store","CODE_SIGN_IDENTITY"=>"Apple Distribution")}; p.save'
 
 cat > "$OUT/ExportOptions.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -24,7 +24,7 @@ cat > "$OUT/ExportOptions.plist" <<EOF
   <key>method</key><string>app-store-connect</string>
   <key>teamID</key><string>EXBV39ZXGR</string>
   <key>signingStyle</key><string>manual</string>
-  <key>provisioningProfiles</key><dict><key>gov.irs.servant</key><string>Servant App Store</string></dict>
+  <key>provisioningProfiles</key><dict><key>gov.irs.servant</key><string>Servant Push App Store</string></dict>
   <key>destination</key><string>export</string>
 </dict></plist>
 EOF

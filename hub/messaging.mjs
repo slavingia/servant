@@ -9,6 +9,7 @@ import { DatabaseSync } from "node:sqlite";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { isMention } from "./push.mjs";
 
 export const AGENT_ID = "agent";
 const MAX_TEXT = 8000;
@@ -88,7 +89,7 @@ export function mentionsAgent(text, agentName = "") {
  * @param {() => string} o.agentName
  * @param {(o:{sessionId:string, sessionKey:string, text:string, onDelta:(t:string)=>void, onStatus:(t:string)=>void}) => Promise<string>} o.askAgent
  */
-export function createMessaging({ file, users, agentName, askAgent }) {
+export function createMessaging({ file, users, agentName, askAgent, onMessage = () => {} }) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(file);
   db.exec(SCHEMA);
@@ -221,6 +222,7 @@ export function createMessaging({ file, users, agentName, askAgent }) {
     const m = st.msg.get(seq);
     publish(conv.id, "message.created", msgView(m));
     if (threadRoot) publish(conv.id, "message.updated", msgView(st.msg.get(threadRoot)));
+    if (!pending) onMessage({ kind: "message", messageId: String(m.seq) });
     return m;
   }
 
@@ -269,7 +271,10 @@ export function createMessaging({ file, users, agentName, askAgent }) {
       text = text || "I hit a problem. Try asking again";
     }
     push(true);
-    if (st.conv.get(conv.id)) st.putAgentThread.run(key, sessionId, reply.seq);
+    if (st.conv.get(conv.id)) {
+      st.putAgentThread.run(key, sessionId, reply.seq);
+      onMessage({ kind: "message", messageId: String(reply.seq) });
+    }
     return st.msg.get(reply.seq);
   }
 
@@ -305,6 +310,23 @@ export function createMessaging({ file, users, agentName, askAgent }) {
       c = st.conv.get(id);
     }
     return c;
+  }
+
+  function notificationFor(messageId, user) {
+    const m = st.msg.get(Number(messageId));
+    if (!m || m.pending || m.deleted_at || m.user_id === user.id) return null;
+    const c = st.conv.get(m.conversation_id);
+    const membership = c && st.member.get(c.id, user.id);
+    if (!c || c.archived_at || !membership || membership.archived_at) return null;
+    // No delayed push after the recipient has already read the top-level post.
+    if (!m.thread_root && membership.last_read_seq >= m.seq) return null;
+    const participant = !!m.thread_root && !!db.prepare("SELECT 1 FROM messages WHERE conversation_id = ? AND (seq = ? OR thread_root = ?) AND user_id = ? AND deleted_at IS NULL AND seq < ? LIMIT 1").get(c.id, m.thread_root, m.thread_root, user.id, m.seq);
+    const sender = person(m.user_id).name;
+    const unread = st.mine.all(user.id, 0).reduce((n, c) => n + c.unread, 0);
+    return { kind: c.kind, conversationId: c.id, messageId: String(m.seq), threadRoot: m.thread_root,
+      mentioned: isMention(m.text, user), participant, badge: Math.max(1, unread),
+      title: c.kind === "channel" ? `${sender} in #${c.name}` : sender,
+      body: m.text, };
   }
 
   // ----- HTTP -----
@@ -509,7 +531,7 @@ export function createMessaging({ file, users, agentName, askAgent }) {
     return true;
   }
 
-  return { handle, joinDefaults, ensureGeneral, createChannel, openDm, post, agentReply, subscribe, close: () => db.close(), db };
+  return { handle, notificationFor, joinDefaults, ensureGeneral, createChannel, openDm, post, agentReply, subscribe, close: () => db.close(), db };
 }
 
 function httpError(status, code, message) {

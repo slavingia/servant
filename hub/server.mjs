@@ -17,6 +17,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createMessaging } from "./messaging.mjs";
+import os from "node:os";
+import { createPushService, preferences, updatePushRegistration, updatePreferences } from "./push.mjs";
+import { createPushTransport } from "./push-transport.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.SERVANT_DATA_DIR || path.join(HERE, "data");
@@ -283,6 +286,7 @@ function textOf(content) {
 
 // ---------- routes ----------
 
+let push;
 let messaging = null;
 
 async function handle(req, res, cfg) {
@@ -349,8 +353,30 @@ async function handle(req, res, cfg) {
 
   if (method === "POST" && url.pathname === "/v1/signout") {
     device.revokedAt = now();
+    delete device.push;
+    delete device.pushPresence;
     persist();
     return send(res, 200, { ok: true });
+  }
+
+  // Device tokens are registered only through the authenticated device session.
+  if (parts[1] === "notifications") {
+    if (method === "GET" && parts.length === 2) return send(res, 200, { preferences: preferences(user), registered: !!device.push, deviceId: device.id });
+    if (["PUT", "PATCH", "POST"].includes(method)) {
+      const body = await readBody(req);
+      reload();
+      const current = authenticate(req);
+      if (!current) return fail(res, 401, "unauthorized", "This device is no longer paired");
+      if (method === "PUT" && parts.length === 2) updatePushRegistration(state, current.device, body);
+      else if (method === "PATCH" && parts.length === 2) updatePreferences(current.user, body);
+      else if (method === "POST" && parts[2] === "presence") {
+        const conversation = typeof body.conversation === "string" && /^(ch|dm|cht)_[A-Za-z0-9_-]+$/.test(body.conversation) ? body.conversation : null;
+        current.device.pushPresence = { conversation, until: body.active === true ? now() + 75000 : 0 };
+      } else return fail(res, 404, "not_found", "Not found");
+      persist();
+      return send(res, 200, { preferences: preferences(current.user), registered: !!current.device.push, deviceId: current.device.id });
+    }
+    return fail(res, 404, "not_found", "Not found");
   }
 
   // ----- owner-only admin -----
@@ -372,6 +398,8 @@ async function handle(req, res, cfg) {
       const d = Object.values(state.devices).find((x) => x.id === parts[2]);
       if (!d) return fail(res, 404, "not_found", "No such device");
       d.revokedAt = now();
+      delete d.push;
+      delete d.pushPresence;
       persist();
       return send(res, 200, { ok: true });
     }
@@ -463,6 +491,7 @@ async function handle(req, res, cfg) {
     // Re-emit a small, stable event set. Members never see tool arguments.
     const owner = user.role === "owner";
     const forward = (name, payload) => {
+      if (closed) return;
       switch (name) {
         case "assistant.delta":
           return emit("delta", { text: payload.delta || "" });
@@ -478,7 +507,11 @@ async function handle(req, res, cfg) {
     };
 
     try {
-      await streamTurn(chatUp, chat.hermesSessionId, text, sessionKey(user), forward, () => closed);
+      const answer = await streamTurn(chatUp, chat.hermesSessionId, text, sessionKey(user), forward);
+      if (answer) {
+        try { push?.enqueue({ kind: "agent", eventId: id("reply"), chatId: chat.id, userId: user.id, text: answer }); }
+        catch { console.error("Could not queue agent notification"); }
+      }
     } catch (e) {
       if (!closed) emit("error", { message: e.code === "agent_error" ? "The agent didn't answer. Try again" : "Lost the connection to the agent" });
     }
@@ -507,6 +540,7 @@ export function startServer(fixedCfg) {
   messaging ??= createMessaging({
     file: path.join(DATA_DIR, "messages.db"),
     users: () => state.users,
+    onMessage: event => { try { push?.enqueue(event); } catch { console.warn("[push] could not queue notification"); } },
     agentName: () => (fixedCfg || loadConfig()).agentName || "Agent",
     // In channels several people read the answer, so the agent always runs
     // as the limited member profile, never the owner's.
@@ -522,6 +556,18 @@ export function startServer(fixedCfg) {
       });
     },
   });
+  push ??= createPushService({
+    file: path.join(DATA_DIR, "push.db"),
+    state: () => { reload(); return state; },
+    mutate: fn => { reload(); fn(state); persist(); },
+    resolve: (event, user) => {
+      if (event.kind === "message") return messaging.notificationFor(event.messageId, user);
+      const chat = state.chats[event.chatId];
+      if (event.userId !== user.id || !chat || chat.deletedAt || chat.userId !== user.id) return null;
+      return { kind: "agent", chatId: chat.id, title: "Agent · " + chat.title, body: event.text };
+    },
+    send: createPushTransport(() => loadJson(process.env.SERVANT_PUSH_CONFIG || path.join(os.homedir(), ".config/servant/push.json"), {})),
+  });
   messaging.ensureGeneral();
   reload();
   for (const uid of Object.keys(state.users)) messaging.joinDefaults(uid);
@@ -533,6 +579,7 @@ export function startServer(fixedCfg) {
       fail(res, status, status === 500 ? "server_error" : err.code || "bad_request", status === 500 ? "Something went wrong on the hub" : err.message);
     });
   });
+  server.on("close", () => { push?.close(); push = null; });
   server.requestTimeout = 0; // agent turns can take minutes
   server.headersTimeout = 30000;
   return new Promise((resolve, reject) => {

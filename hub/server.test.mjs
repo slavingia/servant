@@ -484,6 +484,23 @@ test("legacy membership migration preserves history and personal archive survive
   m.close();
 });
 
+test("notification settings and push registration are scoped to the authenticated device", async () => {
+  const token = await pair("member", "Notification settings test");
+  assert.equal((await api("PUT", "/v1/notifications", { body: { token: "x".repeat(30), platform: "android" } })).status, 401);
+  assert.equal((await api("PUT", "/v1/notifications", { token, body: { token: "bad", platform: "ios" } })).status, 400);
+  const registration = await api("PUT", "/v1/notifications", { token, body: { token: "x".repeat(30), platform: "android" } });
+  assert.equal(registration.status, 200);
+  assert.equal(registration.json.registered, true);
+  assert.equal(registration.json.preferences.mode, "mentions");
+  const prefs = await api("PATCH", "/v1/notifications", { token, body: { mode: "none", previews: false } });
+  assert.equal(prefs.status, 200);assert.equal(prefs.json.preferences.previews, false);
+  assert.equal((await api("POST", "/v1/notifications/presence", { token, body: { active: true, conversation: "ch_test" } })).status, 200);
+  assert.equal((await api("POST", "/v1/signout", { token })).status, 200);
+  assert.equal((await api("GET", "/v1/notifications", { token })).status, 401);
+  const saved = JSON.parse(fs.readFileSync(path.join(dataDir, "state.json")));
+  assert.equal(Object.values(saved.devices).find(d => d.id === registration.json.deviceId).push, undefined);
+});
+
 test("ten wrong codes lock out pairing from that address; good pairings don't count", async () => {
   // Earlier tests already used one wrong code from this address.
   const statuses = [];

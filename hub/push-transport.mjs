@@ -1,0 +1,85 @@
+// Native FCM v1 and APNs delivery. Credentials never leave this hub except
+// signed, short-lived authorization tokens sent to their respective provider.
+import fs from 'node:fs';
+import crypto from 'node:crypto';
+import http2 from 'node:http2';
+
+const b64 = (x) => Buffer.from(JSON.stringify(x)).toString('base64url');
+export function fcmMessage(token, n) {
+  return { message: {
+    token,
+    notification: { title: n.title, body: n.body },
+    data: { body: JSON.stringify(n.data), channelId: 'messages', threadIdentifier: n.group },
+    android: { priority: 'HIGH', ttl: '3600s', notification: { channel_id: 'messages', tag: n.group, sound: 'default', notification_count: n.badge } },
+  } };
+}
+export function apnsPayload(n) {
+  return { aps: { alert: { title: n.title, body: n.body }, sound: 'default', badge: n.badge, 'thread-id': n.group }, ...n.data };
+}
+export function createPushTransport(config, fetcher = fetch) {
+  let google = null;
+  let apple = null;
+  async function googleToken(c) {
+    if (google && google.until > Date.now() + 60000) return google.token;
+    const key = JSON.parse(fs.readFileSync(c.fcmKeyPath, 'utf8'));
+    const iat = Math.floor(Date.now() / 1000);
+    const input = `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64({ iss: key.client_email, scope: 'https://www.googleapis.com/auth/firebase.messaging', aud: 'https://oauth2.googleapis.com/token', iat, exp: iat + 3600 })}`;
+    const assertion = input + '.' + crypto.sign('RSA-SHA256', Buffer.from(input), key.private_key).toString('base64url');
+    const r = await fetcher('https://oauth2.googleapis.com/token', { method: 'POST', body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }), signal: AbortSignal.timeout(15000) });
+    const data = await r.json();
+    if (!r.ok || !data.access_token) throw new Error('FCM_AUTH_FAILED');
+    google = { token: data.access_token, until: Date.now() + (data.expires_in || 3600) * 1000 };
+    return google.token;
+  }
+  function appleToken(c) {
+    if (apple && apple.until > Date.now()) return apple.token;
+    const input = `${b64({ alg: 'ES256', kid: c.apnsKeyId })}.${b64({ iss: c.apnsTeamId, iat: Math.floor(Date.now() / 1000) })}`;
+    const sig = crypto.sign('sha256', Buffer.from(input), { key: fs.readFileSync(c.apnsKeyPath), dsaEncoding: 'ieee-p1363' }).toString('base64url');
+    apple = { token: input + '.' + sig, until: Date.now() + 45 * 60000 };
+    return apple.token;
+  }
+  return async (device, notification) => {
+    const c = config();
+    if (device.platform === 'android') {
+      if (!c?.fcmKeyPath || !c?.fcmProjectId) throw new Error('FCM_NOT_CONFIGURED');
+      const r = await fetcher(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(c.fcmProjectId)}/messages:send`, {
+        method: 'POST', headers: { Authorization: `Bearer ${await googleToken(c)}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(fcmMessage(device.token, notification)), signal: AbortSignal.timeout(15000),
+      });
+      const result = await r.json();
+      if (r.ok) return { ok: true };
+      const code = result.error?.details?.find(d => d['@type']?.endsWith('FcmError'))?.errorCode || result.error?.status || String(r.status);
+      if (r.status === 401) google = null;
+      return { ok: false, invalid: code === 'UNREGISTERED', retry: r.status === 429 || r.status >= 500 || r.status === 401, code };
+    }
+    if (!c?.apnsKeyPath || !c?.apnsKeyId || !c?.apnsTeamId) throw new Error('APNS_NOT_CONFIGURED');
+    // Environment comes from the signed app registration, not a caller-supplied URL.
+    const host = device.environment === 'development' ? 'https://api.sandbox.push.apple.com' : 'https://api.push.apple.com';
+    const authorization = appleToken(c);
+    return new Promise((resolve, reject) => {
+      const client = http2.connect(host);
+      let settled = false;
+      const finish = (err, result) => {
+        if (settled) return;
+        settled = true; clearTimeout(timer); client.destroy();
+        if (err) reject(err); else resolve(result);
+      };
+      const timer = setTimeout(() => finish(new Error('APNS_TIMEOUT')), 15000);
+      client.on('error', () => finish(new Error('APNS_CONNECTION_FAILED')));
+      const req = client.request({ ':method': 'POST', ':path': '/3/device/' + device.token,
+        authorization: 'bearer ' + authorization, 'apns-topic': 'gov.irs.servant', 'apns-push-type': 'alert',
+        'apns-priority': '10', 'apns-expiration': String(Math.floor(Date.now() / 1000) + 3600),
+        'apns-collapse-id': crypto.createHash('sha256').update(notification.group).digest('hex'),
+      });
+      let status = 0, body = '';
+      req.on('response', h => { status = Number(h[':status']); });
+      req.on('data', c => { body += c; });
+      req.on('error', () => finish(new Error('APNS_REQUEST_FAILED')));
+      req.on('end', () => {
+        let reason; try { reason = JSON.parse(body).reason; } catch { /* success has no body */ }
+        finish(null, { ok: status === 200, invalid: ['Unregistered', 'BadDeviceToken', 'DeviceTokenNotForTopic'].includes(reason), retry: status === 429 || status >= 500, code: reason || String(status) });
+      });
+      req.end(JSON.stringify(apnsPayload(notification)));
+    });
+  };
+}

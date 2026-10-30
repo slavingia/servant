@@ -3,6 +3,7 @@ import { router, Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { SessionProvider } from "../lib/session";
+import { NotificationsProvider } from "../lib/notifications";
 import { LiveProvider } from "../lib/live";
 import { colors } from "../lib/theme";
 
@@ -11,6 +12,7 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <SessionProvider>
         <LiveProvider>
+        <NotificationsProvider>
         <StatusBar style="light" />
         <Stack
           screenOptions={{
@@ -54,8 +56,10 @@ export default function RootLayout() {
           <Stack.Screen name="browse" options={{ title: "Browse channels" }} />
           <Stack.Screen name="channel-info" options={{ title: "Details" }} />
           <Stack.Screen name="chat/[id]" options={{ title: "" }} />
+          <Stack.Screen name="notifications" options={{ title: "Notifications" }} />
           <Stack.Screen name="invite" options={{ title: "Invite someone" }} />
         </Stack>
+        </NotificationsProvider>
         </LiveProvider>
       </SessionProvider>
     </SafeAreaProvider>
