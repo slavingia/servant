@@ -48,6 +48,7 @@ export default function Settings() {
       <Text style={styles.section}>Account</Text>
       <View style={styles.group}>
         <Row label="Name" value={account.user.name} />
+        <Row label="Send feedback" onPress={() => router.push("/feedback")} />
         <Row label="Notifications" onPress={() => router.push("/notifications")} />
         <Row label="Server" value={account.serverName} />
         <Row label="Access" value={owner ? "Owner" : "Member"} />

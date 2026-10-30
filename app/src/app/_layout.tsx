@@ -5,6 +5,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { SessionProvider, useSession } from "../lib/session";
 import { NotificationsProvider } from "../lib/notifications";
 import { LiveProvider } from "../lib/live";
+import { FeedbackGesture } from "../components/FeedbackGesture";
 import { colors } from "../lib/theme";
 
 export default function RootLayout() {
@@ -30,6 +31,7 @@ function SessionNavigation() {
   return (
     <LiveProvider>
     <NotificationsProvider>
+    <FeedbackGesture>
     <StatusBar style="light" />
     <Stack
       screenOptions={{
@@ -76,10 +78,12 @@ function SessionNavigation() {
         <Stack.Screen name="browse" options={{ title: "Browse channels" }} />
         <Stack.Screen name="channel-info" options={{ title: "Details" }} />
         <Stack.Screen name="chat/[id]" options={{ title: "" }} />
+        <Stack.Screen name="feedback" options={{ title: "Feedback" }} />
         <Stack.Screen name="notifications" options={{ title: "Notifications" }} />
         <Stack.Screen name="invite" options={{ title: "Invite someone" }} />
       </Stack.Protected>
     </Stack>
+    </FeedbackGesture>
     </NotificationsProvider>
     </LiveProvider>
   );

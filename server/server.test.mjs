@@ -605,6 +605,20 @@ test("release notes can only be posted from this Mac with the admin key", async 
   assert.equal(r2.status, 403);
 });
 
+test("feedback accepts paired reports once and never leaks another user's history", async () => {
+  const a = await pair("member", "Reporter");
+  const b = await pair("member", "Other reporter");
+  assert.equal((await api("POST", "/v1/feedback", { body: {} })).status, 401);
+  const body = { requestId: "feedback-request-1", text: "The keyboard covers Send", context: { build: "14", token: "secret" } };
+  const first = await api("POST", "/v1/feedback", { token: a, body });
+  assert.equal(first.status, 202);
+  assert.equal(first.json.report.status, "queued");
+  assert.equal(first.json.report.context.token, undefined);
+  assert.equal((await api("POST", "/v1/feedback", { token: a, body })).json.report.id, first.json.report.id);
+  assert.equal((await api("GET", "/v1/feedback", { token: a })).json.reports.length, 1);
+  assert.equal((await api("GET", "/v1/feedback", { token: b })).json.reports.length, 0);
+});
+
 test("ten wrong codes lock out pairing from that address; good pairings don't count", async () => {
   // Earlier tests already used one wrong code from this address.
   const statuses = [];

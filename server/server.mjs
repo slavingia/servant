@@ -19,6 +19,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createMessaging } from "./messaging.mjs";
 import os from "node:os";
+import { createFeedback, feedbackPrompt, feedbackResult } from "./feedback.mjs";
 import { createPushService, preferences, updatePushRegistration, updatePreferences } from "./push.mjs";
 import { createPushTransport } from "./push-transport.mjs";
 
@@ -290,6 +291,7 @@ function textOf(content) {
 // ---------- routes ----------
 
 let push;
+let feedback;
 let messaging = null;
 
 async function handle(req, res, cfg) {
@@ -362,6 +364,16 @@ async function handle(req, res, cfg) {
   const auth = authenticate(req);
   if (!auth) return fail(res, 401, "unauthorized", "This device isn't paired, or was removed");
   const { user, device } = auth;
+
+  if (parts[1] === "feedback") {
+    if (method === "GET" && parts.length === 2) return send(res, 200, { reports: feedback.list(user.id) });
+    if (method === "POST" && parts.length === 2) return send(res, 202, { report: feedback.submit(user.id, await readBody(req)) });
+    if (method === "POST" && parts.length === 4 && parts[3] === "retry") {
+      feedback.retry(user.id, parts[2]);
+      return send(res, 200, { ok: true });
+    }
+    return fail(res, 404, "not_found", "Not found");
+  }
 
   if (method === "GET" && url.pathname === "/v1/me") {
     persist();
@@ -549,6 +561,16 @@ async function handle(req, res, cfg) {
   return fail(res, 404, "not_found", "Not found");
 }
 
+// Runs in a separate worker so deploying/restarting the API cannot lose a report.
+export async function runFeedback(report) {
+  const up = upstreamFor({ role: "owner" }, loadConfig());
+  if (!up) throw new Error("Development agent unavailable");
+  const sid = `servant_feedback_${report.id}`;
+  const made = await hermes(up, "POST", "/api/sessions", { id: sid, title: `Servant feedback ${report.id}` });
+  if (!made.ok && made.status !== 409) throw new Error("Could not create feedback session");
+  return feedbackResult(await streamTurn(up, sid, feedbackPrompt(report), "servant:development-feedback", () => {}));
+}
+
 export function startServer(fixedCfg) {
   // Without a fixed config, re-read it per request so a new tunnel address
   // (written by publish.mjs) shows up without a restart.
@@ -585,6 +607,7 @@ export function startServer(fixedCfg) {
     },
     send: createPushTransport(() => loadJson(process.env.SERVANT_PUSH_CONFIG || path.join(os.homedir(), ".config/servant/push.json"), {})),
   });
+  feedback ??= createFeedback({ file: path.join(DATA_DIR, "feedback.db"), interval: 0, recover: false });
   messaging.ensureGeneral();
   reload();
   for (const uid of Object.keys(state.users)) messaging.joinDefaults(uid);
@@ -596,7 +619,7 @@ export function startServer(fixedCfg) {
       fail(res, status, status === 500 ? "server_error" : err.code || "bad_request", status === 500 ? "Something went wrong on the server" : err.message);
     });
   });
-  server.on("close", () => { push?.close(); push = null; });
+  server.on("close", () => { push?.close(); push = null; feedback?.close(); feedback = null; });
   server.requestTimeout = 0; // agent turns can take minutes
   server.headersTimeout = 30000;
   return new Promise((resolve, reject) => {
