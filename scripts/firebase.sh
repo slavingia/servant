@@ -1,8 +1,11 @@
 #!/bin/bash
 # Build Servant for Android and ship to Firebase App Distribution (internal group "Servant internal").
 # Usage: scripts/firebase.sh <build-number> [--no-upload]
+# Also builds the Play AAB (app-release.aab); scripts/play.py uploads it to the internal track.
 # Key: .certs/servant-release.keystore (git-ignored), password in keychain item servant-android-key.
 set -euo pipefail
+export ANDROID_HOME=${ANDROID_HOME:-$HOME/Library/Android/sdk}
+export JAVA_HOME=${JAVA_HOME:-$(/usr/libexec/java_home -v 17 2>/dev/null || /usr/libexec/java_home)}
 BUILD=${1:?build number}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 APP_ID=1:467107929396:android:aeb66fddbf38d4c7491961
@@ -34,10 +37,11 @@ open(p,"w").write(s)
 EOF
 
 cd android
-SERVANT_KEYSTORE="$ROOT/.certs/servant-release.keystore" SERVANT_KEY_PW="$PW" ./gradlew -q assembleRelease
+SERVANT_KEYSTORE="$ROOT/.certs/servant-release.keystore" SERVANT_KEY_PW="$PW" ./gradlew -q assembleRelease bundleRelease
+AAB=$PWD/app/build/outputs/bundle/release/app-release.aab
 APK=app/build/outputs/apk/release/app-release.apk
 "$(ls -d ~/Library/Android/sdk/build-tools/* | tail -1)/apksigner" verify --print-certs "$APK" | grep -m1 "certificate DN"
-[ "${2:-}" = "--no-upload" ] && { echo "$PWD/$APK"; exit 0; }
+[ "${2:-}" = "--no-upload" ] && { echo "$PWD/$APK"; echo "$AAB"; exit 0; }
 
 $FB appdistribution:distribute "$APK" --app "$APP_ID" --groups "$GROUP" --project "$PROJECT" \
   --release-notes "Servant build $BUILD (internal use only)" 2>&1 | grep -E "uploaded|distributed|console|Error|testing"
