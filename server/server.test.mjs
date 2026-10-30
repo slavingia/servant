@@ -371,6 +371,33 @@ test("everyone lands in #general and can make channels, DMs and threads", async 
   benLive.close();
 });
 
+test("typing is relayed live to the others, not the typist, and throttled", async () => {
+  const eve = await pair("member", "Eve Typist");
+  const fay = await pair("member", "Fay Reader");
+  const general = (await api("GET", "/v1/conversations", { token: eve })).json.conversations.find((c) => c.name === "general");
+  const fayLive = await events(fay);
+  const eveLive = await events(eve);
+  await waitFor(() => fayLive.got.some((e) => e.event === "ready") && eveLive.got.some((e) => e.event === "ready"));
+
+  assert.equal((await api("POST", `/v1/conversations/${general.id}/typing`, { token: eve, body: {} })).status, 200);
+  const seen = await waitFor(() => fayLive.got.find((e) => e.event === "typing"));
+  assert.equal(seen.data.conversationId, general.id);
+  assert.equal(seen.data.user.name, "Eve Typist");
+  assert.equal(seen.data.threadRoot, null);
+
+  // A second ping right away is accepted but not relayed again; the typist never hears themself.
+  await api("POST", `/v1/conversations/${general.id}/typing`, { token: eve, body: { threadRoot: "5" } });
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(fayLive.got.filter((e) => e.event === "typing").length, 1);
+  assert.equal(eveLive.got.some((e) => e.event === "typing"), false);
+
+  // Nothing is stored: the conversation has no new message.
+  const before = (await api("GET", `/v1/conversations/${general.id}/messages`, { token: fay })).json.messages.length;
+  assert.equal((await api("GET", `/v1/conversations/${general.id}/messages`, { token: fay })).json.messages.length, before);
+  fayLive.close();
+  eveLive.close();
+});
+
 test("@agent in a channel replies in a thread, as the member agent, with live updates", async () => {
   const ana = await pair("owner", "Owner Ana");
   const dee = await pair("member", "Dee");

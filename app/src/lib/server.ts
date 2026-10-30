@@ -49,6 +49,7 @@ export type BrowseChannel = { id: string; name: string; topic: string; memberCou
 export type LiveEvent =
   | { event: "message.created" | "message.updated"; data: Post }
   | { event: "conversation.updated" | "conversation.read"; data: { id: string } }
+  | { event: "typing"; data: { conversationId: string; threadRoot: string | null; user: Person } }
   | { event: "ready"; data: Record<string, never> };
 
 const KEY = "servant.account";
@@ -311,6 +312,8 @@ export const api = {
   leave: (a: Account, id: string) => request(a, `/v1/conversations/${id}/leave`, { method: "POST", body: "{}" }),
   addMembers: (a: Account, id: string, userIds: string[]) =>
     request(a, `/v1/conversations/${id}/members`, { method: "POST", body: JSON.stringify({ userIds }) }),
+  typing: (a: Account, id: string, threadRoot?: string) =>
+    request(a, `/v1/conversations/${id}/typing`, { method: "POST", body: JSON.stringify({ threadRoot }) }).catch(() => undefined),
   markRead: (a: Account, id: string, seq?: string) =>
     request(a, `/v1/conversations/${id}/read`, { method: "POST", body: JSON.stringify({ seq: seq ? Number(seq) : undefined }) }).catch(() => undefined),
   posts: (a: Account, id: string, before?: string) =>

@@ -164,6 +164,9 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     listeners.get(userId).add(fn);
     return () => listeners.get(userId)?.delete(fn);
   }
+  // Last typing relay per conversation+person, so a chatty phone can't flood the others.
+  const TYPING_MIN_GAP_MS = 2000;
+  const typingSent = new Map();
   function publish(conversationId, event, data, onlyUserIds) {
     const ids = onlyUserIds || st.members.all(conversationId).map((r) => r.user_id);
     for (const uid of ids) for (const fn of listeners.get(uid) || []) fn(event, data);
@@ -189,7 +192,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     createdAt: m.created_at,
     editedAt: m.edited_at,
   });
-  function convView(c, me) {
+  function convView(c, me, includeMembers = false) {
     const memberIds = st.members.all(c.id).map((r) => r.user_id);
     let title = c.kind === "channel" ? c.name : null;
     if (c.kind === "dm") {
@@ -207,7 +210,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       createdBy: c.created_by,
       archived: !!st.member.get(c.id, me)?.archived_at,
       memberCount: memberIds.length,
-      members: c.kind === "dm" || memberIds.length <= 50 ? memberIds.map(person) : undefined,
+      members: includeMembers || c.kind === "dm" || memberIds.length <= 50 ? memberIds.map(person) : undefined,
       unread: c.unread ?? 0,
       lastMessage: last ? msgView(last) : null,
       updatedAt: last ? last.created_at : c.created_at,
@@ -491,7 +494,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       }
 
       if (!sub && method === "GET") {
-        send(res, 200, { conversation: convView({ ...conv, last_seq: st.lastSeq.get(conv.id).seq }, user.id), joined: isMember });
+        send(res, 200, { conversation: convView({ ...conv, last_seq: st.lastSeq.get(conv.id).seq }, user.id, true), joined: isMember });
         return true;
       }
       if (!sub && method === "PATCH") {
@@ -532,6 +535,21 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
         for (const uid of new Set(ids)) added += addChannelMember(conv, uid, 0);
         publish(conv.id, "conversation.updated", { id: conv.id });
         send(res, 200, { ok: true, added });
+        return true;
+      }
+      // Typing indicator: relayed live to everyone else in the conversation, never stored.
+      // Phones re-send it every few seconds while someone types; it fades after six.
+      if (sub === "typing" && method === "POST") {
+        if (!isMember) return fail(res, 403, "not_member", "Join the channel first"), true;
+        const body = await readBody(req);
+        const now_ = now();
+        const key = `${conv.id}:${user.id}`;
+        if (now_ - (typingSent.get(key) || 0) >= TYPING_MIN_GAP_MS) {
+          typingSent.set(key, now_);
+          const others = st.members.all(conv.id).map((m) => m.user_id).filter((u) => u !== user.id);
+          publish(conv.id, "typing", { conversationId: conv.id, threadRoot: body.threadRoot ? String(body.threadRoot) : null, user: person(user.id) }, others);
+        }
+        send(res, 200, { ok: true });
         return true;
       }
       if (sub === "read" && method === "POST") {

@@ -4,6 +4,7 @@ import { router, Stack, useIsFocused, useLocalSearchParams } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { Button } from "../../components/Button";
 import { Composer, PostRow } from "../../components/Messaging";
+import { TypingLine, useTyping, useTypingPing } from "../../lib/typing";
 import { api, ServerError, type Conversation, type Post } from "../../lib/server";
 import { useLive } from "../../lib/live";
 import { useSession } from "../../lib/session";
@@ -34,6 +35,8 @@ export default function ConversationScreen() {
   const [editing, setEditing] = useState<Post | null>(null);
   const [joining, setJoining] = useState(false);
   const loadingOlder = useRef(false);
+  const typingNames = useTyping(id, null, account?.user.id ?? "");
+  const ping = useTypingPing(account, id);
 
   const load = useCallback(async () => {
     if (!account || !id) return;
@@ -218,15 +221,16 @@ export default function ConversationScreen() {
             }}
           />
         )}
+        {joined ? <TypingLine names={typingNames} /> : null}
         {!joined ? (
           <View style={styles.joinBar}>
             <Text style={styles.joinText}>You're previewing {title}</Text>
             <Button label={`Join ${title}`} onPress={join} busy={joining} />
           </View>
         ) : editing ? (
-          <Composer key={`edit-${editing.id}`} placeholder="Edit message" initial={editing.text} sendLabel="Save" onSend={saveEdit} onCancel={() => setEditing(null)} />
+          <Composer members={conv?.members} me={me} key={`edit-${editing.id}`} placeholder="Edit message" initial={editing.text} sendLabel="Save" onSend={saveEdit} onCancel={() => setEditing(null)} />
         ) : (
-          <Composer key="new" placeholder={conv ? `Message ${title}` : "Message"} onSend={send} />
+          <Composer members={conv?.members} me={me} key="new" placeholder={conv ? `Message ${title}` : "Message"} onSend={send} onTyping={ping} />
         )}
       </KeyboardAvoidingView>
     </View>

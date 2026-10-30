@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
-import { Alert, Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View, type PressableProps } from "react-native";
+import { useEffect, useRef, useState, type ComponentRef } from "react";
+import { Alert, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type PressableProps } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { Conversation, Post } from "../lib/server";
+import type { Conversation, Person, Post } from "../lib/server";
+import { activeMention, insertMention, mentionMatches, mentionText } from "../lib/mentions";
 import { colors } from "../lib/theme";
 
 export function when(ms: number) {
@@ -31,7 +32,7 @@ export function Avatar({ name, agent, size = 36 }: { name: string; agent?: boole
 
 // Splits text so @mentions stand out.
 function Rich({ text, style }: { text: string; style: object }) {
-  const parts = text.split(/(@[\w-]+)/g);
+  const parts = text.split(/(@[\p{L}\p{M}\p{N}_’'.-]+)/gu);
   return (
     <Text selectable style={style}>
       {parts.map((p, i) =>
@@ -113,12 +114,18 @@ export function Composer({
   initial = "",
   sendLabel = "Send",
   onCancel,
+  onTyping,
+  members = [],
+  me = "",
 }: {
   placeholder: string;
   onSend: (text: string) => Promise<boolean>;
   initial?: string;
   sendLabel?: string;
   onCancel?: () => void;
+  members?: Person[];
+  me?: string;
+  onTyping?: (text: string) => void;
 }) {
   const insets = useSafeAreaInsets();
   // The home-indicator inset only applies when the keyboard is down; above the keyboard the
@@ -134,17 +141,45 @@ export function Composer({
   }, []);
   const [text, setText] = useState(initial);
   const [busy, setBusy] = useState(false);
+  const input = useRef<ComponentRef<typeof TextInput>>(null);
+  const [selection, setSelection] = useState({ start: initial.length, end: initial.length });
+  const [insertedSelection, setInsertedSelection] = useState<{ start: number; end: number }>();
+  const [focused, setFocused] = useState(false);
+  const match = focused && !busy ? activeMention(text, selection) : null;
+  const suggestions = match ? mentionMatches(members, me, match.query) : [];
+  const choose = (person: Person) => {
+    if (!match) return;
+    const next = insertMention(text, match, person.name);
+    setText(next.text);
+    onTyping?.(next.text);
+    const caret = { start: next.cursor, end: next.cursor };
+    setSelection(caret);
+    setInsertedSelection(caret);
+    input.current?.focus();
+  };
   const send = async () => {
     const body = text.trim();
     if (!body || busy) return;
     setBusy(true);
     setText("");
+    setInsertedSelection(undefined);
     const ok = await onSend(body);
     if (!ok) setText(body);
     setBusy(false);
   };
   const off = !text.trim() || busy;
   return (
+    <View style={styles.composerWrap}>
+      {match ? (
+        <ScrollView keyboardShouldPersistTaps="always" style={styles.suggestions} accessibilityLabel="Mention suggestions">
+          {suggestions.length ? suggestions.map(person => (
+            <Pressable key={person.id} testID={`mention-${person.id}`} accessibilityRole="button" accessibilityLabel={`Mention ${person.name}`} onPress={() => choose(person)} style={({ pressed }) => [styles.suggestion, pressed && { backgroundColor: colors.surface }]}>
+              <Avatar name={person.name} size={32} />
+              <View style={{ flex: 1, marginLeft: 12 }}><Text style={styles.suggestionName}>{person.name}</Text><Text style={styles.suggestionHandle}>{mentionText(person.name)}</Text></View>
+            </Pressable>
+          )) : <Text style={styles.noSuggestions}>No matching members in this conversation</Text>}
+        </ScrollView>
+      ) : null}
     <View style={[styles.composer, { paddingBottom: keyboard ? 10 : Math.max(insets.bottom, 10) }]}>
       {onCancel ? (
         <Pressable accessibilityRole="button" onPress={onCancel} style={styles.cancel}>
@@ -152,10 +187,19 @@ export function Composer({
         </Pressable>
       ) : null}
       <TextInput
+        ref={input}
         testID="composer-input"
         accessibilityLabel={placeholder}
         value={text}
-        onChangeText={setText}
+        onChangeText={(t) => {
+          setText(t);
+          setInsertedSelection(undefined);
+          onTyping?.(t);
+        }}
+        selection={insertedSelection}
+        onSelectionChange={({ nativeEvent }) => setSelection(nativeEvent.selection)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         placeholder={placeholder}
         placeholderTextColor="#8A8F96"
         multiline
@@ -166,6 +210,7 @@ export function Composer({
       <Pressable testID="composer-send" accessibilityRole="button" accessibilityState={{ disabled: off }} onPress={send} disabled={off} style={[styles.send, off && { opacity: 0.4 }]}>
         <Text style={styles.sendText}>{sendLabel}</Text>
       </Pressable>
+    </View>
     </View>
   );
 }
@@ -226,6 +271,12 @@ const styles = StyleSheet.create({
   edited: { fontSize: 12, color: colors.muted, marginTop: 1 },
   replies: { flexDirection: "row", alignItems: "baseline", marginTop: 4, minHeight: 28 },
   repliesText: { color: colors.blue, fontWeight: "600", fontSize: 15 },
+  composerWrap: { backgroundColor: colors.white },
+  suggestions: { maxHeight: 190, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
+  suggestion: { flexDirection: "row", alignItems: "center", minHeight: 56, paddingHorizontal: 20, paddingVertical: 8 },
+  suggestionName: { fontSize: 16, fontWeight: "600", color: colors.ink },
+  suggestionHandle: { fontSize: 13, color: colors.muted, marginTop: 2 },
+  noSuggestions: { paddingHorizontal: 20, paddingVertical: 14, color: colors.muted, fontSize: 14 },
   composer: { flexDirection: "row", alignItems: "flex-end", paddingHorizontal: 20, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line, backgroundColor: colors.white },
   input: { flex: 1, minHeight: 44, maxHeight: 140, borderRadius: 22, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 16, paddingTop: 11, paddingBottom: 11, fontSize: 17, color: colors.ink, backgroundColor: colors.surface },
   send: { marginLeft: 8, height: 44, paddingHorizontal: 16, borderRadius: 22, backgroundColor: colors.blue, alignItems: "center", justifyContent: "center" },

@@ -3,7 +3,8 @@ import { ActivityIndicator, FlatList, Keyboard, KeyboardAvoidingView, Platform, 
 import { Stack, useLocalSearchParams } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { Composer, PostRow } from "../components/Messaging";
-import { api, ServerError, type Post } from "../lib/server";
+import { TypingLine, useTyping, useTypingPing } from "../lib/typing";
+import { api, ServerError, type Post, type Person } from "../lib/server";
 import { useLive } from "../lib/live";
 import { useSession } from "../lib/session";
 import { colors } from "../lib/theme";
@@ -18,10 +19,13 @@ export default function ThreadScreen() {
     const sub = Keyboard.addListener("keyboardDidShow", () => list.current?.scrollToEnd({ animated: true }));
     return () => sub.remove();
   }, []);
+  const [members, setMembers] = useState<Person[]>([]);
   const [head, setHead] = useState<Post | null>(null);
   const [replies, setReplies] = useState<Post[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Post | null>(null);
+  const typingNames = useTyping(conv, root, account?.user.id ?? "");
+  const ping = useTypingPing(account, conv, root);
 
   const upsert = (p: Post) =>
     setReplies((old) => {
@@ -36,7 +40,8 @@ export default function ThreadScreen() {
   const load = useCallback(async () => {
     if (!account) return;
     try {
-      const t = await api.thread(account, conv, root);
+      const [t, c] = await Promise.all([api.thread(account, conv, root), api.conversation(account, conv)]);
+      setMembers(c.conversation.members ?? []);
       setHead(t.root);
       setReplies(t.replies);
       setError(null);
@@ -53,12 +58,15 @@ export default function ThreadScreen() {
   useEffect(
     () =>
       subscribe((e) => {
+        if (e.event === "conversation.updated" && e.data.id === conv && account) {
+          void api.conversation(account, conv).then(c => setMembers(c.conversation.members ?? []), () => undefined);
+        }
         if (e.event !== "message.created" && e.event !== "message.updated") return;
         const p = e.data;
         if (p.id === root) setHead(p);
         else if (p.threadRoot === root) upsert(p);
       }),
-    [subscribe, root],
+    [subscribe, root, conv, account],
   );
 
   if (!account) return null;
@@ -135,10 +143,11 @@ export default function ThreadScreen() {
             }}
           />
         )}
+        <TypingLine names={typingNames} />
         {editing ? (
-          <Composer key={`edit-${editing.id}`} placeholder="Edit message" initial={editing.text} sendLabel="Save" onSend={saveEdit} onCancel={() => setEditing(null)} />
+          <Composer members={members} me={me} key={`edit-${editing.id}`} placeholder="Edit message" initial={editing.text} sendLabel="Save" onSend={saveEdit} onCancel={() => setEditing(null)} />
         ) : (
-          <Composer key="reply" placeholder="Reply" onSend={send} />
+          <Composer members={members} me={me} key="reply" placeholder="Reply" onSend={send} onTyping={ping} />
         )}
       </KeyboardAvoidingView>
     </View>
