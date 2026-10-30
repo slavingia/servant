@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import Constants from "expo-constants";
+import { nativeBuildVersion } from "expo-application";
 import { useSession } from "../lib/session";
 import { api, type FeedbackReport } from "../lib/server";
 import { colors } from "../lib/theme";
@@ -33,7 +34,7 @@ export default function Feedback() {
     try {
       const report = await api.sendFeedback(account, { text, requestId: requestId.current, context: {
         screen: screen || "/you", platform: Platform.OS, version: Constants.expoConfig?.version || "",
-        build: Constants.nativeBuildVersion || "development",
+        build: nativeBuildVersion || "development",
       } });
       setReports(r => [report, ...r.filter(x => x.id !== report.id)]);
       setText(""); setSent(true);
