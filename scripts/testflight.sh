@@ -14,6 +14,8 @@ npx expo prebuild -p ios --clean --no-install
 (cd ios && pod install)
 
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" ios/Servant/Info.plist
+# Manual signing on the app target only; Pods/SPM framework targets can't take a provisioning profile.
+GEM_HOME=/opt/homebrew/opt/cocoapods/libexec /opt/homebrew/opt/ruby/bin/ruby -rxcodeproj -e 'p=Xcodeproj::Project.open("ios/Servant.xcodeproj"); p.targets.find{|t|t.name=="Servant"}.build_configurations.each{|c| c.build_settings.merge!("CODE_SIGN_STYLE"=>"Manual","DEVELOPMENT_TEAM"=>"EXBV39ZXGR","PROVISIONING_PROFILE_SPECIFIER"=>"Servant App Store","CODE_SIGN_IDENTITY"=>"Apple Distribution")}; p.save'
 
 cat > "$OUT/ExportOptions.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -29,8 +31,6 @@ EOF
 
 xcodebuild -workspace ios/Servant.xcworkspace -scheme Servant -configuration Release \
   -destination "generic/platform=iOS" -archivePath "$OUT/Servant.xcarchive" archive \
-  CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=EXBV39ZXGR \
-  PROVISIONING_PROFILE_SPECIFIER="Servant App Store" "CODE_SIGN_IDENTITY=Apple Distribution" \
   > "$OUT/archive.log" 2>&1 || { tail -40 "$OUT/archive.log"; grep -E "error:" "$OUT/archive.log" | head; exit 1; }
 echo "** ARCHIVE SUCCEEDED **"
 
