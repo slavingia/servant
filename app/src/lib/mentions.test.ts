@@ -29,3 +29,14 @@ test('replaces only the active mention, keeping surrounding draft and positionin
   const middle = 'Hi @Jordan, thanks';
   assert.equal(insertMention(middle, activeMention(middle, { start: 6, end: 6 })!, 'Zoë Martin').text, 'Hi @Zoë-Martin, thanks');
 });
+
+test('offers @agent first when the conversation can reach it', () => {
+  const people = [{ id: 'me', name: 'Alex' }, { id: 'g', name: 'Agnes Park' }];
+  assert.deepEqual(mentionMatches(people, 'me', '', true).map(p => p.id), ['agent', 'g']);
+  assert.deepEqual(mentionMatches(people, 'me', 'ag', true).map(p => p.id), ['agent', 'g']);
+  assert.deepEqual(mentionMatches(people, 'me', 'AGE', true).map(p => p.id), ['agent']);
+  assert.deepEqual(mentionMatches(people, 'me', 'agn', true).map(p => p.id), ['g']);
+  assert.deepEqual(mentionMatches(people, 'me', 'ag').map(p => p.id), ['g']);
+  const match = { start: 0, end: 3, query: 'ag' };
+  assert.deepEqual(insertMention('@ag', match, 'agent'), { text: '@agent ', cursor: 7 });
+});

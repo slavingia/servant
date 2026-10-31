@@ -40,6 +40,7 @@
         "expo-camera",
         {
           "cameraPermission": "Servant uses the camera to read invite codes.",
+          "microphonePermission": "Servant uses the microphone so you can dictate messages.",
           "recordAudioAndroid": false
         }
       ],
@@ -67,10 +68,18 @@
         {
           "photosPermission": "Servant lets you choose photos and videos to attach to messages.",
           "cameraPermission": false,
-          "microphonePermission": false
+          "microphonePermission": "Servant uses the microphone so you can dictate messages."
         }
       ],
-      "expo-video"
+      "expo-video",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Servant uses the microphone so you can dictate messages.",
+          "speechRecognitionPermission": "Servant turns your speech into text in the message box.",
+          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox", "com.google.android.tts", "com.samsung.android.bixby.agent"]
+        }
+      ]
     ],
     "scheme": "servant",
     "experiments": {

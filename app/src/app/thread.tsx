@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, StyleSheet, Text, View } from "react-native";
 import { Stack, useIsFocused, useLocalSearchParams } from "expo-router";
-import { useHeaderHeight } from "expo-router/react-navigation";
-import { useChromeHeight } from "../components/AppChrome";
+import { ConversationKeyboardView } from "../components/ConversationKeyboardView";
 import { Composer, MessageDate, PostRow } from "../components/Messaging";
 import { MediaGalleryProvider } from "../components/MediaGallery";
 import { mediaFromPosts } from "../lib/media";
@@ -22,8 +21,6 @@ export default function ThreadScreen() {
   const { account } = useSession();
   const focused = useIsFocused();
   const { subscribe } = useLive();
-  const headerHeight = useHeaderHeight();
-  const chromeHeight = useChromeHeight();
   const list = useRef<FlatList<Post>>(null);
   const searchFocus = useRef({ target: focus, pending: !!focus, holding: !!focus, retries: 0 });
   const focusRetry = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -216,7 +213,7 @@ export default function ThreadScreen() {
     <MediaGalleryProvider key={`${conv}:${unavailable}`} scope={{ kind: "conversation", id: conv }} items={media}>
     <View style={styles.root}>
       <Stack.Screen options={{ title: "Thread" }} />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={headerHeight + chromeHeight}>
+      <ConversationKeyboardView>
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         {replies === null ? (
           <ActivityIndicator style={{ flex: 1 }} color={colors.blue} />
@@ -257,11 +254,11 @@ export default function ThreadScreen() {
         )}
         {!unavailable ? <TypingLine names={typingNames} /> : null}
         {unavailable ? null : editing ? (
-          <Composer members={conversation?.members} me={me} key={`edit-${editing.id}`} placeholder="Edit message" initial={editing.text} sendLabel="Save" onSend={saveEdit} onCancel={() => setEditing(null)} />
+          <Composer members={conversation?.members} mentionAgent me={me} key={`edit-${editing.id}`} placeholder="Edit message" initial={editing.text} sendLabel="Save" onSend={saveEdit} onCancel={() => setEditing(null)} />
         ) : (
-          <Composer members={conversation?.members} me={me} key="reply" placeholder="Reply" onSend={send} onTyping={ping} />
+          <Composer members={conversation?.members} mentionAgent me={me} key="reply" placeholder="Reply" onSend={send} onTyping={ping} />
         )}
-      </KeyboardAvoidingView>
+      </ConversationKeyboardView>
     </View>
     </MediaGalleryProvider>
   );

@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, FlatList, KeyboardAvoidingView, Platform, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, AppState, FlatList, StyleSheet, Text, View } from "react-native";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { randomUUID } from "expo-crypto";
-import { useHeaderHeight } from "expo-router/react-navigation";
-import { useChromeHeight } from "../../components/AppChrome";
+import { ConversationKeyboardView } from "../../components/ConversationKeyboardView";
 import { Avatar, Composer, when } from "../../components/Messaging";
 import { Attachments, PendingAttachments } from "../../components/Attachments";
 import { MediaGalleryProvider } from "../../components/MediaGallery";
@@ -31,8 +30,6 @@ function ChatConversation() {
   const { colors } = useTheme();
   const { id, title } = useLocalSearchParams<{ id: string; title?: string }>();
   const { account, setAccount } = useSession();
-  const headerHeight = useHeaderHeight();
-  const chromeHeight = useChromeHeight();
   const [messages, setMessages] = useState<Row[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -263,7 +260,7 @@ function ChatConversation() {
     <MediaGalleryProvider key={id} scope={{ kind: "chat", id }} items={media}>
     <View style={styles.root}>
       <Stack.Screen options={{ title: heading }} />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={headerHeight + chromeHeight}>
+      <ConversationKeyboardView>
         {messages === null ? (
           <ActivityIndicator style={{ flex: 1 }} color={colors.blue} />
         ) : (
@@ -317,7 +314,7 @@ function ChatConversation() {
         {turn && ['cancelled', 'interrupted', 'failed'].includes(turn.status) ? <View style={styles.turnStatus}><Text accessibilityLiveRegion="polite" style={styles.turnLabel}>{agentTurnLabel(turn)}</Text></View> : null}
         {actionError && !turn?.approval ? <Text accessibilityRole="alert" style={styles.sendError}>{actionError}</Text> : null}
         {messages !== null && !loadError ? <Composer placeholder="Message the agent" onSend={send} allowFileAttachments={false} /> : null}
-      </KeyboardAvoidingView>
+      </ConversationKeyboardView>
     </View>
     </MediaGalleryProvider>
   );

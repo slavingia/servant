@@ -210,3 +210,88 @@ test('production worker entrypoint starts, processes durable work through config
   assert.deepEqual(await closed, [0, null], output);
   const release = acquireWorkerLock(dir); release();
 });
+
+test('one @agent mention keeps the agent listening to the rest of that thread', async t => {
+  const dir = fixture(t);
+  const m = messaging(dir);
+  try {
+    const c = channel(m);
+    const queued = () => m.db.prepare('SELECT trigger_seq FROM agent_jobs ORDER BY trigger_seq').all().map(r => r.trigger_seq);
+    const root = m.post(c, 'a', '@agent the keyboard covers the chat');
+    const followUp = m.post(c, 'b', 'Samsung keyboard, Fold 7', root.seq);
+    const aside = m.post(c, 'a', '@Bob can you send a screenshot?', root.seq);
+    const both = m.post(c, 'a', '@Bob @agent try again', root.seq);
+    const elsewhere = m.post(c, 'b', 'unrelated channel message');
+    const otherThread = m.post(c, 'a', 'reply without a mention', elsewhere.seq);
+    assert.deepEqual(queued(), [root.seq, followUp.seq, both.seq]);
+    assert.ok(!queued().includes(aside.seq) && !queued().includes(otherThread.seq));
+  } finally { m.close?.(); }
+});
+
+test('agentShouldReply wakes on a mention, or on any un-addressed reply in its thread', async () => {
+  const { agentShouldReply } = await import('./messaging.mjs');
+  assert.equal(agentShouldReply('@agent hi'), true);
+  assert.equal(agentShouldReply('hi'), false);
+  assert.equal(agentShouldReply('hi', '', true), true);
+  assert.equal(agentShouldReply('@Ash thanks', '', true), false);
+  assert.equal(agentShouldReply('mail me at a@b.com', '', true), true);
+});
+
+test('queued rapid follow-ups each send their own context once without consuming later messages', async t => {
+  const dir = fixture(t);
+  const calls = [];
+  const m = messaging(dir, { askAgent: async args => { calls.push(args); return `Answer ${calls.length}`; } });
+  try {
+    const c = channel(m);
+    const root = m.post(c, 'a', '@agent the keyboard covers the chat');
+    const followUp = m.post(c, 'b', 'Samsung keyboard, Fold 7', root.seq);
+    const detail = m.post(c, 'b', 'Only in landscape', root.seq);
+    m.post(c, 'a', '@Bob can you send a screenshot?', root.seq);
+    for (const trigger of [root, followUp, detail]) {
+      assert.equal(await m.processAgentJob('worker'), true);
+      const session = m.db.prepare('SELECT * FROM agent_threads WHERE key = ?').get(`${c.id}:${root.seq}`);
+      assert.equal(session.last_seen_seq, trigger.seq);
+    }
+    assert.equal(await m.processAgentJob('worker'), false);
+    assert.deepEqual(calls.map(call => call.text.split('\n\n').at(-1)), [
+      'Alice: @agent the keyboard covers the chat',
+      'Bob: Samsung keyboard, Fold 7',
+      'Bob: Only in landscape',
+    ]);
+    assert.deepEqual(calls.map(call => call.fresh), [true, false, false]);
+    assert.equal(new Set(calls.map(call => call.sessionId)).size, 1);
+    assert.ok(calls.every(call => !call.restartText.includes('send a screenshot')));
+    assert.deepEqual(m.db.prepare("SELECT text FROM messages WHERE user_id = 'agent' ORDER BY seq").all().map(row => row.text), ['Answer 1', 'Answer 2', 'Answer 3']);
+  } finally { m.close(); }
+});
+
+test('a mention inside a human thread accepts follow-ups before and during its first answer', async t => {
+  const dir = fixture(t);
+  const first = deferred();
+  const calls = [];
+  const m = messaging(dir, { askAgent: args => {
+    calls.push(args);
+    return calls.length === 1 ? first.promise : Promise.resolve(`Answer ${calls.length}`);
+  } });
+  try {
+    const c = channel(m);
+    const root = m.post(c, 'a', 'The keyboard covers the chat');
+    const mention = m.post(c, 'b', '@agent please help', root.seq);
+    const queuedDetail = m.post(c, 'b', 'Samsung keyboard, Fold 7', root.seq);
+    const running = m.processAgentJob('worker');
+    const liveDetail = m.post(c, 'a', 'Only in landscape', root.seq);
+    const queued = m.db.prepare("SELECT trigger_seq FROM agent_jobs WHERE status = 'queued' ORDER BY trigger_seq").all().map(row => row.trigger_seq);
+    assert.deepEqual(queued, [queuedDetail.seq, liveDetail.seq]);
+    first.resolve('First answer');
+    await running;
+    assert.equal(await m.processAgentJob('worker'), true);
+    assert.equal(await m.processAgentJob('worker'), true);
+    assert.equal(await m.processAgentJob('worker'), false);
+    assert.deepEqual(calls.map(call => call.text.split('\n\n').at(-1)), [
+      'Alice: The keyboard covers the chat\nBob: @agent please help',
+      'Bob: Samsung keyboard, Fold 7',
+      'Alice: Only in landscape',
+    ]);
+    assert.equal(m.db.prepare('SELECT status FROM agent_jobs WHERE trigger_seq = ?').get(mention.seq).status, 'done');
+  } finally { first.resolve('Test cleanup'); await m.whenIdle(); m.close(); }
+});

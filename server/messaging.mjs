@@ -142,6 +142,15 @@ export function mentionsAgent(text, agentName = "") {
   return !!n && new RegExp(`(^|[^\\w@])@${n.replace(/[^\w]/g, "")}\\b`, "i").test(t);
 }
 
+// Mentioning the agent once is enough: it keeps listening to the rest of that
+// thread. A reply that @mentions only other people is a side conversation and
+// doesn't wake it.
+export function agentShouldReply(text, agentName = "", inAgentThread = false) {
+  if (mentionsAgent(text, agentName)) return true;
+  if (!inAgentThread) return false;
+  return !/(^|[^\w@])@[\p{L}\p{N}]/u.test(String(text));
+}
+
 /**
  * @param {object} o
  * @param {string} o.file          sqlite file
@@ -290,12 +299,15 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     deleteAgentThreads: q("DELETE FROM agent_threads WHERE substr(key, 1, length(?) + 1) = ? || ':'"),
     publicChannels: q("SELECT id FROM conversations WHERE kind = 'channel' AND private = 0 AND archived_at IS NULL AND name = 'general'"),
     agentThread: q("SELECT * FROM agent_threads WHERE key = ?"),
+    activeAgentThread: q(`SELECT 1 FROM messages m LEFT JOIN agent_jobs j ON j.trigger_seq = m.seq
+      WHERE m.conversation_id = ? AND (m.seq = ? OR m.thread_root = ?) AND m.deleted_at IS NULL
+        AND (m.user_id = 'agent' OR (j.trigger_seq IS NOT NULL AND j.status != 'cancelled')) LIMIT 1`),
     putAgentThread: q("INSERT INTO agent_threads (key, hermes_session_id, last_seen_seq) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET last_seen_seq = excluded.last_seen_seq"),
     release: q("SELECT * FROM releases WHERE build = ?"),
     releaseBySeq: q("SELECT * FROM releases WHERE seq = ?"),
     latestRelease: q("SELECT * FROM releases ORDER BY created_at DESC, seq DESC LIMIT 1"),
     putRelease: q("INSERT INTO releases (build, seq, created_at) VALUES (?, ?, ?)"),
-    since: q(`SELECT * FROM messages WHERE conversation_id = ? AND seq > ? AND deleted_at IS NULL AND pending = 0 AND activity IS NULL
+    since: q(`SELECT * FROM messages WHERE conversation_id = ? AND seq > ? AND seq <= ? AND deleted_at IS NULL AND pending = 0 AND activity IS NULL
               AND ((? IS NULL AND thread_root IS NULL) OR thread_root = ? OR seq = ?) ORDER BY seq DESC LIMIT 20`),
   };
 
@@ -546,10 +558,23 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     publish(conv.id, "message.created", msgView(m));
     if (threadRoot) publish(conv.id, "message.updated", msgView(st.msg.get(threadRoot)));
     if (!pending) notifyMessage(m.seq);
-    if (queueAgent && externalWorker && userId !== AGENT_ID && mentionsAgent(text, agentName())) {
+    if (queueAgent && externalWorker && userId !== AGENT_ID && wantsAgent(conv, m)) {
       db.prepare('INSERT OR IGNORE INTO agent_jobs (trigger_seq, created_at) VALUES (?, ?)').run(m.seq, now());
     }
     return m;
+  }
+
+  function inAgentThread(conv, root) {
+    if (!root) return false;
+    if (st.agentThread.get(`${conv.id}:${root}`)) return true;
+    // A mention can be a reply to a human-started thread. Keep listening while
+    // that first request is queued or running, before a session is saved.
+    if (st.activeAgentThread.get(conv.id, root, root)) return true;
+    const head = st.msg.get(root);
+    return !!head && !head.deleted_at && head.user_id !== AGENT_ID && mentionsAgent(head.text, agentName());
+  }
+  function wantsAgent(conv, m) {
+    return m.user_id !== AGENT_ID && agentShouldReply(m.text, agentName(), inAgentThread(conv, m.thread_root));
   }
 
   // The agent answers in a thread under the message that mentioned it, and
@@ -569,22 +594,22 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     const sessionId = thread ? thread.hermes_session_id : `servant_${conv.id}_${root}`;
     const seen = thread ? thread.last_seen_seq : 0;
     const recent = st.since
-      .all(conv.id, seen, trigger.thread_root ? root : null, root, root)
+      .all(conv.id, seen, trigger.seq, trigger.thread_root ? root : null, root, root)
       .reverse()
       .filter((m) => m.user_id !== AGENT_ID);
     const where = conv.kind === "channel" ? `#${conv.name}` : "a direct message";
     const transcript = recent.map((m) => `${person(m.user_id).name}: ${m.text}`).join("\n");
     const prompt =
-      `[Servant ${where}. Several people can read your reply. Answer the latest message that mentions you, ` +
+      `[Servant ${where}. Several people can read your reply. Answer the latest message, ` +
       `clearly. Include images when useful.]\n\n${transcript}`;
     // If the agent lost this thread's session (for example after switching
     // agents), it starts over with the whole thread instead of failing.
     const fullThread = thread
-      ? st.since.all(conv.id, 0, trigger.thread_root ? root : null, root, root).reverse()
+      ? st.since.all(conv.id, 0, trigger.seq, trigger.thread_root ? root : null, root, root).reverse()
           .map((m) => `${m.user_id === AGENT_ID ? "You" : person(m.user_id).name}: ${m.text}`).join("\n")
       : transcript;
     const restartPrompt =
-      `[Servant ${where}. Several people can read your reply. Answer the latest message that mentions you, ` +
+      `[Servant ${where}. Several people can read your reply. Answer the latest message, ` +
       `clearly. Include images when useful. This is the whole thread so far.]\n\n${fullThread}`;
     // Bound recent visual context to the same total upload budget. Prefer the
     // latest images so an old thread cannot crowd out the triggering message.
@@ -645,7 +670,9 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       }
       saveReply(true);
       if (st.conv.get(conv.id)) {
-        st.putAgentThread.run(key, sessionId, reply.seq);
+        // Only this trigger's context was sent. A later queued follow-up may
+        // predate the reply placeholder and must still reach the next turn.
+        st.putAgentThread.run(key, sessionId, trigger.seq);
         notifyMessage(reply.seq);
       }
       if (job) db.prepare("UPDATE agent_jobs SET status = 'done' WHERE trigger_seq = ? AND owner = ? AND status = 'working'").run(job.trigger_seq, job.owner);
@@ -1161,7 +1188,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
         }
         const m = post(conv, user.id, text, root, { attachments });
         send(res, 201, { message: msgView(m) });
-        if (!externalWorker && mentionsAgent(text, agentName())) agentReply(conv, m).catch((e) => console.error("[servant] agent reply", e));
+        if (!externalWorker && wantsAgent(conv, m)) agentReply(conv, m).catch((e) => console.error("[servant] agent reply", e));
         return true;
       }
       if (sub === "threads" && parts[4] && method === "GET") {

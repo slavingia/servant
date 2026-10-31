@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, AppState, FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { router, Stack, useIsFocused, useLocalSearchParams } from "expo-router";
-import { useHeaderHeight } from "expo-router/react-navigation";
-import { useChromeHeight } from "../../components/AppChrome";
+import { ConversationKeyboardView } from "../../components/ConversationKeyboardView";
 import { Button } from "../../components/Button";
 import { Composer, MessageDate, PostRow } from "../../components/Messaging";
 import { MediaGalleryProvider } from "../../components/MediaGallery";
@@ -35,8 +34,6 @@ export default function ConversationScreen() {
   const visible = useRef(focused);
   useEffect(() => { visible.current = focused; }, [focused]);
   const { subscribe, setOpen, refresh } = useLive();
-  const headerHeight = useHeaderHeight();
-  const chromeHeight = useChromeHeight();
   const [conv, setConv] = useState<Conversation | null>(null);
   const [joined, setJoined] = useState(true);
   const [posts, setPosts] = useState<Post[] | null>(null);
@@ -249,7 +246,7 @@ export default function ConversationScreen() {
           <PresenceLine person={person} showUnknown />
         </View>)}
       </View> : null}
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={headerHeight + chromeHeight}>
+      <ConversationKeyboardView>
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         {posts === null ? (
           <ActivityIndicator style={{ flex: 1 }} color={colors.blue} />
@@ -304,11 +301,11 @@ export default function ConversationScreen() {
             <Button label={`Join ${title}`} onPress={join} busy={joining} />
           </View>
         ) : editing ? (
-          <Composer members={conv?.members} me={me} key={`edit-${editing.id}`} placeholder="Edit message" initial={editing.text} sendLabel="Save" onSend={saveEdit} onCancel={() => setEditing(null)} />
+          <Composer members={conv?.members} mentionAgent me={me} key={`edit-${editing.id}`} placeholder="Edit message" initial={editing.text} sendLabel="Save" onSend={saveEdit} onCancel={() => setEditing(null)} />
         ) : (
-          <Composer autoFocus={compose === "1"} members={conv?.members} me={me} key="new" placeholder={conv ? `Message ${title}` : "Message"} onSend={send} onTyping={ping} />
+          <Composer autoFocus={compose === "1"} members={conv?.members} mentionAgent me={me} key="new" placeholder={conv ? `Message ${title}` : "Message"} onSend={send} onTyping={ping} />
         )}
-      </KeyboardAvoidingView>
+      </ConversationKeyboardView>
     </View>
     </MediaGalleryProvider>
   );

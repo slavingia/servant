@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState, type ComponentRef, type ReactNode } from "react";
+import { useLayoutEffect, useEffect, useRef, useState, type ComponentRef, type ReactNode } from "react";
 import { ActivityIndicator, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type PressableProps } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Conversation, Person, Post, Upload } from "../lib/server";
+import { useDictation } from "../lib/dictation";
+import { insertDictation } from "../lib/dictation-text";
 import { activeMention, insertMention, mentionMatches, mentionText } from "../lib/mentions";
 import type { MessageReceipt } from "../lib/message-status";
 import { validateAttachmentSelection } from "../lib/media";
@@ -237,6 +239,7 @@ export function Composer({
   allowAttachments = true,
   allowFileAttachments = true,
   clearOnSend = false,
+  mentionAgent = false,
 }: {
   placeholder: string;
   onSend: (text: string, attachments?: Upload[]) => Promise<boolean>;
@@ -251,6 +254,8 @@ export function Composer({
   // Long agent replies should leave the input free for the next draft.
   clearOnSend?: boolean;
   onTyping?: (text: string) => void;
+  // Offer @agent in the mention list.
+  mentionAgent?: boolean;
 }) {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -291,25 +296,43 @@ export function Composer({
   const [insertedSelection, setInsertedSelection] = useState<{ start: number; end: number }>();
   const [focused, setFocused] = useState(false);
   const match = focused && !busy ? activeMention(text, selection) : null;
-  const suggestions = match ? mentionMatches(members, me, match.query) : [];
+  const suggestions = match ? mentionMatches(members, me, match.query, mentionAgent) : [];
+  const latest = useRef({ text, selection });
+  useLayoutEffect(() => { latest.current = { text, selection }; });
   const choose = (person: Person) => {
     if (!match) return;
     const next = insertMention(text, match, person.name);
     setText(next.text);
     onTyping?.(next.text);
     const caret = { start: next.cursor, end: next.cursor };
+    latest.current = { text: next.text, selection: caret };
     setSelection(caret);
     setInsertedSelection(caret);
     input.current?.focus();
   };
+  const dictation = useDictation((spoken) => {
+    const { text: current, selection: at } = latest.current;
+    const next = insertDictation(current, Math.min(at.end, current.length), spoken);
+    setText(next.text);
+    onTyping?.(next.text);
+    const caret = { start: next.cursor, end: next.cursor };
+    latest.current = { text: next.text, selection: caret };
+    setSelection(caret);
+    setInsertedSelection(caret);
+  });
   const send = async () => {
-    const body = text.trim();
-    if ((!body && !files.length) || sending.current || picking) return;
+    if (sending.current || picking) return;
     sending.current = true;
     setBusy(true);
     setFileError("");
-    if (clearOnSend) setText("");
+    let body = "";
     try {
+      // stop() emits its final transcript asynchronously. The commit callback
+      // updates latest synchronously, before finish resolves on the end event.
+      if (!await dictation.finish()) return;
+      body = latest.current.text.trim();
+      if (!body && !files.length) return;
+      if (clearOnSend) setText("");
       const ok = await onSend(body, files.map(({ name, data }) => ({ name, data })));
       if (ok) { if (!clearOnSend) setText(""); setFiles([]); setInsertedSelection(undefined); }
       else if (clearOnSend) setText(current => current || body);
@@ -319,16 +342,16 @@ export function Composer({
     }
     finally { sending.current = false; setBusy(false); }
   };
-  const off = (!text.trim() && !files.length) || busy || picking;
+  const off = (!text.trim() && !files.length && !dictation.listening) || busy || picking;
   return (
     <View style={[styles.composerWrap, { paddingBottom: keyboard ? space.xs : Math.max(insets.bottom, space.xs) }]}>
-      {fileError ? <Text accessibilityRole="alert" style={styles.composerError}>{fileError}</Text> : null}
+      {fileError || dictation.error ? <Text accessibilityRole="alert" style={styles.composerError}>{fileError || dictation.error}</Text> : null}
       {match ? (
         <ScrollView keyboardShouldPersistTaps="always" style={styles.suggestions} accessibilityLabel="Mention suggestions">
           {suggestions.length ? suggestions.map(person => (
             <Pressable key={person.id} testID={`mention-${person.id}`} accessibilityRole="button" accessibilityLabel={`Mention ${person.name}`} onPress={() => choose(person)} style={({ pressed }) => [styles.suggestion, pressed && { backgroundColor: colors.surface }]}>
-              <Avatar name={person.name} size={30} />
-              <View style={{ flex: 1, marginLeft: space.sm }}><Text style={styles.suggestionName}>{person.name}</Text><Text style={styles.suggestionHandle}>{mentionText(person.name)}</Text></View>
+              {person.agent ? <View style={styles.agentAvatar}><AppIcon name="sparkles" size={17} color={colors.onPrimary} /></View> : <Avatar name={person.name} size={30} />}
+              <View style={{ flex: 1, marginLeft: space.sm }}><Text style={styles.suggestionName}>{person.agent ? "Agent" : person.name}</Text><Text style={styles.suggestionHandle}>{mentionText(person.name)}</Text></View>
             </Pressable>
           )) : <Text style={styles.noSuggestions}>No matching members in this conversation</Text>}
         </ScrollView>
@@ -343,12 +366,16 @@ export function Composer({
           accessibilityLabel={placeholder}
           value={text}
           onChangeText={(t) => {
+            latest.current = { ...latest.current, text: t };
             setText(t);
             setInsertedSelection(undefined);
             onTyping?.(t);
           }}
           selection={insertedSelection}
-          onSelectionChange={({ nativeEvent }) => setSelection(nativeEvent.selection)}
+          onSelectionChange={({ nativeEvent }) => {
+            latest.current = { ...latest.current, selection: nativeEvent.selection };
+            setSelection(nativeEvent.selection);
+          }}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           placeholder={placeholder}
@@ -372,7 +399,10 @@ export function Composer({
             : allowAttachments ? <Pressable accessibilityRole="button" accessibilityLabel={attachmentMenu ? "Close attachment options" : "Add attachments"} accessibilityState={{ disabled: busy || picking, expanded: attachmentMenu }} disabled={busy || picking} onPress={() => setAttachmentMenu(open => !open)} style={[styles.attachmentButton, attachmentMenu && styles.attachmentButtonSelected]}>
               <AppIcon name={attachmentMenu ? "close" : "plus"} size={21} color={colors.muted} />
             </Pressable> : null}
-          <Text style={styles.composerHint}>{picking ? "Adding attachment…" : !onCancel && members.length ? "@ to mention someone" : ""}</Text>
+          <Text style={styles.composerHint} numberOfLines={1} accessibilityLiveRegion="polite">{dictation.listening ? (dictation.partial || "Listening…") : picking ? "Adding attachment…" : !onCancel && (members.length || mentionAgent) ? "@ to mention someone" : ""}</Text>
+          {!onCancel && dictation.available ? <Pressable testID="composer-dictate" accessibilityRole="button" accessibilityLabel={dictation.listening ? "Stop dictation" : "Dictate a message"} accessibilityState={{ disabled: busy, selected: dictation.listening }} disabled={busy} onPress={dictation.toggle} hitSlop={6} style={[styles.dictate, dictation.listening && styles.dictateOn]}>
+            <AppIcon name={dictation.listening ? "stop" : "mic"} size={21} color={dictation.listening ? colors.onPrimary : colors.muted} />
+          </Pressable> : null}
           <Pressable testID="composer-send" accessibilityRole="button" accessibilityLabel={busy ? "Sending message" : sendLabel === "Send" ? "Send message" : sendLabel} accessibilityState={{ disabled: off, busy }} onPress={send} disabled={off} style={({ pressed }) => [styles.send, off && styles.sendDisabled, pressed && !off && { backgroundColor: colors.primaryPressed }]}>
             {busy ? <ActivityIndicator size="small" color={colors.muted} /> : sendLabel === "Send" ? <AppIcon name="send" size={19} color={off ? colors.muted : colors.onPrimary} /> : <Text style={[styles.sendText, off && { color: colors.muted }]}>{sendLabel}</Text>}
           </Pressable>
@@ -470,6 +500,9 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   suggestions: { maxHeight: 190, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   suggestion: { flexDirection: "row", alignItems: "center", minHeight: 56, paddingHorizontal: space.side, paddingVertical: space.xs },
   suggestionName: { ...typography.bodyStrong, color: colors.ink },
+  dictate: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", marginRight: space.xs },
+  dictateOn: { backgroundColor: colors.danger },
+  agentAvatar: { width: 30, height: 30, borderRadius: 15, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   suggestionHandle: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
   noSuggestions: { ...typography.caption, paddingHorizontal: space.side, paddingVertical: space.sm, color: colors.muted },
   composer: { borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.md, backgroundColor: colors.background, overflow: "hidden" },
