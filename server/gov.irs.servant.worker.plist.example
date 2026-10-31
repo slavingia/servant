@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>gov.irs.servant.worker</string>
+  <key>ProgramArguments</key><array><string>/bin/bash</string><string>/Users/sahil-irs/.local/share/servant/bootstrap/run-worker.sh</string></array>
+  <key>EnvironmentVariables</key><dict>
+    <key>HOME</key><string>/Users/sahil-irs</string>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>SERVANT_RUNTIME_DIR</key><string>/Users/sahil-irs/.local/share/servant</string>
+    <key>SERVANT_DATA_DIR</key><string>/Users/sahil-irs/servant/server/data</string>
+    <!-- Pin independently of the API's deployment.json selection. -->
+    <key>SERVANT_WORKER_RELEASE</key><string>REPLACE_WITH_STAGED_RELEASE_ID</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <!-- Restart failures; a successful SIGTERM drain stays stopped for an upgrade. -->
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <!-- Bounds service/system shutdown. For upgrades, signal and await the worker
+       before bootout so this deadline cannot interrupt its active job. -->
+  <key>ExitTimeOut</key><integer>310</integer>
+  <key>StandardOutPath</key><string>/Users/sahil-irs/.local/share/servant/logs/worker.log</string>
+  <key>StandardErrorPath</key><string>/Users/sahil-irs/.local/share/servant/logs/worker.log</string>
+</dict></plist>

@@ -2,13 +2,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, AppState, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { router, Stack, useIsFocused, useLocalSearchParams } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
+import { useChromeHeight } from "../../components/AppChrome";
 import { Button } from "../../components/Button";
 import { Composer, PostRow } from "../../components/Messaging";
+import { PresenceLine } from "../../components/Presence";
+import { useReadReceipts } from "../../lib/use-read-receipts";
+import { mergeReadEvent } from "../../lib/read-receipts";
 import { TypingLine, useTyping, useTypingPing } from "../../lib/typing";
-import { api, ServerError, type Conversation, type Post } from "../../lib/server";
+import { api, ServerError, type Conversation, type Upload, type Post, type LiveEvent } from "../../lib/server";
 import { useLive } from "../../lib/live";
 import { useSession } from "../../lib/session";
-import { colors } from "../../lib/theme";
+import { colors, space, typography } from "../../lib/theme";
 
 const errorText = (e: unknown, fallback: string) => (e instanceof ServerError ? e.message : fallback);
 
@@ -20,13 +24,14 @@ function merge(list: Post[], incoming: Post[]) {
 }
 
 export default function ConversationScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, compose } = useLocalSearchParams<{ id: string; compose?: string }>();
   const { account } = useSession();
   const focused = useIsFocused();
   const visible = useRef(focused);
   useEffect(() => { visible.current = focused; }, [focused]);
   const { subscribe, setOpen, refresh } = useLive();
   const headerHeight = useHeaderHeight();
+  const chromeHeight = useChromeHeight();
   const [conv, setConv] = useState<Conversation | null>(null);
   const [joined, setJoined] = useState(true);
   const [posts, setPosts] = useState<Post[] | null>(null);
@@ -34,24 +39,58 @@ export default function ConversationScreen() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Post | null>(null);
   const [joining, setJoining] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
   const loadingOlder = useRef(false);
+  const loadSequence = useRef(0);
+  const needsSnapshot = useRef(false);
+  const accessDenied = useRef(false);
+  const snapshot = useRef<{ sequence: number; replace: boolean; updates: Map<string, Post>; reads: Extract<LiveEvent, { event: "messages.read" }>["data"][] } | null>(null);
   const typingNames = useTyping(id, null, account?.user.id ?? "");
   const ping = useTypingPing(account, id);
+  const readTracking = useReadReceipts(account, id, focused, joined && posts !== null && !unavailable, undefined, posts ?? undefined);
 
-  const load = useCallback(async () => {
+  const applyPosts = useCallback((incoming: Post[]) => {
+    for (const post of incoming) snapshot.current?.updates.set(post.id, post);
+    if (accessDenied.current) return;
+    setPosts((old) => merge(old ?? [], incoming));
+  }, []);
+
+  const load = useCallback(async (reset = false) => {
     if (!account || !id) return;
+    const current = { sequence: ++loadSequence.current, replace: reset || needsSnapshot.current || !!snapshot.current?.replace, updates: new Map<string, Post>(), reads: [] as Extract<LiveEvent, { event: "messages.read" }>["data"][] };
+    snapshot.current = current;
     try {
       const [c, p] = await Promise.all([api.conversation(account, id), api.posts(account, id)]);
+      if (snapshot.current !== current) return;
+      needsSnapshot.current = false;
+      accessDenied.current = false;
       setConv(c.conversation);
       setJoined(c.joined);
-      setPosts((old) => merge(old ?? [], p.messages));
+      const recovered = merge(p.messages, [...current.updates.values()]).map(post => current.reads.reduce(mergeReadEvent, post));
+      setPosts((old) => current.replace ? recovered : merge(old ?? [], recovered));
       setMore(p.more);
+      setUnavailable(false);
       setError(null);
-      if (c.joined && visible.current && AppState.currentState === "active") void api.markRead(account, id).catch(() => {});
     } catch (e) {
+      if (snapshot.current !== current) return;
       setError(errorText(e, "Couldn't load this conversation"));
-      setPosts((old) => old ?? []);
+      if (e instanceof ServerError && [401, 403, 404].includes(e.status)) {
+        accessDenied.current = true;
+        setConv(null);
+        setJoined(false);
+        setPosts([]);
+        setMore(false);
+        setEditing(null);
+        setUnavailable(true);
+      } else setPosts((old) => old ?? []);
+    } finally {
+      if (snapshot.current === current) snapshot.current = null;
     }
+  }, [account, id]);
+
+  useEffect(() => () => {
+    loadSequence.current++;
+    snapshot.current = null;
   }, [account, id]);
 
   useEffect(() => {
@@ -74,43 +113,49 @@ export default function ConversationScreen() {
     () =>
       subscribe((e) => {
         if (!account) return;
-        if (e.event === "message.created" || e.event === "message.updated") {
+        if (e.event === "ready" && (e.data.reset !== false || needsSnapshot.current)) {
+          needsSnapshot.current = true;
+          setPosts(null);
+          setMore(false);
+          void load(true);
+        } else if (e.event === "message.created" || e.event === "message.updated") {
           const p = e.data;
           if (p.conversationId !== id || p.threadRoot) return;
-          setPosts((old) => (old ? merge(old, [p]) : old));
-          if (e.event === "message.created" && p.user.id !== account.user.id && visible.current && AppState.currentState === "active") void api.markRead(account, id, p.id).catch(() => {});
+          applyPosts([p]);
+        } else if (e.event === "messages.read" && e.data.conversationId === id) {
+          snapshot.current?.reads.push(e.data);
+          setPosts(old => old?.map(post => mergeReadEvent(post, e.data)) ?? null);
         } else if (e.event === "conversation.updated" && e.data.id === id) {
-          api.conversation(account, id).then((c) => {
-            setConv(c.conversation);
-            setJoined(c.joined);
-          }, () => undefined);
+          void load();
         }
       }),
-    [subscribe, account, id],
+    [subscribe, account, id, applyPosts, load],
   );
 
   if (!account) return null;
   const me = account.user.id;
   const isChannel = conv?.kind === "channel";
-  const title = conv ? (isChannel ? `#${conv.title}` : conv.title) : "";
+  const title = conv ? (isChannel ? `#${conv.title}` : conv.title) : "Conversation";
+  const peers = conv?.kind === "dm" ? conv.members?.filter(person => person.id !== me && !person.agent) ?? [] : [];
 
   const older = async () => {
     if (!more || loadingOlder.current || !posts?.length) return;
     loadingOlder.current = true;
+    const sequence = loadSequence.current;
     try {
       const p = await api.posts(account, id, posts[0]!.id);
+      if (sequence !== loadSequence.current) return;
       setPosts((old) => merge(old ?? [], p.messages));
       setMore(p.more);
     } catch {
       /* try again on next scroll */
-    }
-    loadingOlder.current = false;
+    } finally { loadingOlder.current = false; }
   };
 
-  const send = async (text: string) => {
+  const send = async (text: string, attachments: Upload[] = []) => {
     try {
-      const p = await api.post(account, id, text);
-      setPosts((old) => merge(old ?? [], [p]));
+      const p = await api.post(account, id, text, undefined, attachments);
+      applyPosts([p]);
       setError(null);
       return true;
     } catch (e) {
@@ -123,7 +168,7 @@ export default function ConversationScreen() {
     if (!editing) return true;
     try {
       const p = await api.editPost(account, editing.id, text);
-      setPosts((old) => merge(old ?? [], [p]));
+      applyPosts([p]);
       setEditing(null);
       return true;
     } catch (e) {
@@ -132,10 +177,20 @@ export default function ConversationScreen() {
     }
   };
 
+  const react = async (post: Post, emoji: string, active: boolean) => {
+    try {
+      const p = await api.reactToPost(account, post.id, emoji, active);
+      applyPosts([p]);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof ServerError ? e.message : "Couldn't save the reaction. Try again");
+    }
+  };
+
   const remove = async (p: Post) => {
     try {
       await api.deletePost(account, p.id);
-      setPosts((old) => (old ?? []).map((x) => (x.id === p.id ? { ...x, deleted: true, text: "" } : x)));
+      applyPosts([{ ...p, deleted: true, text: "", attachments: [], reactions: [] }]);
     } catch (e) {
       setError(errorText(e, "Couldn't delete the message"));
     }
@@ -178,12 +233,19 @@ export default function ConversationScreen() {
               : undefined,
         }}
       />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={headerHeight}>
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+      {peers.length ? <View style={styles.presence}>
+        {peers.map(person => <View key={person.id} style={styles.peer}>
+          {peers.length > 1 ? <Text style={styles.peerName}>{person.name}</Text> : null}
+          <PresenceLine person={person} showUnknown />
+        </View>)}
+      </View> : null}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={headerHeight + chromeHeight}>
+        {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         {posts === null ? (
           <ActivityIndicator style={{ flex: 1 }} color={colors.blue} />
         ) : (
           <FlatList
+            {...readTracking}
             inverted
             keyboardDismissMode="interactive"
             keyboardShouldPersistTaps="handled"
@@ -191,17 +253,17 @@ export default function ConversationScreen() {
             keyExtractor={(p) => p.id}
             onEndReached={older}
             onEndReachedThreshold={0.3}
-            contentContainerStyle={{ paddingVertical: 12 }}
+            contentContainerStyle={{ paddingVertical: space.sm }}
             ListFooterComponent={
               conv && !more ? (
                 <View style={styles.intro}>
-                  <Text style={styles.introTitle}>{title}</Text>
+                  <Text accessibilityRole="header" style={styles.introTitle}>{title}</Text>
                   <Text style={styles.introBody}>
                     {isChannel
                       ? conv.topic || `This is the start of ${title}`
                       : `This is the start of your conversation with ${conv.title}`}
                   </Text>
-                  <Text style={styles.introBody}>Type @agent to ask the agent. Everyone here sees its answer</Text>
+                  <Text style={styles.introHint}>Mention @agent to ask for help. Everyone in this conversation can see its reply.</Text>
                 </View>
               ) : undefined
             }
@@ -210,8 +272,9 @@ export default function ConversationScreen() {
               const compact = !!above && !above.activity && !item.activity && above.user.id === item.user.id && item.createdAt - above.createdAt < 5 * 60 * 1000 && !above.replyCount;
               return (
                 <PostRow
-                  post={item}
+                  post={item} onReact={joined ? (emoji, active) => react(item, emoji, active) : undefined}
                   me={me}
+                  members={conv?.members}
                   compact={compact}
                   onOpenThread={() => openThread(item)}
                   onEdit={() => setEditing(item)}
@@ -222,7 +285,7 @@ export default function ConversationScreen() {
           />
         )}
         {joined ? <TypingLine names={typingNames} /> : null}
-        {!joined ? (
+        {unavailable ? null : !joined ? (
           <View style={styles.joinBar}>
             <Text style={styles.joinText}>You're previewing {title}</Text>
             <Button label={`Join ${title}`} onPress={join} busy={joining} />
@@ -230,7 +293,7 @@ export default function ConversationScreen() {
         ) : editing ? (
           <Composer members={conv?.members} me={me} key={`edit-${editing.id}`} placeholder="Edit message" initial={editing.text} sendLabel="Save" onSend={saveEdit} onCancel={() => setEditing(null)} />
         ) : (
-          <Composer members={conv?.members} me={me} key="new" placeholder={conv ? `Message ${title}` : "Message"} onSend={send} onTyping={ping} />
+          <Composer autoFocus={compose === "1"} members={conv?.members} me={me} key="new" placeholder={conv ? `Message ${title}` : "Message"} onSend={send} onTyping={ping} />
         )}
       </KeyboardAvoidingView>
     </View>
@@ -239,11 +302,15 @@ export default function ConversationScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
-  headerLink: { color: colors.white, fontSize: 16, fontWeight: "600" },
-  error: { paddingHorizontal: 20, paddingVertical: 8, color: colors.red, fontSize: 15, backgroundColor: "#FDECEF" },
-  intro: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 12 },
-  introTitle: { fontSize: 24, fontWeight: "700", color: colors.ink },
-  introBody: { marginTop: 6, fontSize: 16, color: colors.muted },
-  joinBar: { padding: 20, paddingBottom: 32, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
-  joinText: { textAlign: "center", color: colors.muted, fontSize: 15, marginBottom: 12 },
+  presence: { paddingHorizontal: space.side, paddingVertical: space.xs, backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  peer: { flexDirection: "row", flexWrap: "wrap", gap: space.xs, alignItems: "center" },
+  peerName: { ...typography.captionStrong, color: colors.ink },
+  headerLink: { ...typography.label, color: colors.white },
+  error: { ...typography.caption, paddingHorizontal: space.side, paddingVertical: space.sm, color: colors.red, backgroundColor: colors.redSoft },
+  intro: { paddingHorizontal: space.side, paddingTop: space.lg, paddingBottom: space.lg, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line, marginBottom: space.xs },
+  introTitle: { ...typography.heading, color: colors.ink },
+  introBody: { ...typography.body, marginTop: space.xs, color: colors.muted },
+  introHint: { ...typography.caption, marginTop: space.sm, color: colors.muted },
+  joinBar: { padding: space.side, paddingBottom: space.xl, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line, backgroundColor: colors.surface },
+  joinText: { ...typography.body, textAlign: "center", color: colors.muted, marginBottom: space.sm },
 });

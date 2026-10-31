@@ -24,72 +24,107 @@ export function notificationPayload(info, user, deviceId) {
 
 // The durable queue stores routing references. Message previews are resolved
 // just before delivery, after checking current membership and device status.
-export function createPushService({ file, state, mutate, resolve, send, clock = Date.now, log = console.warn }) {
+export function createPushService({ file, state, mutate, resolve, send, clock = Date.now, log = console.warn, autoDrain = true }) {
   const db = new DatabaseSync(file);
+  db.exec('PRAGMA busy_timeout=5000');
   db.exec(`PRAGMA journal_mode=WAL;
     CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, device_id TEXT NOT NULL, user_id TEXT NOT NULL, event TEXT NOT NULL,
       created_at INTEGER NOT NULL, due_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0);
-    CREATE INDEX IF NOT EXISTS jobs_due ON jobs(due_at);`);
+    CREATE INDEX IF NOT EXISTS jobs_due ON jobs(due_at);
+    CREATE TABLE IF NOT EXISTS enqueued_events (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL);`);
   const insert = db.prepare('INSERT OR IGNORE INTO jobs VALUES (?, ?, ?, ?, ?, ?, 0)');
   const remove = db.prepare('DELETE FROM jobs WHERE id = ?');
   const due = db.prepare('SELECT * FROM jobs WHERE due_at <= ? ORDER BY due_at LIMIT 50');
   const postpone = db.prepare('UPDATE jobs SET due_at = ? WHERE id = ?');
   const retry = db.prepare('UPDATE jobs SET attempts = attempts + 1, due_at = ? WHERE id = ?');
-  let running = false, stopped = false;
+  let activeDrain = null, shutdownPromise = null, stopping = false, stopped = false;
   function enqueue(event) {
+    if (stopped) throw new Error('Push service is closed');
     const s = state(); const now = clock();
-    for (const d of Object.values(s.devices)) {
-      const user = s.users[d.userId];
-      if (d.revokedAt || !d.push || !user) continue;
-      if (!wantsNotification(resolve(event, user), preferences(user), now)) continue;
-      const key = `${d.id}:${event.kind}:${event.messageId || event.eventId}`;
-      insert.run(key, d.id, user.id, JSON.stringify(event), now, now);
-    }
-    // Delivery is detached from HTTP message/SSE responses.
-    void drain();
-  }
-  async function drain() {
-    if (running || stopped) return;
-    running = true;
+    const eventKey = `${event.kind}:${event.messageId || event.eventId}`;
+    db.exec('BEGIN IMMEDIATE');
     try {
-      for (const job of due.all(clock())) {
-        if (stopped) break;
-        const s = state(); const device = Object.values(s.devices).find(d => d.id === job.device_id); const user = s.users[job.user_id];
-        const event = JSON.parse(job.event);
-        const info = user && resolve(event, user);
-        if (!device?.push || device.revokedAt || device.userId !== user?.id || clock() - job.created_at > 3600000 || !wantsNotification(info, preferences(user), clock())) {
-          remove.run(job.id); continue;
-        }
-        if (device.pushPresence?.until > clock() && device.pushPresence.conversation === (info.conversationId || info.chatId)) {
-          // Give a background transition time to clear its presence lease.
-          // Ordinary messages are rechecked against read state before delivery.
-          if (event.kind === 'agent' && clock() - job.created_at >= 5000) remove.run(job.id);
-          else postpone.run(Math.min(device.pushPresence.until, clock() + 5000), job.id);
-          continue;
-        }
-        const token = device.push.token;
-        try {
-          const result = await send(device.push, notificationPayload(info, user, device.id));
-          if (stopped) break;
-          if (result.invalid) mutate(s => {
-            const d = Object.values(s.devices).find(d => d.id === job.device_id);
-            if (d?.push?.token === token) delete d.push;
-          });
-          if (result.ok || result.invalid || !result.retry || job.attempts >= 5) {
-            remove.run(job.id);
-            if (!result.ok && !result.invalid) log('[push] delivery rejected:', result.code);
-          } else retry.run(clock() + Math.min(300000, 5000 * 2 ** job.attempts), job.id);
-        } catch {
-          if (stopped) break;
-          if (job.attempts >= 5) { remove.run(job.id); log('[push] delivery unavailable after retries'); }
-          else retry.run(clock() + Math.min(300000, 5000 * 2 ** job.attempts), job.id);
-        }
+      // Keep a durable receipt after delivery. If the API/worker crashes between
+      // enqueue and acknowledging its outbox, replay cannot re-send that event.
+      const added = db.prepare('INSERT OR IGNORE INTO enqueued_events VALUES (?, ?)').run(eventKey, now).changes;
+      if (added) for (const d of Object.values(s.devices)) {
+        const user = s.users[d.userId];
+        if (d.revokedAt || !d.push || !user) continue;
+        if (!wantsNotification(resolve(event, user), preferences(user), now)) continue;
+        const key = `${d.id}:${eventKey}`;
+        insert.run(key, d.id, user.id, JSON.stringify(event), now, now);
       }
-    } finally { running = false; }
+      db.exec('COMMIT');
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
+    // Delivery is detached from HTTP message/SSE responses.
+    if (autoDrain) backgroundDrain();
   }
-  const timer = setInterval(() => void drain(), 5000); timer.unref();
+  function drain() {
+    if (activeDrain) return activeDrain;
+    if (stopping || stopped) return Promise.resolve();
+    // Assign the promise before delivery begins, including synchronous send hooks.
+    activeDrain = Promise.resolve().then(deliver).finally(() => { activeDrain = null; });
+    return activeDrain;
+  }
+  async function deliver() {
+    if (stopping || stopped) return;
+    for (const job of due.all(clock())) {
+      if (stopping || stopped) break;
+      const s = state(); const device = Object.values(s.devices).find(d => d.id === job.device_id); const user = s.users[job.user_id];
+      const event = JSON.parse(job.event);
+      const info = user && resolve(event, user);
+      if (!device?.push || device.revokedAt || device.userId !== user?.id || clock() - job.created_at > 3600000 || !wantsNotification(info, preferences(user), clock())) {
+        remove.run(job.id); continue;
+      }
+      if (device.pushPresence?.until > clock() && device.pushPresence.conversation === (info.conversationId || info.chatId)) {
+        // Give a background transition time to clear its presence lease.
+        // Ordinary messages are rechecked against read state before delivery.
+        if (event.kind === 'agent' && clock() - job.created_at >= 5000) remove.run(job.id);
+        else postpone.run(Math.min(device.pushPresence.until, clock() + 5000), job.id);
+        continue;
+      }
+      const token = device.push.token;
+      try {
+        const result = await send(device.push, notificationPayload(info, user, device.id));
+        if (stopped) break;
+        if (result.invalid) mutate(s => {
+          const d = Object.values(s.devices).find(d => d.id === job.device_id);
+          if (d?.push?.token === token) delete d.push;
+        });
+        if (result.ok || result.invalid || !result.retry || job.attempts >= 5) {
+          remove.run(job.id);
+          if (!result.ok && !result.invalid) log('[push] delivery rejected:', result.code);
+        } else retry.run(clock() + Math.min(300000, 5000 * 2 ** job.attempts), job.id);
+      } catch {
+        if (stopped) break;
+        if (job.attempts >= 5) { remove.run(job.id); log('[push] delivery unavailable after retries'); }
+        else retry.run(clock() + Math.min(300000, 5000 * 2 ** job.attempts), job.id);
+      }
+    }
+  }
+  function backgroundDrain() {
+    void drain().catch(() => log('[push] could not drain notification queue'));
+  }
+  const timer = autoDrain ? setInterval(backgroundDrain, 5000) : null; timer?.unref();
+  function close() {
+    if (stopped) return;
+    stopped = true;
+    clearInterval(timer);
+    db.close();
+  }
+  function shutdown() {
+    if (shutdownPromise) return shutdownPromise;
+    stopping = true;
+    clearInterval(timer);
+    // Finish recording the current delivery, but leave unsent jobs for restart.
+    shutdownPromise = (async () => {
+      try { await activeDrain; }
+      finally { close(); }
+    })();
+    return shutdownPromise;
+  }
   return { enqueue, drain, pending: () => db.prepare('SELECT COUNT(*) AS n FROM jobs').get().n,
-    close: () => { stopped = true; clearInterval(timer); db.close(); } };
+    shutdown, close };
 }
 
 export function updatePushRegistration(s, device, body) {

@@ -1,5 +1,5 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text, type StyleProp, type ViewStyle } from "react-native";
-import { colors } from "../lib/theme";
+import { colors, radius, space, typography } from "../lib/theme";
 
 type Props = {
   label: string;
@@ -7,20 +7,23 @@ type Props = {
   kind?: "primary" | "secondary" | "link" | "danger";
   busy?: boolean;
   disabled?: boolean;
+  compact?: boolean;
   style?: StyleProp<ViewStyle>;
 };
 
-export function Button({ label, onPress, kind = "primary", busy, disabled, style }: Props) {
+export function Button({ label, onPress, kind = "primary", busy, disabled, compact, style }: Props) {
   const off = disabled || busy;
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={label}
       accessibilityState={{ disabled: !!off, busy: !!busy }}
+      disabled={!!off}
       onPress={off ? undefined : onPress}
-      style={({ pressed }) => [styles.base, styles[kind], off && styles.off, pressed && !off && styles.pressed, style]}
+      style={({ pressed }) => [styles.base, styles[kind], compact && styles.compact, off && styles.off, pressed && !off && styles.pressed, style]}
     >
       {busy ? (
-        <ActivityIndicator color={kind === "primary" ? colors.white : colors.blue} />
+        <ActivityIndicator color={kind === "primary" ? colors.white : kind === "danger" ? colors.red : colors.blue} />
       ) : (
         <Text style={[styles.label, styles[`${kind}Label`]]}>{label}</Text>
       )}
@@ -29,14 +32,15 @@ export function Button({ label, onPress, kind = "primary", busy, disabled, style
 }
 
 const styles = StyleSheet.create({
-  base: { minHeight: 50, borderRadius: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 20 },
+  base: { minHeight: 52, borderRadius: radius.md, alignItems: "center", justifyContent: "center", paddingHorizontal: space.side, paddingVertical: space.sm },
+  compact: { minHeight: 44, paddingHorizontal: space.md, paddingVertical: space.xs },
   primary: { backgroundColor: colors.blue },
-  secondary: { backgroundColor: colors.white, borderWidth: 1.5, borderColor: colors.blue },
+  secondary: { backgroundColor: colors.blueSoft, borderWidth: 1, borderColor: colors.blueSoft },
   link: { minHeight: 44, backgroundColor: "transparent" },
   danger: { minHeight: 44, backgroundColor: "transparent" },
   off: { opacity: 0.5 },
   pressed: { opacity: 0.85 },
-  label: { fontSize: 17, fontWeight: "600" },
+  label: { ...typography.bodyStrong, textAlign: "center" },
   primaryLabel: { color: colors.white },
   secondaryLabel: { color: colors.blue },
   linkLabel: { color: colors.blue },

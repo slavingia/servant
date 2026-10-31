@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Platform, ScrollView, Share, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Platform, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import QRCode from "react-native-qrcode-svg";
 import { Button } from "../components/Button";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { api, ServerError } from "../lib/server";
 import { useSession } from "../lib/session";
-import { colors } from "../lib/theme";
+import { colors, radius, space, typography } from "../lib/theme";
 
 type Link = { code: string; link: string; expiresAt: number };
 
@@ -15,18 +16,39 @@ export default function Invite() {
   const [invite, setInvite] = useState<Link | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [replaceOpen, setReplaceOpen] = useState(false);
+  const [replaceError, setReplaceError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const actionInFlight = useRef(false);
 
   const fetchLink = (fresh = false) =>
     api.joinLink(account!, fresh).then(
       (l) => {
         setInvite(l);
         setCopied(false);
+        setActionError(null);
+        setReplaceOpen(false);
       },
-      (e) => setError(e instanceof ServerError ? e.message : "Couldn't get the invite link"),
+      (e) => {
+        const message = e instanceof ServerError ? e.message : "Couldn't get the invite link. Try again.";
+        if (fresh) setReplaceError(message);
+        else setError(message);
+      },
     );
-  const load = (fresh = false) => {
+  const load = async (fresh = false) => {
+    if (actionInFlight.current) return;
+    actionInFlight.current = true;
+    setBusy(true);
     setError(null);
-    fetchLink(fresh);
+    setReplaceError(null);
+    try {
+      await fetchLink(fresh);
+    } finally {
+      setBusy(false);
+      actionInFlight.current = false;
+    }
   };
 
   useEffect(() => {
@@ -35,11 +57,11 @@ export default function Invite() {
   }, []);
 
   if (!account) return null;
-  if (error) {
+  if (error && !invite) {
     return (
       <View style={styles.center}>
-        <Text style={styles.error}>{error}</Text>
-        <Button label="Try again" onPress={() => load()} style={{ marginTop: 24, alignSelf: "stretch" }} />
+        <Text accessibilityRole="alert" style={styles.error}>{error}</Text>
+        <Button label="Try again" busy={busy} onPress={() => load()} style={{ marginTop: space.lg, alignSelf: "stretch" }} />
       </View>
     );
   }
@@ -53,47 +75,67 @@ export default function Invite() {
 
   const until = new Date(invite.expiresAt).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
   const message = `Join ${account.serverName} on Servant. Open this on your phone: ${invite.link}`;
-  const replace = () => {
-    const go = () => load(true);
-    if (Platform.OS === "web") return go();
-    Alert.alert("Make a new link?", "The current link will stop working. People who already joined stay in", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Make new link", style: "destructive", onPress: go },
-    ]);
+  const copy = async () => {
+    if (actionInFlight.current) return;
+    actionInFlight.current = true;
+    setCopying(true);
+    setCopied(false);
+    setActionError(null);
+    try {
+      const success = await Clipboard.setStringAsync(invite.link);
+      if (!success) throw new Error("Clipboard unavailable");
+      setCopied(true);
+    } catch {
+      setActionError("Couldn't copy the link. Try again or ask your teammate to scan the QR code.");
+    } finally {
+      setCopying(false);
+      actionInFlight.current = false;
+    }
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.body}>
-      <Text style={styles.lead}>Anyone with this link can join {account.serverName}</Text>
+    <>
+    <ScrollView style={styles.root} contentContainerStyle={styles.body}>
+      <Text accessibilityRole="header" style={styles.heading}>Invite your team</Text>
+      <Text style={styles.lead}>Share a link or let someone scan this code to join {account.serverName}.</Text>
       <View style={styles.qr}>
         <QRCode value={invite.link} size={220} />
       </View>
-      <Text style={styles.code} selectable>
-        {invite.code}
-      </Text>
-      <Text style={styles.note}>Works until {until}</Text>
-      <Text style={styles.note}>They'll talk to a limited agent with no access to your files, accounts or shell</Text>
-      {Platform.OS !== "web" ? <Button label="Share link" onPress={() => Share.share({ message })} style={{ marginTop: 24 }} /> : null}
+      <Text style={styles.codeLabel}>Scan with Servant</Text>
+      <Text style={styles.note}>Expires {until}</Text>
+      {Platform.OS !== "web" ? <Button label="Share invite link" disabled={busy || copying} onPress={() => Share.share({ message }).catch(() => setActionError("Couldn't open sharing. Try copying the invite link."))} style={{ marginTop: space.lg }} /> : null}
       <Button
-        label={copied ? "Copied" : "Copy link"}
+        label={copied ? "Link copied" : "Copy invite link"}
         kind={Platform.OS === "web" ? "primary" : "secondary"}
-        onPress={async () => {
-          await Clipboard.setStringAsync(invite.link);
-          setCopied(true);
-        }}
-        style={{ marginTop: 12 }}
+        busy={copying}
+        disabled={busy}
+        onPress={copy}
+        style={{ marginTop: Platform.OS === "web" ? space.lg : space.sm }}
       />
-      <Button label="Make a new link" kind="link" onPress={replace} style={{ marginTop: 8 }} />
+      {actionError ? <Text accessibilityRole="alert" style={styles.actionError}>{actionError}</Text> : null}
+      <View style={styles.details}>
+        <Text style={styles.detailHeading}>Who can join?</Text>
+        <Text style={styles.detail}>Anyone with this link can join. They'll have a limited agent with no access to your files, accounts, or shell.</Text>
+        <Button label="Replace invite link" kind="link" disabled={busy || copying} onPress={() => { setReplaceError(null); setReplaceOpen(true); }} style={{ alignSelf: "flex-start", marginLeft: -space.side, marginTop: space.xs }} />
+      </View>
     </ScrollView>
+    <ConfirmDialog visible={replaceOpen} title="Replace invite link?" description="The current link will stop working. People who already joined will keep their access." confirmLabel="Replace link" onConfirm={() => load(true)} onCancel={() => setReplaceOpen(false)} busy={busy} error={replaceError} />
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  body: { padding: 20 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 20 },
-  lead: { fontSize: 17, lineHeight: 24, color: colors.ink, textAlign: "center" },
-  qr: { marginTop: 24, alignSelf: "center", padding: 16, backgroundColor: colors.white, borderRadius: 16, borderWidth: 1, borderColor: colors.line },
-  code: { marginTop: 20, textAlign: "center", fontSize: 26, fontWeight: "700", letterSpacing: 2, color: colors.ink, fontVariant: ["tabular-nums"] },
-  note: { marginTop: 8, fontSize: 15, lineHeight: 21, color: colors.muted, textAlign: "center" },
-  error: { color: colors.red, fontSize: 17, textAlign: "center" },
+  root: { flex: 1, backgroundColor: colors.white },
+  body: { padding: space.side, paddingBottom: space.xxl },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: space.side, backgroundColor: colors.white },
+  heading: { ...typography.title, color: colors.ink },
+  lead: { ...typography.body, marginTop: space.sm, color: colors.muted },
+  qr: { marginTop: space.lg, alignSelf: "center", padding: space.md, backgroundColor: colors.white, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.line },
+  codeLabel: { ...typography.captionStrong, marginTop: space.md, textAlign: "center", color: colors.ink },
+  note: { ...typography.caption, marginTop: space.xs, color: colors.muted, textAlign: "center" },
+  details: { marginTop: space.xl, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line, paddingTop: space.lg },
+  detailHeading: { ...typography.bodyStrong, color: colors.ink },
+  detail: { ...typography.caption, marginTop: space.xs, color: colors.muted },
+  error: { ...typography.body, color: colors.red, textAlign: "center" },
+  actionError: { ...typography.caption, marginTop: space.sm, color: colors.red },
 });

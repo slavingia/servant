@@ -95,3 +95,64 @@ test('unregistered tokens are removed without touching replacement tokens', asyn
   p.enqueue({ kind: 'message', messageId: '5' });await tick();assert.equal(device.push.token, 'new');assert.equal(p.pending(), 0);
   p.close();fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('graceful shutdown records an in-flight delivery and preserves unsent jobs across restart', async () => {
+  const dir = tmp();
+  const state = { users: { u: { ...user, id: 'u' } }, devices: { d: { id: 'd', userId: 'u', push: { token: 'fake' } } } };
+  const options = { file: path.join(dir, 'push.db'), state: () => state, mutate: fn => fn(state), resolve: () => info };
+  const started = Promise.withResolvers(), response = Promise.withResolvers();
+  let sends = 0;
+  let p = createPushService({ ...options, send: () => { sends++; started.resolve(); return response.promise; } });
+  try {
+    p.enqueue({ kind: 'message', messageId: '1' });
+    await started.promise;
+    p.enqueue({ kind: 'message', messageId: '2' });
+    const shutdown = p.shutdown();
+    assert.equal(p.shutdown(), shutdown, 'repeated shutdown shares completion');
+    let finished = false;
+    shutdown.then(() => { finished = true; });
+    // Producers normally stop before shutdown. A late enqueue remains durable
+    // while the existing send is finishing, and must not start another delivery.
+    p.enqueue({ kind: 'message', messageId: '3' });
+    await tick();
+    assert.equal(finished, false);
+    assert.equal(sends, 1);
+    assert.equal(p.pending(), 3);
+    response.resolve({ ok: true });
+    await shutdown;
+    p.close(); // Immediate close after graceful shutdown is harmless.
+    assert.throws(() => p.enqueue({ kind: 'message', messageId: '4' }), /closed/);
+
+    p = createPushService({ ...options, send: async () => { sends++; return { ok: true }; } });
+    assert.equal(p.pending(), 2, 'the confirmed delivery is removed before closing');
+    await p.drain();
+    assert.equal(sends, 3, 'only unsent jobs are delivered after restart');
+    assert.equal(p.pending(), 0);
+    await p.shutdown();
+  } finally { response.resolve({ ok: true }); p.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('graceful shutdown records a failed send retry before closing', async () => {
+  const dir = tmp();
+  let now = 1000, sends = 0;
+  const state = { users: { u: { ...user, id: 'u' } }, devices: { d: { id: 'd', userId: 'u', push: { token: 'fake' } } } };
+  const options = { file: path.join(dir, 'push.db'), state: () => state, mutate: fn => fn(state), resolve: () => info, clock: () => now };
+  const started = Promise.withResolvers(), response = Promise.withResolvers();
+  let p = createPushService({ ...options, send: () => { started.resolve(); return response.promise; } });
+  try {
+    p.enqueue({ kind: 'message', messageId: '1' });
+    await started.promise;
+    const shutdown = p.shutdown();
+    response.reject(new Error('transport unavailable'));
+    await shutdown;
+    p = createPushService({ ...options, send: async () => { sends++; return { ok: true }; } });
+    assert.equal(p.pending(), 1);
+    await p.drain();
+    assert.equal(sends, 0, 'retry backoff survives graceful shutdown');
+    now += 5000;
+    await p.drain();
+    assert.equal(sends, 1);
+    assert.equal(p.pending(), 0);
+    await p.shutdown();
+  } finally { response.resolve({ ok: true }); p.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});

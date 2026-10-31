@@ -9,10 +9,6 @@ export default function TabsLayout() {
   const badge = (n: number) => (n > 0 ? String(n > 99 ? "99+" : n) : undefined);
   return (
     <NativeTabs tintColor={colors.blue} minimizeBehavior="never">
-      <NativeTabs.Trigger name="members">
-        <Icon sf={{ default: "person.2", selected: "person.2.fill" }} md="groups" />
-        <NativeTabs.Trigger.Label>Members</NativeTabs.Trigger.Label>
-      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="channels">
         <Icon sf={{ default: "number", selected: "number" }} md="tag" />
         <NativeTabs.Trigger.Label>Channels</NativeTabs.Trigger.Label>
@@ -26,6 +22,10 @@ export default function TabsLayout() {
       <NativeTabs.Trigger name="agent">
         <Icon sf={{ default: "sparkles", selected: "sparkles" }} md="auto_awesome" />
         <NativeTabs.Trigger.Label>Agent</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="members">
+        <Icon sf={{ default: "person.2", selected: "person.2.fill" }} md="groups" />
+        <NativeTabs.Trigger.Label>Members</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="you">
         <Icon sf={{ default: "person.crop.circle", selected: "person.crop.circle.fill" }} md="account_circle" />

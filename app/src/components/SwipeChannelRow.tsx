@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Animated, PanResponder, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import type { Conversation } from "../lib/server";
-import { colors } from "../lib/theme";
+import { colors, space, typography } from "../lib/theme";
 import { ConversationRow } from "./Messaging";
 
 export function SwipeChannelRow({ c, open, busy, canDelete, onOpen, onClose, onPress, onArchive, onDelete }: {
@@ -43,32 +43,32 @@ export function SwipeChannelRow({ c, open, busy, canDelete, onOpen, onClose, onP
   }, [busy, onClose, onOpen, open, width, x]);
   return (
     <View style={styles.root}>
+      <Animated.View {...pan.panHandlers} style={{ zIndex: 1, backgroundColor: colors.white, transform: [{ translateX: x }], opacity: busy ? 0.5 : 1 }}>
+        <ConversationRow c={c} onPress={() => { if (!busy) { if (open) onClose(); else onPress(); } }}
+          onLongPress={() => { if (!busy) onOpen(); }}
+          accessibilityActions={[{ name: "archive", label: archiveLabel }, ...(canDelete ? [{ name: "delete", label: "Delete channel" }] : [])]}
+          onAccessibilityAction={(e) => { if (!busy) { if (e.nativeEvent.actionName === "archive") onArchive(); if (e.nativeEvent.actionName === "delete" && canDelete) onDelete(); } }}
+          trailing={Platform.OS === "web" ? <Pressable disabled={busy} accessibilityRole="button" accessibilityLabel={`Actions for #${c.title}`} accessibilityState={{ expanded: open, disabled: busy }} onPress={open ? onClose : onOpen} style={styles.more}><Text style={styles.moreText}>•••</Text></Pressable> : undefined} />
+      </Animated.View>
       <View style={[styles.actions, { width }]} accessibilityElementsHidden={!open} importantForAccessibility={open ? "auto" : "no-hide-descendants"} pointerEvents={open && !busy ? "auto" : "none"}>
-        <Pressable disabled={busy} accessibilityRole="button" accessibilityLabel={`${archiveLabel} #${c.title}`} onPress={onArchive} style={[styles.action, styles.archive]}>
+        <Pressable disabled={!open || busy} accessibilityRole="button" accessibilityLabel={`${archiveLabel} #${c.title}`} onPress={onArchive} style={[styles.action, styles.archive]}>
           <Text style={styles.label}>{archiveLabel}</Text>
         </Pressable>
-        {canDelete ? <Pressable disabled={busy} accessibilityRole="button" accessibilityLabel={`Delete #${c.title}`} onPress={onDelete} style={[styles.action, styles.delete]}>
+        {canDelete ? <Pressable disabled={!open || busy} accessibilityRole="button" accessibilityLabel={`Delete #${c.title}`} onPress={onDelete} style={[styles.action, styles.delete]}>
           <Text style={styles.label}>Delete</Text>
         </Pressable> : null}
       </View>
-      <Animated.View {...pan.panHandlers} style={{ backgroundColor: colors.white, transform: [{ translateX: x }], opacity: busy ? 0.5 : 1 }}>
-        <ConversationRow c={c} onPress={() => { if (!busy) { if (open) onClose(); else onPress(); } }}
-          onLongPress={onOpen}
-          accessibilityActions={[{ name: "archive", label: archiveLabel }, ...(canDelete ? [{ name: "delete", label: "Delete channel" }] : [])]}
-          onAccessibilityAction={(e) => { if (!busy) { if (e.nativeEvent.actionName === "archive") onArchive(); if (e.nativeEvent.actionName === "delete" && canDelete) onDelete(); } }} />
-        {Platform.OS === "web" ? <Pressable accessibilityRole="button" accessibilityLabel={`Actions for #${c.title}`} onPress={open ? onClose : onOpen} style={styles.more}><Text style={styles.moreText}>•••</Text></Pressable> : null}
-      </Animated.View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { overflow: "hidden" },
-  actions: { position: "absolute", right: 0, top: 0, bottom: 0, flexDirection: "row" },
-  action: { flex: 1, minHeight: 48, alignItems: "center", justifyContent: "center" },
+  actions: { zIndex: 0, position: "absolute", right: 0, top: 0, bottom: 0, flexDirection: "row" },
+  action: { flex: 1, minHeight: 48, paddingHorizontal: space.xs, alignItems: "center", justifyContent: "center" },
   archive: { backgroundColor: colors.blue },
   delete: { backgroundColor: colors.red },
-  label: { color: colors.white, fontSize: 16, fontWeight: "600" },
-  more: { minHeight: 44, justifyContent: "center", alignItems: "flex-end", paddingHorizontal: 20 },
-  moreText: { color: colors.blue, fontSize: 18 },
+  label: { ...typography.label, color: colors.white },
+  more: { minHeight: 44, minWidth: 44, justifyContent: "center", alignItems: "center", marginRight: space.xs },
+  moreText: { ...typography.label, color: colors.muted },
 });

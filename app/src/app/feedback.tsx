@@ -1,0 +1,84 @@
+import { useCallback, useRef, useState } from "react";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import Constants from "expo-constants";
+import { nativeBuildVersion } from "expo-application";
+import { Button } from "../components/Button";
+import { useSession } from "../lib/session";
+import { api, type FeedbackReport } from "../lib/server";
+import { colors, controls, radius, space, typography } from "../lib/theme";
+
+const labels: Record<string, string> = { queued: "Queued", working: "Investigating", released: "Fix released", needs_info: "More information needed", reviewed: "Reviewed", interrupted: "Needs retry" };
+
+export default function Feedback() {
+  const { account } = useSession();
+  const { screen } = useLocalSearchParams<{ screen?: string }>();
+  const [text, setText] = useState("");
+  const [reports, setReports] = useState<FeedbackReport[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [sent, setSent] = useState(false);
+  const requestId = useRef("");
+  useFocusEffect(useCallback(() => {
+    if (!account) return;
+    let active = true;
+    const refresh = () => api.feedback(account).then(r => { if (active) setReports(r); }).catch(() => {});
+    void refresh();
+    const timer = setInterval(refresh, 5000);
+    return () => { active = false; clearInterval(timer); };
+  }, [account]));
+  if (!account) return null;
+  const send = async () => {
+    if (busy || !text.trim()) return;
+    setBusy(true); setError("");
+    requestId.current ||= `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    try {
+      const report = await api.sendFeedback(account, { text, requestId: requestId.current, context: {
+        screen: screen || "/you", platform: Platform.OS, version: Constants.expoConfig?.version || "",
+        build: nativeBuildVersion || "development",
+      } });
+      setReports(r => [report, ...r.filter(x => x.id !== report.id)]);
+      setText(""); setSent(true);
+      requestId.current = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    } catch (e) { setError(e instanceof Error ? e.message : "Couldn't send feedback. Please try again."); }
+    finally { setBusy(false); }
+  };
+  return <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+    <Text accessibilityRole="header" style={styles.heading}>Help improve Servant</Text>
+    <Text style={styles.intro}>Tell us what happened and what you expected. Follow your report's progress below.</Text>
+    <Text style={styles.label}>Your feedback</Text>
+    <TextInput accessibilityLabel="Feedback" placeholder="What should we fix?" value={text}
+      onChangeText={value => { setText(value); setSent(false); }} multiline maxLength={4000} autoFocus
+      placeholderTextColor={colors.muted} editable={!busy} style={styles.input} textAlignVertical="top" />
+    <Text style={styles.caption}>Includes this screen, app build, and platform. Messages and screenshots are not attached.</Text>
+    {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+    <Button label="Send feedback" busy={busy} disabled={!text.trim()} onPress={send} />
+    {sent ? <Text accessibilityLiveRegion="polite" style={styles.body}>Feedback saved. You can close this screen while the agent works.</Text> : null}
+    <Text accessibilityRole="header" style={styles.sectionHeading}>Your reports</Text>
+    {!reports.length ? <Text style={styles.intro}>Your reports and updates will appear here.</Text> : null}
+    {reports.map(report => <View key={report.id} style={styles.report}>
+      <Text style={styles.status}>{labels[report.status] || report.status}</Text>
+      <Text style={styles.body}>{report.text}</Text>
+      {report.result ? <Text style={styles.body}>{report.result}</Text> : null}
+      {report.status === "interrupted" ? <Pressable accessibilityRole="button" onPress={async () => {
+        try { await api.retryFeedback(account, report.id); setReports(await api.feedback(account)); }
+        catch { setError("Couldn't retry. Please try again."); }
+      }}><Text style={styles.link}>Retry investigation</Text></Pressable> : null}
+    </View>)}
+  </ScrollView>;
+}
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.white },
+  content: { padding: space.side, gap: space.md, paddingBottom: space.xxl },
+  heading: { ...typography.title, color: colors.ink },
+  sectionHeading: { ...typography.heading, marginTop: space.lg, color: colors.ink },
+  label: { ...typography.label, color: colors.ink, marginTop: space.xs, marginBottom: -space.xs },
+  intro: { ...typography.body, color: colors.muted },
+  body: { ...typography.body, color: colors.ink },
+  input: { ...controls.input, ...controls.inputMultiline, minHeight: 160 },
+  caption: { ...typography.caption, color: colors.muted },
+  error: { ...typography.caption, color: colors.red },
+  report: { padding: space.md, gap: space.xs, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
+  status: { ...typography.captionStrong, color: colors.blueDark },
+  link: { ...typography.bodyStrong, color: colors.blue, paddingVertical: space.sm, minHeight: 44 },
+});

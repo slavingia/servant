@@ -2,6 +2,7 @@ import { Redirect } from "expo-router";
 import { ActivityIndicator, View } from "react-native";
 import { useSession } from "../lib/session";
 import { colors } from "../lib/theme";
+import { validServerKey } from "../lib/tunnel-crypto";
 
 export default function Index() {
   const { ready, account } = useSession();
@@ -12,5 +13,5 @@ export default function Index() {
       </View>
     );
   }
-  return <Redirect href={account ? "/channels" : "/welcome"} />;
+  return <Redirect href={account && validServerKey(account.serverKey) ? "/channels" : "/welcome"} />;
 }

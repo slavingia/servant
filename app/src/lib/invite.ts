@@ -1,4 +1,4 @@
-export type Invite = { code: string; server?: string; discovery?: string };
+export type Invite = { code: string; server?: string; discovery?: string; serverKey?: string };
 
 const CODE = /^[0-9A-Z]{5}-?[0-9A-Z]{5}$/i;
 
@@ -18,5 +18,7 @@ export function parseInvite(input: string): Invite | null {
   if (!server && !discovery) return null;
   if (server && !/^https?:\/\//.test(server)) return null;
   if (discovery && !/^https:\/\//.test(discovery)) return null;
-  return { code: code.toUpperCase(), server, discovery };
+  const serverKey = params.get("key") || undefined;
+  if (serverKey && !/^(02|03)[0-9a-f]{64}$/.test(serverKey)) return null;
+  return { ...(serverKey ? { serverKey } : {}), code: code.toUpperCase(), server, discovery };
 }

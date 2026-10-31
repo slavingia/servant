@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Button } from "../components/Button";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Avatar } from "../components/Messaging";
 import { api, ServerError, type Conversation, type Person } from "../lib/server";
 import { useLive } from "../lib/live";
 import { useSession } from "../lib/session";
-import { colors } from "../lib/theme";
+import { colors, controls, space, typography } from "../lib/theme";
 
 export default function ChannelInfo() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -19,42 +20,63 @@ export default function ChannelInfo() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [opening, setOpening] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [addingId, setAddingId] = useState<string | null>(null);
+  const [confirmingLeave, setConfirmingLeave] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const [topicFocused, setTopicFocused] = useState(false);
+  const [retrying, setRetrying] = useState(false);
 
-  const load = useCallback(async () => {
-    if (!account) return;
-    try {
-      const [c, p] = await Promise.all([api.conversation(account, id), api.people(account)]);
-      setConv(c.conversation);
-      setTopic(c.conversation.topic);
-      setEveryone(p.people);
-    } catch (e) {
-      setError(e instanceof ServerError ? e.message : "Couldn't load the channel");
-    }
+  const load = useCallback((resetTopic = true) => {
+    if (!account) return Promise.resolve();
+    return Promise.all([api.conversation(account, id), api.people(account)])
+      .then(([c, p]) => {
+        setConv(c.conversation);
+        if (resetTopic) setTopic(c.conversation.topic);
+        setEveryone(p.people);
+        setError(null);
+      })
+      .catch((e) => {
+        setError(e instanceof ServerError ? e.message : "Couldn't load the channel");
+      });
   }, [account, id]);
   useEffect(() => {
     load();
   }, [load]);
 
-  if (!account || !conv) return <View style={styles.root}>{error ? <Text style={styles.error}>{error}</Text> : null}</View>;
+  if (!account || !conv) return <View style={[styles.root, styles.loading]}>{error ? <>
+    <Text accessibilityRole="alert" style={styles.loadError}>{error}</Text>
+    <Button label="Try again" kind="secondary" busy={retrying} onPress={() => { setRetrying(true); void load().finally(() => setRetrying(false)); }} />
+  </> : <ActivityIndicator accessibilityLabel="Loading channel details" color={colors.blue} />}</View>;
   const memberIds = new Set((conv.members ?? []).map((m) => m.id));
   const notIn = everyone.filter((p) => !memberIds.has(p.id));
 
   const saveTopic = async () => {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
     try {
       await api.updateChannel(account, id, { topic });
+      setConv(current => current ? { ...current, topic } : current);
       setSaved(true);
-      setError(null);
       refresh();
     } catch (e) {
-      setError(e instanceof ServerError ? e.message : "Couldn't save");
+      setError(e instanceof ServerError ? e.message : "Couldn't save the topic. Try again.");
+    } finally {
+      setSaving(false);
     }
   };
   const add = async (p: Person) => {
+    if (addingId) return;
+    setAddingId(p.id);
+    setError(null);
     try {
       await api.addMembers(account, id, [p.id]);
-      await load();
+      await load(false);
     } catch (e) {
-      setError(e instanceof ServerError ? e.message : "Couldn't add them");
+      setError(e instanceof ServerError ? e.message : "Couldn't add this member. Try again.");
+    } finally {
+      setAddingId(null);
     }
   };
   const message = async (person: Person) => {
@@ -63,38 +85,38 @@ export default function ChannelInfo() {
     setError(null);
     try {
       const conversation = await api.openDm(account, [person.id]);
-      router.push({ pathname: "/c/[id]", params: { id: conversation.id } });
+      router.push({ pathname: "/c/[id]", params: { id: conversation.id, compose: "1" } });
     } catch (e) {
       setError(e instanceof ServerError ? e.message : "Couldn't open the conversation. Try again");
     } finally {
       setOpening(null);
     }
   };
-  const leave = () => {
-    const go = async () => {
-      try {
-        await api.leave(account, id);
-        refresh();
-        router.dismissTo("/channels");
-      } catch (e) {
-        setError(e instanceof ServerError ? e.message : "Couldn't leave");
-      }
-    };
-    if (Platform.OS === "web") return void go();
-    Alert.alert(`Leave #${conv.title}?`, conv.private ? "You'll need someone to add you back" : "You can join again from Browse channels", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Leave", style: "destructive", onPress: go },
-    ]);
+  const leave = async () => {
+    if (leaving) return;
+    setLeaving(true);
+    setError(null);
+    try {
+      await api.leave(account, id);
+      refresh();
+      router.dismissTo("/channels");
+    } catch (e) {
+      setError(e instanceof ServerError ? e.message : "Couldn't leave the channel. Try again.");
+    } finally {
+      setLeaving(false);
+    }
   };
 
   return (
-    <ScrollView style={styles.root} contentContainerStyle={{ padding: 20, paddingBottom: 48 }} keyboardShouldPersistTaps="handled">
-      <Text style={styles.title}>#{conv.title}</Text>
+    <View style={styles.root}>
+    <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <Text accessibilityRole="header" style={styles.title}>#{conv.title}</Text>
       <Text style={styles.sub}>
-        {conv.private ? "Private" : "Public"} · {conv.memberCount} {conv.memberCount === 1 ? "member" : "members"}
+        {conv.archived ? "Archived · " : ""}{conv.private ? "Private channel" : "Public channel"} · {conv.memberCount} {conv.memberCount === 1 ? "member" : "members"}
       </Text>
 
-      <Text style={styles.label}>Topic</Text>
+      <Text accessibilityRole="header" style={styles.label}>Topic</Text>
+      <Text style={styles.helper}>A short description helps everyone know what belongs here.</Text>
       <TextInput
         accessibilityLabel="Topic"
         value={topic}
@@ -103,28 +125,31 @@ export default function ChannelInfo() {
           setSaved(false);
         }}
         placeholder="What's this channel for?"
-        placeholderTextColor="#8A8F96"
-        style={styles.input}
+        placeholderTextColor={colors.muted}
+        style={[styles.input, topicFocused && controls.inputFocused]}
+        onFocus={() => setTopicFocused(true)}
+        onBlur={() => setTopicFocused(false)}
+        multiline
+        editable={!saving}
         maxLength={250}
       />
-      {topic !== conv.topic && !saved ? <Button label="Save topic" kind="secondary" onPress={saveTopic} style={{ marginTop: 10 }} /> : null}
-      {saved ? <Text style={styles.ok}>Saved</Text> : null}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {topic !== conv.topic ? <Button label="Save topic" kind="secondary" onPress={saveTopic} busy={saving} style={styles.saveAction} /> : null}
+      {saved ? <Text accessibilityLiveRegion="polite" style={styles.ok}>Topic saved</Text> : null}
+      {error && !confirmingLeave ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
 
       <View style={styles.sectionRow}>
-        <Text style={styles.label}>Members</Text>
-        {notIn.length ? (
-          <Pressable accessibilityRole="button" onPress={() => setAdding((a) => !a)} hitSlop={8}>
-            <Text style={styles.link}>{adding ? "Done" : "Add people"}</Text>
-          </Pressable>
+        <Text accessibilityRole="header" style={styles.sectionTitle}>{adding ? "Add members" : "Members"}</Text>
+        {notIn.length || adding ? (
+          <Button label={adding ? "Done" : "Add people"} compact kind="link" onPress={() => setAdding((a) => !a)} />
         ) : null}
       </View>
+      {adding ? <Text style={styles.addHelper}>{notIn.length ? "Choose someone to add to this channel." : "Everyone on this server is already a member."}</Text> : null}
       {adding
         ? notIn.map((p) => (
-            <Pressable key={p.id} accessibilityRole="button" accessibilityLabel={`Add ${p.name}`} onPress={() => add(p)} style={styles.person}>
+            <Pressable key={p.id} accessibilityRole="button" accessibilityLabel={`Add ${p.name}`} accessibilityState={{ disabled: !!addingId, busy: addingId === p.id }} disabled={!!addingId} onPress={() => add(p)} style={({ pressed }) => [styles.person, pressed && { backgroundColor: colors.surface }]}>
               <Avatar name={p.name} size={32} />
               <Text style={styles.personName}>{p.name}</Text>
-              <Text style={styles.link}>Add</Text>
+              {addingId === p.id ? <ActivityIndicator color={colors.blue} /> : <Text style={styles.link}>Add</Text>}
             </Pressable>
           ))
         : (conv.members ?? []).map((p) => (
@@ -146,28 +171,34 @@ export default function ChannelInfo() {
             </Pressable>
           ))}
 
-      {conv.name !== "general" ? (
-        <Pressable accessibilityRole="button" onPress={leave} style={styles.danger}>
-          <Text style={styles.dangerText}>Leave channel</Text>
-        </Pressable>
-      ) : null}
+      {conv.name !== "general" ? <View style={styles.leaveSection}>
+        <Button label="Leave channel" kind="danger" onPress={() => { setError(null); setConfirmingLeave(true); }} />
+      </View> : null}
     </ScrollView>
+    <ConfirmDialog visible={confirmingLeave} title={`Leave #${conv.title}?`} description={conv.private ? "You'll need someone to add you back to this private channel." : "You can join again from the Channels tab."} confirmLabel="Leave channel" onConfirm={() => void leave()} onCancel={() => setConfirmingLeave(false)} busy={leaving} error={error} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
-  title: { fontSize: 26, fontWeight: "700", color: colors.ink },
-  sub: { marginTop: 4, fontSize: 15, color: colors.muted },
-  label: { marginTop: 24, marginBottom: 8, fontSize: 15, fontWeight: "600", color: colors.ink },
-  input: { minHeight: 50, borderWidth: 1, borderColor: colors.line, borderRadius: 12, backgroundColor: colors.surface, paddingHorizontal: 14, fontSize: 17, color: colors.ink },
-  ok: { marginTop: 8, color: colors.muted, fontSize: 15 },
-  error: { marginTop: 12, color: colors.red, fontSize: 15 },
-  sectionRow: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" },
-  link: { color: colors.blue, fontSize: 16, fontWeight: "600", marginBottom: 8 },
-  messageLink: { color: colors.blue, fontSize: 15, marginLeft: 12 },
-  person: { minHeight: 48, flexDirection: "row", alignItems: "center" },
-  personName: { flex: 1, marginLeft: 12, fontSize: 17, color: colors.ink },
-  danger: { marginTop: 32, alignSelf: "center", minHeight: 44, justifyContent: "center", paddingHorizontal: 20 },
-  dangerText: { color: colors.red, fontSize: 17 },
+  content: { padding: space.side, paddingBottom: space.xxl },
+  loading: { padding: space.lg, alignItems: "center", justifyContent: "center", gap: space.lg },
+  loadError: { ...typography.body, color: colors.red, textAlign: "center" },
+  title: { ...typography.title, color: colors.ink },
+  sub: { ...typography.caption, marginTop: space.xs, color: colors.muted },
+  label: { ...typography.label, marginTop: space.xl, marginBottom: space.xs, color: colors.ink },
+  helper: { ...typography.caption, color: colors.muted, marginBottom: space.sm },
+  input: { ...controls.input, ...controls.inputMultiline, minHeight: 96 },
+  saveAction: { marginTop: space.sm, alignSelf: "flex-start" },
+  ok: { ...typography.caption, marginTop: space.xs, color: colors.muted },
+  error: { ...typography.caption, marginTop: space.sm, color: colors.red },
+  sectionRow: { marginTop: space.xl, marginBottom: space.xs, flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: space.xs },
+  sectionTitle: { ...typography.heading, color: colors.ink },
+  addHelper: { ...typography.caption, color: colors.muted, marginBottom: space.sm },
+  link: { ...typography.captionStrong, color: colors.blue },
+  messageLink: { ...typography.captionStrong, color: colors.blue, marginLeft: space.sm },
+  person: { minHeight: 64, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  personName: { ...typography.body, flex: 1, minWidth: 0, marginLeft: space.sm, marginRight: space.xs, color: colors.ink },
+  leaveSection: { marginTop: space.xl, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
 });

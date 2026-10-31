@@ -1,16 +1,23 @@
 import { useCallback, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
-import { Band, PageTitle } from "../../components/Band";
+import { PageTitle } from "../../components/Band";
 import { Avatar } from "../../components/Messaging";
+import { Button } from "../../components/Button";
+import { useStatusNow } from "../../components/Presence";
 import { api, ServerError, type Person } from "../../lib/server";
+import { useLive } from "../../lib/live";
+import { presenceLabel } from "../../lib/message-status";
 import { useSession } from "../../lib/session";
-import { colors } from "../../lib/theme";
+import { colors, controls, space, typography } from "../../lib/theme";
 
 export default function Members() {
   const { account } = useSession();
+  const { presence, connected } = useLive();
+  const now = useStatusNow();
   const [directory, setDirectory] = useState<{ token: string; people: Person[] } | null>(null);
   const [query, setQuery] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [opening, setOpening] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -33,45 +40,57 @@ export default function Members() {
     setOpening(person.id); setError(null);
     try {
       const conversation = await api.openDm(account, [person.id]);
-      router.push({ pathname: "/c/[id]", params: { id: conversation.id } });
+      router.push({ pathname: "/c/[id]", params: { id: conversation.id, compose: "1" } });
     } catch (e) {
       setError(e instanceof ServerError ? e.message : "Couldn't open the conversation. Try again");
     } finally { setOpening(null); }
   };
   return <View style={styles.root}>
-    <Band right={account.user.role === "owner" ? <Pressable accessibilityRole="button" onPress={() => router.push("/invite")} hitSlop={12}><Text style={styles.bandLink}>Invite</Text></Pressable> : undefined} />
     <FlatList
       data={shown}
       keyExtractor={person => person.id}
       keyboardShouldPersistTaps="handled"
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />}
       ListHeaderComponent={<>
-        <PageTitle>Members</PageTitle>
-        <TextInput accessibilityLabel="Search members" value={query} onChangeText={setQuery} placeholder="Search members" placeholderTextColor={colors.muted} autoCorrect={false} style={styles.search} />
+        <PageTitle description="Find someone to message." action={account.user.role === "owner" ? <Button label="Invite" compact onPress={() => router.push("/invite")} /> : undefined}>Members</PageTitle>
+        <TextInput accessibilityLabel="Search members" value={query} onChangeText={setQuery} placeholder="Search by name" placeholderTextColor={colors.muted} autoCapitalize="none" autoCorrect={false} returnKeyType="search" onFocus={() => setSearchFocused(true)} onBlur={() => setSearchFocused(false)} style={[styles.search, searchFocused && controls.inputFocused]} />
+        {people && shown.length ? <Text style={styles.resultCount}>{query.trim() ? `${shown.length} ${shown.length === 1 ? "result" : "results"}` : `${people.length} ${people.length === 1 ? "member" : "members"}`}</Text> : null}
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
       </>}
-      ListEmptyComponent={people === null && !error ? <ActivityIndicator style={{ marginTop: 40 }} color={colors.blue} /> : <Text style={styles.empty}>{error ? "Pull down to try again" : query.trim() ? "No members match your search" : "No members yet"}</Text>}
+      ListEmptyComponent={people === null && !error ? <ActivityIndicator accessibilityLabel="Loading members" style={styles.loading} color={colors.blue} /> : <View style={styles.empty}>
+        <Text style={styles.emptyTitle}>{error ? "Couldn't load members" : query.trim() ? "No matching members" : "No members yet"}</Text>
+        <Text style={styles.emptyBody}>{error ? "Try again to see who's here." : query.trim() ? "Try a different name or clear your search." : "People will appear here when they join your server."}</Text>
+        {error ? <Button label="Try again" kind="secondary" busy={refreshing} onPress={() => { setRefreshing(true); void load(); }} style={styles.emptyAction} /> : query.trim() ? <Button label="Clear search" kind="secondary" onPress={() => setQuery("")} style={styles.emptyAction} /> : null}
+      </View>}
       renderItem={({ item }) => {
         const self = item.id === account.user.id;
-        return <Pressable accessibilityRole={self ? undefined : "button"} accessibilityLabel={`${item.name}${self ? ", you" : ""}, ${item.owner ? "owner" : "member"}`} accessibilityHint={self ? undefined : "Open direct message"} disabled={self || !!opening} onPress={() => void message(item)} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}>
+        const status = self ? "" : presenceLabel(presence[item.id] ?? { ...item, online: false }, now, connected);
+        return <Pressable accessibilityRole={self ? undefined : "button"} accessibilityLabel={`${item.name}${self ? ", you" : ""}, ${item.owner ? "owner" : "member"}${status ? `, ${status}` : ""}`} accessibilityHint={self ? undefined : "Open direct message"} disabled={self || !!opening} onPress={() => void message(item)} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}>
           <Avatar name={item.name} />
-          <View style={styles.copy}><Text style={styles.name}>{item.name}{self ? " (you)" : ""}</Text><Text style={styles.role}>{item.owner ? "Owner" : "Member"}</Text></View>
+          <View style={styles.copy}><Text style={styles.name}>{item.name}{self ? <Text style={styles.you}> · You</Text> : null}</Text><Text style={styles.role}>{item.owner ? "Owner" : "Member"}</Text>{status ? <Text style={[styles.role, status === "Online" && styles.online]}>{status}</Text> : null}</View>
           {opening === item.id ? <ActivityIndicator color={colors.blue} /> : !self ? <Text accessibilityElementsHidden style={styles.action}>Message</Text> : null}
         </Pressable>;
       }}
-      contentContainerStyle={{ paddingBottom: 120, flexGrow: 1 }}
+      contentContainerStyle={styles.content}
     />
   </View>;
 }
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
-  bandLink: { color: colors.white, fontSize: 16, fontWeight: "600" },
-  search: { marginHorizontal: 20, marginTop: 12, marginBottom: 12, minHeight: 46, borderRadius: 12, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 14, fontSize: 17, color: colors.ink },
-  row: { minHeight: 76, paddingHorizontal: 20, paddingVertical: 12, flexDirection: "row", alignItems: "center" },
-  copy: { flex: 1, marginLeft: 12, marginRight: 12 },
-  name: { fontSize: 17, color: colors.ink },
-  role: { marginTop: 4, fontSize: 14, color: colors.muted },
-  action: { fontSize: 15, color: colors.blue },
-  error: { marginHorizontal: 20, marginVertical: 8, fontSize: 15, color: colors.red },
-  empty: { marginTop: 40, marginHorizontal: 20, textAlign: "center", fontSize: 16, color: colors.muted },
+  content: { paddingBottom: 120, flexGrow: 1 },
+  search: { ...controls.input, marginHorizontal: space.side, marginBottom: space.md },
+  resultCount: { ...typography.caption, marginHorizontal: space.side, marginBottom: space.xs, color: colors.muted },
+  row: { minHeight: 80, paddingHorizontal: space.side, paddingVertical: space.md, flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  copy: { flex: 1, minWidth: 0, marginHorizontal: space.sm },
+  name: { ...typography.bodyStrong, color: colors.ink },
+  you: { ...typography.body, color: colors.muted },
+  role: { ...typography.caption, marginTop: space.xxs, color: colors.muted },
+  online: { color: colors.blueDark },
+  action: { ...typography.captionStrong, color: colors.blue },
+  error: { ...typography.caption, marginHorizontal: space.side, marginVertical: space.xs, color: colors.red },
+  loading: { marginTop: space.xxl },
+  empty: { marginTop: space.xxl, paddingHorizontal: space.lg, alignItems: "center" },
+  emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center" },
+  emptyBody: { ...typography.body, marginTop: space.xs, maxWidth: 320, color: colors.muted, textAlign: "center" },
+  emptyAction: { marginTop: space.lg },
 });

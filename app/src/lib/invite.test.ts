@@ -4,6 +4,13 @@ import { parseInvite } from "./invite.ts";
 
 const D = "https://gist.githubusercontent.com/u/abc/raw/hub.json";
 
+test("preserves the pinned encryption key and rejects malformed pins", () => {
+  const key = '02' + 'ab'.repeat(32);
+  const link = `servant://pair?code=ABCDE-FGH23&d=${encodeURIComponent(D)}&key=${key}`;
+  assert.equal(parseInvite(link)?.serverKey, key);
+  assert.equal(parseInvite(link.replace(key, 'bad-key')), null);
+});
+
 test("reads a discovery invite link", () => {
   const link = `servant://pair?code=ABCDE-FGH23&d=${encodeURIComponent(D)}`;
   assert.deepEqual(parseInvite(link), { code: "ABCDE-FGH23", server: undefined, discovery: D });

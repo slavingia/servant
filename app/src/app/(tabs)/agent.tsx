@@ -1,10 +1,11 @@
 import { useCallback, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
-import { Band, PageTitle } from "../../components/Band";
+import { PageTitle } from "../../components/Band";
+import { Button } from "../../components/Button";
 import { api, ServerError, type Chat } from "../../lib/server";
 import { useSession } from "../../lib/session";
-import { colors } from "../../lib/theme";
+import { colors, space, typography } from "../../lib/theme";
 
 function when(ms: number) {
   const d = new Date(ms);
@@ -58,13 +59,6 @@ export default function Chats() {
 
   return (
     <View style={styles.root}>
-      <Band
-        right={
-          <Pressable accessibilityRole="button" accessibilityState={{ disabled: starting }} disabled={starting} onPress={start} hitSlop={12}>
-            <Text style={[styles.bandLink, starting && { opacity: 0.5 }]}>New chat</Text>
-          </Pressable>
-        }
-      />
       <FlatList
         data={chats ?? []}
         keyExtractor={(c) => c.id}
@@ -80,18 +74,19 @@ export default function Chats() {
         }
         ListHeaderComponent={
           <View>
-            <PageTitle>Agent</PageTitle>
-            <Text style={styles.sub}>Private chats with the agent on {account.serverName}. Only you can see them</Text>
-            {error ? <Text style={styles.error}>{error}</Text> : null}
+            <PageTitle description={`Your private chats with the agent on ${account.serverName}.`} action={<Button label="New chat" kind="secondary" compact onPress={start} busy={starting} />}>Agent</PageTitle>
+            {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+            {chats?.length ? <Text accessibilityRole="header" style={styles.sectionTitle}>Recent chats</Text> : null}
           </View>
         }
         ListEmptyComponent={
           chats === null ? (
-            <ActivityIndicator style={{ marginTop: 40 }} color={colors.blue} />
+            error ? <Button label="Try again" kind="link" onPress={() => void load()} style={styles.retry} /> : <ActivityIndicator style={{ marginTop: space.xl }} color={colors.blue} />
           ) : (
             <View style={styles.empty}>
-              <Text style={styles.emptyTitle}>No chats yet</Text>
-              <Text style={styles.emptyBody}>Tap New chat to ask the agent anything</Text>
+              <Text accessibilityRole="header" style={styles.emptyTitle}>Start with a question</Text>
+              <Text style={styles.emptyBody}>Ask the agent for help, then return to your conversation here.</Text>
+              <Button label="New chat" onPress={start} busy={starting} style={styles.emptyAction} />
             </View>
           )
         }
@@ -107,7 +102,7 @@ export default function Chats() {
             <Text style={styles.rowWhen}>{when(item.updatedAt)}</Text>
           </Pressable>
         )}
-        contentContainerStyle={{ paddingBottom: 40 }}
+        contentContainerStyle={{ paddingBottom: space.xxl }}
       />
     </View>
   );
@@ -115,20 +110,22 @@ export default function Chats() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
-  bandLink: { color: colors.white, fontSize: 16, fontWeight: "600" },
-  sub: { marginTop: 4, marginHorizontal: 20, fontSize: 15, color: colors.muted },
-  error: { marginTop: 12, marginHorizontal: 20, fontSize: 15, color: colors.red },
+  error: { ...typography.caption, marginBottom: space.sm, marginHorizontal: space.side, color: colors.red },
+  sectionTitle: { ...typography.label, color: colors.muted, marginHorizontal: space.side, marginTop: space.xs, marginBottom: space.xs },
+  retry: { marginHorizontal: space.side },
   row: {
-    minHeight: 60,
-    paddingHorizontal: 20,
+    minHeight: 72,
+    paddingVertical: space.md,
+    paddingHorizontal: space.side,
     flexDirection: "row",
     alignItems: "center",
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.line,
   },
-  rowTitle: { flex: 1, fontSize: 17, color: colors.ink, marginRight: 12 },
-  rowWhen: { fontSize: 14, color: colors.muted },
-  empty: { marginTop: 48, alignItems: "center", paddingHorizontal: 20 },
-  emptyTitle: { fontSize: 20, fontWeight: "600", color: colors.ink },
-  emptyBody: { marginTop: 6, fontSize: 16, color: colors.muted, textAlign: "center" },
+  rowTitle: { ...typography.bodyStrong, flex: 1, color: colors.ink, marginRight: space.sm },
+  rowWhen: { ...typography.caption, color: colors.muted },
+  empty: { marginTop: space.xxl, alignItems: "center", paddingHorizontal: space.side },
+  emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center" },
+  emptyBody: { ...typography.body, marginTop: space.xs, color: colors.muted, textAlign: "center", maxWidth: 360 },
+  emptyAction: { marginTop: space.lg },
 });
