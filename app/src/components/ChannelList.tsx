@@ -25,6 +25,7 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
   const { colors } = useTheme();
   const { account } = useSession();
   const { conversations, error, refresh, connected } = useLive();
+  const reconnecting = !connected && conversations !== null;
   const [refreshing, setRefreshing] = useState(false);
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [channelsOpen, setChannelsOpen] = useState(true);
@@ -122,7 +123,8 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
           </View>}
           {actionError && !deleting ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
           {error && conversations !== null ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-          {!connected && conversations !== null ? <Text style={styles.note}>Reconnecting…</Text> : null}
+          {/* Keep the status line measured so reconnecting never moves the list. */}
+          <Text aria-hidden={!reconnecting} style={[styles.note, { opacity: reconnecting ? 1 : 0 }]}>Reconnecting…</Text>
         </View>}
         ListEmptyComponent={conversations === null ?
           error ? <View style={styles.empty}><Text accessibilityRole="alert" style={styles.errorText}>{error}</Text><Button label="Try again" kind="secondary" busy={refreshing} onPress={() => void reload()} /></View> :

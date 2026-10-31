@@ -13,6 +13,7 @@ export default function Messages() {
   const { colors } = useTheme();
   const { account } = useSession();
   const { conversations, error, refresh, connected } = useLive();
+  const reconnecting = !connected && conversations !== null;
   const [refreshing, setRefreshing] = useState(false);
   const [unreadOnly, setUnreadOnly] = useState(false);
   useFocusEffect(
@@ -58,7 +59,8 @@ export default function Messages() {
               <Text style={[styles.filterText, unreadOnly === value && styles.selectedFilterText]}>{value ? "Unread" : "All"}</Text>
             </Pressable>)}</View>
             {error && conversations ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-            {!connected && conversations ? <Text style={styles.note}>Reconnecting…</Text> : null}
+            {/* Keep the status line measured so reconnecting never moves the list. */}
+            <Text aria-hidden={!reconnecting} style={[styles.note, { opacity: reconnecting ? 1 : 0 }]}>Reconnecting…</Text>
           </View>
         }
         ListEmptyComponent={
