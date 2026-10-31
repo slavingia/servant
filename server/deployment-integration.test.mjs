@@ -1,3 +1,4 @@
+import { restrictedTestCapabilities } from "./test-hermes-capabilities.mjs";
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -51,6 +52,7 @@ async function fixture(t) {
   const turns = [];
   const sessions = [];
   const upstream = http.createServer(async (req, res) => {
+    if (req.method === "GET" && req.url === "/v1/capabilities") return res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(restrictedTestCapabilities));
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
@@ -65,7 +67,7 @@ async function fixture(t) {
         if (!res.writableEnded) res.end(`event: assistant.completed\ndata: ${JSON.stringify({ content: `Finished ${kind} safely` })}\n\n`);
       } });
     } else {
-      res.writeHead(200, { 'Content-Type': 'application/json' }).end('{}');
+      res.writeHead(200, { 'Content-Type': 'application/json' }).end(req.url.endsWith('/messages') ? '{"data":[]}' : '{}');
     }
   });
   let service, worker, workerDone;
@@ -190,8 +192,10 @@ test('real encrypted APIs preserve reads, writes, direct streams and durable job
     const deployed = await controlRequest(f.runtimeDir, '/deploy', { release: 'second' });
     assert.equal(deployed.active.release, 'second');
     assert.notEqual(deployed.active.pid, firstPid);
-    assert.ok(deployed.retiring.some(record => record.pid === firstPid && record.inFlight > 0 && !record.signaled));
-    assert.equal(directFinished, false);
+    // The API may retire its phone subscription immediately: private turns now
+    // live in the independent worker and catch up from the persisted journal.
+    await until(() => directFinished, 'private phone subscription to reconnect');
+    assert.equal(f.worker.exitCode, null);
     assert.equal((await (await fetch(f.base + '/ready')).json()).release, 'second');
     phase = 'second';
     await until(() => reads.filter(value => value === phase).length >= 3 && writes.filter(value => value.phase === phase).length >= 3, 'traffic on second release');
@@ -200,8 +204,7 @@ test('real encrypted APIs preserve reads, writes, direct streams and durable job
     const rolledBack = await controlRequest(f.runtimeDir, '/rollback', {});
     assert.equal(rolledBack.active.release, 'first');
     assert.notEqual(rolledBack.active.pid, firstPid);
-    assert.ok(rolledBack.retiring.some(record => record.pid === firstPid && record.inFlight > 0 && !record.signaled));
-    assert.equal(directFinished, false);
+    assert.equal(directFinished, true);
     assert.equal(f.worker.pid, workerPid);
     assert.equal(f.worker.exitCode, null);
     phase = 'after';
@@ -216,7 +219,13 @@ test('real encrypted APIs preserve reads, writes, direct streams and durable job
     assert.ok(reads.includes(phase), `No authenticated read observed during ${phase}`);
     assert.ok(writes.some(write => write.phase === phase), `No authenticated write observed during ${phase}`);
   }
-  assert.match(await directBody, /Finished direct safely/);
+  assert.doesNotMatch(await directBody, /event: done/);
+  const directTurn = await until(async () => {
+    const result = await f.api(`/v1/chats/${chat.id}/turns`);
+    return result.turns[0]?.status === 'completed' && result.turns[0];
+  }, 'durable private completion after both handoffs');
+  const replay = await f.fetchApi(`/v1/chats/${chat.id}/turns/${directTurn.id}/events?after=0`);
+  assert.match(await replay.text(), /Finished direct safely/);
   const thread = await until(async () => {
     const result = await f.api(`/v1/conversations/${general.id}/threads/${trigger.id}`);
     return result.replies.some(reply => reply.user.id === 'agent' && !reply.pending) && result;

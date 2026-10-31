@@ -3,9 +3,11 @@ import { Animated, PanResponder, Platform, Pressable, StyleSheet, Text, View } f
 import type { Conversation } from "../lib/server";
 import { colors, space, typography } from "../lib/theme";
 import { ConversationRow } from "./Messaging";
+import { AppIcon } from "./AppIcon";
 
-export function SwipeChannelRow({ c, open, busy, canDelete, onOpen, onClose, onPress, onArchive, onDelete }: {
+export function SwipeChannelRow({ c, compact = false, open, busy, canDelete, onOpen, onClose, onPress, onArchive, onDelete }: {
   c: Conversation;
+  compact?: boolean;
   open: boolean;
   busy: boolean;
   canDelete: boolean;
@@ -44,11 +46,11 @@ export function SwipeChannelRow({ c, open, busy, canDelete, onOpen, onClose, onP
   return (
     <View style={styles.root}>
       <Animated.View {...pan.panHandlers} style={{ zIndex: 1, backgroundColor: colors.white, transform: [{ translateX: x }], opacity: busy ? 0.5 : 1 }}>
-        <ConversationRow c={c} onPress={() => { if (!busy) { if (open) onClose(); else onPress(); } }}
+        <ConversationRow c={c} compact={compact} onPress={() => { if (!busy) { if (open) onClose(); else onPress(); } }}
           onLongPress={() => { if (!busy) onOpen(); }}
           accessibilityActions={[{ name: "archive", label: archiveLabel }, ...(canDelete ? [{ name: "delete", label: "Delete channel" }] : [])]}
           onAccessibilityAction={(e) => { if (!busy) { if (e.nativeEvent.actionName === "archive") onArchive(); if (e.nativeEvent.actionName === "delete" && canDelete) onDelete(); } }}
-          trailing={Platform.OS === "web" ? <Pressable disabled={busy} accessibilityRole="button" accessibilityLabel={`Actions for #${c.title}`} accessibilityState={{ expanded: open, disabled: busy }} onPress={open ? onClose : onOpen} style={styles.more}><Text style={styles.moreText}>•••</Text></Pressable> : undefined} />
+          trailing={Platform.OS === "web" ? <Pressable disabled={busy} accessibilityRole="button" accessibilityLabel={`Actions for #${c.title}`} accessibilityState={{ expanded: open, disabled: busy }} onPress={open ? onClose : onOpen} style={styles.more}><AppIcon name="more" size={18} color={colors.muted} /></Pressable> : undefined} />
       </Animated.View>
       <View style={[styles.actions, { width }]} accessibilityElementsHidden={!open} importantForAccessibility={open ? "auto" : "no-hide-descendants"} pointerEvents={open && !busy ? "auto" : "none"}>
         <Pressable disabled={!open || busy} accessibilityRole="button" accessibilityLabel={`${archiveLabel} #${c.title}`} onPress={onArchive} style={[styles.action, styles.archive]}>
@@ -65,10 +67,9 @@ export function SwipeChannelRow({ c, open, busy, canDelete, onOpen, onClose, onP
 const styles = StyleSheet.create({
   root: { overflow: "hidden" },
   actions: { zIndex: 0, position: "absolute", right: 0, top: 0, bottom: 0, flexDirection: "row" },
-  action: { flex: 1, minHeight: 48, paddingHorizontal: space.xs, alignItems: "center", justifyContent: "center" },
+  action: { flex: 1, minHeight: 44, paddingHorizontal: space.xs, alignItems: "center", justifyContent: "center" },
   archive: { backgroundColor: colors.blue },
   delete: { backgroundColor: colors.red },
   label: { ...typography.label, color: colors.white },
   more: { minHeight: 44, minWidth: 44, justifyContent: "center", alignItems: "center", marginRight: space.xs },
-  moreText: { ...typography.label, color: colors.muted },
 });

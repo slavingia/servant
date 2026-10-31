@@ -1,3 +1,4 @@
+import { restrictedTestCapabilities } from "./test-hermes-capabilities.mjs";
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -42,6 +43,7 @@ async function fixture(t, { count = 2, delaySession = false } = {}) {
   const sessions = [], turns = [];
   const children = [];
   const upstream = http.createServer(async (req, res) => {
+    if (req.method === "GET" && req.url === "/v1/capabilities") return res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(restrictedTestCapabilities));
     for await (const _ of req) { /* consume request */ }
     if (delaySession && req.method === 'POST' && req.url === '/api/sessions') {
       sessions.push(() => res.writeHead(201, { 'Content-Type': 'application/json' }).end('{}'));
@@ -51,6 +53,10 @@ async function fixture(t, { count = 2, delaySession = false } = {}) {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       res.write('event: assistant.delta\ndata: {"delta":"Working"}\n\n');
       turns.push(() => res.end('event: assistant.completed\ndata: {"content":"Finished safely"}\n\n'));
+      return;
+    }
+    if (req.method === 'GET' && req.url.endsWith('/messages')) {
+      res.writeHead(200, { 'Content-Type': 'application/json' }).end('{"data":[]}');
       return;
     }
     res.writeHead(200, { 'Content-Type': 'application/json' }).end('{}');

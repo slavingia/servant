@@ -1,21 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef } from "react";
 import { ActivityIndicator, FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { router, type Href } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Svg, { Circle, Path } from "react-native-svg";
 import { api, ServerError, type Account, type Chat, type Conversation, type Person, type SearchResults } from "../lib/server";
 import { useSession } from "../lib/session";
 import { matchesQuery, omnibarShortcuts, searchExcerpt } from "../lib/omnibar";
 import { colors, radius, space, typography } from "../lib/theme";
 import { Button } from "./Button";
+import { AppIcon, type AppIconName } from "./AppIcon";
 
 type Result = { id: string; title: string; detail: string; glyph: string; href?: Href; person?: Person; archived?: boolean };
 type Group = { title: string; items: Result[] };
 type Row = { kind: "heading"; id: string; title: string } | { kind: "result"; id: string; result: Result; index: number };
 type Response = { query: string; attempt: number; data?: SearchResults; error?: string };
 
-function SearchIcon({ color = colors.white }: { color?: string }) {
-  return <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" accessible={false}><Circle cx="10.5" cy="10.5" r="6.5" stroke={color} strokeWidth="1.8" /><Path d="m16 16 4 4" stroke={color} strokeWidth="1.8" strokeLinecap="round" /></Svg>;
+function resultIcon(glyph: string): AppIconName {
+  return glyph === "#" ? "hash" : glyph === "@" ? "user" : glyph === "✦" ? "sparkles" : glyph === "↳" ? "chat" : "compose";
 }
 
 export function Omnibar() {
@@ -26,6 +27,7 @@ export function Omnibar() {
 function SearchBar({ account }: { account: Account }) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+  const mobile = width < 600;
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationError, setConversationError] = useState(false);
   const [visible, setVisible] = useState(false);
@@ -191,22 +193,22 @@ function SearchBar({ account }: { account: Account }) {
   return <>
     <View style={[styles.header, { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right }]}>
       <View style={styles.headerRow}>
-        <Text accessibilityLabel="Servant" style={styles.brand}>{width >= 600 ? "Servant" : "S"}</Text>
         <Pressable ref={trigger} accessibilityRole="button" accessibilityLabel="Search Servant" accessibilityHint="Find channels, people, messages, and quick actions" accessibilityState={{ expanded: visible }} onPress={open} style={({ pressed }) => [styles.trigger, pressed && styles.triggerPressed]}>
-          <SearchIcon />
-          <Text numberOfLines={1} style={styles.placeholder}>Search or jump to…</Text>
+          <AppIcon name="search" color={colors.white} size={18} />
+          <Text numberOfLines={1} style={styles.placeholder}>Search</Text>
           {Platform.OS === "web" && width >= 600 ? <Text style={styles.shortcut}>⌘ / Ctrl K</Text> : null}
         </Pressable>
       </View>
     </View>
     <Modal transparent visible={visible} animationType="fade" onRequestClose={close} onShow={() => input.current?.focus()}>
+      {visible && mobile ? <StatusBar style="dark" /> : null}
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalRoot}>
-        <View style={[styles.overlay, { paddingTop: insets.top + space.sm, paddingBottom: Math.max(insets.bottom, space.sm) }]}>
+        <View style={[styles.overlay, mobile && styles.mobileOverlay, { paddingTop: insets.top + (mobile ? 0 : space.sm), paddingBottom: mobile ? 0 : Math.max(insets.bottom, space.sm) }]}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close search" onPress={close} style={StyleSheet.absoluteFill} />
-          <View style={styles.panel} accessibilityViewIsModal>
+          <View style={[styles.panel, mobile && styles.mobilePanel]} accessibilityViewIsModal>
             <View style={styles.searchRow}>
-              <SearchIcon color={colors.muted} />
-              <TextInput ref={input} accessibilityLabel="Search channels, people, and messages" placeholder="Search Servant" placeholderTextColor={colors.muted} value={query} maxLength={100} autoFocus autoCapitalize="none" autoCorrect={false} returnKeyType="search" blurOnSubmit={false}
+              <AppIcon name="search" color={colors.muted} size={20} />
+              <TextInput ref={input} accessibilityLabel="Search channels, people, and messages" placeholder="Search" placeholderTextColor={colors.muted} value={query} maxLength={100} autoFocus autoCapitalize="none" autoCorrect={false} returnKeyType="search" blurOnSubmit={false}
                 {...(Platform.OS === "web" ? { role: "combobox" as const, "aria-controls": "servant-search-results", "aria-expanded": true, "aria-autocomplete": "list", "aria-activedescendant": results[selected] ? `omnibar-${results[selected].id}` : undefined } : {})}
                 onChangeText={value => { setQuery(value); setActive(0); setActionError(null); }}
                 onKeyPress={event => {
@@ -224,16 +226,16 @@ function SearchBar({ account }: { account: Account }) {
             {searchQuery.length === 1 ? <Text style={styles.hint}>Type one more character to search people and messages.</Text> : null}
             {currentResponse?.error ? <View style={styles.notice}><Text accessibilityRole="alert" style={styles.error}>{currentResponse.error}</Text><Button label="Retry search" compact kind="link" onPress={() => setAttempt(n => n + 1)} /></View> : null}
             {actionError ? <Text accessibilityRole="alert" style={styles.actionError}>{actionError}</Text> : null}
-            <FlatList ref={list} nativeID="servant-search-results" accessibilityRole={Platform.OS === "web" ? "listbox" : undefined} accessibilityLabel="Search results" data={rows} keyExtractor={row => row.id} extraData={{ selected, opening }} keyboardShouldPersistTaps="handled" style={styles.results} contentContainerStyle={styles.resultContent}
+            <FlatList ref={list} nativeID="servant-search-results" accessibilityRole={Platform.OS === "web" ? "listbox" : undefined} accessibilityLabel="Search results" data={rows} keyExtractor={row => row.id} extraData={{ selected, opening }} keyboardShouldPersistTaps="handled" style={[styles.results, mobile && styles.mobileResults]} contentContainerStyle={styles.resultContent}
               onScrollToIndexFailed={info => list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false })}
               ListEmptyComponent={<View style={styles.empty}><Text accessibilityRole="header" style={styles.emptyTitle}>{searching ? "Searching Servant…" : currentResponse?.error ? "Search unavailable" : "No matches"}</Text><Text style={styles.emptyBody}>{searching ? "Looking through conversations you can access." : currentResponse?.error ? "Retry the search, or try a conversation name." : "Try a different name, topic, or phrase."}</Text></View>}
               renderItem={({ item }) => item.kind === "heading" ? <Text accessibilityRole="header" style={styles.groupTitle}>{item.title}</Text> :
                 <Pressable nativeID={`omnibar-${item.result.id}`} accessibilityRole={Platform.OS === "web" ? "option" : "button"} accessibilityLabel={`${item.result.title}. ${item.result.detail}`} accessibilityHint={item.result.id.startsWith("message:") ? "Open the thread containing this message" : undefined} accessibilityState={{ selected: item.index === selected, busy: opening === item.id, disabled: !!opening }} disabled={!!opening}
                   onPress={() => { void activate(item.result); }} onHoverIn={() => setActive(item.index)}
                   style={({ pressed }) => [styles.result, item.index === selected && styles.resultSelected, pressed && styles.resultPressed]}>
-                  <View style={[styles.glyph, item.result.archived && styles.glyphArchived]}><Text accessibilityElementsHidden importantForAccessibility="no" style={styles.glyphText}>{item.result.glyph}</Text></View>
+                  <View style={[styles.glyph, item.result.archived && styles.glyphArchived]}><AppIcon name={resultIcon(item.result.glyph)} size={20} color={colors.muted} /></View>
                   <View style={styles.resultCopy}><Text numberOfLines={1} style={styles.resultTitle}>{item.result.title}</Text><Text numberOfLines={2} style={styles.resultDetail}>{item.result.detail}</Text></View>
-                  {opening === item.id ? <ActivityIndicator color={colors.blue} /> : <Text accessibilityElementsHidden importantForAccessibility="no" style={styles.arrow}>›</Text>}
+                  {opening === item.id ? <ActivityIndicator color={colors.blue} /> : <AppIcon name="chevronRight" size={16} color={colors.muted} />}
                 </Pressable>}
               ListFooterComponent={conversationError || (searchQuery && chatError) ? <View><Text style={styles.hint}>{conversationError ? "Recent conversations couldn't be refreshed." : "Agent chat titles couldn't be loaded."}</Text><Button label="Try again" kind="link" compact onPress={() => setAttempt(n => n + 1)} /></View> : undefined} />
             {Platform.OS === "web" ? <Text style={styles.keyboardHint}>↑ ↓ to navigate · Enter to open · Esc to close</Text> : null}
@@ -246,17 +248,19 @@ function SearchBar({ account }: { account: Account }) {
 
 const styles = StyleSheet.create({
   header: { backgroundColor: colors.navy },
-  headerRow: { minHeight: 64, paddingHorizontal: space.side, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", gap: space.md },
-  brand: { ...typography.heading, color: colors.white, flexShrink: 0 },
-  trigger: { flex: 1, minWidth: 0, minHeight: 44, maxWidth: 760, marginHorizontal: "auto", paddingHorizontal: space.sm, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", gap: space.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: "rgba(255,255,255,0.3)", backgroundColor: "rgba(255,255,255,0.12)" },
+  headerRow: { paddingHorizontal: space.side, paddingTop: space.xs, paddingBottom: space.sm },
+  trigger: { minWidth: 0, minHeight: 44, paddingHorizontal: space.sm, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", gap: space.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: "rgba(255,255,255,0.22)", backgroundColor: "rgba(255,255,255,0.13)" },
   triggerPressed: { backgroundColor: "rgba(255,255,255,0.2)" },
   placeholder: { ...typography.body, color: colors.white, flex: 1 },
   shortcut: { ...typography.caption, color: colors.white },
   modalRoot: { flex: 1 },
-  overlay: { flex: 1, paddingHorizontal: space.sm, alignItems: "center", backgroundColor: "rgba(17,46,81,0.45)" },
+  overlay: { flex: 1, paddingHorizontal: space.sm, alignItems: "center", backgroundColor: "rgba(20,30,45,0.45)" },
+  mobileOverlay: { paddingHorizontal: 0, backgroundColor: colors.white },
+  mobilePanel: { flex: 1, borderRadius: 0 },
+  mobileResults: { flex: 1 },
   panel: { width: "100%", maxWidth: 760, maxHeight: "100%", flexShrink: 1, borderRadius: radius.lg, backgroundColor: colors.white, overflow: "hidden" },
-  searchRow: { minHeight: 64, paddingLeft: space.md, paddingRight: space.xs, flexDirection: "row", alignItems: "center", gap: space.sm, borderBottomWidth: 1, borderBottomColor: colors.line },
-  input: { ...typography.body, color: colors.ink, flex: 1, minWidth: 0, minHeight: 52, paddingVertical: space.sm },
+  searchRow: { minHeight: 56, paddingLeft: space.md, paddingRight: space.xs, flexDirection: "row", alignItems: "center", gap: space.sm, borderBottomWidth: 1, borderBottomColor: colors.line },
+  input: { ...typography.body, color: colors.ink, flex: 1, minWidth: 0, minHeight: 48, paddingVertical: space.xs },
   cancel: { minHeight: 44, paddingHorizontal: space.sm, justifyContent: "center" },
   cancelText: { ...typography.label, color: colors.blue },
   context: { paddingHorizontal: space.md, paddingVertical: space.sm, flexDirection: "row", gap: space.sm, alignItems: "center", backgroundColor: colors.surface },
@@ -268,7 +272,7 @@ const styles = StyleSheet.create({
   results: { flexShrink: 1 },
   resultContent: { paddingBottom: space.sm },
   groupTitle: { ...typography.label, color: colors.muted, paddingHorizontal: space.md, paddingTop: space.md, paddingBottom: space.xs },
-  result: { minHeight: 64, paddingHorizontal: space.md, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", gap: space.sm },
+  result: { minHeight: 56, paddingHorizontal: space.md, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", gap: space.sm },
   resultSelected: { backgroundColor: colors.blueSoft },
   resultPressed: { backgroundColor: colors.subtle },
   glyph: { width: 36, height: 36, borderRadius: radius.sm, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center" },
@@ -276,7 +280,7 @@ const styles = StyleSheet.create({
   glyphText: { ...typography.heading, color: colors.muted },
   resultCopy: { flex: 1, minWidth: 0 },
   resultTitle: { ...typography.bodyStrong, color: colors.ink },
-  resultDetail: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
+  resultDetail: { ...typography.caption, color: colors.muted, marginTop: 2 },
   arrow: { ...typography.heading, color: colors.muted },
   empty: { padding: space.xl, alignItems: "center", gap: space.xs },
   emptyTitle: { ...typography.heading, color: colors.ink },

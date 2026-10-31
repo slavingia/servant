@@ -39,14 +39,14 @@ function SessionNavigation() {
     <AppChrome enabled={paired}>
     <Stack
       screenOptions={{
-        headerStyle: { backgroundColor: colors.navy },
-        headerTintColor: colors.white,
-        headerTitleAlign: "center",
+        headerStyle: { backgroundColor: colors.white },
+        headerTintColor: colors.ink,
+        headerTitleAlign: "left",
+        headerShadowVisible: true,
         headerTitleStyle: { fontSize: typography.bodyStrong.fontSize, fontWeight: typography.bodyStrong.fontWeight },
         headerBackButtonDisplayMode: "minimal",
         contentStyle: { backgroundColor: colors.white },
-        // iOS 26+ wraps the back chevron in a light glass circle, which reads light blue on
-        // the navy band. Draw it as a plain white chevron instead.
+        // Keep the compact conversation toolbar free of extra glass button fills.
         ...(Platform.OS === "ios"
           ? {
               unstable_headerLeftItems: ({ canGoBack }: { canGoBack?: boolean }) =>
@@ -56,7 +56,7 @@ function SessionNavigation() {
                         type: "button" as const,
                         label: "Back",
                         icon: { type: "sfSymbol" as const, name: "chevron.left" as const },
-                        tintColor: colors.white,
+                        tintColor: colors.ink,
                         hidesSharedBackground: true,
                         accessibilityLabel: "Back",
                         onPress: () => router.back(),

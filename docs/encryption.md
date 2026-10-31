@@ -2,7 +2,7 @@
 
 ## Trust boundary
 
-The native app and the owner's server are the endpoints. Cloudflare is an untrusted relay. This protects application content through the tunnel while retaining administrative access, server-side history, agent context, and existing access controls. It is not device-to-device encryption and does not change what Hermes or a configured model provider can read.
+The native app and the owner's server are the endpoints. Cloudflare is an untrusted relay, whether the operator selects cloudflared or the optional [stable Worker relay](relay-transport.md). This protects application content through the tunnel while retaining administrative access, server-side history, agent context, and existing access controls. It is not device-to-device encryption and does not change what Hermes or a configured model provider can read.
 
 The server generates a persistent P-256 private key in `transport-key` with mode 0600. Invites carry the compressed public key as `key`; the app saves it alongside the device credential in SecureStore (localStorage for the development web build). Initial invite delivery must be trusted. Discovery changes only the address, never the key. Keyless accounts enter the encryption upgrade screen. No automatic key discovery or plaintext fallback exists.
 
@@ -24,7 +24,7 @@ Changing, reordering, or dropping records fails authentication or produces an in
 
 ## Limits and deployment
 
-Envelope size is capped at 24 MiB to accommodate the existing 10 MiB attachment total after base64 expansion. Cloudflare still learns traffic sizes, timing, client addresses, and public server/discovery information. Push services still receive previews according to existing settings. Previously sent plaintext cannot be made secret retroactively. Old app builds may attempt plaintext requests before receiving an upgrade-required response; distribute the updated build before resuming use.
+Envelope size is capped at 56 MiB to accommodate a 30 MiB attachment total after nested base64 expansion. Cloudflare still learns traffic sizes, timing, client addresses, connection status and public routing/discovery information. Stable relay mode removes the changing tunnel address and GitHub gist requirement for new invites while preserving the same pinned key. Push services receive generic alerts and opaque routing references, never message text or sender/channel names, even for older preview preferences. Encrypted native push previews are not implemented; see [notifications.md](notifications.md). Previously sent plaintext cannot be made secret retroactively. Old app builds may attempt plaintext requests before receiving an upgrade-required response; distribute the updated build before resuming use.
 
 This protocol uses audited crypto primitive libraries on the app and Node crypto on the server, but the protocol itself has not had independent review. Long-term server key compromise can decrypt captured prior traffic: version 1 does not provide forward secrecy. A compromised app, compromised server, or modified web app can access plaintext. Native app distribution and direct trusted invites are the intended deployment.
 

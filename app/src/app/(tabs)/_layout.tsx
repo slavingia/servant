@@ -10,25 +10,25 @@ export default function TabsLayout() {
   return (
     <NativeTabs tintColor={colors.blue} minimizeBehavior="never">
       <NativeTabs.Trigger name="channels">
-        <Icon sf={{ default: "number", selected: "number" }} md="tag" />
-        <NativeTabs.Trigger.Label>Channels</NativeTabs.Trigger.Label>
+        <Icon sf="house.fill" src={require("../../../assets/tab-icons/home.png")} />
+        <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Badge hidden={!badge(unread.channels)}>{badge(unread.channels)}</NativeTabs.Trigger.Badge>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="messages">
-        <Icon sf={{ default: "bubble.left.and.bubble.right", selected: "bubble.left.and.bubble.right.fill" }} md="forum" />
-        <NativeTabs.Trigger.Label>Messages</NativeTabs.Trigger.Label>
+        <Icon sf="bubble.left.and.bubble.right.fill" src={require("../../../assets/tab-icons/messages.png")} />
+        <NativeTabs.Trigger.Label>DMs</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Badge hidden={!badge(unread.messages)}>{badge(unread.messages)}</NativeTabs.Trigger.Badge>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="agent">
-        <Icon sf={{ default: "sparkles", selected: "sparkles" }} md="auto_awesome" />
+        <Icon sf="sparkles" src={require("../../../assets/tab-icons/agent.png")} />
         <NativeTabs.Trigger.Label>Agent</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="members">
-        <Icon sf={{ default: "person.2", selected: "person.2.fill" }} md="groups" />
-        <NativeTabs.Trigger.Label>Members</NativeTabs.Trigger.Label>
+        <Icon sf="person.2.fill" src={require("../../../assets/tab-icons/people.png")} />
+        <NativeTabs.Trigger.Label>People</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="you">
-        <Icon sf={{ default: "person.crop.circle", selected: "person.crop.circle.fill" }} md="account_circle" />
+        <Icon sf="person.crop.circle.fill" src={require("../../../assets/tab-icons/you.png")} />
         <NativeTabs.Trigger.Label>You</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
     </NativeTabs>

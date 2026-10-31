@@ -60,8 +60,8 @@ export default function Pair() {
     return (
       <KeyboardAvoidingView style={styles.form} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
-        <Text accessibilityRole="header" style={styles.title}>Introduce yourself</Text>
-        <Text style={[styles.body, styles.left]}>Choose the name your teammates will see.</Text>
+        <Text accessibilityRole="header" style={styles.title}>What should we call you?</Text>
+        <Text style={[styles.body, styles.left]}>This is how you’ll appear to your teammates.</Text>
         <Text style={styles.label}>Your name</Text>
         <TextInput
           accessibilityLabel="Your name"
@@ -77,7 +77,7 @@ export default function Pair() {
           onSubmitEditing={submit}
         />
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-        <Button label="Join team" onPress={submit} busy={busy} disabled={!name.trim()} style={{ marginTop: space.lg }} />
+        <Button label="Join workspace" onPress={submit} busy={busy} disabled={!name.trim()} style={{ marginTop: space.lg }} />
         </ScrollView>
       </KeyboardAvoidingView>
     );
@@ -93,11 +93,11 @@ export default function Pair() {
 const styles = StyleSheet.create({
   root: { flex: 1, alignItems: "center", justifyContent: "center", padding: space.side, backgroundColor: colors.white },
   form: { flex: 1, backgroundColor: colors.white },
-  formContent: { flexGrow: 1, justifyContent: "center", padding: space.side, paddingVertical: space.xl },
-  title: { ...typography.title, color: colors.ink },
-  body: { ...typography.body, marginTop: space.xs, color: colors.muted, textAlign: "center" },
+  formContent: { padding: space.side, paddingVertical: space.lg, width: "100%", maxWidth: 480, alignSelf: "center" },
+  title: { ...typography.heading, color: colors.ink },
+  body: { ...typography.caption, marginTop: space.xs, color: colors.muted, textAlign: "center" },
   left: { textAlign: "left", color: colors.muted },
-  label: { ...typography.label, marginTop: space.xl, color: colors.ink },
+  label: { ...typography.label, marginTop: space.lg, color: colors.ink },
   input: { ...controls.input, marginTop: space.xs },
   error: { ...typography.caption, marginTop: space.sm, color: colors.red },
 });

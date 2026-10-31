@@ -7,7 +7,9 @@ import { DatabaseSync } from 'node:sqlite';
 
 const PROTOCOL = 'servant-tunnel-v1';
 const WINDOW = 120000;
-const LIMIT = 24 * 1024 * 1024;
+// 30 MiB attachments expand twice: base64 upload JSON inside base64 ciphertext.
+// Keep the outer cap explicit, with enough room for the 41 MiB route body cap.
+const LIMIT = 56 * 1024 * 1024;
 const cors = { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' };
 
 export function serverIdentity(directory) {

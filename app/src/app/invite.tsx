@@ -96,10 +96,10 @@ export default function Invite() {
   return (
     <>
     <ScrollView style={styles.root} contentContainerStyle={styles.body}>
-      <Text accessibilityRole="header" style={styles.heading}>Invite your team</Text>
-      <Text style={styles.lead}>Share a link or let someone scan this code to join {account.serverName}.</Text>
+      <Text accessibilityRole="header" style={styles.heading}>Invite to {account.serverName}</Text>
+      <Text style={styles.lead}>Share this link or QR code with a teammate.</Text>
       <View style={styles.qr}>
-        <QRCode value={invite.link} size={220} />
+        <QRCode value={invite.link} size={180} />
       </View>
       <Text style={styles.codeLabel}>Scan with Servant</Text>
       <Text style={styles.note}>Expires {until}</Text>
@@ -128,12 +128,12 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
   body: { padding: space.side, paddingBottom: space.xxl },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: space.side, backgroundColor: colors.white },
-  heading: { ...typography.title, color: colors.ink },
-  lead: { ...typography.body, marginTop: space.sm, color: colors.muted },
-  qr: { marginTop: space.lg, alignSelf: "center", padding: space.md, backgroundColor: colors.white, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.line },
-  codeLabel: { ...typography.captionStrong, marginTop: space.md, textAlign: "center", color: colors.ink },
+  heading: { ...typography.heading, color: colors.ink },
+  lead: { ...typography.caption, marginTop: space.xs, color: colors.muted },
+  qr: { marginTop: space.md, alignSelf: "center", padding: space.md, backgroundColor: colors.white, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.line },
+  codeLabel: { ...typography.captionStrong, marginTop: space.sm, textAlign: "center", color: colors.ink },
   note: { ...typography.caption, marginTop: space.xs, color: colors.muted, textAlign: "center" },
-  details: { marginTop: space.xl, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line, paddingTop: space.lg },
+  details: { marginTop: space.lg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line, paddingTop: space.md },
   detailHeading: { ...typography.bodyStrong, color: colors.ink },
   detail: { ...typography.caption, marginTop: space.xs, color: colors.muted },
   error: { ...typography.body, color: colors.red, textAlign: "center" },

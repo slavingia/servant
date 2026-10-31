@@ -3,7 +3,9 @@ import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, StyleSheet
 import { Stack, useIsFocused, useLocalSearchParams } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { useChromeHeight } from "../components/AppChrome";
-import { Composer, PostRow } from "../components/Messaging";
+import { Composer, MessageDate, PostRow } from "../components/Messaging";
+import { MediaGalleryProvider } from "../components/MediaGallery";
+import { mediaFromPosts } from "../lib/media";
 import { TypingLine, useTyping, useTypingPing } from "../lib/typing";
 import { api, ServerError, type Upload, type Post, type Person, type LiveEvent } from "../lib/server";
 import { useReadReceipts } from "../lib/use-read-receipts";
@@ -157,6 +159,7 @@ export default function ThreadScreen() {
     [subscribe, root, conv, account, upsert, load],
   );
 
+  const media = useMemo(() => mediaFromPosts(rows), [rows]);
   if (!account) return null;
   const me = account.user.id;
 
@@ -204,6 +207,7 @@ export default function ThreadScreen() {
   };
 
   return (
+    <MediaGalleryProvider key={`${conv}:${unavailable}`} scope={{ kind: "conversation", id: conv }} items={media}>
     <View style={styles.root}>
       <Stack.Screen options={{ title: "Thread" }} />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={headerHeight + chromeHeight}>
@@ -235,8 +239,10 @@ export default function ThreadScreen() {
                 </Text>
               </View>;
               const above = rows[index - 1];
-              const compact = !!above && above.id !== root && above.user.id === item.user.id && item.createdAt - above.createdAt < 5 * 60 * 1000;
+              const newDay = !!above && new Date(item.createdAt).toDateString() !== new Date(above.createdAt).toDateString();
+              const compact = !newDay && !!above && above.id !== root && above.user.id === item.user.id && item.createdAt - above.createdAt < 5 * 60 * 1000;
               return <View style={item.id === focus ? styles.searchMatch : undefined}>
+                {newDay ? <MessageDate at={item.createdAt} /> : null}
                 {item.id === focus ? <Text style={styles.searchLabel}>Search match</Text> : null}
                 <PostRow post={item} members={members} onReact={(emoji, active) => react(item, emoji, active)} me={me} compact={compact && item.id !== focus} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
               </View>;
@@ -251,15 +257,16 @@ export default function ThreadScreen() {
         )}
       </KeyboardAvoidingView>
     </View>
+    </MediaGalleryProvider>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
   error: { ...typography.caption, paddingHorizontal: space.side, paddingVertical: space.sm, color: colors.red, backgroundColor: colors.redSoft },
-  head: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line, paddingBottom: space.md, marginBottom: space.xs, backgroundColor: colors.surface },
-  where: { ...typography.label, marginHorizontal: space.side, marginTop: space.md, color: colors.muted },
-  count: { ...typography.captionStrong, marginHorizontal: space.side, marginTop: space.md, color: colors.muted },
+  head: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line, paddingBottom: space.sm, marginBottom: space.xxs, backgroundColor: colors.white },
+  where: { ...typography.captionStrong, marginHorizontal: space.side, marginTop: space.sm, color: colors.muted },
+  count: { ...typography.captionStrong, marginHorizontal: space.side, marginTop: space.sm, color: colors.muted },
   searchMatch: { backgroundColor: colors.blueSoft },
   searchLabel: { ...typography.captionStrong, color: colors.blueDark, paddingHorizontal: space.side, paddingTop: space.sm },
 });

@@ -1,3 +1,4 @@
+import { restrictedTestCapabilities } from "./test-hermes-capabilities.mjs";
 // node --test server/
 // Runs the real server against a fake Hermes API server that speaks the same
 // session + SSE protocol as gateway/platforms/api_server.py.
@@ -20,6 +21,7 @@ function fakeHermes(key, label) {
   const sessions = new Map();
   const calls = [];
   const server = http.createServer(async (req, res) => {
+    if (req.method === "GET" && req.url === "/v1/capabilities") return res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(restrictedTestCapabilities));
     const chunks = [];
     for await (const c of req) chunks.push(c);
     const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : {};

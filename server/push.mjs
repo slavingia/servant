@@ -1,7 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 
-export const defaults = { mode: 'mentions', previews: true, pausedUntil: 0 };
-export const preferences = (user) => ({ ...defaults, ...user?.notifications });
+export const defaults = { mode: 'mentions', previews: false, pausedUntil: 0 };
+// Older clients may still store previews=true. Content never enters a provider payload.
+export const preferences = (user) => ({ ...defaults, ...user?.notifications, previews: false });
 export function isMention(text, user) {
   const names = [user.id, user.name, user.name?.replace(/\s+/g, '-'), user.name?.split(/\s+/)[0], 'channel', 'here'].filter(Boolean);
   return names.some(name => new RegExp(`(^|[^\\w@])@${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[^\\w-])`, 'i').test(text));
@@ -11,10 +12,9 @@ export function wantsNotification(info, settings, now = Date.now()) {
   return !!(settings.mode === 'all' || info.kind === 'dm' || info.kind === 'agent' || info.mentioned || info.participant);
 }
 export function notificationPayload(info, user, deviceId) {
-  const p = preferences(user);
   return {
-    title: p.previews ? info.title : 'Servant',
-    body: p.previews ? info.body.slice(0, 180) : 'You have a new message',
+    title: 'Servant',
+    body: 'You have a new message',
     group: info.conversationId || info.chatId,
     badge: info.badge || 1,
     data: { userId: user.id, deviceId, ...(info.conversationId ? { conversationId: info.conversationId } : { chatId: info.chatId }),
@@ -22,8 +22,8 @@ export function notificationPayload(info, user, deviceId) {
   };
 }
 
-// The durable queue stores routing references. Message previews are resolved
-// just before delivery, after checking current membership and device status.
+// The durable queue stores routing references. Eligibility is resolved just
+// before delivery, after checking current membership and device status.
 export function createPushService({ file, state, mutate, resolve, send, clock = Date.now, log = console.warn, autoDrain = true }) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA busy_timeout=5000');
@@ -146,7 +146,7 @@ export function updatePreferences(user, body, now = Date.now()) {
   }
   if (body.previews !== undefined) {
     if (typeof body.previews !== 'boolean') throw Object.assign(new Error('Invalid preview preference'), { status: 400, code: 'bad_preference' });
-    p.previews = body.previews;
+    p.previews = false;
   }
   if (body.pausedUntil !== undefined) {
     if (!Number.isFinite(body.pausedUntil) || body.pausedUntil < 0 || body.pausedUntil > now + 7 * 86400000) throw Object.assign(new Error('Pause for up to seven days'), { status: 400, code: 'bad_preference' });

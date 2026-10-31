@@ -36,7 +36,7 @@ cutover; it can later be moved offline with every writer stopped. Set the same
 absolute data path on all services and administrative CLI invocations. Never
 copy data, credentials, `.env` files, or logs into a release. The runtime directory
 is private (0700), and the service account must own it. Use the same tested Node
-runtime with `node:sqlite` support for all services; `NODE` can pin its executable.
+runtime (Node 22.13+ with `node:sqlite` and built-in WebSocket support) for all services; `NODE` can pin its executable.
 
 ## One-time bootstrap and migration
 
@@ -55,6 +55,7 @@ export SERVANT_DATA_DIR=/Users/sahil-irs/servant/server/data
 umask 077
 mkdir -p "$SERVANT_RUNTIME_DIR/bootstrap" "$SERVANT_RUNTIME_DIR/logs"
 cp server/supervisor.mjs server/deploy.mjs server/tunnel.mjs server/publish.mjs \
+  server/relay.mjs server/relay-client.mjs server/relay-protocol.mjs \
   server/run-supervisor.sh server/run-worker.sh server/run-tunnel.sh \
   "$SERVANT_RUNTIME_DIR/bootstrap/"
 chmod 700 "$SERVANT_RUNTIME_DIR" "$SERVANT_RUNTIME_DIR/bootstrap" "$SERVANT_RUNTIME_DIR/logs"
@@ -66,7 +67,11 @@ node "$SERVANT_RUNTIME_DIR/bootstrap/deploy.mjs" stage \
 
 Do not repeat the bootstrap copy during normal API deployments. It is a separate
 component upgrade; running the supervisor from a mutable checkout would make a
-later process restart silently load unrelated edits.
+later process restart silently load unrelated edits. For optional stable relay mode,
+keep `relay.mjs`, `relay-client.mjs`, and `relay-protocol.mjs` together in bootstrap
+with `tunnel.mjs`, and follow [relay provisioning](relay-transport.md) before setting
+`SERVANT_RELAY_CONFIG` in the tunnel service. Existing quick/named tunnel mode
+continues to work when that environment variable is absent.
 
 1. Run `node --test server/` and the app's applicable checks against the code to
    stage. Tests use temporary data and fake upstreams; do not substitute the

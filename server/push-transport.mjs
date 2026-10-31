@@ -5,16 +5,29 @@ import crypto from 'node:crypto';
 import http2 from 'node:http2';
 
 const b64 = (x) => Buffer.from(JSON.stringify(x)).toString('base64url');
-export function fcmMessage(token, n) {
+// Keep this allowlist at the provider boundary as well as in the queue. A new
+// application field must never accidentally become a plaintext push preview.
+function privateNotification(n) {
+  const data = {};
+  for (const key of ['userId', 'deviceId', 'conversationId', 'chatId', 'threadRoot', 'messageId']) {
+    const value = n.data?.[key];
+    if (typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(value)) data[key] = value;
+  }
+  return { data, group: data.conversationId || data.chatId || 'messages',
+    badge: Number.isSafeInteger(n.badge) && n.badge > 0 ? Math.min(n.badge, 9999) : 1 };
+}
+export function fcmMessage(token, notification) {
+  const n = privateNotification(notification);
   return { message: {
     token,
-    notification: { title: n.title, body: n.body },
+    notification: { title: 'Servant', body: 'You have a new message' },
     data: { body: JSON.stringify(n.data), channelId: 'messages', threadIdentifier: n.group },
     android: { priority: 'HIGH', ttl: '3600s', notification: { channel_id: 'messages', tag: n.group, sound: 'default', notification_count: n.badge } },
   } };
 }
-export function apnsPayload(n) {
-  return { aps: { alert: { title: n.title, body: n.body }, sound: 'default', badge: n.badge, 'thread-id': n.group }, ...n.data };
+export function apnsPayload(notification) {
+  const n = privateNotification(notification);
+  return { aps: { alert: { title: 'Servant', body: 'You have a new message' }, sound: 'default', badge: n.badge, 'thread-id': n.group }, ...n.data };
 }
 export function createPushTransport(config, fetcher = fetch) {
   let google = null;
@@ -69,7 +82,7 @@ export function createPushTransport(config, fetcher = fetch) {
       const req = client.request({ ':method': 'POST', ':path': '/3/device/' + device.token,
         authorization: 'bearer ' + authorization, 'apns-topic': 'gov.irs.servant', 'apns-push-type': 'alert',
         'apns-priority': '10', 'apns-expiration': String(Math.floor(Date.now() / 1000) + 3600),
-        'apns-collapse-id': crypto.createHash('sha256').update(notification.group).digest('hex'),
+        'apns-collapse-id': crypto.createHash('sha256').update(privateNotification(notification).group).digest('hex'),
       });
       let status = 0, body = '';
       req.on('response', h => { status = Number(h[':status']); });

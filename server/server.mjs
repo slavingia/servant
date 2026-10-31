@@ -24,6 +24,11 @@ import { createPushService, preferences, updatePushRegistration, updatePreferenc
 import { createPushTransport } from "./push-transport.mjs";
 import { createSecureTransport, serverIdentity } from "./secure-transport.mjs";
 import { createStateStore } from "./state-store.mjs";
+import { createChatMediaStore } from "./chat-media.mjs";
+import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
+import { supportsDurableRuns, runDurableHermes } from "./hermes-runs.mjs";
+import { verifyMemberUpstream } from "./member-policy.mjs";
+import { validateUploads, normalizeMediaContent, hermesInput, mediaPage, createMediaDeltaFilter, MAX_UPLOAD_BODY } from "./media.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.SERVANT_DATA_DIR || path.join(HERE, "data");
@@ -56,6 +61,7 @@ export function loadConfig() {
     host: process.env.SERVANT_HOST || cfg.host || "127.0.0.1",
     port: Number(process.env.SERVANT_PORT ?? cfg.port ?? 8787),
     name: cfg.name || "Servant",
+    agentName: cfg.agentName || "Agent",
     // Where the server can be reached from phones. Filled in by the tunnel script.
     publicUrl: process.env.SERVANT_PUBLIC_URL || cfg.publicUrl || "",
     // Stable URL that always returns {"url": "<current publicUrl>"}.
@@ -238,7 +244,7 @@ function upstreamFor(user, cfg) {
   return up;
 }
 
-async function hermes(up, method, pathname, body, extraHeaders = {}) {
+async function hermes(up, method, pathname, body, extraHeaders = {}, signal) {
   const res = await fetch(new URL(pathname, up.url), {
     method,
     headers: {
@@ -247,13 +253,14 @@ async function hermes(up, method, pathname, body, extraHeaders = {}) {
       ...extraHeaders,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
   });
   return res;
 }
 
 // Sends one turn to Hermes and calls onEvent(name, payload) for each SSE event.
 // Resolves with the final assistant text.
-async function streamTurn(up, sessionId, text, key, onEvent, isClosed = () => false) {
+async function streamTurn(up, sessionId, text, key, onEvent, isClosed = () => false, onAccepted = () => {}) {
   const r = await hermes(
     up,
     "POST",
@@ -262,10 +269,12 @@ async function streamTurn(up, sessionId, text, key, onEvent, isClosed = () => fa
     { Accept: "text/event-stream", "X-Hermes-Session-Key": key },
   );
   if (!r.ok || !r.body) throw Object.assign(new Error(`The agent didn't answer (${r.status})`), { status: 502, code: "agent_error" });
+  await onAccepted();
   const decoder = new TextDecoder();
   let buf = "";
   let final = "";
-  let deltas = "";
+  let completed = false;
+  const filterDelta = createMediaDeltaFilter();
   for await (const chunk of r.body) {
     if (isClosed()) break;
     buf += decoder.decode(chunk, { stream: true });
@@ -286,12 +295,24 @@ async function streamTurn(up, sessionId, text, key, onEvent, isClosed = () => fa
       } catch {
         continue; // ignore malformed upstream event
       }
-      if (name === "assistant.delta") deltas += payload.delta || "";
-      if (name === "assistant.completed") final = payload.content || final;
+      if (name === "assistant.delta") {
+        const delta = filterDelta(payload.delta || "");
+        if (delta) onEvent(name, { ...payload, delta });
+        continue;
+      }
+      if (name === "assistant.completed") {
+        completed = true;
+        const tail = filterDelta("", true);
+        if (tail) onEvent("assistant.delta", { delta: tail });
+        final = payload.content || final;
+      }
       onEvent(name, payload);
     }
   }
-  return final || deltas;
+  const tail = filterDelta("", true);
+  if (tail) onEvent("assistant.delta", { delta: tail });
+  if (!completed) throw requestError(502, "agent_error", "The agent response ended before it finished");
+  return final;
 }
 
 // Memory scope per person, so one member never sees another's long-term memory.
@@ -301,22 +322,17 @@ function chatView(chat) {
   return { id: chat.id, title: chat.title, createdAt: chat.createdAt, updatedAt: chat.updatedAt };
 }
 
-function textOf(content) {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((p) => (typeof p === "string" ? p : p && (p.text || p.content) ? p.text || p.content : ""))
-      .join("");
-  }
-  return "";
-}
-
 // ---------- routes ----------
 
 let push;
 let feedback;
 let messaging = null;
 let secureTransport = null;
+let chatMedia;
+let agentTurns;
+let privateTimer;
+const privateStreams = new Set();
+const chatMediaStore = () => chatMedia ??= createChatMediaStore(path.join(DATA_DIR, "chat-media.db"));
 
 async function handle(req, res, cfg) {
   const url = new URL(req.url, "http://server");
@@ -469,6 +485,14 @@ async function handle(req, res, cfg) {
   }
 
   // ----- channels, direct messages, threads -----
+  if (method === "GET" && parts[1] === "attachments" && parts.length === 3 && parts[2].startsWith("chatfile_")) {
+    const a = chatMediaStore().attachment(parts[2]);
+    const state = readState();
+    const current = requireAuth(req, state).user;
+    const chat = a && state.chats[a.chat_id];
+    if (!chat || chat.deletedAt || chat.userId !== current.id) return fail(res, 404, "not_found", "That attachment is unavailable");
+    return send(res, 200, { data: Buffer.from(a.data).toString("base64") });
+  }
   if (messaging && (await messaging.handle(req, res, { user, method, parts, url, send, fail, readBody: readAuthorizedBody, cors: CORS,
     isAuthorized: () => authenticate(req, readState())?.user.id === user.id,
   }))) return undefined;
@@ -482,7 +506,7 @@ async function handle(req, res, cfg) {
   const mine = Object.values(currentState.chats).filter((c) => c.userId === user.id && !c.deletedAt);
 
   if (method === "GET" && parts.length === 2) {
-    return send(res, 200, { chats: mine.sort((a, b) => b.updatedAt - a.updatedAt).map(chatView) });
+    return send(res, 200, { chats: mine.sort((a, b) => b.updatedAt - a.updatedAt).map(chat => ({ ...chatView(chat), latestTurn: agentTurns.latest(chat.id)[0] || null })) });
   }
 
   if (method === "POST" && parts.length === 2) {
@@ -490,6 +514,7 @@ async function handle(req, res, cfg) {
     const creator = requireAuth(req).user;
     const creationUp = upstreamFor(creator, cfg);
     if (!creationUp) return fail(res, 503, "agent_unavailable", "The agent isn't set up on this server yet");
+    if (creator.role !== "owner") await verifyMemberUpstream(creationUp);
     const chatId = id("cht");
     const hermesSessionId = `servant_${creator.id}_${chatId}`;
     const r = await hermes(creationUp, "POST", "/api/sessions", { id: hermesSessionId, title: `Servant · ${creator.name} · ${chatId.slice(-6)}` });
@@ -524,92 +549,217 @@ async function handle(req, res, cfg) {
 
   if (method === "DELETE" && parts.length === 3) {
     mutateAuthenticated(req, (state, current) => { requireChat(state, current.user.id, chat.id).deletedAt = now(); });
+    chatMediaStore().deleteChat(chat.id);
     hermes(chatUp, "DELETE", `/api/sessions/${encodeURIComponent(chat.hermesSessionId)}`).catch(() => {});
     return send(res, 200, { ok: true });
   }
 
-  if (method === "GET" && parts[3] === "messages" && parts.length === 4) {
-    const r = await hermes(chatUp, "GET", `/api/sessions/${encodeURIComponent(chat.hermesSessionId)}/messages`);
-    if (!r.ok) return fail(res, 502, "agent_error", `Couldn't load messages (${r.status})`);
+  let upstreamUnavailable = false;
+  const syncChatHistory = async (allowOffline = false) => {
+    const cached = () => {
+      const latest = readState();
+      requireChat(latest, requireAuth(req, latest).user.id, chat.id);
+      upstreamUnavailable = true;
+      return chatMediaStore().history(chat.id);
+    };
+    if (chat.role !== "owner") {
+      try { await verifyMemberUpstream(chatUp); }
+      catch (error) { if (allowOffline) return cached(); throw error; }
+    }
+    const generation = chatMediaStore().beginSync(chat.id);
+    let r;
+    try { r = await hermes(chatUp, "GET", `/api/sessions/${encodeURIComponent(chat.hermesSessionId)}/messages`, undefined, {}, AbortSignal.timeout(8000)); }
+    catch (error) { if (!allowOffline) throw error; }
+    if (allowOffline && (!r || r.status >= 500)) {
+      return cached();
+    }
+    if (!r.ok) throw requestError(502, "agent_error", `Couldn't load messages (${r.status})`);
     const data = await r.json();
     const latest = readState();
     requireChat(latest, requireAuth(req, latest).user.id, chat.id);
-    const raw = data.messages || data.data || [];
-    const messages = raw
-      .filter((m) => (m.role === "user" || m.role === "assistant") && textOf(m.content).trim())
-      .map((m, i) => ({ id: String(m.id ?? i), role: m.role, text: textOf(m.content), at: m.timestamp || m.created_at || null }));
-    return send(res, 200, { messages });
+    const messages = data.messages ?? data.data;
+    if (!Array.isArray(messages)) throw requestError(502, "agent_error", "The agent returned invalid message history");
+    return chatMediaStore().sync(chat.id, messages, generation);
+  };
+
+  if (method === "GET" && parts[3] === "messages" && parts.length === 4) {
+    const messages = await syncChatHistory(true);
+    const latestTurn = agentTurns.latest(chat.id)[0] || null;
+    for (const turn of agentTurns.drafts(chat.id)) messages.push({
+      id: `draft_${turn.id}`, role: "assistant", text: turn.assistantText, at: turn.updatedAt,
+      attachments: [], pending: !terminalTurn(turn), interrupted: terminalTurn(turn), turnId: turn.id,
+    });
+    messages.sort((a, b) => a.at - b.at);
+    return send(res, 200, { messages, latestTurn, upstreamUnavailable });
+  }
+
+  if (method === "GET" && parts[3] === "media" && parts.length === 4) {
+    await syncChatHistory(true);
+    const sender = { id: user.id, name: user.name };
+    return send(res, 200, mediaPage(chatMediaStore().media(chat.id, sender, cfg.agentName || "Agent"), url.searchParams));
+  }
+
+  const ownTurn = turnId => {
+    const latest = readState();
+    const current = requireAuth(req, latest);
+    requireChat(latest, current.user.id, chat.id);
+    if (!agentTurns.owns(turnId, chat.id, current.user.id)) throw requestError(404, "not_found", "No such turn");
+    return current;
+  };
+  if (parts[3] === "turns") {
+    if (method === "GET" && parts.length === 4) return send(res, 200, { turns: agentTurns.latest(chat.id) });
+    const current = ownTurn(parts[4]);
+    if (method === "GET" && parts[5] === "events" && parts.length === 6) {
+      const after = Number(url.searchParams.get("after") || 0);
+      if (!Number.isSafeInteger(after) || after < 0) return fail(res, 400, "cursor", "Invalid event cursor");
+      return streamPrivateTurn(req, res, parts[4], () => ownTurn(parts[4]), after);
+    }
+    if (method === "POST" && parts[5] === "stop" && parts.length === 6) {
+      await readAuthorizedBody(req);
+      ownTurn(parts[4]);
+      return send(res, 200, { turn: agentTurns.requestStop(parts[4]) });
+    }
+    if (method === "POST" && parts[5] === "approval" && parts.length === 6) {
+      const body = await readAuthorizedBody(req);
+      const actor = ownTurn(parts[4]);
+      if (actor.user.role !== "owner" || chat.role !== "owner" || current.user.role !== "owner") return fail(res, 403, "forbidden", "Only the owner can approve this action");
+      return send(res, 200, { turn: agentTurns.requestApproval(parts[4], body.approvalId, body.choice) });
+    }
   }
 
   if (method === "POST" && parts[3] === "messages" && parts.length === 4) {
-    const body = await readBody(req);
+    const body = await readAuthorizedBody(req, MAX_UPLOAD_BODY);
     const text = String(body.text || "").trim();
-    if (!text) return fail(res, 400, "empty", "Type a message first");
+    const attachments = validateUploads(body.attachments, { mediaOnly: true });
+    if (!text && !attachments.length) return fail(res, 400, "empty", "Type a message first");
     if (text.length > MAX_MESSAGE_CHARS) return fail(res, 413, "too_long", "That message is too long");
-
-    const turnUser = mutateAuthenticated(req, (state, current) => {
+    const prior = agentTurns.replay({ chat, text, attachments, requestId: body.requestId });
+    if (prior) return streamPrivateTurn(req, res, prior.id, () => ownTurn(prior.id));
+    // Establish history before the worker records new accepted deliveries.
+    await syncChatHistory();
+    const turn = mutateAuthenticated(req, (state, current) => {
       const active = requireChat(state, current.user.id, chat.id);
-      if (active.title === "New chat") active.title = text.replace(/\s+/g, " ").slice(0, 60);
+      const queued = agentTurns.enqueue({ chat: active, user: current.user, device: current.device, text, attachments, requestId: body.requestId });
+      if (active.title === "New chat") active.title = (text || attachments[0].name).replace(/\s+/g, " ").slice(0, 60);
       active.updatedAt = now();
-      chat.title = active.title;
-      return current.user;
+      return queued;
     });
-
-    res.writeHead(200, {
-      ...CORS,
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-cache, no-transform",
-      "X-Accel-Buffering": "no",
-      Connection: "keep-alive",
+    if (privateTimer) void agentTurns.processNext();
+    return streamPrivateTurn(req, res, turn.id, () => {
+      // An already-open stream may finish after its chat is deleted. It never
+      // makes deleted attachments downloadable or opens a new subscription.
+      const latest = readState();
+      const current = requireAuth(req, latest);
+      if (latest.chats[chat.id]?.userId !== current.user.id) throw requestError(404, "not_found", "No such chat");
     });
-    const emit = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-    const keepalive = setInterval(() => res.write(": keepalive\n\n"), 15000);
-    let closed = false;
-    res.on("close", () => {
-      closed = true;
-      clearInterval(keepalive);
-    });
-
-    // Re-emit a small, stable event set. Members never see tool arguments.
-    const owner = turnUser.role === "owner";
-    const forward = (name, payload) => {
-      if (closed) return;
-      switch (name) {
-        case "assistant.delta":
-          return emit("delta", { text: payload.delta || "" });
-        case "tool.started":
-          return emit("status", { text: owner && payload.tool_name ? `Using ${payload.tool_name}` : "Working" });
-        case "assistant.completed":
-          return emit("message", { text: payload.content || "" });
-        case "error":
-          return emit("error", { message: "The agent hit a problem. Try again" });
-        default:
-          return undefined;
-      }
-    };
-
-    try {
-      const answer = await streamTurn(chatUp, chat.hermesSessionId, text, sessionKey(turnUser), forward);
-      if (answer) {
-        try { push?.enqueue({ kind: "agent", eventId: id("reply"), chatId: chat.id, userId: user.id, text: answer }); }
-        catch { console.error("Could not queue agent notification"); }
-      }
-    } catch (e) {
-      if (!closed) emit("error", { message: e.code === "agent_error" ? "The agent didn't answer. Try again" : "Lost the connection to the agent" });
-    }
-    clearInterval(keepalive);
-    if (!closed) {
-      emit("done", {});
-      res.end();
-    }
-    mutateState(state => {
-      const active = state.chats[chat.id];
-      if (active && !active.deletedAt) active.updatedAt = now();
-    });
-    return undefined;
   }
 
   return fail(res, 404, "not_found", "Not found");
+}
+
+function streamPrivateTurn(req, res, turnId, authorize, after = 0) {
+  authorize();
+  res.writeHead(200, { ...CORS, "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no", Connection: "keep-alive" });
+  return new Promise(resolve => {
+    let closed = false, poll, keepalive;
+    const close = () => {
+      if (closed) return;
+      closed = true; clearInterval(poll); clearInterval(keepalive);
+      privateStreams.delete(close);
+      res.end(); resolve();
+    };
+    privateStreams.add(close);
+    res.once("close", close);
+    const flush = () => {
+      if (closed) return;
+      try {
+        authorize();
+        const events = agentTurns.events(turnId, after);
+        for (const event of events) {
+          res.write(`event: ${event.event}\ndata: ${JSON.stringify(event.payload)}\nid: ${event.seq}\n\n`);
+          after = event.seq;
+          if (event.event === "done") { close(); break; }
+        }
+        if (!events.length && terminalTurn(agentTurns.get(turnId))) close();
+      } catch { close(); }
+    };
+    poll = setInterval(flush, 100);
+    keepalive = setInterval(() => { if (!closed) res.write(": keepalive\n\n"); }, 15000);
+    flush();
+  });
+}
+
+async function executePrivateTurn(turn, hooks, cfg) {
+  const initial = readState();
+  const user = initial.users[turn.user_id];
+  const device = Object.values(initial.devices).find(d => d.id === turn.device_id && d.userId === turn.user_id && !d.revokedAt);
+  const chat = requireChat(initial, turn.user_id, turn.chat_id);
+  if (!user || !device || (chat.role === "owner" && user.role !== "owner")) throw requestError(403, "forbidden", "Access changed before this turn started");
+  const up = upstreamFor({ role: turn.role }, cfg);
+  if (!up) throw requestError(502, "agent_error", "The agent is unavailable");
+  if (turn.role !== "owner") await verifyMemberUpstream(up);
+  const input = hermesInput(turn.text, turn.attachments);
+  let assistantMessage;
+  const saveAssistant = content => {
+    if (assistantMessage) return;
+    const latest = readState();
+    const active = latest.chats[turn.chat_id];
+    if (!active || active.userId !== turn.user_id) throw requestError(404, "not_found", "That chat is gone");
+    const normalized = normalizeMediaContent(content);
+    assistantMessage = active.deletedAt
+      ? { id: id("msg"), role: "assistant", text: normalized.text, at: now(), attachments: [] }
+      : chatMediaStore().accept(turn.chat_id, "assistant", normalized.text, normalized.attachments, turn.id);
+    hooks.emit("message", assistantMessage);
+  };
+  const onAccepted = () => {
+    const latest = readState();
+    requireChat(latest, turn.user_id, turn.chat_id);
+    if (!Object.values(latest.devices).some(d => d.id === turn.device_id && d.userId === turn.user_id && !d.revokedAt)) throw requestError(401, "unauthorized", "Device removed");
+    const message = chatMediaStore().accept(turn.chat_id, "user", turn.text, turn.attachments, turn.id);
+    chatMediaStore().identifyInput(message.id, input);
+    hooks.emit("sent", { message });
+  };
+  const onEvent = (name, payload) => {
+    if (name === "assistant.delta") hooks.emit("delta", { text: payload.delta || "" });
+    else if (name === "tool.started") hooks.emit("status", { text: user.role === "owner" && payload.tool_name ? `Using ${payload.tool_name}` : "Working" });
+    else if (name === "assistant.completed") saveAssistant(payload.content || "");
+    else if (name === "run.completed") {
+      const source = (Array.isArray(payload.messages) ? payload.messages : []).findLast(m => m.role === "assistant" && (m.content || m.text));
+      if (assistantMessage && source) chatMediaStore().identify(assistantMessage.id, source.content ?? source.text);
+    } else if (name === "approval.request") {
+      if (turn.role !== "owner" || user.role !== "owner") throw requestError(403, "forbidden", "Member agents cannot request privileged approvals");
+      hooks.emit("approval", { approval: { id: payload.approval_id, command: String(payload.command || "").slice(0, 8000),
+        description: String(payload.description || payload.reason || "Allow this action on your Mac?").slice(0, 2000), choices: ["once", "deny"] } });
+    } else if (name === "approval.responded") {
+      const current = hooks.controls().approval;
+      if (current && (!payload.approvalId || current.id === payload.approvalId)) hooks.emit("approval_resolved", { approvalId: current.id });
+    } else if (name === "error") hooks.emit("error", { message: "The agent hit a problem. Try again" });
+  };
+  let result;
+  if (turn.run_id || await supportsDurableRuns(up)) {
+    if (turn.run_id && !turn.accepted) onAccepted();
+    result = await runDurableHermes({ up, sessionId: turn.session_id, input, sessionKey: sessionKey(user), runId: turn.run_id,
+      onAccepted, onEvent, checkpoint: hooks.checkpoint, controls: hooks.controls });
+    // Run output is resolved by the bridge, while history contains its original
+    // MEDIA source. Bind the cache record to that source for later galleries.
+    if (assistantMessage) {
+      try {
+        const response = await hermes(up, "GET", `/api/sessions/${encodeURIComponent(turn.session_id)}/messages`);
+        const history = response.ok ? await response.json() : {};
+        onEvent("run.completed", { messages: history.messages ?? history.data });
+      } catch { /* accepted local media remains available even if history lags */ }
+    }
+  } else {
+    const answer = await streamTurn(up, turn.session_id, input, sessionKey(user), onEvent, () => false, onAccepted);
+    if (!assistantMessage && answer) saveAssistant(answer);
+    result = { status: "completed" };
+  }
+  mutateState(state => { const current = state.chats[turn.chat_id]; if (current && !current.deletedAt) current.updatedAt = now(); });
+  return { status: result.status, notification: assistantMessage && (assistantMessage.text || assistantMessage.attachments.length) ? {
+    kind: "agent", eventId: turn.id, chatId: turn.chat_id, userId: turn.user_id,
+    text: assistantMessage.text || (assistantMessage.attachments.some(a => a.mime.startsWith("video/")) ? "Sent a video" : "Sent an image"),
+  } : undefined };
 }
 
 // Runs in a separate worker so deploying/restarting the API cannot lose a report.
@@ -634,18 +784,22 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
     agentName: () => (fixedCfg || loadConfig()).agentName || "Agent",
     // In channels several people read the answer, so the agent always runs
     // as the limited member profile, never the owner's.
-    askAgent: async ({ sessionId, sessionKey: key, fresh, text, onDelta }) => {
+    askAgent: async ({ sessionId, sessionKey: key, fresh, text, attachments, onDelta }) => {
       const up = upstreamFor({ role: "member" }, fixedCfg || loadConfig());
       if (!up) return "The agent isn't set up on this server yet";
+      await verifyMemberUpstream(up);
       if (fresh) {
         const made = await hermes(up, "POST", "/api/sessions", { id: sessionId, title: `Servant · ${sessionId.slice(8, 30)}` });
         if (!made.ok && made.status !== 409) throw new Error(`session ${made.status}`);
       }
-      return streamTurn(up, sessionId, text, key, (name, p) => {
+      const answer = await streamTurn(up, sessionId, hermesInput(text, attachments), key, (name, p) => {
         if (name === "assistant.delta") onDelta(p.delta || "");
       });
+      return normalizeMediaContent(answer);
     },
   });
+  const serviceTurns = createAgentTurns({ file: path.join(DATA_DIR, "agent-turns.db"),
+    execute: (turn, hooks) => executePrivateTurn(turn, hooks, fixedCfg || loadConfig()) });
   servicePush = createPushService({
     file: path.join(DATA_DIR, "push.db"),
     autoDrain,
@@ -659,7 +813,8 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
     },
     send: createPushTransport(() => loadJson(process.env.SERVANT_PUSH_CONFIG || path.join(os.homedir(), ".config/servant/push.json"), {})),
   });
-  return { messaging: serviceMessaging, push: servicePush, closeState: () => { stateStore?.close(); stateStore = null; } };
+  return { messaging: serviceMessaging, push: servicePush, agentTurns: serviceTurns,
+    closeState: () => { chatMedia?.close(); chatMedia = null; stateStore?.close(); stateStore = null; } };
 }
 
 export function createWorkerServices() {
@@ -670,7 +825,14 @@ export function startServer(fixedCfg) {
   // Config is re-read per request so discovery changes require no restart.
   const cfg = fixedCfg || loadConfig();
   const externalWorker = process.env.SERVANT_WORKER_MODE === "external";
-  if (!messaging) ({ messaging, push } = createServices(fixedCfg, { externalWorker, autoDrain: !externalWorker }));
+  if (!messaging) ({ messaging, push, agentTurns } = createServices(fixedCfg, { externalWorker, autoDrain: !externalWorker }));
+  if (!externalWorker && !privateTimer) {
+    agentTurns.recoverInterrupted();
+    privateTimer = setInterval(() => {
+      void agentTurns.processNext();
+      agentTurns.drainOutbox(event => push.enqueue(event));
+    }, 250);
+  }
   secureTransport ??= createSecureTransport(DATA_DIR);
   feedback ??= createFeedback({ file: path.join(DATA_DIR, "feedback.db"), interval: 0, recover: false });
   messaging.ensureGeneral();
@@ -704,11 +866,16 @@ export function startServer(fixedCfg) {
   let cleanupPromise;
   const cleanup = () => cleanupPromise ??= (async () => {
     while (requests.size) await Promise.allSettled([...requests]);
+    clearInterval(privateTimer); privateTimer = null;
+    await agentTurns?.whenIdle();
+    agentTurns?.drainOutbox(event => push.enqueue(event));
     await messaging?.whenIdle();
     await push?.shutdown();
     push = null;
     feedback?.close(); feedback = null;
     messaging?.close(); messaging = null;
+    agentTurns?.close(); agentTurns = null;
+    chatMedia?.close(); chatMedia = null;
     secureTransport?.close(); secureTransport = null;
     stateStore?.close(); stateStore = null;
   })();
@@ -718,10 +885,11 @@ export function startServer(fixedCfg) {
   server.drain = () => {
     draining = true;
     messaging?.closeEvents();
+    if (externalWorker) for (const close of [...privateStreams]) close();
   };
   // The proxy first retires persistent event streams while allowing requests
   // already assigned to this version to reach the still-open listener.
-  server.drainEvents = () => messaging?.closeEvents();
+  server.drainEvents = () => { messaging?.closeEvents(); if (externalWorker) for (const close of [...privateStreams]) close(); };
   let shutdownPromise;
   server.shutdown = ({ timeoutMs = 300000 } = {}) => {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0) throw new Error("Invalid shutdown timeout");

@@ -26,7 +26,7 @@ export default function Welcome() {
       <Band />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-          <PageTitle description={account ? "Open a new invite from your admin to enable encrypted connections. Ask for an invite for your existing account to keep your conversations." : "A place for your team's conversations and agent. Join with an invite from someone at your agency."}>{account ? "Reconnect securely" : "Welcome to Servant"}</PageTitle>
+          <PageTitle description={account ? "Open a new invite from your admin to enable encrypted connections. Ask for an invite for your existing account to keep your conversations." : "Channels, direct messages, and your agent. Open an invite from a teammate to get started."}>{account ? "Reconnect securely" : "Join your workspace"}</PageTitle>
 
           <Text style={styles.label} nativeID="inviteLabel">
             Invite link
@@ -60,11 +60,11 @@ export default function Welcome() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
-  body: { paddingBottom: space.xxl },
+  body: { paddingTop: space.sm, paddingBottom: space.xxl, width: "100%", maxWidth: 480, alignSelf: "center" },
   label: { ...typography.label, marginTop: space.sm, marginHorizontal: space.side, color: colors.ink },
-  input: { ...controls.input, ...controls.inputMultiline, marginTop: space.xs, marginHorizontal: space.side },
+  input: { ...controls.input, ...controls.inputMultiline, minHeight: 88, marginTop: space.xs, marginHorizontal: space.side },
   inputError: { borderColor: colors.red },
   action: { marginTop: space.md, marginHorizontal: space.side },
   error: { ...typography.caption, marginTop: space.xs, marginHorizontal: space.side, color: colors.red },
-  note: { ...typography.caption, marginTop: space.xl, marginHorizontal: space.side, paddingTop: space.lg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line, color: colors.muted },
+  note: { ...typography.caption, marginTop: space.xl, marginHorizontal: space.side, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line, color: colors.muted },
 });

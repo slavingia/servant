@@ -4,6 +4,7 @@ import { router, useFocusEffect } from "expo-router";
 import { PageTitle } from "../../components/Band";
 import { Avatar } from "../../components/Messaging";
 import { Button } from "../../components/Button";
+import { AppIcon } from "../../components/AppIcon";
 import { useStatusNow } from "../../components/Presence";
 import { api, ServerError, type Person } from "../../lib/server";
 import { useLive } from "../../lib/live";
@@ -52,8 +53,11 @@ export default function Members() {
       keyboardShouldPersistTaps="handled"
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />}
       ListHeaderComponent={<>
-        <PageTitle description="Find someone to message." action={account.user.role === "owner" ? <Button label="Invite" compact onPress={() => router.push("/invite")} /> : undefined}>Members</PageTitle>
-        <TextInput accessibilityLabel="Search members" value={query} onChangeText={setQuery} placeholder="Search by name" placeholderTextColor={colors.muted} autoCapitalize="none" autoCorrect={false} returnKeyType="search" onFocus={() => setSearchFocused(true)} onBlur={() => setSearchFocused(false)} style={[styles.search, searchFocused && controls.inputFocused]} />
+        <PageTitle action={account.user.role === "owner" ? <Button label="Invite people" kind="link" compact onPress={() => router.push("/invite")} /> : undefined}>People</PageTitle>
+        <View style={[styles.searchBox, searchFocused && controls.inputFocused]}>
+          <AppIcon name="search" size={18} color={colors.muted} />
+          <TextInput accessibilityLabel="Search people" value={query} onChangeText={setQuery} placeholder="Find a teammate" placeholderTextColor={colors.muted} autoCapitalize="none" autoCorrect={false} returnKeyType="search" onFocus={() => setSearchFocused(true)} onBlur={() => setSearchFocused(false)} style={styles.search} />
+        </View>
         {people && shown.length ? <Text style={styles.resultCount}>{query.trim() ? `${shown.length} ${shown.length === 1 ? "result" : "results"}` : `${people.length} ${people.length === 1 ? "member" : "members"}`}</Text> : null}
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
       </>}
@@ -66,9 +70,9 @@ export default function Members() {
         const self = item.id === account.user.id;
         const status = self ? "" : presenceLabel(presence[item.id] ?? { ...item, online: false }, now, connected);
         return <Pressable accessibilityRole={self ? undefined : "button"} accessibilityLabel={`${item.name}${self ? ", you" : ""}, ${item.owner ? "owner" : "member"}${status ? `, ${status}` : ""}`} accessibilityHint={self ? undefined : "Open direct message"} disabled={self || !!opening} onPress={() => void message(item)} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}>
-          <Avatar name={item.name} />
-          <View style={styles.copy}><Text style={styles.name}>{item.name}{self ? <Text style={styles.you}> · You</Text> : null}</Text><Text style={styles.role}>{item.owner ? "Owner" : "Member"}</Text>{status ? <Text style={[styles.role, status === "Online" && styles.online]}>{status}</Text> : null}</View>
-          {opening === item.id ? <ActivityIndicator color={colors.blue} /> : !self ? <Text accessibilityElementsHidden style={styles.action}>Message</Text> : null}
+          <Avatar name={item.name} size={36} />
+          <View style={styles.copy}><Text style={styles.name}>{item.name}{self ? <Text style={styles.you}> · You</Text> : null}</Text><Text style={[styles.role, status === "Online" && styles.online]}>{item.owner ? "Workspace owner" : "Member"}{status ? ` · ${status}` : ""}</Text></View>
+          {opening === item.id ? <ActivityIndicator color={colors.blue} /> : !self ? <AppIcon name="chat" size={18} color={colors.muted} /> : null}
         </Pressable>;
       }}
       contentContainerStyle={styles.content}
@@ -77,16 +81,16 @@ export default function Members() {
 }
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
-  content: { paddingBottom: 120, flexGrow: 1 },
-  search: { ...controls.input, marginHorizontal: space.side, marginBottom: space.md },
+  content: { paddingBottom: space.xl, flexGrow: 1 },
+  searchBox: { ...controls.input, flexDirection: "row", alignItems: "center", gap: space.xs, marginHorizontal: space.side, marginBottom: space.md, paddingVertical: 0, backgroundColor: colors.surface },
+  search: { ...typography.body, flex: 1, minWidth: 0, minHeight: 44, paddingVertical: space.sm, color: colors.ink },
   resultCount: { ...typography.caption, marginHorizontal: space.side, marginBottom: space.xs, color: colors.muted },
-  row: { minHeight: 80, paddingHorizontal: space.side, paddingVertical: space.md, flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  row: { minHeight: 64, paddingHorizontal: space.side, paddingVertical: space.sm, flexDirection: "row", alignItems: "center" },
   copy: { flex: 1, minWidth: 0, marginHorizontal: space.sm },
   name: { ...typography.bodyStrong, color: colors.ink },
   you: { ...typography.body, color: colors.muted },
-  role: { ...typography.caption, marginTop: space.xxs, color: colors.muted },
+  role: { ...typography.caption, marginTop: 2, color: colors.muted },
   online: { color: colors.blueDark },
-  action: { ...typography.captionStrong, color: colors.blue },
   error: { ...typography.caption, marginHorizontal: space.side, marginVertical: space.xs, color: colors.red },
   loading: { marginTop: space.xxl },
   empty: { marginTop: space.xxl, paddingHorizontal: space.lg, alignItems: "center" },

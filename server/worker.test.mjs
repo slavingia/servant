@@ -1,3 +1,4 @@
+import { restrictedTestCapabilities } from "./test-hermes-capabilities.mjs";
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -179,6 +180,7 @@ test('worker shutdown waits for its current answer and leaves queued jobs for re
 test('production worker entrypoint starts, processes durable work through configured Hermes, and exits gracefully', async t => {
   const dir = fixture(t);
   const upstream = http.createServer(async (req, res) => {
+    if (req.method === "GET" && req.url === "/v1/capabilities") return res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(restrictedTestCapabilities));
     for await (const _ of req) { /* consume request */ }
     if (req.url.endsWith('/chat/stream')) {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });

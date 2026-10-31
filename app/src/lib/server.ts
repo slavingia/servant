@@ -4,6 +4,9 @@ import { validServerKey } from "./tunnel-crypto";
 import { getItem, removeItem, setItem } from "./storage";
 import type { Invite } from "./invite";
 import { createLiveEventDecoder } from "./live-events";
+import { createAgentEventDecoder, type StreamEvent } from "./agent-events";
+import { parseAgentTurn, type AgentTurn } from './agent-turns';
+export type { StreamEvent } from "./agent-events";
 
 export type Role = "owner" | "member";
 export type Account = {
@@ -14,8 +17,8 @@ export type Account = {
   serverName: string;
   user: { id: string; name: string; role: Role };
 };
-export type Chat = { id: string; title: string; createdAt: number; updatedAt: number };
-export type Message = { id: string; role: "user" | "assistant"; text: string; at?: number | string | null };
+export type Chat = { id: string; title: string; createdAt: number; updatedAt: number; latestTurn?: AgentTurn | null };
+export type Message = { id: string; role: "user" | "assistant"; text: string; at?: number | string | null; attachments?: Attachment[]; pending?: boolean; interrupted?: boolean };
 
 // ----- channels, direct messages, threads -----
 export type Presence = { userId: string; online: boolean; lastSeenAt: number | null };
@@ -195,13 +198,6 @@ export async function request(account: Account, path: string, init: RequestInit 
   return res;
 }
 
-export type StreamEvent =
-  | { type: "delta"; text: string }
-  | { type: "status"; text: string }
-  | { type: "message"; text: string }
-  | { type: "error"; message: string }
-  | { type: "done" };
-
 // Sends a message and yields the agent's reply as it streams in.
 export async function sendMessage(
   account: Account,
@@ -210,13 +206,15 @@ export async function sendMessage(
   onEvent: (e: StreamEvent) => void,
   signal?: AbortSignal,
   onMove?: (a: Account) => void,
+  attachments: Upload[] = [],
+  requestId?: string,
 ): Promise<void> {
   if (!validServerKey(account.serverKey)) throw new ServerError("Encryption setup required. Open a new invite from your admin.", 0, "encryption_required");
   const go = (base: string) =>
     secureFetch(base, account.serverKey, `/v1/chats/${chatId}/messages`, {
       method: "POST",
       headers: { Authorization: `Bearer ${account.token}`, "Content-Type": "application/json", Accept: "text/event-stream" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, attachments: attachments.map(({ name, data }) => ({ name, data })), requestId }),
       signal,
     });
   let res = await go(account.serverUrl).catch(() => null);
@@ -231,41 +229,14 @@ export async function sendMessage(
   if (!res.ok) throw await readError(res as SecureResponse);
   if (!res.body) throw new ServerError("The agent didn't answer");
   const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-  let finished = false;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let idx: number;
-    while ((idx = buf.indexOf("\n\n")) >= 0) {
-      const block = buf.slice(0, idx);
-      buf = buf.slice(idx + 2);
-      let name = "message";
-      let data = "";
-      for (const line of block.split("\n")) {
-        if (line.startsWith("event:")) name = line.slice(6).trim();
-        else if (line.startsWith("data:")) data += line.slice(5).trim();
-      }
-      if (!data) continue;
-      let payload: Record<string, string> = {};
-      try {
-        payload = JSON.parse(data);
-      } catch {
-        continue;
-      }
-      if (name === "delta") onEvent({ type: "delta", text: payload.text || "" });
-      else if (name === "status") onEvent({ type: "status", text: payload.text || "" });
-      else if (name === "message") onEvent({ type: "message", text: payload.text || "" });
-      else if (name === "error") onEvent({ type: "error", message: payload.message || "The agent hit a problem" });
-      else if (name === "done") {
-        onEvent({ type: "done" });
-        finished = true;
-      }
+  const decoder = createAgentEventDecoder(onEvent);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) { decoder.finish(); return; }
+      if (value) decoder.push(value);
     }
-  }
-  if (!finished) onEvent({ type: "done" });
+  } finally { await reader.cancel(); }
 }
 
 // Opens the server's live event stream. Resolves when the stream ends; throws on
@@ -313,6 +284,9 @@ export const api = {
   newChat: (a: Account) => request(a, "/v1/chats", { method: "POST", body: "{}" }).then((r) => r.json()).then((d) => d.chat as Chat),
   deleteChat: (a: Account, id: string) => request(a, `/v1/chats/${id}`, { method: "DELETE" }),
   messages: (a: Account, id: string) => request(a, `/v1/chats/${id}/messages`).then((r) => r.json()).then((d) => d.messages as Message[]),
+  agentTurns: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/turns`).then(json<{ turns: unknown[] }>).then(d => d.turns.map(parseAgentTurn).filter((t): t is AgentTurn => t !== null)),
+  stopAgent: (a: Account, chatId: string, turnId: string) => request(a, `/v1/chats/${encodeURIComponent(chatId)}/turns/${encodeURIComponent(turnId)}/stop`, { method: 'POST', body: '{}' }),
+  answerApproval: (a: Account, chatId: string, turnId: string, approvalId: string, choice: 'once' | 'deny') => request(a, `/v1/chats/${encodeURIComponent(chatId)}/turns/${encodeURIComponent(turnId)}/approval`, { method: 'POST', body: JSON.stringify({ approvalId, choice }) }),
   joinLink: (a: Account, fresh = false) =>
     request(a, "/v1/invites", { method: "POST", body: JSON.stringify({ fresh }) }).then(json<{ code: string; link: string; expiresAt: number }>),
   people: (a: Account) => request(a, "/v1/people").then(json<{ people: Person[]; agent: Person; me: string }>),

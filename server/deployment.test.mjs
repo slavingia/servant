@@ -59,7 +59,10 @@ async function fixture(t) {
   fs.writeFileSync(path.join(sourceDir,'server.mjs'),fixtureSource);
   fs.writeFileSync(path.join(sourceDir,'package.json'),'{"type":"module"}');
   for(const id of ['one','two','bad','postbad'])stageRelease({sourceDir,runtimeDir,id});
-  const service = await startSupervisor({runtimeDir,dataDir,port:0,initialRelease:'one',candidateTimeoutMs:250,restartDelayMs:20,log:{log(){},error(){}}});
+  // A child process can take more than 250 ms to start while the complete
+  // suite runs process/crypto fixtures in parallel. Keep failure detection
+  // bounded without making scheduler load look like a readiness regression.
+  const service = await startSupervisor({runtimeDir,dataDir,port:0,initialRelease:'one',candidateTimeoutMs:2000,restartDelayMs:20,log:{log(){},error(){}}});
   const base=`http://127.0.0.1:${service.proxy.address().port}`;
   t.after(async()=>{await service.close();removeFixture(directory);});
   return {service,base,runtimeDir,sourceDir,directory};

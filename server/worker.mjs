@@ -44,18 +44,21 @@ export async function startWorker({ directory, createServices, intervalMs = 250,
     services = await createServices();
     const interrupted = services.messaging.recoverInterruptedJobs();
     if (interrupted) log.warn(`[servant] ${interrupted} interrupted agent job(s) require a new request; none were replayed`);
+    const privateTurns = services.agentTurns?.recoverInterrupted();
+    if (privateTurns) log.warn(`[servant] recovered ${privateTurns} private turn(s); existing Hermes runs resume without replaying prompts`);
   } catch (error) {
     try { services?.push.close?.(); }
     finally {
-      try { services?.messaging.close(); }
+      try { services?.agentTurns?.close(); services?.messaging.close(); }
       finally { try { services?.closeState?.(); } finally { release(); } }
     }
     throw error;
   }
-  const { messaging, push, closeState = () => {} } = services;
+  const { messaging, push, agentTurns, closeState = () => {} } = services;
   let stopping = false;
   let agentTask = null;
   let notificationTask = null;
+  const privateTasks = new Set();
   let shutdownPromise;
   const tickAgent = () => {
     if (stopping || agentTask) return agentTask || Promise.resolve(false);
@@ -69,32 +72,46 @@ export async function startWorker({ directory, createServices, intervalMs = 250,
     if (stopping || notificationTask) return notificationTask || Promise.resolve();
     notificationTask = Promise.resolve().then(async () => {
       messaging.drainOutbox(event => push.enqueue(event));
+      agentTurns?.drainOutbox(event => push.enqueue(event));
       await push.drain();
     }).catch(error => log.error('[servant] notification worker retrying:', error.message))
       .finally(() => { notificationTask = null; });
     return notificationTask;
   };
+  const tickPrivate = () => {
+    if (stopping || !agentTurns) return Promise.resolve(false);
+    const task = agentTurns.processNext().catch(error => {
+      log.error('[servant] private agent turn interrupted:', error.message);
+      return false;
+    }).finally(() => { privateTasks.delete(task); });
+    privateTasks.add(task);
+    return task;
+  };
   const agentTimer = intervalMs > 0 ? setInterval(tickAgent, intervalMs) : null;
+  const privateTimer = intervalMs > 0 ? setInterval(tickPrivate, intervalMs) : null;
   const pushTimer = intervalMs > 0 ? setInterval(tickNotifications, Math.max(intervalMs, 1000)) : null;
-  if (intervalMs > 0) { void tickAgent(); void tickNotifications(); }
+  if (intervalMs > 0) { void tickAgent(); void tickPrivate(); void tickNotifications(); }
   const shutdown = () => shutdownPromise ??= (async () => {
     stopping = true;
     clearInterval(agentTimer);
+    clearInterval(privateTimer);
     clearInterval(pushTimer);
     try {
-      await Promise.all([agentTask, notificationTask]);
+      await Promise.all([agentTask, notificationTask, ...privateTasks]);
+      await agentTurns?.whenIdle();
       await messaging.whenIdle();
       messaging.drainOutbox(event => push.enqueue(event));
+      agentTurns?.drainOutbox(event => push.enqueue(event));
       await push.shutdown();
     } finally {
       try { push.close?.(); }
       finally {
-        try { messaging.close(); }
+        try { agentTurns?.close(); messaging.close(); }
         finally { try { closeState(); } finally { release(); } }
       }
     }
   })();
-  return { owner, tickAgent, tickNotifications, shutdown };
+  return { owner, tickAgent, tickPrivate, tickNotifications, shutdown };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

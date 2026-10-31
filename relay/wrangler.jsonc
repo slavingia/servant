@@ -1,0 +1,8 @@
+{
+  "name": "servant-relay",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-07-30",
+  "durable_objects": { "bindings": [{ "name": "HUBS", "class_name": "Hub" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Hub"] }],
+  "observability": { "enabled": false }
+}

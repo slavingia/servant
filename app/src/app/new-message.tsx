@@ -3,9 +3,10 @@ import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, T
 import { router } from "expo-router";
 import { Button } from "../components/Button";
 import { Avatar } from "../components/Messaging";
+import { AppIcon } from "../components/AppIcon";
 import { api, ServerError, type Person } from "../lib/server";
 import { useSession } from "../lib/session";
-import { colors, controls, radius, space, typography } from "../lib/theme";
+import { colors, radius, space, typography } from "../lib/theme";
 
 // Pick one person for a direct message, or a few for a group message.
 export default function NewMessage() {
@@ -45,12 +46,15 @@ export default function NewMessage() {
 
   return (
     <View style={styles.root}>
-      <Text style={styles.intro}>Choose one person, or up to eight for a group.</Text>
-      <TextInput accessibilityLabel="Search people" value={query} onChangeText={setQuery} placeholder="Search by name" placeholderTextColor={colors.muted} style={styles.search} autoCorrect={false} />
+      <View style={styles.recipientRow}>
+        <Text style={styles.to}>To:</Text>
+        <TextInput accessibilityLabel="Search people" value={query} onChangeText={setQuery} placeholder="Name or teammate" placeholderTextColor={colors.muted} style={styles.search} autoCorrect={false} autoCapitalize="none" />
+      </View>
+      <Text style={styles.intro}>Choose up to eight people.</Text>
       {picked.length ? <View style={styles.selection}>
         <Text accessibilityLiveRegion="polite" style={styles.selectionCount}>{picked.length} of 8 selected</Text>
         <ScrollView horizontal contentContainerStyle={styles.chips} keyboardShouldPersistTaps="handled">{picked.map(id => <Pressable key={id} disabled={busy} accessibilityState={{ disabled: busy }} accessibilityRole="button" accessibilityLabel={`Remove ${people?.find(p => p.id === id)?.name ?? "person"}`} onPress={() => toggle(id)} style={styles.chip}>
-          <Text style={styles.chipText}>{people?.find(p => p.id === id)?.name ?? "Person"} ×</Text>
+          <Text style={styles.chipText}>{people?.find(p => p.id === id)?.name ?? "Person"}</Text><AppIcon name="close" size={14} color={colors.blueDark} />
         </Pressable>)}</ScrollView>
       </View> : null}
       <FlatList
@@ -79,9 +83,9 @@ export default function NewMessage() {
               onPress={() => toggle(item.id)}
               style={({ pressed }) => [styles.row, on && styles.rowSelected, disabled && !on && styles.rowDisabled, pressed && { backgroundColor: colors.surface }]}
             >
-              <Avatar name={item.name} />
+              <Avatar name={item.name} size={36} />
               <Text style={styles.name}>{item.name}</Text>
-              <View style={[styles.check, on && styles.checkOn]}>{on ? <Text style={styles.tick}>✓</Text> : null}</View>
+              <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[styles.check, on && styles.checkOn]}>{on ? <AppIcon name="check" size={16} color={colors.white} /> : null}</View>
             </Pressable>
           );
         }}
@@ -89,7 +93,7 @@ export default function NewMessage() {
       />
       <View style={styles.footer}>
         {error && people?.length ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-        <Button label={picked.length > 1 ? "Start group message" : "Start conversation"} onPress={start} busy={busy} disabled={!picked.length} />
+        <Button label={picked.length > 1 ? "Start group message" : "Message"} onPress={start} busy={busy} disabled={!picked.length} />
       </View>
     </View>
   );
@@ -97,20 +101,21 @@ export default function NewMessage() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
-  intro: { ...typography.body, marginTop: space.side, marginHorizontal: space.side, color: colors.muted },
-  search: { ...controls.input, marginHorizontal: space.side, marginTop: space.md, marginBottom: space.sm },
+  recipientRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: space.side, gap: space.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  to: { ...typography.bodyStrong, color: colors.muted },
+  intro: { ...typography.caption, marginVertical: space.sm, marginHorizontal: space.side, color: colors.muted },
+  search: { ...typography.body, flex: 1, minWidth: 0, minHeight: 48, paddingVertical: space.sm, color: colors.ink },
   selection: { paddingHorizontal: space.side, paddingBottom: space.sm },
   selectionCount: { ...typography.caption, color: colors.muted, marginBottom: space.xs },
   chips: { flexDirection: "row", gap: space.xs },
-  chip: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.sm, backgroundColor: colors.blueSoft, borderRadius: radius.sm },
+  chip: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.xs, paddingHorizontal: space.sm, backgroundColor: colors.blueSoft, borderRadius: radius.sm },
   chipText: { ...typography.captionStrong, color: colors.blueDark },
-  row: { minHeight: 72, paddingHorizontal: space.side, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  row: { minHeight: 60, paddingHorizontal: space.side, paddingVertical: space.sm, flexDirection: "row", alignItems: "center" },
   rowSelected: { backgroundColor: colors.blueSoft },
   rowDisabled: { opacity: 0.5 },
   name: { ...typography.body, flex: 1, marginLeft: space.sm, marginRight: space.sm, color: colors.ink },
-  check: { width: 26, height: 26, borderRadius: radius.pill, borderWidth: 2, borderColor: colors.borderStrong, alignItems: "center", justifyContent: "center" },
+  check: { width: 22, height: 22, borderRadius: 4, borderWidth: 1.5, borderColor: colors.borderStrong, alignItems: "center", justifyContent: "center" },
   checkOn: { backgroundColor: colors.blue, borderColor: colors.blue },
-  tick: { ...typography.captionStrong, color: colors.white },
   empty: { marginTop: space.xl, marginHorizontal: space.side, alignItems: "center" },
   emptyText: { ...typography.body, textAlign: "center", color: colors.muted },
   footer: { padding: space.side, paddingBottom: space.xl, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },

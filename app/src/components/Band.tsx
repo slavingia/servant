@@ -33,9 +33,9 @@ const styles = StyleSheet.create({
   band: { backgroundColor: colors.navy },
   row: { minHeight: 48, paddingVertical: space.xs, paddingHorizontal: space.side, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm },
   mark: { ...typography.bodyStrong, color: colors.white, letterSpacing: 0.2 },
-  pageHeader: { marginTop: space.lg, marginHorizontal: space.side, marginBottom: space.side },
+  pageHeader: { marginTop: space.md, marginHorizontal: space.side, marginBottom: space.md },
   titleRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: space.sm },
   title: { ...typography.title, color: colors.ink, flexShrink: 1 },
   action: { maxWidth: "100%" },
-  description: { ...typography.body, color: colors.muted, marginTop: space.xs },
+  description: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
 });

@@ -1,3 +1,4 @@
+import { restrictedTestCapabilities } from "./test-hermes-capabilities.mjs";
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -28,12 +29,13 @@ async function fixture(t, { timeout = 5000, harness = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'servant-shutdown-'));
   const turns = [];
   const upstream = http.createServer(async (req, res) => {
+    if (req.method === "GET" && req.url === "/v1/capabilities") return res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(restrictedTestCapabilities));
     for await (const _ of req) { /* consume body */ }
     if (req.url.endsWith('/chat/stream')) {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       res.write('event: assistant.delta\ndata: {"delta":"Working"}\n\n');
       turns.push(() => res.end('event: assistant.completed\ndata: {"content":"Finished safely"}\n\n'));
-    } else res.writeHead(200, { 'Content-Type': 'application/json' }).end('{}');
+    } else res.writeHead(200, { 'Content-Type': 'application/json' }).end(req.url.endsWith('/messages') ? '{"data":[]}' : '{}');
   });
   await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
   const up = { url: `http://127.0.0.1:${upstream.address().port}`, key: 'fake-key' };

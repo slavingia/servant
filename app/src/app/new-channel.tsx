@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { Button } from "../components/Button";
+import { AppIcon } from "../components/AppIcon";
 import { api, ServerError } from "../lib/server";
 import { useLive } from "../lib/live";
 import { useSession } from "../lib/session";
@@ -32,15 +33,15 @@ export default function NewChannel() {
   };
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
-      <Text style={styles.intro}>Give your team a place to talk about a shared topic.</Text>
+      <Text style={styles.intro}>Channels bring the right people together around a topic.</Text>
       <Text style={styles.label}>Channel name</Text>
       <View style={styles.nameBox}>
-        <Text style={styles.hash}>#</Text>
+        <AppIcon name={priv ? "lock" : "hash"} size={18} color={colors.muted} />
         <TextInput
           accessibilityLabel="Channel name"
           value={name}
           onChangeText={(t) => setName(clean(t))}
-          placeholder="team-budget"
+          placeholder="e.g. team-design"
           placeholderTextColor={colors.muted}
           autoCapitalize="none"
           autoCorrect={false}
@@ -56,7 +57,7 @@ export default function NewChannel() {
       <View style={styles.switchRow}>
         <View style={{ flex: 1, marginRight: space.sm }}>
           <Text style={styles.switchLabel}>Private channel</Text>
-          <Text style={styles.help}>Only people you add can find it</Text>
+          <Text style={styles.help}>{priv ? "Only invited people can find and join it." : "Anyone in the workspace can find and join it."}</Text>
         </View>
         <Switch accessibilityLabel="Private channel" value={priv} onValueChange={setPriv} trackColor={{ true: colors.blue }} />
       </View>
@@ -70,13 +71,12 @@ export default function NewChannel() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
   content: { padding: space.side, paddingBottom: space.xxl },
-  intro: { ...typography.body, color: colors.muted, marginBottom: space.xs },
-  label: { ...typography.label, marginTop: space.lg, marginBottom: space.xs, color: colors.ink },
+  intro: { ...typography.caption, color: colors.muted, marginBottom: space.xs },
+  label: { ...typography.label, marginTop: space.md, marginBottom: space.xs, color: colors.ink },
   optional: { ...typography.caption, color: colors.muted },
-  nameBox: { ...controls.input, paddingVertical: 0, flexDirection: "row", alignItems: "center" },
-  hash: { ...typography.body, color: colors.muted, marginRight: space.xs },
-  nameInput: { ...typography.body, flex: 1, minHeight: 52, paddingVertical: space.sm, color: colors.ink },
-  input: { ...controls.input, ...controls.inputMultiline },
+  nameBox: { ...controls.input, paddingVertical: 0, flexDirection: "row", alignItems: "center", gap: space.xs },
+  nameInput: { ...typography.body, flex: 1, minWidth: 0, minHeight: 44, paddingVertical: space.sm, color: colors.ink },
+  input: { ...controls.input, ...controls.inputMultiline, minHeight: 88 },
   help: { ...typography.caption, marginTop: space.xs, color: colors.muted },
   switchRow: { marginTop: space.lg, paddingVertical: space.md, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.line, flexDirection: "row", alignItems: "center" },
   switchLabel: { ...typography.bodyStrong, color: colors.ink },

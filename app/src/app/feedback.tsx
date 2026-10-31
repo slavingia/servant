@@ -44,8 +44,7 @@ export default function Feedback() {
     finally { setBusy(false); }
   };
   return <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
-    <Text accessibilityRole="header" style={styles.heading}>Help improve Servant</Text>
-    <Text style={styles.intro}>Tell us what happened and what you expected. Follow your report's progress below.</Text>
+    <Text style={styles.intro}>Tell us what happened and what you expected.</Text>
     <Text style={styles.label}>Your feedback</Text>
     <TextInput accessibilityLabel="Feedback" placeholder="What should we fix?" value={text}
       onChangeText={value => { setText(value); setSent(false); }} multiline maxLength={4000} autoFocus
@@ -53,7 +52,7 @@ export default function Feedback() {
     <Text style={styles.caption}>Includes this screen, app build, and platform. Messages and screenshots are not attached.</Text>
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
     <Button label="Send feedback" busy={busy} disabled={!text.trim()} onPress={send} />
-    {sent ? <Text accessibilityLiveRegion="polite" style={styles.body}>Feedback saved. You can close this screen while the agent works.</Text> : null}
+    {sent ? <Text accessibilityLiveRegion="polite" style={styles.body}>Feedback saved. Updates will appear below.</Text> : null}
     <Text accessibilityRole="header" style={styles.sectionHeading}>Your reports</Text>
     {!reports.length ? <Text style={styles.intro}>Your reports and updates will appear here.</Text> : null}
     {reports.map(report => <View key={report.id} style={styles.report}>
@@ -70,15 +69,14 @@ export default function Feedback() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
   content: { padding: space.side, gap: space.md, paddingBottom: space.xxl },
-  heading: { ...typography.title, color: colors.ink },
-  sectionHeading: { ...typography.heading, marginTop: space.lg, color: colors.ink },
+  sectionHeading: { ...typography.label, marginTop: space.md, color: colors.ink },
   label: { ...typography.label, color: colors.ink, marginTop: space.xs, marginBottom: -space.xs },
-  intro: { ...typography.body, color: colors.muted },
+  intro: { ...typography.caption, color: colors.muted },
   body: { ...typography.body, color: colors.ink },
-  input: { ...controls.input, ...controls.inputMultiline, minHeight: 160 },
+  input: { ...controls.input, ...controls.inputMultiline, minHeight: 128 },
   caption: { ...typography.caption, color: colors.muted },
   error: { ...typography.caption, color: colors.red },
-  report: { padding: space.md, gap: space.xs, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
-  status: { ...typography.captionStrong, color: colors.blueDark },
+  report: { paddingVertical: space.md, gap: space.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  status: { ...typography.captionStrong, alignSelf: "flex-start", paddingHorizontal: space.xs, paddingVertical: 2, borderRadius: radius.sm, backgroundColor: colors.blueSoft, color: colors.blueDark },
   link: { ...typography.bodyStrong, color: colors.blue, paddingVertical: space.sm, minHeight: 44 },
 });

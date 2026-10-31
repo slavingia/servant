@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Avatar } from "../components/Messaging";
+import { AppIcon } from "../components/AppIcon";
 import { api, ServerError, type Conversation, type Person } from "../lib/server";
 import { useLive } from "../lib/live";
 import { useSession } from "../lib/session";
@@ -110,13 +111,16 @@ export default function ChannelInfo() {
   return (
     <View style={styles.root}>
     <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Text accessibilityRole="header" style={styles.title}>#{conv.title}</Text>
+      <View style={styles.identity}>
+        <View style={styles.channelIcon}><AppIcon name={conv.private ? "lock" : "hash"} size={23} color={colors.ink} /></View>
+        <Text accessibilityRole="header" style={styles.title}>{conv.title}</Text>
+      </View>
       <Text style={styles.sub}>
         {conv.archived ? "Archived · " : ""}{conv.private ? "Private channel" : "Public channel"} · {conv.memberCount} {conv.memberCount === 1 ? "member" : "members"}
       </Text>
 
       <Text accessibilityRole="header" style={styles.label}>Topic</Text>
-      <Text style={styles.helper}>A short description helps everyone know what belongs here.</Text>
+      <Text style={styles.helper}>Let people know what this conversation is for.</Text>
       <TextInput
         accessibilityLabel="Topic"
         value={topic}
@@ -167,15 +171,15 @@ export default function ChannelInfo() {
                 {p.name}
                 {p.id === account.user.id ? " (you)" : ""}
               </Text>
-              {opening === p.id ? <ActivityIndicator color={colors.blue} /> : p.id !== account.user.id ? <Text style={styles.messageLink}>Message</Text> : null}
+              {opening === p.id ? <ActivityIndicator color={colors.blue} /> : p.id !== account.user.id ? <AppIcon name="chat" size={17} color={colors.muted} /> : null}
             </Pressable>
           ))}
 
       {conv.name !== "general" ? <View style={styles.leaveSection}>
-        <Button label="Leave channel" kind="danger" onPress={() => { setError(null); setConfirmingLeave(true); }} />
+        <Pressable accessibilityRole="button" onPress={() => { setError(null); setConfirmingLeave(true); }} style={styles.leaveAction}><Text style={styles.leaveLabel}>Leave channel</Text></Pressable>
       </View> : null}
     </ScrollView>
-    <ConfirmDialog visible={confirmingLeave} title={`Leave #${conv.title}?`} description={conv.private ? "You'll need someone to add you back to this private channel." : "You can join again from the Channels tab."} confirmLabel="Leave channel" onConfirm={() => void leave()} onCancel={() => setConfirmingLeave(false)} busy={leaving} error={error} />
+    <ConfirmDialog visible={confirmingLeave} title={`Leave #${conv.title}?`} description={conv.private ? "You'll need someone to add you back to this private channel." : "You can find and join it again from Home."} confirmLabel="Leave channel" onConfirm={() => void leave()} onCancel={() => setConfirmingLeave(false)} busy={leaving} error={error} />
     </View>
   );
 }
@@ -185,20 +189,23 @@ const styles = StyleSheet.create({
   content: { padding: space.side, paddingBottom: space.xxl },
   loading: { padding: space.lg, alignItems: "center", justifyContent: "center", gap: space.lg },
   loadError: { ...typography.body, color: colors.red, textAlign: "center" },
-  title: { ...typography.title, color: colors.ink },
+  identity: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  channelIcon: { width: 40, height: 40, borderRadius: 8, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center" },
+  title: { ...typography.title, color: colors.ink, flex: 1 },
   sub: { ...typography.caption, marginTop: space.xs, color: colors.muted },
-  label: { ...typography.label, marginTop: space.xl, marginBottom: space.xs, color: colors.ink },
+  label: { ...typography.label, marginTop: space.lg, marginBottom: space.xs, color: colors.ink },
   helper: { ...typography.caption, color: colors.muted, marginBottom: space.sm },
-  input: { ...controls.input, ...controls.inputMultiline, minHeight: 96 },
+  input: { ...controls.input, ...controls.inputMultiline, minHeight: 88 },
   saveAction: { marginTop: space.sm, alignSelf: "flex-start" },
   ok: { ...typography.caption, marginTop: space.xs, color: colors.muted },
   error: { ...typography.caption, marginTop: space.sm, color: colors.red },
-  sectionRow: { marginTop: space.xl, marginBottom: space.xs, flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: space.xs },
-  sectionTitle: { ...typography.heading, color: colors.ink },
+  sectionRow: { marginTop: space.lg, marginBottom: space.xs, flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: space.xs },
+  sectionTitle: { ...typography.label, color: colors.ink },
   addHelper: { ...typography.caption, color: colors.muted, marginBottom: space.sm },
   link: { ...typography.captionStrong, color: colors.blue },
-  messageLink: { ...typography.captionStrong, color: colors.blue, marginLeft: space.sm },
-  person: { minHeight: 64, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  person: { minHeight: 56, paddingVertical: space.xs, flexDirection: "row", alignItems: "center" },
   personName: { ...typography.body, flex: 1, minWidth: 0, marginLeft: space.sm, marginRight: space.xs, color: colors.ink },
   leaveSection: { marginTop: space.xl, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
+  leaveAction: { minHeight: 44, justifyContent: "center", alignSelf: "flex-start", paddingRight: space.side },
+  leaveLabel: { ...typography.body, color: colors.red },
 });

@@ -156,3 +156,21 @@ test('graceful shutdown records a failed send retry before closing', async () =>
     await p.shutdown();
   } finally { response.resolve({ ok: true }); p.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+
+test('legacy preview preferences and transport inputs cannot leak message text to push providers', () => {
+  const privateInfo = { ...info, title: 'Private sender and channel', body: 'Sensitive taxpayer message' };
+  const legacyUser = { ...user, notifications: { previews: true } };
+  const notification = notificationPayload(privateInfo, legacyUser, 'd_1');
+  assert.equal(notification.title, 'Servant');
+  assert.equal(notification.body, 'You have a new message');
+  const direct = { ...notification, title: privateInfo.title, body: privateInfo.body, data: { ...notification.data, preview: privateInfo.body } };
+  for (const payload of [apnsPayload(direct), fcmMessage('fake', direct)]) {
+    const serialized = JSON.stringify(payload);
+    assert.equal(serialized.includes(privateInfo.title), false);
+    assert.equal(serialized.includes(privateInfo.body), false);
+    assert.ok(serialized.includes('ch_test'), 'opaque destination is retained for notification taps');
+  }
+  updatePreferences(legacyUser, { previews: true });
+  assert.equal(legacyUser.notifications.previews, false);
+});

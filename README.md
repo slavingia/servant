@@ -10,9 +10,9 @@ Status: private while it gets good. It is meant to be open source (CC0) when it 
 
 ```
  Phone (Servant app)
-   │  HTTPS
+   │  pinned app-to-Mac encryption inside HTTPS
    ▼
- Tunnel (cloudflared)
+ Relay (stable address, or legacy cloudflared tunnel)
    │
    ▼
  Server (server/, on the owner's Mac)        invites, device tokens, who can do what
@@ -23,7 +23,15 @@ Status: private while it gets good. It is meant to be open source (CC0) when it 
 
 - **App** (`app/`): an Expo app for iOS and Android. Testers get it through TestFlight and Firebase App Distribution.
 - **Server** (`server/`): a Node server with no dependencies. It pairs devices from one-time invites, issues a token for each device, keeps each person's conversations separate, and passes messages to the agent. The agent's API key stays on the Mac.
-- **Tunnel**: a cloudflared tunnel makes the server reachable from a phone. The server publishes its current address so the app keeps working when the tunnel address changes.
+- **Relay**: the optional [stable relay](docs/relay-transport.md) gives the Mac a fixed address and forwards encrypted traffic over an outbound connection. It needs no gist or GitHub login. Legacy quick tunnels remain supported.
+
+## Reliable agent conversations
+
+Private agent requests and incremental replies are journaled on the Mac. The independent worker owns the turn, so locking the phone, leaving a conversation or restarting the API does not cancel it. Reopening the conversation catches up from saved history. Request IDs prevent retries of the same draft from starting duplicate work.
+
+The repository-owned Hermes bridge adds real **Stop** and owner **Allow once / Deny** controls while preserving image output. Pending requests appear in the Agent tab and their conversation. Approvals are bound to the exact request, apply once, and use Hermes's action-approval mechanism; this is not a blanket approval layer for every possible tool. A worker restart reconnects to an identified upstream run. An ambiguous start is marked interrupted and is never automatically submitted again. See [agent turns](docs/agent-turns.md) and [supported Hermes versions](docs/supported-hermes-versions.md).
+
+Agent replies render headings, lists, bold text, quotations and code. Native notifications show generic alerts with no names or message text; the app fetches the content over its encrypted connection when opened. Native encrypted lock-screen previews are not implemented.
 
 ## Last seen and read receipts
 
@@ -33,22 +41,25 @@ Your messages show **Sent** until another member views them, then **Read** with 
 
 ## Attachments
 
-In channels, direct messages, and threads, use **Photos** or **Files** to attach up to four files (5 MB each, 10 MB total). Preview or remove selections before sending; a caption is optional. Images appear inline and open in a larger preview. Other files download on web or open the share sheet on mobile. Failed sends retain the draft.
+In channels, direct messages, and threads, use **Photos & videos** or **Files** to attach up to four files. Videos can be up to 25 MB each, other files up to 5 MB each, and a message up to 30 MB total. Preview or remove selections before sending; a caption is optional. Images appear inline and video cards open a full-screen player. Other files download on web or open the share sheet on mobile. Failed sends retain the draft.
 
-Attachments are stored with messages in the server database and require the same access as their conversation. Deleting a message removes its attachments. Agent conversations currently accept text only; mentioning the agent does not send attachment contents to it.
+Attachments are stored with messages in the server database and require the same access as their conversation. Deleting a message removes its attachments. Private agent chats accept photos and videos, including messages without a caption. Channel mentions include recent image context. Tap an attachment to open the full-screen gallery and browse the conversation's images, videos, and files, including thread attachments. Video playback stops when leaving the item, closing the gallery, or backgrounding the app.
+
+Agent images and videos delivered as inline data URLs are saved for later viewing. The current Hermes API accepts image inputs but cannot inspect video inputs; videos remain in the conversation and Hermes receives an explicit attachment notice instead. Its current media resolver also only converts image paths to inline data. Older history entries that contain only a local `MEDIA:` path cannot be recovered through its history API; the server does not fetch arbitrary paths or external media URLs.
 
 The attachment picker and sharing modules require a new native app build for existing installations.
 
 ## Roles
 
 - **Owner**: the person whose computer runs the agent. Full agent.
-- **Member**: anyone the owner invites. Members talk to a restricted agent that has no shell, no file access and no access to the owner's accounts, unless the owner grants it.
+- **Member**: anyone the owner invites. The checked-in member bridge allows text and inline-image reasoning, with an empty host-tool allowlist, no local context files and no persistent memory. The server refuses an unverified member upstream. See the [reproducible member policy](docs/member-security.md), including its intentionally restricted capabilities.
 
 ## Security notes
 
 - Every request to the server needs a device token. Invites are single-use and expire.
 - The agent API listens on localhost only. Only the server can reach it.
 - The owner can revoke any device right away.
+- Crash diagnostics are sent to Google Firebase Crashlytics in native builds. Message encryption does not cover crash telemetry or the model provider. The [external-service inventory](docs/ato-data-flows.md) records those boundaries for security review.
 - Federal use needs an agency security review (ATO) before any real taxpayer data goes through Servant. Until then, use it only for non-sensitive work.
 
 ## Layout
@@ -61,6 +72,8 @@ see [Deployment](docs/deployment.md).
 
 ```
 server/    Node server (no npm dependencies)
+relay/     optional Cloudflare Worker relay (development tests use Miniflare)
+config/    reproducible restricted member profile and policy
 app/    Expo mobile app
 docs/   design notes and captures
 ```
@@ -81,4 +94,4 @@ To roll out this change:
 2. Existing users open a fresh invite for their **existing user ID**: `node server/server.mjs invite --user <user-id>`. The upgrade screen accepts it and preserves their server-side conversations. A general team invite creates a new account instead. Revoke the old device token after the replacement device is paired.
 3. Keep `server/data/transport-key` (or the configured data directory's equivalent) private and backed up. Losing or replacing it requires fresh trusted invites. Do not publish it with the discovery file.
 
-The protocol uses per-request ephemeral P-256 ECDH, HKDF-SHA-256, and separate AES-256-GCM request/response keys. Ordered encrypted response frames include an authenticated end marker; timestamp checks and a durable replay database prevent replayed writes. The protocol has not undergone an independent security audit and does not provide forward secrecy against later compromise of the server's long-term key. It does not encrypt server storage or native push previews, and a web build must be served from a trusted origin because its JavaScript can read plaintext. See [the protocol and verification notes](docs/encryption.md).
+The protocol uses per-request ephemeral P-256 ECDH, HKDF-SHA-256, and separate AES-256-GCM request/response keys. Ordered encrypted response frames include an authenticated end marker; timestamp checks and a durable replay database prevent replayed writes. The protocol has not undergone an independent security audit and does not provide forward secrecy against later compromise of the server's long-term key. It does not encrypt server storage; native push alerts omit message previews. A web build must be served from a trusted origin because its JavaScript can read plaintext. See [the protocol and verification notes](docs/encryption.md).

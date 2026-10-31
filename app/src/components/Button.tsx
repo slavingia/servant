@@ -32,17 +32,17 @@ export function Button({ label, onPress, kind = "primary", busy, disabled, compa
 }
 
 const styles = StyleSheet.create({
-  base: { minHeight: 52, borderRadius: radius.md, alignItems: "center", justifyContent: "center", paddingHorizontal: space.side, paddingVertical: space.sm },
+  base: { minHeight: 48, borderRadius: radius.sm, alignItems: "center", justifyContent: "center", paddingHorizontal: space.md, paddingVertical: space.sm },
   compact: { minHeight: 44, paddingHorizontal: space.md, paddingVertical: space.xs },
   primary: { backgroundColor: colors.blue },
-  secondary: { backgroundColor: colors.blueSoft, borderWidth: 1, borderColor: colors.blueSoft },
+  secondary: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.borderStrong },
   link: { minHeight: 44, backgroundColor: "transparent" },
   danger: { minHeight: 44, backgroundColor: "transparent" },
   off: { opacity: 0.5 },
   pressed: { opacity: 0.85 },
   label: { ...typography.bodyStrong, textAlign: "center" },
   primaryLabel: { color: colors.white },
-  secondaryLabel: { color: colors.blue },
+  secondaryLabel: { color: colors.ink },
   linkLabel: { color: colors.blue },
   dangerLabel: { color: colors.red },
 });

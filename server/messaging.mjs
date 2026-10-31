@@ -10,6 +10,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { isMention } from "./push.mjs";
+import { validateUploads, mediaPage, MAX_UPLOAD_BODY, MAX_UPLOAD_TOTAL } from "./media.mjs";
 
 export const AGENT_ID = "agent";
 const MAX_TEXT = 8000;
@@ -146,7 +147,7 @@ export function mentionsAgent(text, agentName = "") {
  * @param {string} o.file          sqlite file
  * @param {() => Record<string, {id:string,name:string,role:string}>} o.users  current people
  * @param {() => string} o.agentName
- * @param {(o:{sessionId:string, sessionKey:string, text:string, onDelta:(t:string)=>void, onStatus:(t:string)=>void}) => Promise<string>} o.askAgent
+ * @param {(o:{sessionId:string, sessionKey:string, text:string, attachments:Array, onDelta:(t:string)=>void, onStatus:(t:string)=>void}) => Promise<string|{text:string,attachments:Array}>} o.askAgent
  */
 export function createMessaging({ file, users, agentName, askAgent, onMessage = () => {}, externalWorker = false }) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
@@ -563,7 +564,18 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     const transcript = recent.map((m) => `${person(m.user_id).name}: ${m.text}`).join("\n");
     const prompt =
       `[Servant ${where}. Several people can read your reply. Answer the latest message that mentions you, ` +
-      `briefly, in plain text.]\n\n${transcript}`;
+      `clearly. Include images when useful.]\n\n${transcript}`;
+    // Bound recent visual context to the same total upload budget. Prefer the
+    // latest images so an old thread cannot crowd out the triggering message.
+    const images = [];
+    let imageBytes = 0;
+    for (const row of recent.slice().reverse()) {
+      for (const a of st.attachments.all(row.seq).reverse()) {
+        if (!/^(image|video)\//.test(a.mime) || images.length >= 4 || imageBytes + a.size > MAX_UPLOAD_TOTAL) continue;
+        images.unshift(st.attachment.get(a.id));
+        imageBytes += a.size;
+      }
+    }
 
     const reply = transaction(() => {
       const message = post(conv, AGENT_ID, "", root, { pending: true });
@@ -571,6 +583,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       return message;
     });
     let text = "";
+    let attachments = [];
     let lastPush = 0;
     const push = (force) => {
       if (!force && now() - lastPush < 250) return;
@@ -588,17 +601,25 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
         sessionKey: `servant:${conv.id}`,
         fresh: !thread,
         text: prompt,
+        attachments: images,
         onDelta: (d) => {
           text += d;
           push(false);
         },
         onStatus: () => {},
       });
-      text = final || text || "I couldn't come up with an answer";
+      if (final && typeof final === "object") {
+        attachments = final.attachments || [];
+        text = final.text || (attachments.length ? "" : text || "I couldn't come up with an answer");
+      } else text = final || text || "I couldn't come up with an answer";
     } catch {
       text = text || "I hit a problem. Try asking again";
     }
     transaction(() => {
+      const current = st.msg.get(reply.seq);
+      if (current && !current.deleted_at && st.conv.get(conv.id)) {
+        for (const a of attachments) st.insertAttachment.run(newId("file"), reply.seq, a.name, a.mime, a.data.length, a.data);
+      }
       push(true);
       if (st.conv.get(conv.id)) {
         st.putAgentThread.run(key, sessionId, reply.seq);
@@ -943,6 +964,15 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       const isMember = !!st.member.get(conv.id, user.id);
       const sub = parts[3];
 
+      if (sub === "media" && method === "GET" && parts.length === 4) {
+        const items = db.prepare(`SELECT a.id,a.name,a.mime,a.size,m.seq AS messageId,m.user_id,m.created_at AS createdAt,m.text
+          FROM attachments a JOIN messages m ON m.seq=a.message_seq
+          WHERE m.conversation_id=? AND m.deleted_at IS NULL ORDER BY m.seq,a.rowid`).all(conv.id)
+          .map(({ user_id, messageId, ...item }) => ({ ...item, messageId: String(messageId), sender: person(user_id) }));
+        send(res, 200, mediaPage(items, url.searchParams));
+        return true;
+      }
+
       if ((sub === "archive" || sub === "restore") && method === "POST") {
         if (conv.kind !== "channel" || !isMember)
           return fail(res, 403, "forbidden", "Join the channel first"), true;
@@ -1094,9 +1124,9 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       }
       if (sub === "messages" && method === "POST") {
         if (!isMember) return fail(res, 403, "not_member", "Join the channel to post"), true;
-        const body = await readBody(req, 14 * 1024 * 1024);
+        const body = await readBody(req, MAX_UPLOAD_BODY);
         const text = String(body.text || "").trim();
-        const attachments = validateAttachments(body.attachments);
+        const attachments = validateUploads(body.attachments);
         if (!text && !attachments.length) return fail(res, 400, "empty", "Type a message first"), true;
         if (text.length > MAX_TEXT) return fail(res, 413, "too_long", "That message is too long"), true;
         let root = null;
@@ -1184,25 +1214,4 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
 
 function httpError(status, code, message) {
   return Object.assign(new Error(message), { status, code });
-}
-
-function validateAttachments(input = []) {
-  if (!Array.isArray(input) || input.length > 4) throw httpError(400, "attachments", "Attach up to 4 files");
-  let total = 0;
-  return input.map(a => {
-    if (!a || typeof a.name !== "string" || !a.name.trim() || typeof a.data !== "string" || !a.data.length || a.data.length % 4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(a.data)) {
-      throw httpError(400, "attachments", "Invalid attachment");
-    }
-    const data = Buffer.from(a.data, "base64");
-    total += data.length;
-    if (data.length > 5 * 1024 * 1024 || total > 10 * 1024 * 1024) throw httpError(413, "attachments", "Files must be under 5 MB each and 10 MB total");
-    // Only recognized raster formats may render inline; other files download as binary.
-    let mime = "application/octet-stream";
-    if (data.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) mime = "image/png";
-    else if (data[0] === 255 && data[1] === 216 && data[2] === 255) mime = "image/jpeg";
-    else if (/^GIF8[79]a/.test(data.subarray(0, 6).toString())) mime = "image/gif";
-    else if (data.subarray(0, 4).toString() === "RIFF" && data.subarray(8, 12).toString() === "WEBP") mime = "image/webp";
-    const name = a.name.replace(/[\\/\x00-\x1f\x7f]/g, "_").slice(0, 180);
-    return { name, mime, data };
-  });
 }

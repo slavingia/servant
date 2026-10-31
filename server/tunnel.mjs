@@ -146,7 +146,11 @@ export function superviseTunnel({ executable, args, dataDir, publicUrl = '', nod
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     process.umask(0o077);
-    const service = superviseTunnel(tunnelOptions());
+    let service;
+    if (process.env.SERVANT_RELAY_CONFIG) {
+      const { relayOptions, superviseRelay } = await import('./relay.mjs');
+      service = superviseRelay(relayOptions());
+    } else service = superviseTunnel(tunnelOptions());
     for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => void service.stop());
     process.exitCode = await service.exited;
   } catch (error) {

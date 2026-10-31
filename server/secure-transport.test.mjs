@@ -114,3 +114,18 @@ test('encrypted requests cannot reach local admin or recursively tunnel', async 
   }
   assert.equal(f.calls(), 0);
 });
+
+test('expanded media envelope remains bounded before decryption or route execution', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'servant-envelope-limit-'));
+  const transport = createSecureTransport(dir);
+  t.after(() => { transport.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const chunk = Buffer.alloc(1024 * 1024, 65);
+  let consumed = 0, status, response, called = false;
+  const request = { async *[Symbol.asyncIterator]() { for (let i = 0; i < 100; i++) { consumed++; yield chunk; } } };
+  const output = { writeHead(code) { status = code; }, end(body) { response = body; } };
+  await transport.handle(request, output, () => { called = true; });
+  assert.equal(status, 400);
+  assert.equal(consumed, 57);
+  assert.equal(called, false);
+  assert.match(response, /encrypted_request_invalid/);
+});

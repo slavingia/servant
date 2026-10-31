@@ -1,26 +1,30 @@
-import { useEffect, useState } from "react";
-import { Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { ActivityIndicator, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
-import { File, Paths } from "expo-file-system";
-import * as Sharing from "expo-sharing";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { request, type Attachment, type Upload } from "../lib/server";
-import { useSession } from "../lib/session";
+import { File } from "expo-file-system";
+import type { Attachment, Upload } from "../lib/server";
 import { colors, radius, space, typography } from "../lib/theme";
+import { formatFileSize, isPreviewImage, isPreviewVideo, jpegPhotoUpload, MAX_FILE_BYTES, MAX_UPLOAD_BYTES, MAX_VIDEO_BYTES, uploadImageUri, uploadMediaMime, validateAttachmentSelection } from "../lib/media";
+import { MediaGalleryProvider, useAttachmentContent, useMediaGallery } from "./MediaGallery";
+import { DraftVideoPreview, VideoPreview } from "./VideoMedia";
+import { AppIcon } from "./AppIcon";
 
 export type DraftAttachment = Upload & { uri: string; size: number; mime: string };
-const MAX_FILE = 5 * 1024 * 1024;
-
-async function readFile(uri: string, size?: number, blob?: Blob) {
-  if (size && size > MAX_FILE) throw new Error("Choose files under 5 MB each");
+async function readFile(uri: string, size?: number, blob?: Blob, limit = MAX_FILE_BYTES, remaining = MAX_UPLOAD_BYTES) {
+  const tooLarge = () => new Error(limit === MAX_VIDEO_BYTES ? "Choose videos under 25 MB each" : "Choose photos and files under 5 MB each");
+  const check = (bytes: number) => {
+    if (bytes > limit) throw tooLarge();
+    if (bytes > remaining) throw new Error("Attachments must be under 30 MB total");
+  };
+  if (size) check(size);
   if (Platform.OS !== "web") {
     const file = new File(uri);
-    if (file.size > MAX_FILE) throw new Error("Choose files under 5 MB each");
+    check(file.size);
     return { data: await file.base64(), size: file.size };
   }
   const file = blob ?? await (await fetch(uri)).blob();
-  if (file.size > MAX_FILE) throw new Error("Choose files under 5 MB each");
+  check(file.size);
   const data = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result).split(",")[1]!);
@@ -30,103 +34,152 @@ async function readFile(uri: string, size?: number, blob?: Blob) {
   return { data, size: file.size };
 }
 
-export async function pickAttachments(photos: boolean): Promise<DraftAttachment[]> {
-  if (photos) {
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsMultipleSelection: true, selectionLimit: 4, quality: 0.85 });
+export async function pickAttachments(mediaLibrary: boolean, existing: readonly DraftAttachment[] = []): Promise<DraftAttachment[]> {
+  const count = 4 - existing.length;
+  if (count <= 0) throw new Error("Attach up to 4 files");
+  const files: DraftAttachment[] = [];
+  let remaining = MAX_UPLOAD_BYTES - existing.reduce((total, file) => total + file.size, 0);
+  const add = (file: DraftAttachment) => {
+    validateAttachmentSelection([...existing, ...files, file]);
+    files.push(file); remaining -= file.size;
+  };
+  if (mediaLibrary) {
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images", "videos"], allowsMultipleSelection: true, selectionLimit: count, orderedSelection: true, quality: 0.85, base64: true });
     if (result.canceled) return [];
-    if (result.assets.length > 4) throw new Error("Attach up to 4 files");
-    return Promise.all(result.assets.map(async a => ({ name: a.fileName || "photo.jpg", uri: a.uri, mime: a.mimeType || "image/jpeg", ...await readFile(a.uri, a.fileSize, a.file) })));
+    if (result.assets.length > count) throw new Error("Attach up to 4 files");
+    // Read one selection at a time, rejecting its size before creating base64.
+    // Several large clips should never be decoded concurrently on a phone.
+    for (const asset of result.assets) {
+      const video = asset.type === "video" || asset.type === "pairedVideo" || asset.mimeType?.startsWith("video/") || /\.(mp4|mov|webm)$/i.test(asset.fileName ?? asset.uri);
+      if (video) {
+        const content = await readFile(asset.uri, asset.fileSize, asset.file, MAX_VIDEO_BYTES, remaining);
+        const mime = uploadMediaMime(content.data);
+        if (!mime || !isPreviewVideo({ mime })) throw new Error("Choose an MP4, MOV, or WebM video");
+        const extension = mime === "video/quicktime" ? "mov" : mime === "video/webm" ? "webm" : "mp4";
+        add({ name: asset.fileName || `video.${extension}`, uri: asset.uri, mime, ...content });
+        continue;
+      }
+      const supported = /^image\/(png|jpeg|gif|webp)$/i.test(asset.mimeType ?? "") || (!asset.mimeType && /\.(png|jpe?g|gif|webp)$/i.test(asset.fileName ?? asset.uri));
+      if (!supported && asset.base64) { add(jpegPhotoUpload(asset.fileName, asset.base64, MAX_FILE_BYTES)); continue; }
+      if (!supported) throw new Error("Couldn't prepare this photo. Choose a JPEG or PNG image.");
+      const content = await readFile(asset.uri, asset.fileSize, asset.file, MAX_FILE_BYTES, remaining);
+      const mime = uploadMediaMime(content.data);
+      if (!mime || !/^image\/(png|jpeg|gif|webp)$/.test(mime)) {
+        if (asset.base64) { add(jpegPhotoUpload(asset.fileName, asset.base64, MAX_FILE_BYTES)); continue; }
+        throw new Error("Couldn't prepare this photo. Choose a JPEG or PNG image.");
+      }
+      add({ name: asset.fileName || "photo.jpg", uri: asset.uri, mime, ...content });
+    }
+    return files;
   }
   const result = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true });
   if (result.canceled) return [];
-  if (result.assets.length > 4) throw new Error("Attach up to 4 files");
-  return Promise.all(result.assets.map(async a => ({ name: a.name, uri: a.uri, mime: a.mimeType || "application/octet-stream", ...await readFile(a.uri, a.size, a.file) })));
+  if (result.assets.length > count) throw new Error("Attach up to 4 files");
+  for (const asset of result.assets) {
+    const mayBeVideo = asset.mimeType?.startsWith("video/") || /\.(mp4|mov|webm)$/i.test(asset.name);
+    const content = await readFile(asset.uri, asset.size, asset.file, mayBeVideo ? MAX_VIDEO_BYTES : MAX_FILE_BYTES, remaining);
+    add({ name: asset.name, uri: asset.uri, mime: uploadMediaMime(content.data) || "application/octet-stream", ...content });
+  }
+  return files;
 }
 
 export function DraftAttachments({ files, onRemove, disabled }: { files: DraftAttachment[]; onRemove: (index: number) => void; disabled: boolean }) {
   return <ScrollView horizontal accessibilityLabel="Selected attachments" contentContainerStyle={styles.drafts}>
     {files.map((file, i) => <View key={i} style={styles.draft}>
-      {file.mime.startsWith("image/") ? <Image source={{ uri: file.uri }} accessibilityLabel={file.name} style={styles.draftImage} resizeMode="cover" /> : <View style={styles.draftFile}><Text style={styles.fileType}>File</Text></View>}
+      {isPreviewVideo(file) ? <View style={styles.draftImage}><DraftVideoPreview uri={file.uri} name={file.name} /></View> : file.mime.startsWith("image/") ? <Image source={{ uri: file.uri }} accessibilityLabel={file.name} style={styles.draftImage} resizeMode="cover" /> : <View style={styles.draftFile}><Text style={styles.fileType}>File</Text></View>}
       <Text numberOfLines={1} style={styles.draftName}>{file.name}</Text>
       <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${file.name}`} accessibilityState={{ disabled }} disabled={disabled} onPress={() => onRemove(i)} style={styles.remove}><Text style={styles.removeText}>Remove</Text></Pressable>
     </View>)}
   </ScrollView>;
 }
 
-function AttachmentItem({ file }: { file: Attachment }) {
-  const { account } = useSession();
-  const insets = useSafeAreaInsets();
-  const [data, setData] = useState<string>();
-  const [error, setError] = useState("");
-  const [expanded, setExpanded] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const isImage = file.mime.startsWith("image/");
-  useEffect(() => {
-    if (!account || !isImage) return;
-    let active = true;
-    request(account, `/v1/attachments/${file.id}`).then(r => r.json()).then(r => { if (active) setData(r.data); }).catch(() => { if (active) setError("Couldn't load image. Tap to retry"); });
-    return () => { active = false; };
-  }, [account, file.id, isImage]);
-  const open = async () => {
-    if (!account || busy) return;
-    setBusy(true);
-    setError("");
-    try {
-      const content = data ?? (await (await request(account, `/v1/attachments/${file.id}`)).json()).data as string;
-      if (isImage) { setData(content); setExpanded(true); return; }
-      if (Platform.OS === "web") {
-        const bytes = Uint8Array.from(atob(content), c => c.charCodeAt(0));
-        const url = URL.createObjectURL(new Blob([bytes], { type: file.mime }));
-        const link = document.createElement("a");
-        link.href = url; link.download = file.name; link.click();
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
-      } else {
-        const local = new File(Paths.cache, `${file.id}-${file.name}`);
-        try {
-          local.write(content, { encoding: "base64" });
-          await Sharing.shareAsync(local.uri, { mimeType: file.mime, dialogTitle: file.name });
-        } finally { if (local.exists) local.delete(); }
-      }
-    } catch { setError("Couldn't open attachment. Tap to retry"); }
-    finally { setBusy(false); }
-  };
-  const uri = data ? `data:${file.mime};base64,${data}` : undefined;
-  return <View style={styles.attachment}>
-    <Pressable accessibilityRole="button" accessibilityLabel={`Open ${file.name}, ${Math.max(1, Math.round(file.size / 1024))} kilobytes`} accessibilityState={{ disabled: busy, busy }} disabled={busy} onPress={open} style={({ pressed }) => [styles.file, pressed && { backgroundColor: colors.blueSoft }]}>
-      {isImage && uri ? <Image source={{ uri }} accessibilityLabel={file.name} resizeMode="contain" style={styles.image} onError={() => setError("Image preview unavailable")} /> : null}
-      <Text style={styles.filename} numberOfLines={2}>{busy ? "Opening…" : file.name}</Text>
-      <Text style={styles.fileMeta}>{isImage ? "Image" : "File"} · {Math.max(1, Math.round(file.size / 1024))} KB</Text>
-      {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+function ImageAttachment({ file, tiled }: { file: Attachment; tiled: boolean }) {
+  const content = useAttachmentContent(file);
+  const gallery = useMediaGallery();
+  const [aspect, setAspect] = useState(4 / 3);
+  const [decodeError, setDecodeError] = useState(false);
+  const failed = !!content.error || decodeError;
+  const retry = () => { setDecodeError(false); content.retry(); };
+  return <View style={tiled ? styles.tile : styles.singlePhoto}>
+    <Pressable accessibilityRole="button" accessibilityLabel={`Open image ${file.name} in conversation gallery`} accessibilityHint="View full screen and swipe through shared files" onPress={() => gallery?.open(file)} style={({ pressed }) => [styles.photo, { aspectRatio: tiled ? 1 : Math.min(2.2, Math.max(0.8, aspect)) }, pressed && styles.pressed]}>
+      {content.uri && !decodeError ? <Image source={{ uri: content.uri }} accessibilityLabel={file.name} resizeMode={tiled ? "cover" : "contain"} style={StyleSheet.absoluteFill} onLoad={event => {
+        const { width, height } = event.nativeEvent.source;
+        if (width > 0 && height > 0) setAspect(width / height);
+      }} onError={() => setDecodeError(true)} /> : <View style={styles.photoPlaceholder}>
+        {failed ? <><AppIcon name="paperclip" size={24} color={colors.muted} /><Text style={styles.placeholderText}>Preview unavailable</Text></> : <ActivityIndicator accessibilityLabel="Loading image" color={colors.blue} />}
+      </View>}
+      <View style={styles.openBadge}><AppIcon name="plus" color={colors.white} size={15} /></View>
     </Pressable>
-    <Modal visible={expanded} transparent onRequestClose={() => setExpanded(false)}>
-      <View accessibilityViewIsModal style={[styles.preview, { paddingTop: insets.top + space.md, paddingBottom: insets.bottom + space.md }]}>
-        <Pressable accessibilityRole="button" onPress={() => setExpanded(false)} style={styles.close}><Text style={styles.closeText}>Close preview</Text></Pressable>
-        {uri ? <Image source={{ uri }} accessibilityLabel={file.name} resizeMode="contain" style={{ flex: 1 }} /> : null}
-      </View>
-    </Modal>
+    {failed ? <Pressable accessibilityRole="button" onPress={retry} style={styles.retry}><Text style={styles.retryText}>Retry image</Text></Pressable> : null}
+  </View>;
+}
+
+function FileAttachment({ file }: { file: Attachment }) {
+  const gallery = useMediaGallery();
+  return <Pressable accessibilityRole="button" accessibilityLabel={`Open ${file.name}, ${formatFileSize(file.size)}`} accessibilityHint="View in the conversation gallery" onPress={() => gallery?.open(file)} style={({ pressed }) => [styles.file, pressed && styles.pressed]}>
+    <View style={styles.fileIcon}><AppIcon name="paperclip" size={23} color={colors.blueDark} /></View>
+    <View style={styles.fileCopy}><Text style={styles.filename} numberOfLines={2}>{file.name}</Text><Text style={styles.fileMeta}>{formatFileSize(file.size)} · {file.name.split(".").pop()?.toUpperCase() || "FILE"}</Text></View>
+    <AppIcon name="chevronRight" color={colors.muted} size={18} />
+  </Pressable>;
+}
+
+function AttachmentTiles({ files }: { files: Attachment[] }) {
+  const media = files.filter(file => isPreviewImage(file) || isPreviewVideo(file));
+  const documents = files.filter(file => !isPreviewImage(file) && !isPreviewVideo(file));
+  return <View style={styles.attachments}>
+    {media.length ? <View style={styles.photos}>{media.map(file => isPreviewVideo(file) ? <VideoPreview key={file.id} file={file} tiled={media.length > 1} /> : <ImageAttachment key={file.id} file={file} tiled={media.length > 1} />)}</View> : null}
+    {documents.map(file => <FileAttachment key={file.id} file={file} />)}
   </View>;
 }
 
 export function Attachments({ files }: { files: Attachment[] }) {
-  return <View>{files.map(file => <AttachmentItem key={file.id} file={file} />)}</View>;
+  const gallery = useMediaGallery();
+  if (!files.length) return null;
+  if (gallery) return <AttachmentTiles files={files} />;
+  return <MediaGalleryProvider items={files.map(file => ({ ...file, messageId: "", sender: { id: "", name: "" }, createdAt: 0 }))}>
+    <AttachmentTiles files={files} />
+  </MediaGalleryProvider>;
+}
+
+/** Optimistic uploads remain local until the server supplies an attachment ID. */
+export function PendingAttachments({ files }: { files: Upload[] }) {
+  return <View accessibilityLabel="Attachments being sent" style={styles.attachments}>
+    <View style={styles.photos}>{files.map((file, index) => {
+      const uri = uploadImageUri(file);
+      const video = isPreviewVideo({ mime: uploadMediaMime(file.data) || "" });
+      return uri ? <View key={index} style={[files.length > 1 ? styles.tile : styles.singlePhoto, styles.photo, { aspectRatio: files.length > 1 ? 1 : 4 / 3 }]}><Image source={{ uri }} accessibilityLabel={file.name} resizeMode="cover" style={StyleSheet.absoluteFill} /><View style={styles.pendingBadge}><ActivityIndicator size="small" color={colors.white} /><Text style={styles.pendingText}>Sending</Text></View></View>
+        : <View key={index} accessibilityLabel={video ? `Sending video ${file.name}` : `Sending file ${file.name}`} style={styles.pendingFile}>{video ? <Text style={styles.videoLabel}>▶ Video</Text> : <AppIcon name="paperclip" color={colors.muted} />}<Text numberOfLines={1} style={styles.filename}>{file.name}</Text><ActivityIndicator size="small" color={colors.blue} /></View>;
+    })}</View>
+  </View>;
 }
 
 const styles = StyleSheet.create({
-  drafts: { padding: space.sm, gap: space.sm },
-  draft: { width: 136, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, borderRadius: radius.md, overflow: "hidden" },
-  draftImage: { width: "100%", height: 80 },
-  draftFile: { height: 80, backgroundColor: colors.blueSoft, alignItems: "center", justifyContent: "center" },
+  drafts: { padding: space.xs, gap: space.xs },
+  draft: { width: 120, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, borderRadius: radius.md, overflow: "hidden" },
+  draftImage: { width: "100%", height: 72 },
+  draftFile: { height: 72, backgroundColor: colors.blueSoft, alignItems: "center", justifyContent: "center" },
   fileType: { ...typography.label, color: colors.blueDark },
   draftName: { ...typography.caption, marginTop: space.xs, paddingHorizontal: space.xs, color: colors.ink },
   remove: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.xs },
   removeText: { ...typography.captionStrong, color: colors.blue },
-  attachment: { marginTop: space.xs },
-  file: { minHeight: 64, padding: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
-  image: { width: "100%", height: 200, borderRadius: radius.sm, backgroundColor: colors.surface, marginBottom: space.xs },
-  filename: { ...typography.label, color: colors.blue },
-  fileMeta: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
-  error: { ...typography.caption, color: colors.red, marginTop: space.xs },
-  preview: { flex: 1, backgroundColor: "#000E", paddingHorizontal: space.lg },
-  close: { minHeight: 48, justifyContent: "center", alignSelf: "flex-start", paddingHorizontal: space.xs },
-  closeText: { ...typography.label, color: colors.white },
+  attachments: { marginTop: space.xs, gap: space.xs },
+  photos: { flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "flex-start" },
+  singlePhoto: { width: "100%", maxWidth: 480 },
+  tile: { width: "48%", flexGrow: 1, flexBasis: "48%", maxWidth: "50%" },
+  photo: { overflow: "hidden", borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, maxHeight: 380 },
+  photoPlaceholder: { flex: 1, alignItems: "center", justifyContent: "center", gap: space.xs, padding: space.sm },
+  placeholderText: { ...typography.caption, color: colors.muted, textAlign: "center" },
+  openBadge: { position: "absolute", right: space.xs, bottom: space.xs, width: 26, height: 26, borderRadius: radius.pill, backgroundColor: "#0007", alignItems: "center", justifyContent: "center" },
+  retry: { minHeight: 44, justifyContent: "center", alignItems: "center" },
+  retryText: { ...typography.captionStrong, color: colors.blue },
+  pressed: { opacity: 0.75 },
+  file: { minHeight: 64, padding: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.white, flexDirection: "row", alignItems: "center", gap: space.sm },
+  fileIcon: { width: 40, height: 44, borderRadius: radius.sm, alignItems: "center", justifyContent: "center", backgroundColor: colors.blueSoft },
+  fileCopy: { flex: 1, minWidth: 0 },
+  filename: { ...typography.label, color: colors.ink, flexShrink: 1 },
+  fileMeta: { ...typography.meta, color: colors.muted, marginTop: space.xxs },
+  pendingBadge: { position: "absolute", bottom: space.xs, right: space.xs, borderRadius: radius.pill, backgroundColor: "#0009", paddingHorizontal: space.sm, paddingVertical: space.xxs, flexDirection: "row", alignItems: "center", gap: space.xs },
+  pendingText: { ...typography.meta, color: colors.white },
+  videoLabel: { ...typography.captionStrong, color: colors.blueDark },
+  pendingFile: { width: "100%", flexDirection: "row", alignItems: "center", padding: space.sm, gap: space.xs, borderRadius: radius.md, backgroundColor: colors.surface },
 });

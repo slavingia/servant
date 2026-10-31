@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNotifications } from '../lib/notifications';
 import { Button } from '../components/Button';
 import { colors, radius, space, typography } from '../lib/theme';
@@ -13,11 +13,11 @@ export default function NotificationSettings() {
   const { supported, enabled, busy, error, preferences, enable, update } = useNotifications();
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(timer); }, []);
-  if (!supported) return <ScrollView style={styles.root} contentContainerStyle={styles.content}><Text accessibilityRole="header" style={styles.title}>Stay in the loop</Text><Text style={styles.description}>Push notifications are available in the iOS and Android apps.</Text></ScrollView>;
+  if (!supported) return <ScrollView style={styles.root} contentContainerStyle={styles.content}><Text style={styles.description}>Push notifications are available in the iOS and Android apps.</Text></ScrollView>;
   const paused = preferences.pausedUntil > now;
   return <ScrollView style={styles.root} contentContainerStyle={styles.content}>
-    <Text accessibilityRole="header" style={styles.title}>Stay in the loop</Text>
-    <Text style={styles.description}>Archived channels stay quiet. Messages in the conversation you're viewing won't interrupt you.</Text>
+
+    <Text style={styles.description}>Choose when Servant should notify you. Archived channels stay quiet.</Text>
     {!enabled ? <Button label="Enable notifications" busy={busy} onPress={enable} style={styles.enable} /> : <View style={styles.enabled}><Text style={styles.detail}>Notifications are enabled</Text><Pressable accessibilityRole="button" onPress={() => Linking.openSettings()} style={styles.settings}><Text style={styles.link}>Open system settings</Text></Pressable></View>}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
     <Text accessibilityRole="header" style={styles.label}>Notify me about</Text>
@@ -26,20 +26,20 @@ export default function NotificationSettings() {
       <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[styles.radio, preferences.mode === choice.mode && styles.radioSelected]}>{preferences.mode === choice.mode ? <View style={styles.radioDot} /> : null}</View>
     </Pressable>)}
     <Text accessibilityRole="header" style={styles.label}>Privacy</Text>
-    <View style={styles.row}><View style={styles.copy}><Text style={styles.rowTitle}>Message previews</Text><Text style={styles.detail}>Show the sender and message on your lock screen</Text></View><Switch accessibilityLabel="Message previews" disabled={busy} value={preferences.previews} trackColor={{ true: colors.blue }} onValueChange={previews => update({ previews })} /></View>
+    <View style={styles.row}><View style={styles.copy}><Text style={styles.rowTitle}>Private notifications</Text><Text style={styles.detail}>Alerts never include names or message text. Open Servant to read the message over your encrypted connection.</Text></View></View>
     <Text accessibilityRole="header" style={styles.label}>Pause notifications</Text>
     {paused ? <><Text style={styles.description}>Paused until {new Date(preferences.pausedUntil).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</Text><Pressable disabled={busy} accessibilityRole="button" onPress={() => update({ pausedUntil: 0 })} style={styles.settings}><Text style={styles.link}>Resume notifications</Text></Pressable></> : <View style={styles.pauseChoices}>{[['30 minutes', 30], ['1 hour', 60], ['8 hours', 480]].map(([label, minutes]) => <Pressable key={label} disabled={busy} accessibilityRole="button" onPress={() => update({ pausedUntil: Date.now() + Number(minutes) * 60000 })} style={styles.pause}><Text style={styles.link}>{label}</Text></Pressable>)}</View>}
   </ScrollView>;
 }
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white }, content: { padding: space.side, paddingBottom: space.xxl },
-  title: { ...typography.title, color: colors.ink }, description: { ...typography.body, marginTop: space.sm, color: colors.muted },
-  label: { ...typography.heading, marginTop: space.xl, marginBottom: space.xs, color: colors.ink },
-  row: { paddingVertical: space.md, minHeight: 64, flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  description: { ...typography.caption, color: colors.muted },
+  label: { ...typography.label, marginTop: space.lg, marginBottom: space.xs, color: colors.muted },
+  row: { paddingVertical: space.sm, minHeight: 60, flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   copy: { flex: 1, marginRight: space.md }, rowTitle: { ...typography.bodyStrong, color: colors.ink }, detail: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
-  radio: { width: 24, height: 24, borderRadius: radius.pill, borderWidth: 2, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
-  radioSelected: { borderColor: colors.blue }, radioDot: { width: 12, height: 12, borderRadius: radius.pill, backgroundColor: colors.blue },
-  enable: { marginTop: space.lg }, enabled: { marginTop: space.lg, padding: space.md, backgroundColor: colors.surface, borderRadius: radius.md },
-  settings: { minHeight: 44, justifyContent: 'center' }, link: { ...typography.bodyStrong, color: colors.blue },
+  radio: { width: 22, height: 22, borderRadius: radius.pill, borderWidth: 1.5, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
+  radioSelected: { borderColor: colors.blue }, radioDot: { width: 10, height: 10, borderRadius: radius.pill, backgroundColor: colors.blue },
+  enable: { marginTop: space.lg }, enabled: { marginTop: space.md, paddingVertical: space.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  settings: { minHeight: 44, justifyContent: 'center' }, link: { ...typography.captionStrong, color: colors.blue },
   pauseChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }, pause: { minHeight: 48, justifyContent: 'center', paddingHorizontal: space.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm }, error: { ...typography.caption, marginTop: space.sm, color: colors.red },
 });

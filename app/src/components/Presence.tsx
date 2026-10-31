@@ -20,10 +20,10 @@ export function PresenceLine({ person, style, showUnknown = false }: { person: P
   if (person.agent) return null;
   const label = presenceLabel(presence[person.id] ?? { ...person, online: false }, now, connected) || (showUnknown ? "Last seen unavailable" : "");
   if (!label) return null;
-  return <Text accessibilityLabel={`${person.name}, ${label}`} style={[styles.status, label === "Online" && styles.online, style]}>{label}</Text>;
+  return <Text accessibilityLabel={`${person.name}, ${label}`} style={[styles.status, style]}>{label === "Online" ? <Text style={styles.online}>● </Text> : null}{label}</Text>;
 }
 
 const styles = StyleSheet.create({
-  status: { ...typography.caption, color: colors.muted },
-  online: { color: colors.blueDark },
+  status: { ...typography.meta, color: colors.muted },
+  online: { color: colors.green },
 });

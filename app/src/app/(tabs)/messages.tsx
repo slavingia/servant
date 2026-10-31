@@ -1,17 +1,18 @@
 import { useCallback, useState } from "react";
-import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
-import { PageTitle } from "../../components/Band";
+import { AppIcon } from "../../components/AppIcon";
 import { ConversationRow } from "../../components/Messaging";
 import { Button } from "../../components/Button";
 import { useLive } from "../../lib/live";
 import { useSession } from "../../lib/session";
-import { colors, space, typography } from "../../lib/theme";
+import { colors, radius, space, typography } from "../../lib/theme";
 
 export default function Messages() {
   const { account } = useSession();
   const { conversations, error, refresh, connected } = useLive();
   const [refreshing, setRefreshing] = useState(false);
+  const [unreadOnly, setUnreadOnly] = useState(false);
   useFocusEffect(
     useCallback(() => {
       refresh();
@@ -27,7 +28,8 @@ export default function Messages() {
     }
   };
   if (!account) return null;
-  const list = (conversations ?? []).filter((c) => c.kind === "dm");
+  const dms = (conversations ?? []).filter((c) => c.kind === "dm" && !c.archived);
+  const list = dms.filter(c => !unreadOnly || c.unread > 0);
   return (
     <View style={styles.root}>
       <FlatList
@@ -40,8 +42,16 @@ export default function Messages() {
           />
         }
         ListHeaderComponent={
-          <View style={styles.header}>
-            <PageTitle description="One-to-one and small group conversations." action={<Button label="New message" compact onPress={() => router.push("/new-message")} />}>Messages</PageTitle>
+          <View>
+            <View style={styles.header}>
+              <Text accessibilityRole="header" style={styles.title}>Direct messages</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="New direct message" onPress={() => router.push("/new-message")} style={styles.compose}>
+                <AppIcon name="compose" size={22} color={colors.ink} />
+              </Pressable>
+            </View>
+            <View style={styles.filters}>{[false, true].map(value => <Pressable key={String(value)} accessibilityRole="button" accessibilityState={{ selected: unreadOnly === value }} onPress={() => setUnreadOnly(value)} style={({ pressed }) => [styles.filter, unreadOnly === value && styles.selectedFilter, pressed && { opacity: 0.7 }]}>
+              <Text style={[styles.filterText, unreadOnly === value && styles.selectedFilterText]}>{value ? "Unread" : "All"}</Text>
+            </Pressable>)}</View>
             {error && conversations ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
             {!connected && conversations ? <Text style={styles.note}>Reconnecting…</Text> : null}
           </View>
@@ -51,9 +61,10 @@ export default function Messages() {
             error ? <View style={styles.empty}><Text accessibilityRole="alert" style={styles.emptyBody}>{error}</Text><Button label="Try again" kind="secondary" busy={refreshing} onPress={() => void reload()} style={styles.emptyAction} /></View> : <ActivityIndicator accessibilityLabel="Loading messages" style={styles.loading} color={colors.blue} />
           ) : (
             <View style={styles.empty}>
-              <Text style={styles.emptyTitle}>No messages yet</Text>
-              <Text style={styles.emptyBody}>Start a conversation with someone on your server.</Text>
-              <Button label="Start a conversation" kind="secondary" onPress={() => router.push("/new-message")} style={styles.emptyAction} />
+              <AppIcon name={unreadOnly ? "check" : "chat"} size={32} color={colors.muted} />
+              <Text style={styles.emptyTitle}>{unreadOnly ? "You're all caught up" : "No direct messages yet"}</Text>
+              <Text style={styles.emptyBody}>{unreadOnly ? "New messages will appear here." : "Start a conversation with a teammate or a small group."}</Text>
+              <Button label={unreadOnly ? "Show all messages" : "New message"} kind="secondary" onPress={() => unreadOnly ? setUnreadOnly(false) : router.push("/new-message")} style={styles.emptyAction} />
             </View>
           )
         }
@@ -66,13 +77,20 @@ export default function Messages() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
-  content: { paddingBottom: 120, flexGrow: 1 },
-  header: { marginBottom: space.xs },
+  content: { paddingBottom: space.xxl, flexGrow: 1 },
+  header: { minHeight: 60, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.xs },
+  title: { ...typography.title, color: colors.ink, flexShrink: 1 },
+  compose: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
+  filters: { flexDirection: "row", gap: space.xs, paddingHorizontal: space.side, paddingBottom: space.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  filter: { minHeight: 44, paddingHorizontal: space.md, paddingVertical: space.sm, justifyContent: "center", borderRadius: radius.md },
+  selectedFilter: { backgroundColor: colors.blueSoft },
+  filterText: { ...typography.bodyStrong, color: colors.muted },
+  selectedFilterText: { color: colors.blueDark },
   loading: { marginTop: space.xxl },
   error: { ...typography.caption, marginTop: space.xs, marginHorizontal: space.side, color: colors.red },
   note: { ...typography.caption, marginTop: space.xs, marginHorizontal: space.side, color: colors.muted },
   empty: { marginTop: space.xxl, alignItems: "center", paddingHorizontal: space.lg },
-  emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center" },
+  emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center", marginTop: space.md },
   emptyBody: { ...typography.body, marginTop: space.xs, maxWidth: 320, color: colors.muted, textAlign: "center" },
   emptyAction: { marginTop: space.lg },
 });

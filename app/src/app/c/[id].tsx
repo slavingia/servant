@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, AppState, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { router, Stack, useIsFocused, useLocalSearchParams } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { useChromeHeight } from "../../components/AppChrome";
 import { Button } from "../../components/Button";
-import { Composer, PostRow } from "../../components/Messaging";
+import { Composer, MessageDate, PostRow } from "../../components/Messaging";
+import { MediaGalleryProvider } from "../../components/MediaGallery";
+import { mediaFromPosts } from "../../lib/media";
 import { PresenceLine } from "../../components/Presence";
 import { useReadReceipts } from "../../lib/use-read-receipts";
 import { mergeReadEvent } from "../../lib/read-receipts";
@@ -132,6 +134,7 @@ export default function ConversationScreen() {
     [subscribe, account, id, applyPosts, load],
   );
 
+  const media = useMemo(() => mediaFromPosts(posts ?? []), [posts]);
   if (!account) return null;
   const me = account.user.id;
   const isChannel = conv?.kind === "channel";
@@ -214,19 +217,20 @@ export default function ConversationScreen() {
   const openDetails = () => router.push({ pathname: "/channel-info", params: { id } });
 
   return (
+    <MediaGalleryProvider key={`${id}:${unavailable}`} scope={{ kind: "conversation", id }} items={media}>
     <View style={styles.root}>
       <Stack.Screen
         options={{
           title,
-          // iOS: a native bar button with no glass pill: plain white text on the navy band.
+          // Keep channel management quiet beside the conversation title.
           unstable_headerRightItems:
             isChannel && Platform.OS === "ios"
-              ? () => [{ type: "button", label: "Details", tintColor: colors.white, labelStyle: { color: colors.white, fontWeight: "600" }, hidesSharedBackground: true, onPress: openDetails }]
+              ? () => [{ type: "button", label: "Details", tintColor: colors.blue, labelStyle: { color: colors.blue, fontWeight: "600" }, hidesSharedBackground: true, onPress: openDetails }]
               : undefined,
           headerRight:
             isChannel && Platform.OS !== "ios"
               ? () => (
-                  <Pressable accessibilityRole="button" onPress={openDetails} hitSlop={12}>
+                  <Pressable accessibilityRole="button" onPress={openDetails} style={styles.headerAction}>
                     <Text style={styles.headerLink}>Details</Text>
                   </Pressable>
                 )
@@ -263,14 +267,16 @@ export default function ConversationScreen() {
                       ? conv.topic || `This is the start of ${title}`
                       : `This is the start of your conversation with ${conv.title}`}
                   </Text>
-                  <Text style={styles.introHint}>Mention @agent to ask for help. Everyone in this conversation can see its reply.</Text>
                 </View>
               ) : undefined
             }
             renderItem={({ item, index }) => {
               const above = data[index + 1];
-              const compact = !!above && !above.activity && !item.activity && above.user.id === item.user.id && item.createdAt - above.createdAt < 5 * 60 * 1000 && !above.replyCount;
+              const newDay = !above || new Date(item.createdAt).toDateString() !== new Date(above.createdAt).toDateString();
+              const compact = !newDay && !!above && !above.activity && !item.activity && above.user.id === item.user.id && item.createdAt - above.createdAt < 5 * 60 * 1000 && !above.replyCount;
               return (
+                <View>
+                {newDay ? <MessageDate at={item.createdAt} /> : null}
                 <PostRow
                   post={item} onReact={joined ? (emoji, active) => react(item, emoji, active) : undefined}
                   me={me}
@@ -280,6 +286,7 @@ export default function ConversationScreen() {
                   onEdit={() => setEditing(item)}
                   onDelete={() => remove(item)}
                 />
+                </View>
               );
             }}
           />
@@ -297,20 +304,21 @@ export default function ConversationScreen() {
         )}
       </KeyboardAvoidingView>
     </View>
+    </MediaGalleryProvider>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
-  presence: { paddingHorizontal: space.side, paddingVertical: space.xs, backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  presence: { paddingHorizontal: space.side, paddingBottom: space.xs, paddingTop: space.xxs, backgroundColor: colors.white, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   peer: { flexDirection: "row", flexWrap: "wrap", gap: space.xs, alignItems: "center" },
   peerName: { ...typography.captionStrong, color: colors.ink },
-  headerLink: { ...typography.label, color: colors.white },
+  headerAction: { minHeight: 44, minWidth: 44, justifyContent: "center" },
+  headerLink: { ...typography.label, color: colors.blue },
   error: { ...typography.caption, paddingHorizontal: space.side, paddingVertical: space.sm, color: colors.red, backgroundColor: colors.redSoft },
-  intro: { paddingHorizontal: space.side, paddingTop: space.lg, paddingBottom: space.lg, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line, marginBottom: space.xs },
+  intro: { paddingHorizontal: space.side, paddingTop: space.md, paddingBottom: space.sm },
   introTitle: { ...typography.heading, color: colors.ink },
   introBody: { ...typography.body, marginTop: space.xs, color: colors.muted },
-  introHint: { ...typography.caption, marginTop: space.sm, color: colors.muted },
   joinBar: { padding: space.side, paddingBottom: space.xl, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line, backgroundColor: colors.surface },
   joinText: { ...typography.body, textAlign: "center", color: colors.muted, marginBottom: space.sm },
 });

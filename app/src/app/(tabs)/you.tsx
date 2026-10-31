@@ -5,6 +5,7 @@ import { api, type Release } from "../../lib/server";
 import { PageTitle } from "../../components/Band";
 import { Avatar } from "../../components/Messaging";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { AppIcon } from "../../components/AppIcon";
 import Constants from "expo-constants";
 import { useSession } from "../../lib/session";
 import { colors, radius, space, typography } from "../../lib/theme";
@@ -13,7 +14,7 @@ function Row({ label, value, onPress }: { label: string; value?: string; onPress
   const content = <>
       <Text style={styles.rowLabel}>{label}</Text>
       {value ? <Text style={styles.rowValue}>{value}</Text> : null}
-      {onPress ? <Text accessibilityElementsHidden importantForAccessibility="no" style={styles.chevron}>›</Text> : null}
+      {onPress ? <AppIcon name="chevronRight" size={16} color={colors.muted} /> : null}
     </>;
   if (!onPress) return <View style={styles.row}>{content}</View>;
   return (
@@ -54,12 +55,12 @@ export default function Settings() {
   return (
     <View style={styles.root}>
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
-      <PageTitle description="Your account and preferences.">You</PageTitle>
+      <PageTitle>You</PageTitle>
       <View style={styles.profile}>
         <Avatar name={account.user.name} size={48} />
         <View style={styles.profileCopy}>
           <Text style={styles.profileName}>{account.user.name}</Text>
-          <Text style={styles.profileRole}>{owner ? "Owner" : "Member"}</Text>
+          <Text style={styles.profileRole}>{account.serverName} · {owner ? "Workspace owner" : "Member"}</Text>
         </View>
       </View>
       <Text accessibilityRole="header" style={styles.section}>Preferences</Text>
@@ -69,7 +70,9 @@ export default function Settings() {
 
       <Text accessibilityRole="header" style={styles.section}>Workspace</Text>
       <View style={styles.group}>
-        <Row label="Server" value={account.serverName} />
+        <Row label="People" onPress={() => router.push("/members")} />
+        {owner ? <Row label="Invite people" onPress={() => router.push("/invite")} /> : null}
+        <Row label="Archived channels" onPress={() => router.push("/archived-channels")} />
       </View>
 
       <Text accessibilityRole="header" style={styles.section}>Help & updates</Text>
@@ -83,12 +86,11 @@ export default function Settings() {
             onPress={() => router.push({ pathname: "/thread", params: { conv: release.conversationId, root: release.messageId, title: "#whats-new" } })}
             style={({ pressed }) => [styles.group, styles.notes, pressed && { backgroundColor: colors.surface }]}
           >
-            <Text style={styles.notesTitle}>What's new</Text>
-            <Text style={styles.build}>Build {release.build}</Text>
+            <View style={styles.notesHeader}><Text style={styles.notesTitle}>What's new</Text><Text style={styles.build}>Build {release.build}</Text></View>
             <Text style={styles.notesText} numberOfLines={3}>
               {release.text.split("\n").slice(1).join("\n").trim()}
             </Text>
-            <Text style={styles.notesLink}>Read updates & discuss</Text>
+            <Text style={styles.notesLink}>Read release notes</Text>
           </Pressable>
       ) : null}
 
@@ -105,23 +107,23 @@ export default function Settings() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.surface },
-  content: { paddingBottom: 120 },
-  profile: { marginHorizontal: space.side, marginBottom: space.lg, padding: space.md, borderRadius: radius.lg, backgroundColor: colors.white, flexDirection: "row", alignItems: "center", gap: space.md },
+  content: { paddingBottom: space.xl },
+  profile: { marginHorizontal: space.side, marginBottom: space.lg, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", gap: space.sm },
   profileCopy: { flex: 1, minWidth: 0 },
   profileName: { ...typography.heading, color: colors.ink },
   profileRole: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
-  section: { ...typography.label, marginHorizontal: space.side, marginTop: space.xs, marginBottom: space.xs, color: colors.muted },
-  group: { backgroundColor: colors.white, marginHorizontal: space.side, borderRadius: radius.md, overflow: "hidden", marginBottom: space.md },
-  row: { minHeight: 56, paddingHorizontal: space.md, paddingVertical: space.md, flexDirection: "row", alignItems: "center", gap: space.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
-  rowLabel: { ...typography.body, color: colors.ink, flexShrink: 1 },
+  section: { ...typography.label, marginHorizontal: space.side, marginTop: space.sm, marginBottom: space.xs, color: colors.muted },
+  group: { backgroundColor: colors.white, marginHorizontal: space.side, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, overflow: "hidden", marginBottom: space.md },
+  row: { minHeight: 48, paddingHorizontal: space.md, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", gap: space.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  rowLabel: { ...typography.body, color: colors.ink, flex: 1 },
   rowValue: { ...typography.body, color: colors.muted, flex: 1, textAlign: "right" },
-  chevron: { ...typography.heading, color: colors.muted, marginLeft: "auto" },
-  danger: { marginTop: space.md, alignSelf: "center", minHeight: 48, justifyContent: "center", paddingHorizontal: space.side },
+  danger: { marginHorizontal: space.side, marginTop: space.xs, minHeight: 48, justifyContent: "center", paddingHorizontal: space.md, backgroundColor: colors.white, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
   dangerText: { ...typography.bodyStrong, color: colors.red },
   notes: { padding: space.md },
+  notesHeader: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: space.xs, marginBottom: space.xs },
   notesTitle: { ...typography.bodyStrong, color: colors.ink },
-  build: { ...typography.caption, color: colors.muted, marginTop: space.xxs, marginBottom: space.sm },
-  notesText: { ...typography.body, color: colors.ink },
-  notesLink: { ...typography.bodyStrong, marginTop: space.md, color: colors.blue },
+  build: { ...typography.caption, color: colors.muted, marginLeft: "auto" },
+  notesText: { ...typography.caption, color: colors.muted },
+  notesLink: { ...typography.captionStrong, marginTop: space.sm, color: colors.blue },
   version: { ...typography.caption, marginTop: space.md, textAlign: "center", color: colors.muted },
 });
