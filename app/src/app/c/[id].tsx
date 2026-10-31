@@ -10,6 +10,7 @@ import { mediaFromPosts } from "../../lib/media";
 import { PresenceLine } from "../../components/Presence";
 import { useReadReceipts } from "../../lib/use-read-receipts";
 import { mergeReadEvent } from "../../lib/read-receipts";
+import { latestMessageReceipts } from "../../lib/message-status";
 import { TypingLine, useTyping, useTypingPing } from "../../lib/typing";
 import { api, ServerError, type Conversation, type Upload, type Post, type LiveEvent } from "../../lib/server";
 import { useLive } from "../../lib/live";
@@ -135,6 +136,7 @@ export default function ConversationScreen() {
   );
 
   const media = useMemo(() => mediaFromPosts(posts ?? []), [posts]);
+  const receipts = useMemo(() => latestMessageReceipts(posts ?? [], account?.user.id ?? "", conv?.members), [posts, account?.user.id, conv?.members]);
   if (!account) return null;
   const me = account.user.id;
   const isChannel = conv?.kind === "channel";
@@ -280,7 +282,7 @@ export default function ConversationScreen() {
                 <PostRow
                   post={item} onReact={joined ? (emoji, active) => react(item, emoji, active) : undefined}
                   me={me}
-                  members={conv?.members}
+                  receipt={receipts.get(item.id)}
                   compact={compact}
                   onOpenThread={() => openThread(item)}
                   onEdit={() => setEditing(item)}

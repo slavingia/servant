@@ -22,6 +22,7 @@ const paths = {
   lock: "M6 10h12a1 1 0 0 1 1 1v9H5v-9a1 1 0 0 1 1-1Z M8 10V6a4 4 0 0 1 8 0v4 M12 14v2",
   arrowLeft: "M20 12H4 m7-7-7 7 7 7",
   check: "m5 12 4 4L19 6",
+  eye: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z M15 12a3 3 0 1 0-6 0 3 3 0 0 0 6 0Z",
 } as const;
 
 export type AppIconName = keyof typeof paths;

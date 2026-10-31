@@ -26,29 +26,25 @@ export function presenceLabel(presence: PresenceStatus, now = Date.now(), connec
   return `Last seen ${statusTime(presence.lastSeenAt, now)}`;
 }
 
-export function receiptStatus(post: Post, me: string, members: Person[] = [], now = Date.now()) {
-  if (post.user.id !== me || post.user.agent || post.deleted || post.pending || post.activity) return null;
-  const people = new Map(members.map(person => [person.id, person]));
-  const reads = new Map<string, number>();
-  for (const receipt of post.readBy ?? []) {
-    if (receipt.userId === me || people.get(receipt.userId)?.agent || !validTime(receipt.readAt)) continue;
-    reads.set(receipt.userId, Math.min(reads.get(receipt.userId) ?? Infinity, receipt.readAt));
+export type MessageReceipt = "sent" | "seen";
+
+// Posts arrive oldest first. Keep only the latest outgoing message and latest
+// seen message marked; a seen icon replaces the sent icon on the same message.
+export function latestMessageReceipts(posts: readonly Post[], me: string, members: readonly Person[] = []) {
+  const agents = new Set(members.filter(person => person.agent).map(person => person.id));
+  let latestSent: string | undefined;
+  let latestSeen: string | undefined;
+  for (let index = posts.length - 1; index >= 0; index--) {
+    const post = posts[index]!;
+    if (post.user.id !== me || post.user.agent || post.deleted || post.pending || post.activity) continue;
+    latestSent ??= post.id;
+    if (post.readBy?.some(receipt => receipt.userId && receipt.userId !== me && !agents.has(receipt.userId) && validTime(receipt.readAt))) {
+      latestSeen = post.id;
+      break;
+    }
   }
-  const readers = [...reads].sort((a, b) => a[1] - b[1]).map(([userId, readAt]) => ({
-    userId,
-    name: people.get(userId)?.name || "A member",
-    readAt,
-  }));
-  if (!readers.length) return { label: "Sent", read: false, readers, accessibilityLabel: "Sent" };
-  const only = readers[0]!;
-  const singlePeer = members.filter(person => !person.agent && person.id !== me).length === 1;
-  const label = readers.length === 1
-    ? `${singlePeer ? "Read" : `Read by ${only.name}`} · ${statusTime(only.readAt, now)}`
-    : readers.length === 2 ? `Read by ${readers.map(reader => reader.name).join(" and ")}` : `Read by ${readers.length} people`;
-  return {
-    label,
-    read: true,
-    readers,
-    accessibilityLabel: readers.map(reader => `Read by ${reader.name} at ${statusTime(reader.readAt, now)}`).join(". "),
-  };
+  const receipts = new Map<string, MessageReceipt>();
+  if (latestSent) receipts.set(latestSent, "sent");
+  if (latestSeen) receipts.set(latestSeen, "seen");
+  return receipts;
 }

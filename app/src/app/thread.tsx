@@ -10,6 +10,7 @@ import { TypingLine, useTyping, useTypingPing } from "../lib/typing";
 import { api, ServerError, type Upload, type Post, type Person, type LiveEvent } from "../lib/server";
 import { useReadReceipts } from "../lib/use-read-receipts";
 import { mergeReadEvent } from "../lib/read-receipts";
+import { latestMessageReceipts } from "../lib/message-status";
 import { useLive } from "../lib/live";
 import { useSession } from "../lib/session";
 import { colors, space, typography } from "../lib/theme";
@@ -51,6 +52,7 @@ export default function ThreadScreen() {
   const typingNames = useTyping(conv, root, account?.user.id ?? "");
   const ping = useTypingPing(account, conv, root);
   const rows = useMemo(() => head ? [head, ...(replies ?? [])] : replies ?? [], [head, replies]);
+  const receipts = useMemo(() => latestMessageReceipts(rows, account?.user.id ?? "", members), [rows, account?.user.id, members]);
   const readTracking = useReadReceipts(account, conv, focused, joined && replies !== null && !unavailable, root, rows);
   const scrollToSearchResult = useCallback(() => {
     const target = searchFocus.current;
@@ -233,7 +235,7 @@ export default function ThreadScreen() {
               if (item.id === root) return <View style={[styles.head, item.id === focus && styles.searchMatch]}>
                 {item.id === focus ? <Text style={styles.searchLabel}>Search match</Text> : null}
                 {title ? <Text style={styles.where}>In {title}</Text> : null}
-                <PostRow post={item} members={members} onReact={(emoji, active) => react(item, emoji, active)} me={me} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
+                <PostRow post={item} receipt={receipts.get(item.id)} onReact={(emoji, active) => react(item, emoji, active)} me={me} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
                 <Text accessibilityRole="header" style={styles.count}>
                   {!replies?.length ? "No replies yet" : `${replies.length} ${replies.length === 1 ? "reply" : "replies"}`}
                 </Text>
@@ -244,7 +246,7 @@ export default function ThreadScreen() {
               return <View style={item.id === focus ? styles.searchMatch : undefined}>
                 {newDay ? <MessageDate at={item.createdAt} /> : null}
                 {item.id === focus ? <Text style={styles.searchLabel}>Search match</Text> : null}
-                <PostRow post={item} members={members} onReact={(emoji, active) => react(item, emoji, active)} me={me} compact={compact && item.id !== focus} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
+                <PostRow post={item} receipt={receipts.get(item.id)} onReact={(emoji, active) => react(item, emoji, active)} me={me} compact={compact && item.id !== focus} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
               </View>;
             }}
           />

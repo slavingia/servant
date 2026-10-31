@@ -5,7 +5,7 @@ import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Conversation, Person, Post, Upload } from "../lib/server";
 import { activeMention, insertMention, mentionMatches, mentionText } from "../lib/mentions";
-import { receiptStatus, statusTime } from "../lib/message-status";
+import type { MessageReceipt } from "../lib/message-status";
 import { validateAttachmentSelection } from "../lib/media";
 import { Attachments, DraftAttachments, pickAttachments, type DraftAttachment } from "./Attachments";
 import { AppIcon } from "./AppIcon";
@@ -74,7 +74,7 @@ function Rich({ text, style }: { text: string; style: object }) {
 type PostProps = {
   post: Post;
   me: string;
-  members?: Person[];
+  receipt?: MessageReceipt;
   compact?: boolean; // same author as the post above, within five minutes
   onOpenThread?: () => void;
   onEdit?: () => void;
@@ -88,7 +88,7 @@ const REACTIONS = [
   ["👀", "Looking"], ["🔥", "Fire"], ["👏", "Applause"], ["💯", "Hundred"],
 ];
 
-export function PostRow({ post, me, members, compact, onOpenThread, onEdit, onDelete, onReact }: PostProps) {
+export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDelete, onReact }: PostProps) {
   const [menu, setMenu] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [copyStatus, setCopyStatus] = useState("");
@@ -124,14 +124,13 @@ export function PostRow({ post, me, members, compact, onOpenThread, onEdit, onDe
     </View>
   );
   const mine = post.user.id === me;
-  const receipt = receiptStatus(post, me, members);
   const options = [
     ...(onOpenThread ? [{ text: "Reply in thread", onPress: onOpenThread }] : []),
     ...(mine && onEdit ? [{ text: "Edit", onPress: onEdit }] : []),
     ...(mine && onDelete ? [{ text: "Delete", onPress: onDelete }] : []),
   ];
   const actions = () => {
-    if (!available || (!post.text && !onReact && !options.length && !receipt?.read)) return;
+    if (!available || (!post.text && !onReact && !options.length)) return;
     Keyboard.dismiss();
     setCopyStatus("");
     setSelecting(false);
@@ -179,7 +178,9 @@ export function PostRow({ post, me, members, compact, onOpenThread, onEdit, onDe
             {post.lastReplyAt ? <Text style={styles.time}> · {when(post.lastReplyAt)}</Text> : null}
           </Pressable>
         ) : null}
-        {receipt ? <Text testID={`message-receipt-${post.id}`} accessibilityLabel={receipt.accessibilityLabel} style={[styles.receipt, receipt.read && styles.receiptRead]}>{receipt.label}</Text> : null}
+        {receipt ? <View testID={`message-receipt-${post.id}`} accessible accessibilityRole="image" accessibilityLabel={receipt === "seen" ? "Seen" : "Sent"} style={styles.receipt}>
+          <AppIcon name={receipt === "seen" ? "eye" : "check"} size={14} color={receipt === "seen" ? colors.blueDark : colors.muted} />
+        </View> : null}
       </View>
     </Pressable>
     {menu && available ? <Modal transparent animationType="fade" visible onRequestClose={() => setMenu(false)}>
@@ -188,10 +189,6 @@ export function PostRow({ post, me, members, compact, onOpenThread, onEdit, onDe
         <View accessibilityViewIsModal style={styles.menuCard}>
           <ScrollView keyboardShouldPersistTaps="handled">
             <Text style={styles.menuAuthor}>{post.user.name}</Text>
-            {receipt && !selecting ? <View style={styles.receiptDetails}>
-              <Text style={styles.menuTitle}>{receipt.read ? "Read by" : "Sent"}</Text>
-              {receipt.readers.map(reader => <Text key={reader.userId} style={styles.receiptDetail}>{reader.name} · {statusTime(reader.readAt)}</Text>)}
-            </View> : null}
             {post.text ? <>
               <Pressable testID="message-copy" accessibilityRole="button" accessibilityLabel="Copy message" accessibilityState={{ disabled: copying }} disabled={copying} onPress={copy} style={styles.menuAction}>
                 <Text style={styles.menuActionText}>{copying ? "Copying…" : "Copy"}</Text>
@@ -449,10 +446,7 @@ const styles = StyleSheet.create({
   mention: { color: colors.blue, fontWeight: "600" },
   deleted: { ...typography.body, color: colors.muted, fontStyle: "italic" },
   edited: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
-  receipt: { ...typography.meta, color: colors.muted, marginTop: 2 },
-  receiptRead: { color: colors.blueDark },
-  receiptDetails: { marginBottom: space.sm },
-  receiptDetail: { ...typography.caption, color: colors.ink, paddingVertical: space.xxs },
+  receipt: { alignSelf: "flex-end", marginTop: 2 },
   replies: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", marginTop: space.xxs, minHeight: 44 },
   repliesText: { ...typography.captionStrong, color: colors.blue },
   composerWrap: { backgroundColor: colors.white, paddingHorizontal: space.sm, paddingTop: space.xs },

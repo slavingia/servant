@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { presenceLabel, receiptStatus, statusTime } from "./message-status.ts";
+import { latestMessageReceipts, presenceLabel, statusTime } from "./message-status.ts";
 import type { Person, Post } from "./server.ts";
 
 const now = new Date(2026, 9, 30, 15, 45).getTime();
@@ -30,46 +30,58 @@ test("receipt times retain the day and year for older messages", () => {
   assert.notEqual(statusTime(now - 86400_000, now), statusTime(now, now));
 });
 
-test("only sent human messages have read status and missing evidence means Sent", () => {
-  assert.equal(receiptStatus(post, "me", [me, jordan], now)?.label, "Sent");
+test("only the latest outgoing message gets a sent marker", () => {
+  const newer = { ...post, id: "13" };
+  const incoming = { ...post, id: "14", user: jordan };
+  assert.deepEqual([...latestMessageReceipts([post, newer, incoming], "me")], [["13", "sent"]]);
+  assert.equal(latestMessageReceipts([], "me").size, 0);
+  assert.equal(latestMessageReceipts([incoming], "me").size, 0);
+});
+
+test("the latest seen marker remains while newer messages await reading", () => {
+  const seen = { ...post, readBy: [{ userId: jordan.id, readAt: now }] };
+  const newer = { ...post, id: "13" };
+  const latest = { ...post, id: "14" };
+  assert.deepEqual([...latestMessageReceipts([seen, newer, latest], "me")], [["14", "sent"], ["12", "seen"]]);
+  const readLatest = { ...latest, readBy: seen.readBy };
+  assert.deepEqual([...latestMessageReceipts([seen, newer, readLatest], "me")], [["14", "seen"]]);
+});
+
+test("newly loaded older messages and late receipts do not move markers backward", () => {
+  const readBy = [{ userId: jordan.id, readAt: now }];
+  const older = { ...post, id: "10", readBy: [{ userId: jordan.id, readAt: now + 1000 }] };
+  const seen = { ...post, readBy };
+  const latest = { ...post, id: "13" };
+  assert.deepEqual([...latestMessageReceipts([older, seen, latest], "me")], [["13", "sent"], ["12", "seen"]]);
+});
+
+test("deleted, pending, activity, and agent messages never acquire receipt markers", () => {
+  const readBy = [{ userId: jordan.id, readAt: now }];
   for (const excluded of [
     { ...post, user: jordan },
     { ...post, deleted: true },
     { ...post, pending: true },
     { ...post, activity: "joined" as const },
     { ...post, user: { ...me, agent: true } },
-  ]) assert.equal(receiptStatus(excluded, "me", [me, jordan], now), null);
+  ]) {
+    assert.deepEqual([...latestMessageReceipts([post, { ...excluded, id: "13", readBy }], "me")], [["12", "sent"]]);
+  }
 });
 
-test("a direct-message receipt includes the read time and accessible reader identity", () => {
-  const result = receiptStatus({ ...post, readBy: [{ userId: jordan.id, readAt: now }] }, "me", [me, jordan], now)!;
-  assert.equal(result.label, `Read · ${statusTime(now, now)}`);
-  assert.equal(result.accessibilityLabel, `Read by Jordan Lee at ${statusTime(now, now)}`);
-  assert.equal(result.read, true);
-});
-
-test("group receipts preserve distinct readers and earliest evidence, excluding self and agents", () => {
-  const agent = { id: "agent", name: "Agent", agent: true };
-  const readBy = [
+test("seen requires a valid receipt from another human, including in groups", () => {
+  const agent: Person = { id: "agent", name: "Agent", agent: true };
+  const invalidReads = [
     { userId: me.id, readAt: now },
     { userId: agent.id, readAt: now },
-    { userId: jordan.id, readAt: now + 1000 },
-    { userId: jordan.id, readAt: now },
-    { userId: sam.id, readAt: now + 2000 },
-    { userId: "bad", readAt: NaN },
+    { userId: jordan.id, readAt: NaN },
+    { userId: jordan.id, readAt: 0 },
+    { userId: jordan.id, readAt: Infinity },
+    { userId: "", readAt: now },
   ];
-  const result = receiptStatus({ ...post, readBy }, "me", [me, jordan, sam, agent], now)!;
-  assert.equal(result.label, "Read by Jordan Lee and Sam");
-  assert.deepEqual(result.readers.map(reader => [reader.userId, reader.readAt]), [[jordan.id, now], [sam.id, now + 2000]]);
-  const single = receiptStatus({ ...post, readBy: [{ userId: jordan.id, readAt: now }] }, "me", [me, jordan, sam], now)!;
-  assert.equal(single.label, `Read by Jordan Lee · ${statusTime(now, now)}`);
-});
-
-test("large groups use a readable count with full reader details, and unknown readers have a safe fallback", () => {
-  const readBy = [jordan, sam, { id: "unknown" }].map(person => ({ userId: person.id, readAt: now }));
-  const result = receiptStatus({ ...post, readBy }, "me", [me, jordan, sam], now)!;
-  assert.equal(result.label, "Read by 3 people");
-  assert.equal(result.readers[2]?.name, "A member");
-  assert.match(result.accessibilityLabel, /Jordan Lee/);
-  assert.match(result.accessibilityLabel, /Sam/);
+  const members = [me, jordan, sam, agent];
+  assert.deepEqual([...latestMessageReceipts([{ ...post, readBy: invalidReads }], "me", members)], [["12", "sent"]]);
+  for (const readers of [[jordan], [jordan, sam], [{ id: "former-member" }]]) {
+    const readBy = [...invalidReads, ...readers.map(person => ({ userId: person.id, readAt: now }))];
+    assert.deepEqual([...latestMessageReceipts([{ ...post, readBy }], "me", members)], [["12", "seen"]]);
+  }
 });
