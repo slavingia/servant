@@ -7,7 +7,7 @@ import { Composer, MessageDate, PostRow } from "../components/Messaging";
 import { MediaGalleryProvider } from "../components/MediaGallery";
 import { mediaFromPosts } from "../lib/media";
 import { TypingLine, useTyping, useTypingPing } from "../lib/typing";
-import { api, ServerError, type Upload, type Post, type Person, type LiveEvent } from "../lib/server";
+import { api, ServerError, type Upload, type Post, type Conversation, type LiveEvent } from "../lib/server";
 import { useReadReceipts } from "../lib/use-read-receipts";
 import { mergeReadEvent } from "../lib/read-receipts";
 import { latestMessageReceipts } from "../lib/message-status";
@@ -41,7 +41,7 @@ export default function ThreadScreen() {
     searchFocus.current = { target: focus, pending: !!focus, holding: !!focus, retries: 0 };
     return clearFocusRetry;
   }, [conv, root, focus, clearFocusRetry]);
-  const [members, setMembers] = useState<Person[]>([]);
+  const [conversation, setConversation] = useState<Conversation | null>(null);
   const [head, setHead] = useState<Post | null>(null);
   const [replies, setReplies] = useState<Post[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +54,9 @@ export default function ThreadScreen() {
   const typingNames = useTyping(conv, root, account?.user.id ?? "");
   const ping = useTypingPing(account, conv, root);
   const rows = useMemo(() => head ? [head, ...(replies ?? [])] : replies ?? [], [head, replies]);
-  const receipts = useMemo(() => latestMessageReceipts(rows, account?.user.id ?? "", members), [rows, account?.user.id, members]);
+  const receipts = useMemo(() => conversation?.id === conv && conversation.kind === "dm"
+    ? latestMessageReceipts(rows, account?.user.id ?? "", conversation.members)
+    : undefined, [rows, account?.user.id, conversation, conv]);
   const readTracking = useReadReceipts(account, conv, focused, joined && replies !== null && !unavailable, root, rows);
   const scrollToSearchResult = useCallback(() => {
     const target = searchFocus.current;
@@ -107,7 +109,7 @@ export default function ThreadScreen() {
       if (snapshot.current !== current) return;
       needsSnapshot.current = false;
       accessDenied.current = false;
-      setMembers(c.conversation.members ?? []);
+      setConversation(c.conversation);
       setJoined(c.joined);
       setHead(current.reads.reduce(mergeReadEvent, current.updates.get(root) ?? t.root));
       const recovered = new Map(t.replies.map(p => [p.id, p]));
@@ -122,7 +124,7 @@ export default function ThreadScreen() {
         accessDenied.current = true;
         setHead(null);
         setReplies([]);
-        setMembers([]);
+        setConversation(null);
         setEditing(null);
         setUnavailable(true);
         setJoined(false);
@@ -144,7 +146,7 @@ export default function ThreadScreen() {
           needsSnapshot.current = true;
           setHead(null);
           setReplies(null);
-          setMembers([]);
+          setConversation(null);
           void load();
           return;
         }
@@ -237,7 +239,7 @@ export default function ThreadScreen() {
               if (item.id === root) return <View style={[styles.head, item.id === focus && styles.searchMatch]}>
                 {item.id === focus ? <Text style={styles.searchLabel}>Search match</Text> : null}
                 {title ? <Text style={styles.where}>In {title}</Text> : null}
-                <PostRow post={item} receipt={receipts.get(item.id)} onReact={(emoji, active) => react(item, emoji, active)} me={me} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
+                <PostRow post={item} receipt={receipts?.get(item.id)} onReact={(emoji, active) => react(item, emoji, active)} me={me} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
                 <Text accessibilityRole="header" style={styles.count}>
                   {!replies?.length ? "No replies yet" : `${replies.length} ${replies.length === 1 ? "reply" : "replies"}`}
                 </Text>
@@ -248,16 +250,16 @@ export default function ThreadScreen() {
               return <View style={item.id === focus ? styles.searchMatch : undefined}>
                 {newDay ? <MessageDate at={item.createdAt} /> : null}
                 {item.id === focus ? <Text style={styles.searchLabel}>Search match</Text> : null}
-                <PostRow post={item} receipt={receipts.get(item.id)} onReact={(emoji, active) => react(item, emoji, active)} me={me} compact={compact && item.id !== focus} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
+                <PostRow post={item} receipt={receipts?.get(item.id)} onReact={(emoji, active) => react(item, emoji, active)} me={me} compact={compact && item.id !== focus} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
               </View>;
             }}
           />
         )}
         {!unavailable ? <TypingLine names={typingNames} /> : null}
         {unavailable ? null : editing ? (
-          <Composer members={members} me={me} key={`edit-${editing.id}`} placeholder="Edit message" initial={editing.text} sendLabel="Save" onSend={saveEdit} onCancel={() => setEditing(null)} />
+          <Composer members={conversation?.members} me={me} key={`edit-${editing.id}`} placeholder="Edit message" initial={editing.text} sendLabel="Save" onSend={saveEdit} onCancel={() => setEditing(null)} />
         ) : (
-          <Composer members={members} me={me} key="reply" placeholder="Reply" onSend={send} onTyping={ping} />
+          <Composer members={conversation?.members} me={me} key="reply" placeholder="Reply" onSend={send} onTyping={ping} />
         )}
       </KeyboardAvoidingView>
     </View>

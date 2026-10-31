@@ -138,7 +138,9 @@ export default function ConversationScreen() {
   );
 
   const media = useMemo(() => mediaFromPosts(posts ?? []), [posts]);
-  const receipts = useMemo(() => latestMessageReceipts(posts ?? [], account?.user.id ?? "", conv?.members), [posts, account?.user.id, conv?.members]);
+  const receipts = useMemo(() => conv?.id === id && conv.kind === "dm"
+    ? latestMessageReceipts(posts ?? [], account?.user.id ?? "", conv.members)
+    : undefined, [posts, account?.user.id, conv, id]);
   if (!account) return null;
   const me = account.user.id;
   const isChannel = conv?.kind === "channel";
@@ -284,7 +286,7 @@ export default function ConversationScreen() {
                 <PostRow
                   post={item} onReact={joined ? (emoji, active) => react(item, emoji, active) : undefined}
                   me={me}
-                  receipt={receipts.get(item.id)}
+                  receipt={receipts?.get(item.id)}
                   compact={compact}
                   onOpenThread={() => openThread(item)}
                   onEdit={() => setEditing(item)}
