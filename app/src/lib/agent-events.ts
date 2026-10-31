@@ -11,6 +11,33 @@ export type StreamEvent =
   | { type: "error"; message: string }
   | { type: "done" };
 
+// Keep work and approval updates live, but publish the reply as one message.
+// A dropped connection never flushes an unfinished reply into the conversation.
+export function bufferAgentReply(onEvent: (event: StreamEvent) => void): (event: StreamEvent) => void {
+  let text = "";
+  let message: Extract<StreamEvent, { type: "message" }> | undefined;
+  let turnStatus: AgentTurn["status"] | undefined;
+  let failed = false;
+  let done = false;
+  return event => {
+    if (done) return;
+    if (event.type === "delta") { text += event.text; return; }
+    if (event.type === "message") { message = event; return; }
+    if (event.type === "turn") turnStatus = event.turn.status;
+    if (event.type === "error") failed = true;
+    if (event.type === "done") {
+      done = true;
+      if (message) onEvent(message);
+      // Older servers may end with only deltas. Durable runs must confirm a
+      // successful terminal state before those deltas can stand in for a reply.
+      else if (text && !failed && (!turnStatus || turnStatus === "completed")) onEvent({ type: "message", text });
+      text = "";
+      message = undefined;
+    }
+    onEvent(event);
+  };
+}
+
 function attachments(value: unknown): Attachment[] | undefined {
   if (!Array.isArray(value)) return undefined;
   return value.flatMap((item): Attachment[] => {

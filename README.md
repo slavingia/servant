@@ -29,6 +29,8 @@ Status: private while it gets good. It is meant to be open source (CC0) when it 
 
 Private agent requests and incremental replies are journaled on the Mac. The independent worker owns the turn, so locking the phone, leaving a conversation or restarting the API does not cancel it. Reopening the conversation catches up from saved history. Request IDs prevent retries of the same draft from starting duplicate work.
 
+Agent chats, channels, and threads show a working indicator while the agent prepares its reply. The finished text and attachments appear together, instead of word by word. Live status, approvals, and Stop remain available while the agent works.
+
 The repository-owned Hermes bridge adds real **Stop** and owner **Allow once / Deny** controls while preserving image output. Pending requests appear in the Agent tab and their conversation. Approvals are bound to the exact request, apply once, and use Hermes's action-approval mechanism; this is not a blanket approval layer for every possible tool. A worker restart reconnects to an identified upstream run. An ambiguous start is marked interrupted and is never automatically submitted again. See [agent turns](docs/agent-turns.md) and [supported Hermes versions](docs/supported-hermes-versions.md).
 
 Agent replies render headings, lists, bold text, quotations and code. Native notifications show generic alerts with no names or message text; the app fetches the content over its encrypted connection when opened. Native encrypted lock-screen previews are not implemented.

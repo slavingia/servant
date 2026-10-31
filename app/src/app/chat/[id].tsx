@@ -12,6 +12,7 @@ import { Button } from "../../components/Button";
 import { MessageText } from "../../components/MessageText";
 import { AgentApprovalCard } from "../../components/AgentApprovalCard";
 import { activeAgentTurn, agentTurnLabel, type AgentTurn } from "../../lib/agent-turns";
+import { bufferAgentReply } from "../../lib/agent-events";
 import { api, sendMessage, ServerError, type Message, type Upload } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { space, typography, useTheme, createThemedStyles } from "../../lib/theme";
@@ -167,7 +168,7 @@ function ChatConversation() {
         account,
         String(id),
         body,
-        (e) => {
+        bufferAgentReply((e) => {
           if (!isCurrent()) return;
           if (e.type === 'turn') {
             setTurn(e.turn);
@@ -178,10 +179,6 @@ function ChatConversation() {
             accept();
             canonicalMineId = e.message.id;
             setMessages((m) => (m ?? []).map((r) => r.localId === mineKey ? { ...e.message, localId: mineKey } : r));
-          } else if (e.type === "delta") {
-            if (e.text) { accept(); responseSeen = true; }
-            setStatus(null);
-            update((r) => ({ ...r, text: r.text + e.text }));
           } else if (e.type === "message") {
             accept();
             canonicalReplyId = e.id ?? canonicalReplyId;
@@ -195,7 +192,7 @@ function ChatConversation() {
             update((r) => ({ ...r, pending: false, failed: true }));
           }
           else if (e.type === "done") update((r) => ({ ...r, pending: false }));
-        },
+        }),
         controller.signal,
         setAccount,
         attachments,
@@ -207,7 +204,7 @@ function ChatConversation() {
       }
       if (!failed && isCurrent()) {
         // Replace temporary upload previews with authenticated media records.
-        // A lagging history response must not erase the turn just streamed.
+        // A lagging history response must not erase the reply just received.
         try {
           const history = await api.messages(account, String(id));
           const userIndex = canonicalMineId ? history.findIndex(message => message.id === canonicalMineId) : messages.length;
@@ -215,7 +212,7 @@ function ChatConversation() {
           const hasReply = !responseSeen || (canonicalReplyId ? history.some(message => message.id === canonicalReplyId)
             : history.slice(userIndex + 1).some(message => message.role === "assistant"));
           if (isCurrent() && hasUser && hasReply) setMessages(history);
-        } catch { /* The streamed turn remains visible if history refresh fails. */ }
+        } catch { /* The completed reply remains visible if history refresh fails. */ }
       }
     } catch (e) {
       failed = true;
@@ -289,6 +286,7 @@ function ChatConversation() {
             }
             renderItem={({ item }) => {
               const mine = item.role === "user";
+              const working = !mine && item.pending;
               const timestamp = typeof item.at === "number" ? item.at : item.at ? new Date(item.at).getTime() : NaN;
               return <View accessibilityLabel={mine ? "Your message" : "Agent response"} style={[styles.message, item.failed && styles.failed]}>
                 <Avatar name={mine ? account.user.name : "Servant"} agent={!mine} size={34} />
@@ -298,11 +296,11 @@ function ChatConversation() {
                     {!mine ? <Text style={styles.agentTag}>Agent</Text> : null}
                     {Number.isFinite(timestamp) ? <Text style={styles.time}>{when(timestamp)}</Text> : null}
                   </View>
-                  {item.text ? mine ? <Text selectable style={[styles.text, item.failed && styles.failedText]}>{item.text}</Text> : <MessageText text={item.text} failed={item.failed} /> : null}
-                  {item.attachments?.length ? <Attachments files={item.attachments} /> : null}
+                  {!working && item.text ? mine ? <Text selectable style={[styles.text, item.failed && styles.failedText]}>{item.text}</Text> : <MessageText text={item.text} failed={item.failed} /> : null}
+                  {!working && item.attachments?.length ? <Attachments files={item.attachments} /> : null}
                   {item.uploads?.length ? <PendingAttachments files={item.uploads} /> : null}
                   {item.pending && mine ? <Text style={styles.typing}>Sending…</Text> : null}
-                  {item.pending && !mine && !item.text && !item.attachments?.length ? <Text style={styles.typing}>{status ?? "Thinking…"}</Text> : null}
+                  {working ? <Text accessibilityLiveRegion="polite" style={styles.typing}>{status ?? "Working…"}</Text> : null}
                   {item.interrupted ? <Text style={styles.typing}>Saved before the agent was interrupted.</Text> : null}
                 </View>
               </View>;

@@ -6,6 +6,13 @@ the phone, losing its network connection, or restarting the API process does not
 close the worker's connection to Hermes. Accepted input, streamed text, completed
 replies and their media remain available when the phone returns.
 
+The app shows a working indicator until a reply finishes, then presents the text
+and attachments together. Private reply events are buffered for display while
+status and approval events remain live. Channel and thread drafts are checkpointed
+for recovery without broadcasting each text update; pending history and previews
+also hide draft content. Saved output from an interrupted turn is still available
+after it ends and is marked incomplete.
+
 ## Running it
 
 Production must run `server/worker.mjs` alongside the API with

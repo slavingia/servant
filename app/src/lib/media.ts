@@ -44,15 +44,15 @@ export function mergeMediaItems(...groups: readonly (readonly MediaItem[])[]): M
 }
 
 export function mediaFromPosts(posts: readonly Post[]): MediaItem[] {
-  return posts.flatMap(post => post.deleted ? [] : (post.attachments ?? []).map(file => ({
+  return posts.flatMap(post => post.deleted || (post.pending && post.user.agent) ? [] : (post.attachments ?? []).map(file => ({
     ...file, messageId: post.id, sender: post.user, createdAt: post.createdAt, text: post.text,
   })));
 }
 
 export function mediaFromMessages(messages: readonly {
-  id: string; role: "user" | "assistant"; text: string; at?: number | string | null; attachments?: Attachment[];
+  id: string; role: "user" | "assistant"; text: string; at?: number | string | null; attachments?: Attachment[]; pending?: boolean;
 }[], userName: string, agentName = "Agent"): MediaItem[] {
-  return messages.flatMap(message => (message.attachments ?? []).map(file => {
+  return messages.flatMap(message => message.role === "assistant" && message.pending ? [] : (message.attachments ?? []).map(file => {
     const timestamp = typeof message.at === "number" ? message.at : message.at ? Date.parse(message.at) : 0;
     return { ...file, messageId: message.id, sender: { id: message.role, name: message.role === "user" ? userName : agentName, agent: message.role === "assistant" }, createdAt: Number.isFinite(timestamp) ? timestamp : 0, text: message.text };
   }));

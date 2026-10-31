@@ -414,9 +414,11 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     conversationId: m.conversation_id,
     user: person(m.user_id),
     threadRoot: m.thread_root ? String(m.thread_root) : null,
-    text: m.deleted_at ? "" : m.text,
+    // Pending drafts remain durable for recovery, but conversations only expose
+    // the working placeholder until the reply finishes.
+    text: m.deleted_at || m.pending ? "" : m.text,
     reactions: m.deleted_at ? [] : Object.entries(Object.groupBy(st.reactions.all(m.seq), r => r.emoji)).map(([emoji, rows]) => ({ emoji, userIds: rows.map(r => r.user_id) })),
-    attachments: m.deleted_at ? [] : st.attachments.all(m.seq),
+    attachments: m.deleted_at || m.pending ? [] : st.attachments.all(m.seq),
     deleted: !!m.deleted_at,
     pending: !!m.pending,
     replyCount: m.reply_count,
@@ -603,15 +605,16 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     });
     let text = "";
     let attachments = [];
-    let lastPush = 0;
-    const push = (force) => {
-      if (!force && now() - lastPush < 250) return;
-      lastPush = now();
+    let lastSave = 0;
+    const saveReply = (finished) => {
+      if (!finished && now() - lastSave < 250) return;
+      lastSave = now();
       transaction(() => {
         const current = st.msg.get(reply.seq);
         if (!st.conv.get(conv.id) || !current || current.deleted_at) return;
-        st.setAgentText.run(text, force ? 0 : 1, reply.seq);
-        publish(conv.id, "message.updated", msgView(st.msg.get(reply.seq)));
+        st.setAgentText.run(text, finished ? 0 : 1, reply.seq);
+        // Checkpoint partial output without emitting word-by-word updates.
+        if (finished) publish(conv.id, "message.updated", msgView(st.msg.get(reply.seq)));
       });
     };
     try {
@@ -624,7 +627,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
         attachments: images,
         onDelta: (d) => {
           text += d;
-          push(false);
+          saveReply(false);
         },
         onStatus: () => {},
       });
@@ -640,7 +643,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       if (current && !current.deleted_at && st.conv.get(conv.id)) {
         for (const a of attachments) st.insertAttachment.run(newId("file"), reply.seq, a.name, a.mime, a.data.length, a.data);
       }
-      push(true);
+      saveReply(true);
       if (st.conv.get(conv.id)) {
         st.putAgentThread.run(key, sessionId, reply.seq);
         notifyMessage(reply.seq);
@@ -834,7 +837,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     if (r === "attachments" && method === "GET") {
       const a = st.attachment.get(parts[2] || "");
       const m = a && st.msg.get(a.message_seq);
-      if (!m || m.deleted_at || !canSee(st.conv.get(m.conversation_id), user.id)) {
+      if (!m || m.deleted_at || m.pending || !canSee(st.conv.get(m.conversation_id), user.id)) {
         return fail(res, 404, "not_found", "That attachment is unavailable"), true;
       }
       res.setHeader("Cache-Control", "no-store");
@@ -987,7 +990,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       if (sub === "media" && method === "GET" && parts.length === 4) {
         const items = db.prepare(`SELECT a.id,a.name,a.mime,a.size,m.seq AS messageId,m.user_id,m.created_at AS createdAt,m.text
           FROM attachments a JOIN messages m ON m.seq=a.message_seq
-          WHERE m.conversation_id=? AND m.deleted_at IS NULL ORDER BY m.seq,a.rowid`).all(conv.id)
+          WHERE m.conversation_id=? AND m.deleted_at IS NULL AND m.pending = 0 ORDER BY m.seq,a.rowid`).all(conv.id)
           .map(({ user_id, messageId, ...item }) => ({ ...item, messageId: String(messageId), sender: person(user_id) }));
         send(res, 200, mediaPage(items, url.searchParams));
         return true;

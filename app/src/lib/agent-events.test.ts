@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createAgentEventDecoder, parseAgentEvent, type StreamEvent } from "./agent-events.ts";
+import { bufferAgentReply, createAgentEventDecoder, parseAgentEvent, type StreamEvent } from "./agent-events.ts";
 
 const photo = { id: "chat_file_1", name: "Lake.jpg", mime: "image/jpeg", size: 1200 };
 const frame = (name: string, value: unknown) => `event: ${name}\r\ndata: ${JSON.stringify(value)}\r\n\r\n`;
@@ -49,4 +49,68 @@ test("invalid attachment acknowledgements never clear an unsent image draft", ()
   assert.equal(parseAgentEvent("sent", { message: { id: "a1", role: "assistant", text: "hello" } }), null);
   const result = parseAgentEvent("message", { text: "Image", attachments: [{ ...photo, url: "https://example.test/private" }] });
   assert.deepEqual(result?.type === "message" && result.attachments, [photo]);
+});
+
+test("completed replies arrive once while acknowledgements, work, and approvals remain live", () => {
+  const received: StreamEvent[] = [];
+  const decoder = createAgentEventDecoder(bufferAgentReply(event => received.push(event)));
+  const push = (wire: string) => {
+    const bytes = new TextEncoder().encode(wire);
+    for (let i = 0; i < bytes.length; i += 7) decoder.push(bytes.slice(i, i + 7));
+  };
+  const turn = { id: "turn_1", chatId: "chat_1", status: "waiting_for_approval", accepted: true, text: "Draw", assistantText: "Draft", canStop: true, createdAt: 10, updatedAt: 11 };
+  const approval = { id: "approval_1", command: "draw", description: "Draw the image", choices: ["once", "deny"] };
+  push(frame("sent", { message: { id: "user_1", role: "user", text: "Draw", at: 10 } })
+    + frame("delta", { text: "Draft 湖" })
+    + frame("status", { text: "Working" })
+    + frame("turn", { turn })
+    + frame("approval", { approval })
+    + frame("message", { id: "reply_1", text: "Superseded caption", at: 12 })
+    + frame("message", { id: "reply_1", text: "", at: 12, attachments: [photo] }));
+  assert.deepEqual(received.map(event => event.type), ["sent", "status", "turn", "approval"]);
+  push(frame("turn", { turn: { ...turn, status: "completed", updatedAt: 12 } }) + frame("done", {}));
+  decoder.finish();
+  assert.deepEqual(received.slice(-2), [
+    { type: "message", id: "reply_1", text: "", at: 12, attachments: [photo] },
+    { type: "done" },
+  ]);
+  push(frame("done", {}) + frame("delta", { text: "Late draft" }));
+  assert.equal(received.filter(event => event.type === "message").length, 1);
+  assert.equal(received.filter(event => event.type === "done").length, 1);
+});
+
+test("a connection lost before done cannot display buffered text or media", () => {
+  const received: StreamEvent[] = [];
+  const decoder = createAgentEventDecoder(bufferAgentReply(event => received.push(event)));
+  decoder.push(new TextEncoder().encode(frame("delta", { text: "Partial" })
+    + frame("message", { id: "reply_1", text: "Unconfirmed reply", attachments: [photo] })));
+  assert.throws(() => decoder.finish(), /before completion/);
+  assert.deepEqual(received, []);
+});
+
+test("legacy delta-only replies publish together after done", () => {
+  const received: StreamEvent[] = [];
+  const buffer = bufferAgentReply(event => received.push(event));
+  buffer({ type: "delta", text: "Hello " });
+  buffer({ type: "delta", text: "there" });
+  assert.deepEqual(received, []);
+  buffer({ type: "done" });
+  assert.deepEqual(received, [{ type: "message", text: "Hello there" }, { type: "done" }]);
+});
+
+test("failed, stopped, interrupted, and unconfirmed turns never publish draft deltas as completed replies", () => {
+  for (const status of ["running", "failed", "cancelled", "interrupted"] as const) {
+    const received: StreamEvent[] = [];
+    const buffer = bufferAgentReply(event => received.push(event));
+    buffer({ type: "delta", text: "Unfinished thought" });
+    buffer({ type: "turn", turn: { id: "turn_1", chatId: "chat_1", status, accepted: true, text: "Question", assistantText: "Unfinished thought", canStop: false, createdAt: 10, updatedAt: 11 } });
+    buffer({ type: "done" });
+    assert.deepEqual(received.map(event => event.type), ["turn", "done"]);
+  }
+  const received: StreamEvent[] = [];
+  const buffer = bufferAgentReply(event => received.push(event));
+  buffer({ type: "delta", text: "Unfinished thought" });
+  buffer({ type: "error", message: "The agent stopped" });
+  buffer({ type: "done" });
+  assert.deepEqual(received, [{ type: "error", message: "The agent stopped" }, { type: "done" }]);
 });

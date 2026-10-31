@@ -103,6 +103,7 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
   const reacting = useRef(false);
   const insets = useSafeAreaInsets();
   const available = !post.deleted && !post.pending && !post.activity;
+  const working = post.pending && post.user.agent;
   const reactions = post.reactions ?? [];
   const choose = async (emoji: string) => {
     if (!onReact || !available || reacting.current) return;
@@ -143,7 +144,7 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
     setMenu(true);
     if (Platform.OS !== "web") void Haptics.selectionAsync().catch(() => {});
   };
-  const label = `${post.user.name}, ${when(post.createdAt)}. ${post.deleted ? "Message deleted" : post.text}${post.replyCount ? `. ${post.replyCount} ${post.replyCount === 1 ? "reply" : "replies"}` : ""}`;
+  const label = `${post.user.name}, ${when(post.createdAt)}. ${post.deleted ? "Message deleted" : working ? "Working…" : post.text}${post.replyCount ? `. ${post.replyCount} ${post.replyCount === 1 ? "reply" : "replies"}` : ""}`;
   return (
     <>
     <Pressable onLongPress={actions} delayLongPress={400} accessible={false} style={[styles.post, compact && styles.postCompact, menu && { backgroundColor: colors.surface }]}>
@@ -159,14 +160,14 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
         )}
         {post.deleted ? (
           <Text style={styles.deleted}>Message deleted</Text>
-        ) : post.pending && !post.text && !post.attachments?.length ? (
-          <Text style={styles.deleted}>Thinking…</Text>
+        ) : working || (post.pending && !post.text && !post.attachments?.length) ? (
+          <Text style={styles.deleted}>Working…</Text>
         ) : post.text ? (
           post.user.agent ? <MessageText text={post.text} /> : <Rich text={post.text + (post.editedAt ? " " : "")} style={styles.body} />
         ) : null}
         {post.editedAt && !post.deleted ? <Text style={styles.edited}>Edited</Text> : null}
         </View>
-        {!post.deleted && post.attachments?.length ? <Attachments files={post.attachments} /> : null}
+        {!post.deleted && !working && post.attachments?.length ? <Attachments files={post.attachments} /> : null}
         {available && reactions.length > 0 ? <View style={styles.reactions}>
           {reactions.map(r => {
             const selected = r.userIds.includes(me);
@@ -385,7 +386,7 @@ export function ConversationRow({ c, onPress, onLongPress, accessibilityActions,
   const styles = useStyles();
   const { colors } = useTheme();
   const last = c.lastMessage;
-  const preview = last ? (last.deleted ? "Message deleted" : `${!last.activity && (c.kind === "channel" || (c.members?.length ?? 0) > 2) ? `${last.user.name}: ` : ""}${last.text || (last.attachments?.length ? `${last.attachments.length} attachment${last.attachments.length === 1 ? "" : "s"}` : "Thinking…")}`) : c.topic || "No messages yet";
+  const preview = last ? (last.deleted ? "Message deleted" : `${!last.activity && (c.kind === "channel" || (c.members?.length ?? 0) > 2) ? `${last.user.name}: ` : ""}${last.pending && last.user.agent ? "Working…" : last.text || (last.attachments?.length ? `${last.attachments.length} attachment${last.attachments.length === 1 ? "" : "s"}` : "Working…")}`) : c.topic || "No messages yet";
   const bold = c.unread > 0 && !c.archived;
   const title = c.kind === "channel" ? `#${c.title}` : c.title;
   return (

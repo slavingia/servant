@@ -34,9 +34,9 @@ test("equal-timestamp chat attachments retain server sequence rather than opaque
   assert.deepEqual(items.map(item => item.id), ["first", "second"]);
 });
 
-test("channel seeds include human and agent files while omitting deleted posts", () => {
+test("channel seeds include human and completed agent files while omitting deleted and working replies", () => {
   const base: Post = { id: "2", conversationId: "c1", user: { id: "s", name: "Sahil" }, threadRoot: null, text: "A photograph", deleted: false, pending: false, replyCount: 0, lastReplyAt: null, createdAt: 2, editedAt: null, attachments: [photo("human")] };
-  const items = mediaFromPosts([base, { ...base, id: "3", user: { id: "h", name: "Hermes", agent: true }, attachments: [photo("agent")] }, { ...base, id: "4", deleted: true, attachments: [photo("deleted")] }]);
+  const items = mediaFromPosts([base, { ...base, id: "3", user: { id: "h", name: "Hermes", agent: true }, attachments: [photo("agent")] }, { ...base, id: "4", deleted: true, attachments: [photo("deleted")] }, { ...base, id: "5", user: { id: "h", name: "Hermes", agent: true }, pending: true, attachments: [photo("unfinished")] }]);
   assert.deepEqual(items.map(item => [item.id, item.sender.name]), [["human", "Sahil"], ["agent", "Hermes"]]);
   assert.equal(items[0].text, "A photograph");
 });
@@ -46,7 +46,9 @@ test("chat seeds handle both roles and number, ISO, and unavailable timestamps",
     { id: "1", role: "user", text: "Look", at: 10, attachments: [photo("first")] },
     { id: "2", role: "assistant", text: "Here", at: "2026-10-30T12:00:00Z", attachments: [photo("second")] },
     { id: "3", role: "assistant", text: "Again", at: "invalid", attachments: [photo("third")] },
+    { id: "4", role: "assistant", text: "Unfinished", pending: true, attachments: [photo("unfinished")] },
   ], "Sahil", "Hermes");
+  assert.deepEqual(items.map(item => item.id), ["first", "second", "third"]);
   assert.equal(items[0].sender.name, "Sahil");
   assert.equal(items[0].createdAt, 10);
   assert.equal(items[1].sender.name, "Hermes");
