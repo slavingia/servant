@@ -49,6 +49,11 @@ function fakeHermes(key, label) {
       res.writeHead(404).end();
       return;
     }
+    if (req.method === "GET" && !m[2]) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ object: "hermes.session", session: { id: sid } }));
+      return;
+    }
     if (req.method === "GET" && m[2] === "/messages") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ object: "list", data: sessions.get(sid) }));
@@ -246,6 +251,36 @@ test("full access (default): @agent in a channel answers with the full agent", a
   assert.equal(member.calls.length, memberCalls, "never touched the limited agent");
 });
 
+test("a channel thread started on the limited agent keeps working after switching to full access", async () => {
+  const hal = await pair("member", "Hal");
+  const general = (await api("GET", "/v1/conversations", { token: hal })).json.conversations.find((c) => c.name === "general");
+  const agentReplies = async (rootId) => {
+    const t = (await api("GET", `/v1/conversations/${general.id}/threads/${rootId}`, { token: hal })).json;
+    return (t?.messages || t?.replies || []).filter((m) => m.user?.id === "agent" && !m.pending && m.text);
+  };
+  const poll = async (check, ms = 8000) => {
+    for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 50))) {
+      const v = await check();
+      if (v) return v;
+    }
+    throw new Error("timed out");
+  };
+  let rootId;
+  await withAgentAccess("limited", async () => {
+    const ask = await api("POST", `/v1/conversations/${general.id}/messages`, { token: hal, body: { text: "@agent first question" } });
+    rootId = ask.json.message.id;
+    const first = await poll(async () => (await agentReplies(rootId))[0]);
+    assert.match(first.text, /^member-agent heard:/);
+  });
+  // Full access now: this thread's session only exists on the member agent.
+  await api("POST", `/v1/conversations/${general.id}/messages`, { token: hal, body: { text: "@agent try again", threadRoot: rootId } });
+  const last = await poll(async () => (await agentReplies(rootId)).find((m) => /owner-agent heard|hit a problem/.test(m.text)));
+  assert.doesNotMatch(last.text, /hit a problem/);
+  // It got the whole thread, including the earlier question.
+  assert.match(last.text, /first question/);
+  assert.match(last.text, /try again/);
+});
+
 test("limited mode: member chat streams from the member agent and hides tool details", async () => {
   await withAgentAccess("limited", async () => {
   const ownerStreamsBefore = owner.calls.filter((c) => c.url.endsWith("/chat/stream")).length;
@@ -264,7 +299,7 @@ test("limited mode: member chat streams from the member agent and hides tool det
   assert.ok(!sent.text.includes("id_rsa"), "tool args must never reach a member");
 
   // Went to the member upstream, scoped to this person's memory.
-  const streamCall = member.calls.find((c) => c.url.endsWith("/chat/stream"));
+  const streamCall = member.calls.findLast((c) => c.url.endsWith("/chat/stream"));
   assert.equal(streamCall.headers["x-hermes-session-key"].startsWith("servant:usr_"), true);
   assert.equal(owner.calls.filter((c) => c.url.endsWith("/chat/stream")).length, ownerStreamsBefore);
 

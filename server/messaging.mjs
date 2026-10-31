@@ -565,6 +565,15 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     const prompt =
       `[Servant ${where}. Several people can read your reply. Answer the latest message that mentions you, ` +
       `clearly. Include images when useful.]\n\n${transcript}`;
+    // If the agent lost this thread's session (for example after switching
+    // agents), it starts over with the whole thread instead of failing.
+    const fullThread = thread
+      ? st.since.all(conv.id, 0, trigger.thread_root ? root : null, root, root).reverse()
+          .map((m) => `${m.user_id === AGENT_ID ? "You" : person(m.user_id).name}: ${m.text}`).join("\n")
+      : transcript;
+    const restartPrompt =
+      `[Servant ${where}. Several people can read your reply. Answer the latest message that mentions you, ` +
+      `clearly. Include images when useful. This is the whole thread so far.]\n\n${fullThread}`;
     // Bound recent visual context to the same total upload budget. Prefer the
     // latest images so an old thread cannot crowd out the triggering message.
     const images = [];
@@ -601,6 +610,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
         sessionKey: `servant:${conv.id}`,
         fresh: !thread,
         text: prompt,
+        restartText: restartPrompt,
         attachments: images,
         onDelta: (d) => {
           text += d;

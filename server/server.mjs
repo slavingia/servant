@@ -800,12 +800,19 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
     agentName: () => (fixedCfg || loadConfig()).agentName || "Agent",
     // Channels use the same agent as private chats: full access unless the
     // server is set to "agentAccess": "limited".
-    askAgent: async ({ sessionId, sessionKey: key, fresh, text, attachments, onDelta }) => {
+    askAgent: async ({ sessionId, sessionKey: key, fresh, text, restartText, attachments, onDelta }) => {
       const cfg = fixedCfg || loadConfig();
       const up = upstreamFor({ role: "member" }, cfg);
       if (!up) return "The agent isn't set up on this server yet";
       if (!fullAgentAccess(cfg)) await verifyMemberUpstream(up);
-      if (fresh) {
+      let create = fresh;
+      if (!fresh) {
+        // Threads started on the other agent (before an access change) have
+        // no session here. Recreate it and send the whole thread instead.
+        const existing = await hermes(up, "GET", `/api/sessions/${encodeURIComponent(sessionId)}`);
+        if (existing.status === 404) { create = true; if (restartText) text = restartText; }
+      }
+      if (create) {
         const made = await hermes(up, "POST", "/api/sessions", { id: sessionId, title: `Servant · ${sessionId.slice(8, 30)}` });
         if (!made.ok && made.status !== 409) throw new Error(`session ${made.status}`);
       }
