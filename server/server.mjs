@@ -62,6 +62,9 @@ export function loadConfig() {
     port: Number(process.env.SERVANT_PORT ?? cfg.port ?? 8787),
     name: cfg.name || "Servant",
     agentName: cfg.agentName || "Agent",
+    // "full" (default): everyone's agent has full Hermes access. "limited":
+    // non-owners use the restricted member bridge (docs/member-security.md).
+    agentAccess: cfg.agentAccess === "limited" ? "limited" : "full",
     // Where the server can be reached from phones. Filled in by the tunnel script.
     publicUrl: process.env.SERVANT_PUBLIC_URL || cfg.publicUrl || "",
     // Stable URL that always returns {"url": "<current publicUrl>"}.
@@ -238,8 +241,19 @@ function revokeDevice(device) {
 
 // ---------- upstream (Hermes API server) ----------
 
+// Owner, 10/31: the agent has full Hermes access for everyone (files, terminal,
+// web, memory), no approvals. Set "agentAccess": "limited" in config.json to go
+// back to the restricted member bridge for non-owners.
+function fullAgentAccess(cfg) {
+  return cfg.agentAccess !== "limited";
+}
+
+function agentRole(role, cfg) {
+  return role === "owner" || fullAgentAccess(cfg) ? "owner" : "member";
+}
+
 function upstreamFor(user, cfg) {
-  const up = cfg.upstreams[user.role === "owner" ? "owner" : "member"];
+  const up = cfg.upstreams[agentRole(user.role, cfg)];
   if (!up || !up.url || !up.key) return null;
   return up;
 }
@@ -514,7 +528,7 @@ async function handle(req, res, cfg) {
     const creator = requireAuth(req).user;
     const creationUp = upstreamFor(creator, cfg);
     if (!creationUp) return fail(res, 503, "agent_unavailable", "The agent isn't set up on this server yet");
-    if (creator.role !== "owner") await verifyMemberUpstream(creationUp);
+    if (agentRole(creator.role, cfg) !== "owner") await verifyMemberUpstream(creationUp);
     const chatId = id("cht");
     const hermesSessionId = `servant_${creator.id}_${chatId}`;
     const r = await hermes(creationUp, "POST", "/api/sessions", { id: hermesSessionId, title: `Servant · ${creator.name} · ${chatId.slice(-6)}` });
@@ -545,7 +559,7 @@ async function handle(req, res, cfg) {
   const chat = mine.find((c) => c.id === parts[2]);
   if (!chat) return fail(res, 404, "not_found", "No such chat");
   // A member promoted to owner (or the reverse) keeps old chats on the old agent.
-  const chatUp = cfg.upstreams[chat.role === "owner" ? "owner" : "member"];
+  const chatUp = cfg.upstreams[agentRole(chat.role, cfg)];
 
   if (method === "DELETE" && parts.length === 3) {
     mutateAuthenticated(req, (state, current) => { requireChat(state, current.user.id, chat.id).deletedAt = now(); });
@@ -562,7 +576,7 @@ async function handle(req, res, cfg) {
       upstreamUnavailable = true;
       return chatMediaStore().history(chat.id);
     };
-    if (chat.role !== "owner") {
+    if (agentRole(chat.role, cfg) !== "owner") {
       try { await verifyMemberUpstream(chatUp); }
       catch (error) { if (allowOffline) return cached(); throw error; }
     }
@@ -622,7 +636,8 @@ async function handle(req, res, cfg) {
     if (method === "POST" && parts[5] === "approval" && parts.length === 6) {
       const body = await readAuthorizedBody(req);
       const actor = ownTurn(parts[4]);
-      if (actor.user.role !== "owner" || chat.role !== "owner" || current.user.role !== "owner") return fail(res, 403, "forbidden", "Only the owner can approve this action");
+      // ownTurn already proves this is the caller's own turn in their own chat.
+      if (agentRole(chat.role, cfg) !== "owner") return fail(res, 403, "forbidden", "Only the owner can approve this action");
       return send(res, 200, { turn: agentTurns.requestApproval(parts[4], body.approvalId, body.choice) });
     }
   }
@@ -698,7 +713,8 @@ async function executePrivateTurn(turn, hooks, cfg) {
   if (!user || !device || (chat.role === "owner" && user.role !== "owner")) throw requestError(403, "forbidden", "Access changed before this turn started");
   const up = upstreamFor({ role: turn.role }, cfg);
   if (!up) throw requestError(502, "agent_error", "The agent is unavailable");
-  if (turn.role !== "owner") await verifyMemberUpstream(up);
+  const full = agentRole(turn.role, cfg) === "owner";
+  if (!full) await verifyMemberUpstream(up);
   const input = hermesInput(turn.text, turn.attachments);
   let assistantMessage;
   const saveAssistant = content => {
@@ -722,13 +738,13 @@ async function executePrivateTurn(turn, hooks, cfg) {
   };
   const onEvent = (name, payload) => {
     if (name === "assistant.delta") hooks.emit("delta", { text: payload.delta || "" });
-    else if (name === "tool.started") hooks.emit("status", { text: user.role === "owner" && payload.tool_name ? `Using ${payload.tool_name}` : "Working" });
+    else if (name === "tool.started") hooks.emit("status", { text: full && payload.tool_name ? `Using ${payload.tool_name}` : "Working" });
     else if (name === "assistant.completed") saveAssistant(payload.content || "");
     else if (name === "run.completed") {
       const source = (Array.isArray(payload.messages) ? payload.messages : []).findLast(m => m.role === "assistant" && (m.content || m.text));
       if (assistantMessage && source) chatMediaStore().identify(assistantMessage.id, source.content ?? source.text);
     } else if (name === "approval.request") {
-      if (turn.role !== "owner" || user.role !== "owner") throw requestError(403, "forbidden", "Member agents cannot request privileged approvals");
+      if (!full) throw requestError(403, "forbidden", "Member agents cannot request privileged approvals");
       hooks.emit("approval", { approval: { id: payload.approval_id, command: String(payload.command || "").slice(0, 8000),
         description: String(payload.description || payload.reason || "Allow this action on your Mac?").slice(0, 2000), choices: ["once", "deny"] } });
     } else if (name === "approval.responded") {
@@ -782,12 +798,13 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
     users: () => readState().users,
     onMessage: event => servicePush.enqueue(event),
     agentName: () => (fixedCfg || loadConfig()).agentName || "Agent",
-    // In channels several people read the answer, so the agent always runs
-    // as the limited member profile, never the owner's.
+    // Channels use the same agent as private chats: full access unless the
+    // server is set to "agentAccess": "limited".
     askAgent: async ({ sessionId, sessionKey: key, fresh, text, attachments, onDelta }) => {
-      const up = upstreamFor({ role: "member" }, fixedCfg || loadConfig());
+      const cfg = fixedCfg || loadConfig();
+      const up = upstreamFor({ role: "member" }, cfg);
       if (!up) return "The agent isn't set up on this server yet";
-      await verifyMemberUpstream(up);
+      if (!fullAgentAccess(cfg)) await verifyMemberUpstream(up);
       if (fresh) {
         const made = await hermes(up, "POST", "/api/sessions", { id: sessionId, title: `Servant · ${sessionId.slice(8, 30)}` });
         if (!made.ok && made.status !== 409) throw new Error(`session ${made.status}`);

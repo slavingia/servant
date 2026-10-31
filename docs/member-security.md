@@ -1,5 +1,7 @@
 # Member agent security
 
+> **Current setting (owner, October 31, 2026): full access for everyone.** By default the agent has the owner's full Hermes access in private chats, DMs and channels: files, terminal, web, memory, skills and connected services, with no approval prompts. Anyone who can message the agent, including anyone who joins with the team link, can make it read or change files and run commands on the server's Mac. Set `"agentAccess": "limited"` in `server/data/config.json` to go back to the restricted member bridge described below; the server re-reads the setting on every request, so no restart is needed.
+
 Servant's member bridge uses an **empty tool allowlist**. Members can ask questions, work with text and inline images in their own conversation, and receive model answers. They cannot use the Mac's terminal, files, browser, connected services, other session history, generated local files, or agent delegation. The owner's bridge keeps its normal capabilities.
 
 The policy is reviewable in [`server/member-policy.json`](../server/member-policy.json), and the reproducible Hermes configuration is [`config/profiles/member.json`](../config/profiles/member.json). The named denied tools document familiar examples; the empty allowlist also blocks future tools without needing to know their names. Adding a member capability requires a code and policy change with isolation tests. Tests cross-check the hub's self-contained deployment constants against the bridge policy.

@@ -192,7 +192,7 @@ test('production worker entrypoint starts, processes durable work through config
   const store = createStateStore({ directory: dir });
   store.mutate(s => { s.users = people; });
   store.close();
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ upstreams: { member: { url: `http://127.0.0.1:${upstream.address().port}`, key: 'fake-key' } } }));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ agentAccess: 'limited', upstreams: { member: { url: `http://127.0.0.1:${upstream.address().port}`, key: 'fake-key' } } }));
   const seed = messaging(dir);
   const trigger = seed.post(channel(seed), 'a', '@agent production fixture');
   const child = spawn(process.execPath, [new URL('./worker.mjs', import.meta.url).pathname], {

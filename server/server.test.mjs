@@ -15,6 +15,13 @@ import { createLiveEventDecoder } from "../app/src/lib/live-events.ts";
 import { testFetch } from "./encrypted-test-client.mjs";
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "servant-test-"));
+// config.json is re-read per request; flip agent access for one test.
+async function withAgentAccess(value, fn) {
+  const file = path.join(dataDir, "config.json");
+  const before = fs.readFileSync(file, "utf8");
+  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(before), agentAccess: value }));
+  try { return await fn(); } finally { fs.writeFileSync(file, before); }
+}
 process.env.SERVANT_DATA_DIR = dataDir;
 
 function fakeHermes(key, label) {
@@ -214,7 +221,34 @@ test("the join link works for many people, asks each for a name, and a fresh lin
   assert.equal((await api("POST", "/v1/pair", { body: { code: next, name: "Ivy" } })).status, 201);
 });
 
-test("member chat streams from the member agent and hides tool details", async () => {
+test("full access (default): a member's private chat uses the full agent and sees tool names", async () => {
+  const token = await pair("member", "Fran");
+  const created = await api("POST", "/v1/chats", { token, body: {} });
+  assert.equal(created.status, 201);
+  const ownerCalls = owner.calls.length;
+  const memberCalls = member.calls.length;
+  const sent = await api("POST", `/v1/chats/${created.json.chat.id}/messages`, { token, body: { text: "read the repo" } });
+  assert.equal(sent.status, 200);
+  const deltas = parseSse(sent.text).filter((e) => e.event === "delta").map((e) => e.data.text).join("");
+  assert.equal(deltas, "owner-agent heard: read the repo");
+  assert.ok(owner.calls.length > ownerCalls, "went to the full agent");
+  assert.equal(member.calls.length, memberCalls, "never touched the limited agent");
+});
+
+test("full access (default): @agent in a channel answers with the full agent", async () => {
+  const gil = await pair("member", "Gil");
+  const general = (await api("GET", "/v1/conversations", { token: gil })).json.conversations.find((c) => c.name === "general");
+  const ownerCalls = owner.calls.length;
+  const memberCalls = member.calls.length;
+  const ask = await api("POST", `/v1/conversations/${general.id}/messages`, { token: gil, body: { text: "@agent check the source" } });
+  assert.ok(ask.status < 300, ask.text);
+  await waitFor(() => owner.calls.slice(ownerCalls).some((c) => /chat\/stream/.test(c.path || c.url || "")));
+  assert.equal(member.calls.length, memberCalls, "never touched the limited agent");
+});
+
+test("limited mode: member chat streams from the member agent and hides tool details", async () => {
+  await withAgentAccess("limited", async () => {
+  const ownerStreamsBefore = owner.calls.filter((c) => c.url.endsWith("/chat/stream")).length;
   const token = await pair("member", "Ben");
   const created = await api("POST", "/v1/chats", { token, body: {} });
   assert.equal(created.status, 201);
@@ -232,7 +266,7 @@ test("member chat streams from the member agent and hides tool details", async (
   // Went to the member upstream, scoped to this person's memory.
   const streamCall = member.calls.find((c) => c.url.endsWith("/chat/stream"));
   assert.equal(streamCall.headers["x-hermes-session-key"].startsWith("servant:usr_"), true);
-  assert.equal(owner.calls.filter((c) => c.url.endsWith("/chat/stream")).length, 0);
+  assert.equal(owner.calls.filter((c) => c.url.endsWith("/chat/stream")).length, ownerStreamsBefore);
 
   const history = await api("GET", `/v1/chats/${chatId}/messages`, { token });
   assert.deepEqual(history.json.messages.map((m) => m.role), ["user", "assistant"]);
@@ -240,6 +274,7 @@ test("member chat streams from the member agent and hides tool details", async (
 
   const list = await api("GET", "/v1/chats", { token });
   assert.equal(list.json.chats[0].title, "hello there");
+  });
 });
 
 test("people can't see each other's chats", async () => {
@@ -429,7 +464,8 @@ test("typing is relayed live to the others, not the typist, and throttled", asyn
   eveLive.close();
 });
 
-test("@agent in a channel replies in a thread, as the member agent, with live updates", async () => {
+test("limited mode: @agent in a channel replies in a thread, as the member agent, with live updates", async () => {
+  await withAgentAccess("limited", async () => {
   const ana = await pair("owner", "Owner Ana");
   const dee = await pair("member", "Dee");
   const general = (await api("GET", "/v1/conversations", { token: dee })).json.conversations.find((c) => c.name === "general");
@@ -467,6 +503,7 @@ test("@agent in a channel replies in a thread, as the member agent, with live up
   });
   assert.equal(member.calls.filter((c) => c.url === "/api/sessions").length, sessionsBefore);
   live.close();
+  });
 });
 
 test("channel archive is personal, persistent, reversible, and still receives messages", async () => {
