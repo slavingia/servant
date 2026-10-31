@@ -33,7 +33,7 @@ export function Avatar({ name, agent, size = 34 }: { name: string; agent?: boole
     <View
       accessibilityElementsHidden
       importantForAccessibility="no"
-      style={[styles.avatar, { width: size, height: size, borderRadius: radius.sm, backgroundColor: agent ? colors.navy : tone.background }]}
+      style={[styles.avatar, { width: size, height: size, borderRadius: agent ? radius.sm : size / 2, backgroundColor: agent ? colors.navy : tone.background }]}
     >
       <Text style={[styles.avatarText, { fontSize: size * 0.4, color: agent ? colors.onBrand : tone.foreground }]}>{agent ? "AI" : initials || "?"}</Text>
     </View>

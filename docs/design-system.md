@@ -91,8 +91,9 @@ thin decorative separators need not look like form boundaries.
 Spacing tokens are `xxs: 4`, `xs: 8`, `sm: 12`, `md: 16`, `side: 16`, `lg: 24`,
 `xl: 32`, and `xxl: 48`. Screens have 16-point side gutters. Related content uses
 4–12 points; larger separations use 24–32 points. Radius tokens are `sm: 6`,
-`md: 10`, `lg: 12`, `xl: 24`, and `pill: 999`. Avatars, buttons, and reaction chips
-use small rounded corners; unread badges and date labels use pills. The signed-in
+`md: 10`, `lg: 12`, `xl: 24`, and `pill: 999`. People avatars are circles; agent
+avatars, buttons, and reaction chips use small rounded corners. Unread badges and
+date labels use pills. The signed-in
 content shell uses `radius.xl` on its top-left and top-right corners, with
 IRS blue behind it. Content is clipped to those corners; bottom corners remain
 square.
@@ -111,8 +112,9 @@ inside a control whose accessible label explains its action. Keep custom
 icon-only controls at least 44 by 44 points. Native tabs use platform symbols
 and system-managed touch targets.
 
-`Avatar` uses initials in a rounded square. A stable name hash selects one of
-five `avatarTones` background/foreground pairs:
+`Avatar` uses initials in a circle for people, with a radius of half its size.
+Agent avatars use rounded squares. A stable name hash selects one of five
+`avatarTones` background/foreground pairs:
 
 | Background | Foreground |
 | --- | --- |
