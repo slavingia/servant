@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from "react";
-import { ActivityIndicator, FlatList, Image, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Animated, FlatList, Image, Keyboard, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
-import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { request, ServerError, type Account, type Attachment } from "../lib/server";
 import { useSession } from "../lib/session";
 import { createMediaCache, formatFileSize, isPreviewImage, isPreviewVideo, MAX_FILE_BYTES, MAX_VIDEO_BYTES, mediaRoute, mergeMediaItems, readMediaPage, type MediaItem, type MediaScope } from "../lib/media";
 import { radius, space, typography } from "../lib/theme";
+import { canStartGalleryDismiss, shouldDismissGallery } from "../lib/gallery-gestures";
 import { AppIcon } from "./AppIcon";
 import { GalleryVideo } from "./VideoMedia";
 import { GalleryContext, useMediaGallery } from "./MediaGalleryContext";
@@ -88,7 +89,6 @@ type GalleryResult = { attempt: number; items: MediaItem[]; complete: boolean; e
 function GalleryContent({ account, scope, seeds, opened, onClose }: { account: Account; scope?: MediaScope; seeds: MediaItem[]; opened: Attachment; onClose: () => void }) {
   const scopeId = scope?.id;
   const scopeKind = scope?.kind;
-  const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
   const [viewport, setViewport] = useState({ width: window.width, height: Math.max(1, window.height - 220) });
   const [activeId, setActiveId] = useState(opened.id);
@@ -97,7 +97,10 @@ function GalleryContent({ account, scope, seeds, opened, onClose }: { account: A
   const [zoomed, setZoomed] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [dismissing, setDismissing] = useState(false);
   const [shareError, setShareError] = useState("");
+  const [dismissOffset] = useState(() => new Animated.Value(0));
+  const dismissCancelled = useRef(false);
   const list = useRef<FlatList<MediaItem>>(null);
   const closeButton = useRef<ComponentRef<typeof View>>(null);
   const mounted = useRef(true);
@@ -153,6 +156,44 @@ function GalleryContent({ account, scope, seeds, opened, onClose }: { account: A
     setDragging(false);
     if (next) { setActiveId(next.id); setShareError(""); setZoomed(false); }
   }, [items, viewport.width]);
+  const restorePage = useCallback(() => {
+    setDragging(false);
+    list.current?.scrollToOffset({ offset: viewport.width * index, animated: false });
+  }, [index, viewport.width]);
+  const dismissGesture = useMemo(() => {
+    const reset = () => {
+      restorePage();
+      setDismissing(false);
+      Animated.spring(dismissOffset, { toValue: 0, speed: 24, bounciness: 0, useNativeDriver: true }).start();
+    };
+    // create only registers these callbacks; refs are read during gestures.
+    // eslint-disable-next-line react-hooks/refs
+    return PanResponder.create({
+      // Leave taps, horizontal paging, video controls and pinch gestures alone.
+      // Capture only after a single finger has committed to a downward drag.
+      onStartShouldSetPanResponderCapture: (_, gesture) => {
+        dismissCancelled.current = gesture.numberActiveTouches !== 1;
+        return false;
+      },
+      onMoveShouldSetPanResponderCapture: (_, gesture) => !dismissCancelled.current && !zoomed && !sharing && canStartGalleryDismiss(gesture),
+      onPanResponderStart: (_, gesture) => { if (gesture.numberActiveTouches > 1) dismissCancelled.current = true; },
+      onPanResponderGrant: () => {
+        dismissOffset.stopAnimation();
+        restorePage();
+        setDismissing(true);
+      },
+      onPanResponderMove: (_, gesture) => {
+        if (gesture.numberActiveTouches !== 1) dismissCancelled.current = true;
+        if (!dismissCancelled.current) dismissOffset.setValue(Math.max(0, gesture.dy));
+      },
+      onPanResponderRelease: (_, gesture) => {
+        if (!dismissCancelled.current && shouldDismissGallery(gesture, viewport.height)) onClose();
+        else reset();
+      },
+      onPanResponderTerminate: reset,
+      onPanResponderTerminationRequest: () => true,
+    });
+  }, [dismissOffset, onClose, restorePage, sharing, viewport.height, zoomed]);
   useEffect(() => {
     if (Platform.OS !== "web") return;
     closeButton.current?.focus();
@@ -176,10 +217,12 @@ function GalleryContent({ account, scope, seeds, opened, onClose }: { account: A
   };
 
   const date = selected?.createdAt ? new Date(selected.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
-  return <View accessibilityViewIsModal style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+  // Native padding uses the modal's own safe area, not AppChrome's consumed
+  // top inset. It also updates without waiting for a JS inset/layout roundtrip.
+  return <SafeAreaView accessibilityViewIsModal onAccessibilityEscape={onClose} style={styles.root}>
     <StatusBar style="light" />
-    <View style={[styles.header, { paddingLeft: Math.max(space.xs, insets.left), paddingRight: Math.max(space.xs, insets.right) }]}>
-      <Pressable ref={closeButton} accessibilityRole="button" accessibilityLabel="Close gallery" onPress={onClose} style={styles.iconButton}><AppIcon name="close" color="#FFFFFF" size={23} /></Pressable>
+    <View style={styles.header}>
+      <Pressable ref={closeButton} testID="gallery-close" accessibilityRole="button" accessibilityLabel="Close gallery" onPress={onClose} hitSlop={4} style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}><AppIcon name="close" color="#FFFFFF" size={23} /></Pressable>
       <View style={styles.headerCopy}>
         <Text style={styles.counter} accessibilityLiveRegion="polite">{selected ? `${index + 1} of ${items.length}${page.complete ? "" : " loaded"}` : "Conversation files"}</Text>
         <Text style={styles.galleryLabel}>Shared in this conversation</Text>
@@ -194,18 +237,23 @@ function GalleryContent({ account, scope, seeds, opened, onClose }: { account: A
       const { width, height } = event.nativeEvent.layout;
       if (width > 0 && height > 0 && (width !== viewport.width || height !== viewport.height)) setViewport({ width, height });
     }}>
-      {items.length ? <FlatList ref={list} data={items} horizontal pagingEnabled scrollEnabled={!zoomed} showsHorizontalScrollIndicator={false} directionalLockEnabled
+      <Animated.View {...dismissGesture.panHandlers} style={[styles.gestureSurface, {
+        transform: [{ translateY: dismissOffset }],
+        opacity: dismissOffset.interpolate({ inputRange: [0, Math.max(1, viewport.height)], outputRange: [1, 0.35], extrapolate: "clamp" }),
+      }]}>
+      {items.length ? <FlatList ref={list} data={items} horizontal pagingEnabled scrollEnabled={!zoomed && !dismissing} showsHorizontalScrollIndicator={false} directionalLockEnabled
         accessibilityLabel="Conversation attachment gallery" initialScrollIndex={index} initialNumToRender={1} maxToRenderPerBatch={3} windowSize={3} removeClippedSubviews={false}
         keyExtractor={item => item.id} getItemLayout={(_, itemIndex) => ({ length: viewport.width, offset: viewport.width * itemIndex, index: itemIndex })}
-        extraData={{ index, viewport, dragging }} onScrollBeginDrag={() => setDragging(true)} onScrollEndDrag={event => {
+        extraData={{ index, viewport, dragging, dismissing, sharing }} onScrollBeginDrag={() => setDragging(true)} onScrollEndDrag={event => {
           // A slow drag can finish without a momentum event.
           if (!event.nativeEvent.velocity?.x) settlePage(event.nativeEvent.contentOffset.x);
         }} onMomentumScrollEnd={event => settlePage(event.nativeEvent.contentOffset.x)}
         renderItem={({ item, index: itemIndex }) => <GalleryPage item={item} width={viewport.width} height={viewport.height} active={itemIndex === index} nearby={Math.abs(itemIndex - index) <= 1} playingAllowed={itemIndex === index && !dragging} autoPlay={item.id === opened.id} zoomMode={itemIndex === index && zoomed} onZoomChange={setZoomed} onOpenFile={() => void share()} busy={sharing} />}
       /> : <View style={styles.center}><Text style={styles.emptyTitle}>Attachment unavailable</Text><Text style={styles.note}>It may have been removed from this conversation.</Text></View>}
+      </Animated.View>
     </View>
     {shareError ? <Text accessibilityRole="alert" style={styles.shareError}>{shareError}</Text> : null}
-    <View style={[styles.footer, { paddingLeft: Math.max(space.side, insets.left), paddingRight: Math.max(space.side, insets.right) }]}>
+    <View style={styles.footer}>
       <View style={styles.caption}>
         {selected ? <><Text numberOfLines={1} style={styles.filename}>{selected.name}</Text>
           <Text numberOfLines={1} style={styles.note}>{[selected.sender.name, date, formatFileSize(selected.size)].filter(Boolean).join(" · ")}</Text>
@@ -213,11 +261,10 @@ function GalleryContent({ account, scope, seeds, opened, onClose }: { account: A
       </View>
       <View style={styles.navigation}>
         <Pressable accessibilityRole="button" accessibilityLabel="Previous attachment" accessibilityState={{ disabled: index === 0 || !items.length }} disabled={index === 0 || !items.length} onPress={() => move(-1)} style={[styles.navButton, index === 0 && styles.disabled]}><AppIcon name="chevronRight" color="#FFFFFF" size={20} /></Pressable>
-        <Text style={styles.hint}>{zoomed ? "Pinch to zoom · Fit to browse" : "Swipe to browse"}</Text>
         <Pressable accessibilityRole="button" accessibilityLabel="Next attachment" accessibilityState={{ disabled: index >= items.length - 1 }} disabled={index >= items.length - 1} onPress={() => move(1)} style={[styles.navButton, styles.nextButton, index >= items.length - 1 && styles.disabled]}><AppIcon name="chevronRight" color="#FFFFFF" size={20} /></Pressable>
       </View>
     </View>
-  </View>;
+  </SafeAreaView>;
 }
 
 function GalleryPage({ item, width, height, active, nearby, playingAllowed, autoPlay, zoomMode, onZoomChange, onOpenFile, busy }: { item: MediaItem; width: number; height: number; active: boolean; nearby: boolean; playingAllowed: boolean; autoPlay: boolean; zoomMode: boolean; onZoomChange: (value: boolean) => void; onOpenFile: () => void; busy: boolean }) {
@@ -241,8 +288,9 @@ function GalleryPage({ item, width, height, active, nearby, playingAllowed, auto
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#101318" },
-  header: { minHeight: 60, flexDirection: "row", alignItems: "center", gap: space.xs },
-  iconButton: { width: 48, minHeight: 48, alignItems: "center", justifyContent: "center" },
+  header: { minHeight: 64, paddingHorizontal: space.sm, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", gap: space.xs, zIndex: 1 },
+  iconButton: { width: 48, height: 48, borderRadius: radius.pill, backgroundColor: "#283442", alignItems: "center", justifyContent: "center" },
+  pressed: { opacity: 0.65 },
   headerCopy: { flex: 1, alignItems: "center" },
   counter: { ...typography.bodyStrong, color: "#FFFFFF" },
   galleryLabel: { ...typography.meta, color: "#BAC3CF", marginTop: 1 },
@@ -251,21 +299,21 @@ const styles = StyleSheet.create({
   notice: { paddingHorizontal: space.side, flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: space.xs, minHeight: 36 },
   note: { ...typography.caption, color: "#BAC3CF", textAlign: "center", flexShrink: 1 },
   retry: { minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center", paddingHorizontal: space.xs },
-  viewport: { flex: 1, minHeight: 0 },
+  viewport: { flex: 1, minHeight: 0, overflow: "hidden" },
+  gestureSurface: { flex: 1 },
   zoom: { flex: 1 },
   zoomButton: { position: "absolute", top: space.sm, right: space.side, minHeight: 44, minWidth: 60, paddingHorizontal: space.sm, borderRadius: radius.pill, backgroundColor: "#202630DD", alignItems: "center", justifyContent: "center" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: space.lg, gap: space.sm },
   emptyTitle: { ...typography.heading, color: "#FFFFFF", textAlign: "center" },
   fileSymbol: { width: 88, height: 88, borderRadius: radius.lg, backgroundColor: "#202630", alignItems: "center", justifyContent: "center", marginBottom: space.xs },
   fileAction: { minHeight: 48, minWidth: 112, borderRadius: radius.md, backgroundColor: "#283442", alignItems: "center", justifyContent: "center", paddingHorizontal: space.md, marginTop: space.xs },
-  footer: { paddingTop: space.sm, paddingBottom: space.xs, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#2D343E" },
+  footer: { paddingHorizontal: space.side, paddingTop: space.sm, paddingBottom: space.xs, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#2D343E" },
   caption: { gap: space.xxs, alignItems: "center" },
   filename: { ...typography.bodyStrong, color: "#FFFFFF", textAlign: "center" },
   messageCaption: { ...typography.caption, color: "#E0E5EC", textAlign: "center", marginTop: space.xxs },
   navigation: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: space.xs, gap: space.xs },
   navButton: { minHeight: 48, minWidth: 48, borderRadius: radius.pill, backgroundColor: "#202630", alignItems: "center", justifyContent: "center", transform: [{ rotate: "180deg" }] },
   nextButton: { transform: [{ rotate: "0deg" }] },
-  hint: { ...typography.meta, color: "#BAC3CF", textAlign: "center", flex: 1 },
   disabled: { opacity: 0.3 },
   shareError: { ...typography.caption, color: "#FFC2C8", padding: space.sm, textAlign: "center" },
 });
