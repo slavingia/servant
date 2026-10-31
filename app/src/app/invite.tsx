@@ -6,12 +6,14 @@ import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { api, ServerError } from "../lib/server";
 import { useSession } from "../lib/session";
-import { colors, radius, space, typography } from "../lib/theme";
+import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
 type Link = { code: string; link: string; expiresAt: number };
 
 // One join link for the whole team. Anyone with it can join until it expires.
 export default function Invite() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const { account } = useSession();
   const [invite, setInvite] = useState<Link | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -124,10 +126,10 @@ export default function Invite() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white },
+const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.background },
   body: { padding: space.side, paddingBottom: space.xxl },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: space.side, backgroundColor: colors.white },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: space.side, backgroundColor: colors.background },
   heading: { ...typography.heading, color: colors.ink },
   lead: { ...typography.caption, marginTop: space.xs, color: colors.muted },
   qr: { marginTop: space.md, alignSelf: "center", padding: space.md, backgroundColor: colors.white, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.line },
@@ -138,4 +140,4 @@ const styles = StyleSheet.create({
   detail: { ...typography.caption, marginTop: space.xs, color: colors.muted },
   error: { ...typography.body, color: colors.red, textAlign: "center" },
   actionError: { ...typography.caption, marginTop: space.sm, color: colors.red },
-});
+}));

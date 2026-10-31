@@ -8,9 +8,11 @@ import { AppIcon } from "../components/AppIcon";
 import { api, ServerError, type Conversation, type Person } from "../lib/server";
 import { useLive } from "../lib/live";
 import { useSession } from "../lib/session";
-import { colors, controls, space, typography } from "../lib/theme";
+import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
 export default function ChannelInfo() {
+  const styles = useStyles();
+  const { colors, controls } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { account } = useSession();
   const { refresh } = useLive();
@@ -184,8 +186,8 @@ export default function ChannelInfo() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white },
+const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.background },
   content: { padding: space.side, paddingBottom: space.xxl },
   loading: { padding: space.lg, alignItems: "center", justifyContent: "center", gap: space.lg },
   loadError: { ...typography.body, color: colors.red, textAlign: "center" },
@@ -208,4 +210,4 @@ const styles = StyleSheet.create({
   leaveSection: { marginTop: space.xl, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   leaveAction: { minHeight: 44, justifyContent: "center", alignSelf: "flex-start", paddingRight: space.side },
   leaveLabel: { ...typography.body, color: colors.red },
-});
+}));

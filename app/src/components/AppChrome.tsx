@@ -2,7 +2,7 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from "re
 import { StyleSheet, View } from "react-native";
 import { SafeAreaInsetsContext, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSession } from "../lib/session";
-import { colors, radius } from "../lib/theme";
+import { radius, createThemedStyles } from "../lib/theme";
 import { Omnibar } from "./Omnibar";
 
 const ChromeHeightContext = createContext(0);
@@ -12,6 +12,7 @@ export function useChromeHeight() {
 }
 
 export function AppChrome({ enabled, children }: { enabled: boolean; children: ReactNode }) {
+  const styles = useStyles();
   const insets = useSafeAreaInsets();
   const { account } = useSession();
   const [barHeight, setBarHeight] = useState(insets.top + 64);
@@ -34,10 +35,10 @@ export function AppChrome({ enabled, children }: { enabled: boolean; children: R
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white },
+const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.background },
   signedInRoot: { backgroundColor: colors.navy },
   header: { flexShrink: 0 },
   content: { flex: 1, minHeight: 0 },
-  roundedContent: { backgroundColor: colors.white, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, overflow: "hidden" },
-});
+  roundedContent: { backgroundColor: colors.background, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, overflow: "hidden" },
+}));

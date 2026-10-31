@@ -14,7 +14,7 @@ import { AgentApprovalCard } from "../../components/AgentApprovalCard";
 import { activeAgentTurn, agentTurnLabel, type AgentTurn } from "../../lib/agent-turns";
 import { api, sendMessage, ServerError, type Message, type Upload } from "../../lib/server";
 import { useSession } from "../../lib/session";
-import { colors, space, typography } from "../../lib/theme";
+import { space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 
 type Row = Message & { pending?: boolean; failed?: boolean; localId?: string; uploads?: Upload[] };
 
@@ -26,6 +26,8 @@ export default function ChatScreen() {
 }
 
 function ChatConversation() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const { id, title } = useLocalSearchParams<{ id: string; title?: string }>();
   const { account, setAccount } = useSession();
   const headerHeight = useHeaderHeight();
@@ -323,8 +325,8 @@ function ChatConversation() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white },
+const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.background },
   turnStatus: { flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs, backgroundColor: colors.surface },
   turnCopy: { flex: 1 }, turnLabel: { ...typography.captionStrong, color: colors.ink }, turnDetail: { ...typography.meta, color: colors.muted },
   list: { paddingVertical: space.sm },
@@ -343,4 +345,4 @@ const styles = StyleSheet.create({
   emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center" },
   emptyBody: { ...typography.body, marginTop: space.xs, color: colors.muted, textAlign: "center", maxWidth: 360 },
   retry: { marginTop: space.lg },
-});
+}));

@@ -8,9 +8,11 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { AppIcon } from "../../components/AppIcon";
 import Constants from "expo-constants";
 import { useSession } from "../../lib/session";
-import { colors, radius, space, typography } from "../../lib/theme";
+import { createThemedStyles, useTheme, radius, space, typography } from "../../lib/theme";
 
 function Row({ label, value, onPress }: { label: string; value?: string; onPress?: () => void }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const content = <>
       <Text style={styles.rowLabel}>{label}</Text>
       {value ? <Text style={styles.rowValue}>{value}</Text> : null}
@@ -26,6 +28,8 @@ function Row({ label, value, onPress }: { label: string; value?: string; onPress
 
 export default function Settings() {
   const { account, signOut } = useSession();
+  const { colors } = useTheme();
+  const styles = useStyles();
   const [release, setRelease] = useState<Release | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [leaving, setLeaving] = useState(false);
@@ -105,7 +109,7 @@ export default function Settings() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.surface },
   content: { paddingBottom: space.xl },
   profile: { marginHorizontal: space.side, marginBottom: space.lg, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", gap: space.sm },
@@ -113,11 +117,11 @@ const styles = StyleSheet.create({
   profileName: { ...typography.heading, color: colors.ink },
   profileRole: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
   section: { ...typography.label, marginHorizontal: space.side, marginTop: space.sm, marginBottom: space.xs, color: colors.muted },
-  group: { backgroundColor: colors.white, marginHorizontal: space.side, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, overflow: "hidden", marginBottom: space.md },
+  group: { backgroundColor: colors.background, marginHorizontal: space.side, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, overflow: "hidden", marginBottom: space.md },
   row: { minHeight: 48, paddingHorizontal: space.md, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", gap: space.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   rowLabel: { ...typography.body, color: colors.ink, flex: 1 },
   rowValue: { ...typography.body, color: colors.muted, flex: 1, textAlign: "right" },
-  danger: { marginHorizontal: space.side, marginTop: space.xs, minHeight: 48, justifyContent: "center", paddingHorizontal: space.md, backgroundColor: colors.white, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
+  danger: { marginHorizontal: space.side, marginTop: space.xs, minHeight: 48, justifyContent: "center", paddingHorizontal: space.md, backgroundColor: colors.background, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
   dangerText: { ...typography.bodyStrong, color: colors.red },
   notes: { padding: space.md },
   notesHeader: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: space.xs, marginBottom: space.xs },
@@ -126,4 +130,4 @@ const styles = StyleSheet.create({
   notesText: { ...typography.caption, color: colors.muted },
   notesLink: { ...typography.captionStrong, marginTop: space.sm, color: colors.blue },
   version: { ...typography.caption, marginTop: space.md, textAlign: "center", color: colors.muted },
-});
+}));

@@ -1,5 +1,6 @@
 import { ActivityIndicator, Platform, View } from "react-native";
-import { router, Stack } from "expo-router";
+import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider as NavigationThemeProvider, usePathname } from "expo-router";
+import { useMemo } from "react";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { SessionProvider, useSession } from "../lib/session";
@@ -7,21 +8,37 @@ import { NotificationsProvider } from "../lib/notifications";
 import { LiveProvider } from "../lib/live";
 import { FeedbackGesture } from "../components/FeedbackGesture";
 import { AppChrome } from "../components/AppChrome";
-import { colors, typography } from "../lib/theme";
+import { ThemeProvider, useTheme, typography } from "../lib/theme";
 import { validServerKey } from "../lib/tunnel-crypto";
 
 export default function RootLayout() {
   return (
+    <ThemeProvider>
     <SafeAreaProvider>
       <SessionProvider>
         <SessionNavigation />
       </SessionProvider>
     </SafeAreaProvider>
+    </ThemeProvider>
   );
 }
 
 function SessionNavigation() {
   const { ready, account } = useSession();
+  const { colors, scheme } = useTheme();
+  const pathname = usePathname();
+  const navigationTheme = useMemo(() => ({
+    ...(scheme === "dark" ? DarkTheme : DefaultTheme),
+    colors: {
+      ...(scheme === "dark" ? DarkTheme.colors : DefaultTheme.colors),
+      primary: colors.blue,
+      background: colors.background,
+      card: colors.background,
+      text: colors.ink,
+      border: colors.line,
+      notification: colors.primary,
+    },
+  }), [colors, scheme]);
   const paired = !!account && validServerKey(account.serverKey);
   // Wait for the saved account before mounting any invite screen.
   if (!ready) {
@@ -32,20 +49,21 @@ function SessionNavigation() {
     );
   }
   return (
+    <NavigationThemeProvider value={navigationTheme}>
     <LiveProvider>
     <NotificationsProvider>
     <FeedbackGesture>
-    <StatusBar style="light" />
+    <StatusBar style={paired || pathname === "/welcome" || scheme === "dark" ? "light" : "dark"} />
     <AppChrome enabled={paired}>
     <Stack
       screenOptions={{
-        headerStyle: { backgroundColor: colors.white },
+        headerStyle: { backgroundColor: colors.background },
         headerTintColor: colors.ink,
         headerTitleAlign: "left",
         headerShadowVisible: true,
         headerTitleStyle: { fontSize: typography.bodyStrong.fontSize, fontWeight: typography.bodyStrong.fontWeight },
         headerBackButtonDisplayMode: "minimal",
-        contentStyle: { backgroundColor: colors.white },
+        contentStyle: { backgroundColor: colors.background },
         // Keep the compact conversation toolbar free of extra glass button fills.
         ...(Platform.OS === "ios"
           ? {
@@ -92,5 +110,6 @@ function SessionNavigation() {
     </FeedbackGesture>
     </NotificationsProvider>
     </LiveProvider>
+    </NavigationThemeProvider>
   );
 }

@@ -6,11 +6,13 @@ import { nativeBuildVersion } from "expo-application";
 import { Button } from "../components/Button";
 import { useSession } from "../lib/session";
 import { api, type FeedbackReport } from "../lib/server";
-import { colors, controls, radius, space, typography } from "../lib/theme";
+import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
 const labels: Record<string, string> = { queued: "Queued", working: "Investigating", released: "Fix released", needs_info: "More information needed", reviewed: "Reviewed", interrupted: "Needs retry" };
 
 export default function Feedback() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const { account } = useSession();
   const { screen } = useLocalSearchParams<{ screen?: string }>();
   const [text, setText] = useState("");
@@ -66,8 +68,8 @@ export default function Feedback() {
     </View>)}
   </ScrollView>;
 }
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white },
+const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.background },
   content: { padding: space.side, gap: space.md, paddingBottom: space.xxl },
   sectionHeading: { ...typography.label, marginTop: space.md, color: colors.ink },
   label: { ...typography.label, color: colors.ink, marginTop: space.xs, marginBottom: -space.xs },
@@ -79,4 +81,4 @@ const styles = StyleSheet.create({
   report: { paddingVertical: space.md, gap: space.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   status: { ...typography.captionStrong, alignSelf: "flex-start", paddingHorizontal: space.xs, paddingVertical: 2, borderRadius: radius.sm, backgroundColor: colors.blueSoft, color: colors.blueDark },
   link: { ...typography.bodyStrong, color: colors.blue, paddingVertical: space.sm, minHeight: 44 },
-});
+}));

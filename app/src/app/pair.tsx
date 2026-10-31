@@ -4,11 +4,13 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Button } from "../components/Button";
 import { pair, ServerError } from "../lib/server";
 import { useSession } from "../lib/session";
-import { colors, controls, space, typography } from "../lib/theme";
+import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
 // Opened by servant://pair?code=…&d=… links, the QR scanner, or Welcome.
 // The team link asks for a name; a one-time invite already has one.
 export default function Pair() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const params = useLocalSearchParams<{ code?: string; key?: string; d?: string; server?: string; hub?: string }>();
   // Links from the server still say "hub" so builds 2 and 3 can read them.
   const direct = params.server || params.hub || undefined;
@@ -90,9 +92,9 @@ export default function Pair() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, alignItems: "center", justifyContent: "center", padding: space.side, backgroundColor: colors.white },
-  form: { flex: 1, backgroundColor: colors.white },
+const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create({
+  root: { flex: 1, alignItems: "center", justifyContent: "center", padding: space.side, backgroundColor: colors.background },
+  form: { flex: 1, backgroundColor: colors.background },
   formContent: { padding: space.side, paddingVertical: space.lg, width: "100%", maxWidth: 480, alignSelf: "center" },
   title: { ...typography.heading, color: colors.ink },
   body: { ...typography.caption, marginTop: space.xs, color: colors.muted, textAlign: "center" },
@@ -100,4 +102,4 @@ const styles = StyleSheet.create({
   label: { ...typography.label, marginTop: space.lg, color: colors.ink },
   input: { ...controls.input, marginTop: space.xs },
   error: { ...typography.caption, marginTop: space.sm, color: colors.red },
-});
+}));

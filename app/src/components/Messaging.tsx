@@ -10,7 +10,7 @@ import { validateAttachmentSelection } from "../lib/media";
 import { Attachments, DraftAttachments, pickAttachments, type DraftAttachment } from "./Attachments";
 import { AppIcon } from "./AppIcon";
 import { MessageText } from "./MessageText";
-import { avatarTones, colors, radius, space, typography } from "../lib/theme";
+import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
 export function when(ms: number) {
   const d = new Date(ms);
@@ -20,6 +20,8 @@ export function when(ms: number) {
 }
 
 export function Avatar({ name, agent, size = 34 }: { name: string; agent?: boolean; size?: number }) {
+  const styles = useStyles();
+  const { colors, avatarTones } = useTheme();
   const initials = name
     .split(/\s+/)
     .filter(Boolean)
@@ -33,12 +35,13 @@ export function Avatar({ name, agent, size = 34 }: { name: string; agent?: boole
       importantForAccessibility="no"
       style={[styles.avatar, { width: size, height: size, borderRadius: radius.sm, backgroundColor: agent ? colors.navy : tone.background }]}
     >
-      <Text style={[styles.avatarText, { fontSize: size * 0.4, color: agent ? colors.white : tone.foreground }]}>{agent ? "AI" : initials || "?"}</Text>
+      <Text style={[styles.avatarText, { fontSize: size * 0.4, color: agent ? colors.onBrand : tone.foreground }]}>{agent ? "AI" : initials || "?"}</Text>
     </View>
   );
 }
 
 export function MessageDate({ at }: { at: number }) {
+  const styles = useStyles();
   const date = new Date(at);
   const today = new Date();
   const yesterday = new Date(today);
@@ -55,6 +58,7 @@ export function MessageDate({ at }: { at: number }) {
 
 // Splits text so @mentions stand out.
 function Rich({ text, style }: { text: string; style: object }) {
+  const styles = useStyles();
   const parts = text.split(/(@[\p{L}\p{M}\p{N}_’'.-]+)/gu);
   return (
     <Text selectable={Platform.OS === "web"} style={style}>
@@ -89,6 +93,8 @@ const REACTIONS = [
 ];
 
 export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDelete, onReact }: PostProps) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const [menu, setMenu] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [copyStatus, setCopyStatus] = useState("");
@@ -245,6 +251,8 @@ export function Composer({
   clearOnSend?: boolean;
   onTyping?: (text: string) => void;
 }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   // The home-indicator inset only applies when the keyboard is down; above the keyboard the
   // composer should sit flush.
@@ -364,8 +372,8 @@ export function Composer({
               <AppIcon name={attachmentMenu ? "close" : "plus"} size={21} color={colors.muted} />
             </Pressable> : null}
           <Text style={styles.composerHint}>{picking ? "Adding attachment…" : !onCancel && members.length ? "@ to mention someone" : ""}</Text>
-          <Pressable testID="composer-send" accessibilityRole="button" accessibilityLabel={busy ? "Sending message" : sendLabel === "Send" ? "Send message" : sendLabel} accessibilityState={{ disabled: off, busy }} onPress={send} disabled={off} style={({ pressed }) => [styles.send, off && styles.sendDisabled, pressed && !off && { backgroundColor: colors.blueDark }]}>
-            {busy ? <ActivityIndicator size="small" color={colors.muted} /> : sendLabel === "Send" ? <AppIcon name="send" size={19} color={off ? colors.muted : colors.white} /> : <Text style={[styles.sendText, off && { color: colors.muted }]}>{sendLabel}</Text>}
+          <Pressable testID="composer-send" accessibilityRole="button" accessibilityLabel={busy ? "Sending message" : sendLabel === "Send" ? "Send message" : sendLabel} accessibilityState={{ disabled: off, busy }} onPress={send} disabled={off} style={({ pressed }) => [styles.send, off && styles.sendDisabled, pressed && !off && { backgroundColor: colors.primaryPressed }]}>
+            {busy ? <ActivityIndicator size="small" color={colors.muted} /> : sendLabel === "Send" ? <AppIcon name="send" size={19} color={off ? colors.muted : colors.onPrimary} /> : <Text style={[styles.sendText, off && { color: colors.muted }]}>{sendLabel}</Text>}
           </Pressable>
         </View>
       </View>
@@ -374,6 +382,8 @@ export function Composer({
 }
 
 export function ConversationRow({ c, onPress, onLongPress, accessibilityActions, onAccessibilityAction, trailing, compact = false }: { c: Conversation; onPress: () => void; trailing?: ReactNode; compact?: boolean } & Pick<PressableProps, "onLongPress" | "accessibilityActions" | "onAccessibilityAction">) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const last = c.lastMessage;
   const preview = last ? (last.deleted ? "Message deleted" : `${!last.activity && (c.kind === "channel" || (c.members?.length ?? 0) > 2) ? `${last.user.name}: ` : ""}${last.text || (last.attachments?.length ? `${last.attachments.length} attachment${last.attachments.length === 1 ? "" : "s"}` : "Thinking…")}`) : c.topic || "No messages yet";
   const bold = c.unread > 0 && !c.archived;
@@ -408,7 +418,7 @@ export function ConversationRow({ c, onPress, onLongPress, accessibilityActions,
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   activity: { paddingHorizontal: space.side, paddingVertical: 3, alignItems: "center" },
   activityText: { ...typography.meta, color: colors.muted, textAlign: "center" },
   dateSeparator: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.side, paddingVertical: space.sm, marginVertical: space.xxs },
@@ -422,7 +432,7 @@ const styles = StyleSheet.create({
   more: { position: "absolute", right: -space.xs, top: -space.xxs, minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center", borderRadius: radius.sm },
   moreText: { ...typography.label, color: colors.muted },
   menuOverlay: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: space.side, backgroundColor: "rgba(0,0,0,0.35)" },
-  menuCard: { width: "100%", maxWidth: 420, maxHeight: "100%", backgroundColor: colors.white, borderRadius: radius.lg, padding: space.side },
+  menuCard: { width: "100%", maxWidth: 420, maxHeight: "100%", backgroundColor: colors.background, borderRadius: radius.lg, padding: space.side },
   copyStatus: { ...typography.caption, color: colors.muted, marginVertical: space.xs },
   menuAuthor: { ...typography.bodyStrong, color: colors.ink, marginBottom: space.xs },
   menuPreview: { ...typography.body, color: colors.muted, marginTop: space.xs, marginBottom: space.md },
@@ -449,7 +459,7 @@ const styles = StyleSheet.create({
   receipt: { alignSelf: "flex-end", marginTop: 2 },
   replies: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", marginTop: space.xxs, minHeight: 44 },
   repliesText: { ...typography.captionStrong, color: colors.blue },
-  composerWrap: { backgroundColor: colors.white, paddingHorizontal: space.sm, paddingTop: space.xs },
+  composerWrap: { backgroundColor: colors.background, paddingHorizontal: space.sm, paddingTop: space.xs },
   composerError: { ...typography.caption, color: colors.red, paddingHorizontal: space.xs, paddingBottom: space.xs },
   attachmentMenu: { flexDirection: "row", gap: space.xs, marginHorizontal: space.xs, paddingVertical: space.xxs, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   attachmentChoice: { flexDirection: "row", alignItems: "center", gap: space.xs, minHeight: 44, paddingHorizontal: space.sm, borderRadius: radius.sm, backgroundColor: colors.surface },
@@ -461,15 +471,15 @@ const styles = StyleSheet.create({
   suggestionName: { ...typography.bodyStrong, color: colors.ink },
   suggestionHandle: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
   noSuggestions: { ...typography.caption, paddingHorizontal: space.side, paddingVertical: space.sm, color: colors.muted },
-  composer: { borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.md, backgroundColor: colors.white, overflow: "hidden" },
+  composer: { borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.md, backgroundColor: colors.background, overflow: "hidden" },
   composerFocused: { borderColor: colors.blue },
   composerToolbar: { flexDirection: "row", alignItems: "center", paddingHorizontal: space.xxs, paddingBottom: space.xxs, minHeight: 48 },
   composerHint: { ...typography.meta, color: colors.muted, flex: 1, paddingHorizontal: space.xs },
   editingLabel: { ...typography.captionStrong, color: colors.muted, paddingTop: space.xs, paddingHorizontal: space.sm },
-  input: { ...typography.body, minHeight: 44, maxHeight: 144, paddingHorizontal: space.sm, paddingTop: space.sm, paddingBottom: space.xs, color: colors.ink, backgroundColor: colors.white },
-  send: { minHeight: 44, minWidth: 44, paddingHorizontal: space.sm, borderRadius: radius.sm, backgroundColor: colors.blue, alignItems: "center", justifyContent: "center" },
+  input: { ...typography.body, minHeight: 44, maxHeight: 144, paddingHorizontal: space.sm, paddingTop: space.sm, paddingBottom: space.xs, color: colors.ink, backgroundColor: colors.background },
+  send: { minHeight: 44, minWidth: 44, paddingHorizontal: space.sm, borderRadius: radius.sm, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   sendDisabled: { backgroundColor: colors.subtle },
-  sendText: { ...typography.label, color: colors.white },
+  sendText: { ...typography.label, color: colors.onPrimary },
   cancel: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.xs },
   cancelText: { ...typography.label, color: colors.blue },
   rowContainer: { flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
@@ -484,6 +494,6 @@ const styles = StyleSheet.create({
   rowTitle: { ...typography.body, flex: 1, color: colors.ink },
   bold: { fontWeight: "700" },
   preview: { ...typography.caption, flex: 1, marginTop: space.xxs, color: colors.muted },
-  badge: { minWidth: 22, minHeight: 22, borderRadius: radius.pill, backgroundColor: colors.blue, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
-  badgeText: { ...typography.captionStrong, color: colors.white },
-});
+  badge: { minWidth: 22, minHeight: 22, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
+  badgeText: { ...typography.captionStrong, color: colors.onPrimary },
+}));

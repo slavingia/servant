@@ -3,7 +3,7 @@ import { StyleSheet, Text, type StyleProp, type TextStyle } from "react-native";
 import { useLive } from "../lib/live";
 import { presenceLabel } from "../lib/message-status";
 import type { Person } from "../lib/server";
-import { colors, typography } from "../lib/theme";
+import { typography, createThemedStyles } from "../lib/theme";
 
 export function useStatusNow() {
   const [now, setNow] = useState(Date.now);
@@ -15,6 +15,7 @@ export function useStatusNow() {
 }
 
 export function PresenceLine({ person, style, showUnknown = false }: { person: Person; style?: StyleProp<TextStyle>; showUnknown?: boolean }) {
+  const styles = useStyles();
   const { presence, connected } = useLive();
   const now = useStatusNow();
   if (person.agent) return null;
@@ -23,7 +24,7 @@ export function PresenceLine({ person, style, showUnknown = false }: { person: P
   return <Text accessibilityLabel={`${person.name}, ${label}`} style={[styles.status, style]}>{label === "Online" ? <Text style={styles.online}>● </Text> : null}{label}</Text>;
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   status: { ...typography.meta, color: colors.muted },
   online: { color: colors.green },
-});
+}));

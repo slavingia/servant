@@ -1,5 +1,5 @@
 import Svg, { Path } from "react-native-svg";
-import { colors } from "../lib/theme";
+import { useTheme } from "../lib/theme";
 
 const paths = {
   home: "M3 10 12 3l9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1V10Z",
@@ -28,10 +28,11 @@ const paths = {
 export type AppIconName = keyof typeof paths;
 
 /** Decorative by default; the containing control supplies its accessible name. */
-export function AppIcon({ name, size = 20, color = colors.ink, strokeWidth = 1.8 }: {
+export function AppIcon({ name, size = 20, color, strokeWidth = 1.8 }: {
   name: AppIconName; size?: number; color?: string; strokeWidth?: number;
 }) {
+  const { colors } = useTheme();
   return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-    <Path d={paths[name]} stroke={color} strokeWidth={name === "more" ? 4 : strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+    <Path d={paths[name]} stroke={color ?? colors.ink} strokeWidth={name === "more" ? 4 : strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
   </Svg>;
 }

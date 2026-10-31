@@ -13,9 +13,11 @@ import { mergeReadEvent } from "../lib/read-receipts";
 import { latestMessageReceipts } from "../lib/message-status";
 import { useLive } from "../lib/live";
 import { useSession } from "../lib/session";
-import { colors, space, typography } from "../lib/theme";
+import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
 export default function ThreadScreen() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const { conv, root, title, focus } = useLocalSearchParams<{ conv: string; root: string; title?: string; focus?: string }>();
   const { account } = useSession();
   const focused = useIsFocused();
@@ -263,12 +265,12 @@ export default function ThreadScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white },
+const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.background },
   error: { ...typography.caption, paddingHorizontal: space.side, paddingVertical: space.sm, color: colors.red, backgroundColor: colors.redSoft },
-  head: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line, paddingBottom: space.sm, marginBottom: space.xxs, backgroundColor: colors.white },
+  head: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line, paddingBottom: space.sm, marginBottom: space.xxs, backgroundColor: colors.background },
   where: { ...typography.captionStrong, marginHorizontal: space.side, marginTop: space.sm, color: colors.muted },
   count: { ...typography.captionStrong, marginHorizontal: space.side, marginTop: space.sm, color: colors.muted },
   searchMatch: { backgroundColor: colors.blueSoft },
   searchLabel: { ...typography.captionStrong, color: colors.blueDark, paddingHorizontal: space.side, paddingTop: space.sm },
-});
+}));

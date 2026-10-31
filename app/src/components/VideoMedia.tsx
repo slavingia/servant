@@ -7,7 +7,7 @@ import { ActivityIndicator, AppState, Platform, Pressable, StyleSheet, Text, Vie
 import Svg, { Path } from "react-native-svg";
 import type { Attachment } from "../lib/server";
 import { formatFileSize } from "../lib/media";
-import { colors, radius, space, typography } from "../lib/theme";
+import { radius, space, typography } from "../lib/theme";
 import { useMediaGallery } from "./MediaGalleryContext";
 
 function PlayMark({ size = 24 }: { size?: number }) {
@@ -135,7 +135,7 @@ const styles = StyleSheet.create({
   videoLabelText: { ...typography.meta, fontWeight: "700", letterSpacing: 0.8, color: "#E4EDF5" },
   playCircle: { width: 58, height: 58, borderRadius: radius.pill, backgroundColor: "#FFFFFF22", borderWidth: 1, borderColor: "#FFFFFF44", alignItems: "center", justifyContent: "center", marginBottom: space.lg, paddingRight: 3 },
   previewCopy: { position: "absolute", left: space.sm, right: space.sm, bottom: space.sm, gap: 2 },
-  previewName: { ...typography.captionStrong, color: colors.white },
+  previewName: { ...typography.captionStrong, color: "#FFFFFF" },
   previewMeta: { ...typography.meta, color: "#CAD9E6" },
   draft: { width: "100%", height: "100%", backgroundColor: "#17354F" },
   draftPlay: { position: "absolute", right: 5, bottom: 5, width: 28, height: 28, borderRadius: radius.pill, backgroundColor: "#0009", alignItems: "center", justifyContent: "center", paddingRight: 2 },

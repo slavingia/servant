@@ -6,7 +6,8 @@ compact channels and direct messages lead into a shared message stream. Navigati
 status, and management actions help people reach conversations without competing
 with their content.
 
-The source of truth is `app/src/lib/theme.ts`. Shared interaction components live
+The source of truth is `app/src/lib/theme.tsx`, with palettes in
+`app/src/lib/theme-colors.ts`. Shared interaction components live
 in `app/src/components/`. Use those tokens and components for new screens.
 
 ## Foundations
@@ -40,6 +41,24 @@ communicates selection, errors, or unread state.
 
 ### Color
 
+Appearance always follows the device's light or dark setting, including changes
+while the app is open. There is no in-app appearance preference. Use `useTheme()`
+for inline colors and `createThemedStyles()` for styles so mounted screens update
+without resetting navigation or message drafts. Typography, spacing, and radii
+remain shared across appearances.
+
+The values below describe the light palette. In dark mode, `background` is
+`#12161C`, `surface` is `#1B222C`, `ink` is `#F0F3F7`, `muted` is `#ADB8C7`,
+and actionable `blue` is `#80C7FF`. Use `background` for content surfaces;
+`white` remains literal white for QR codes and media overlays. Use `primary` /
+`onPrimary` for filled actions, `danger` for destructive fills, and `brandText`
+for brand-colored text. These are separate from link and error foregrounds so
+text keeps its contrast in both modes. Avatar tone pairs also adapt.
+
+Native configuration uses automatic appearance and `expo-system-ui`. A new
+native build is required to replace older binaries that force light appearance.
+The full-screen media viewer retains its dark canvas in both modes.
+
 | Token | Value | Purpose |
 | --- | --- | --- |
 | `navy` | `#004C97` | IRS blue fixed search strip and brand surfaces |
@@ -51,7 +70,9 @@ communicates selection, errors, or unread state.
 | `onBrandMuted` | `#DCEBFA` | Retained supporting brand color; unused by the fixed search strip |
 | `ink` | `#1D1C1D` | Main content |
 | `muted` | `#5B616B` | Supporting text and icons |
-| `white` | `#FFFFFF` | Main content and message backgrounds |
+| `background` | `#FFFFFF` | Main content and message backgrounds |
+| `white` | `#FFFFFF` | Fixed white for QR codes and media overlays |
+| `primary` / `onPrimary` | `#0071BC` / `#FFFFFF` | Filled actions and their labels |
 | `surface` | `#F7F8FA` | Quiet fills and pressed rows |
 | `subtle` | `#EEF1F5` | Disabled send and supporting fills |
 | `line` | `#E6E7EB` | Quiet separators |
@@ -72,7 +93,7 @@ Spacing tokens are `xxs: 4`, `xs: 8`, `sm: 12`, `md: 16`, `side: 16`, `lg: 24`,
 4–12 points; larger separations use 24–32 points. Radius tokens are `sm: 6`,
 `md: 10`, `lg: 12`, `xl: 24`, and `pill: 999`. Avatars, buttons, and reaction chips
 use small rounded corners; unread badges and date labels use pills. The signed-in
-white content shell uses `radius.xl` on its top-left and top-right corners, with
+content shell uses `radius.xl` on its top-left and top-right corners, with
 IRS blue behind it. Content is clipped to those corners; bottom corners remain
 square.
 
@@ -113,10 +134,10 @@ message authors use 34. Agent avatars show `AI` in white on the brand blue.
   include the measured chrome height. The search panel supports Cmd/Ctrl+K,
   arrow keys, Enter, Escape, touch, and labelled controls. Creation actions stay
   on their existing screens, and the **You** tab provides profile access.
-  `AppChrome` gives the white signed-in content area its rounded top corners.
+  `AppChrome` gives the themed signed-in content area its rounded top corners.
 - `PageTitle`: title, optional description, and an optional page action. Actions
   stay next to their page context; they can wrap on narrow screens.
-- `Button`: blue primary, bordered white secondary, link, and danger treatments
+- `Button`: blue primary, bordered secondary, link, and danger treatments
   with shared loading, disabled, accessibility, and 44-point compact variants.
 - `controls.input`: shared field surface, boundary, padding, and body type.
   Combine it with `inputMultiline` or `inputFocused` as needed. Always give fields
@@ -165,7 +186,7 @@ and unselected states; the Agent sparkle is solid in both. Labels, selection tre
 touch targets, and safe-area behavior remain system-managed. Home and DMs badges
 show channel and direct-message unread counts respectively. Existing route names
 remain `channels`, `messages`, `agent`, `members`, and `you`. The fixed Search
-strip and rounded white content shell remain above the native tab navigation.
+strip and rounded content shell remain above the native tab navigation.
 
 Home begins with **All** and **Unread** beneath the fixed search strip. These
 filter active channels and direct messages; the Unread filter count
@@ -203,7 +224,7 @@ and describe their consequence before confirmation.
 ## Message streams
 
 Channels, DMs, threads, and private agent chats use a left-aligned author/avatar
-stream on white. Author names lead, timestamps stay secondary, and body text uses
+stream on the content background. Author names lead, timestamps stay secondary, and body text uses
 15/22 system type. Channel and thread streams use date separators. Consecutive
 messages by the same person within five minutes can share a compact author group;
 day changes and thread context preserve the appropriate separation.

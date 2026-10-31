@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Animated, PanResponder, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import type { Conversation } from "../lib/server";
-import { colors, space, typography } from "../lib/theme";
+import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
 import { ConversationRow } from "./Messaging";
 import { AppIcon } from "./AppIcon";
 
@@ -17,6 +17,8 @@ export function SwipeChannelRow({ c, compact = false, open, busy, canDelete, onO
   onArchive: () => void;
   onDelete: () => void;
 }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const [x] = useState(() => new Animated.Value(0));
   const width = canDelete ? 184 : 96;
   const archiveLabel = c.archived ? "Restore" : "Archive";
@@ -45,7 +47,7 @@ export function SwipeChannelRow({ c, compact = false, open, busy, canDelete, onO
   }, [busy, onClose, onOpen, open, width, x]);
   return (
     <View style={styles.root}>
-      <Animated.View {...pan.panHandlers} style={{ zIndex: 1, backgroundColor: colors.white, transform: [{ translateX: x }], opacity: busy ? 0.5 : 1 }}>
+      <Animated.View {...pan.panHandlers} style={{ zIndex: 1, backgroundColor: colors.background, transform: [{ translateX: x }], opacity: busy ? 0.5 : 1 }}>
         <ConversationRow c={c} compact={compact} onPress={() => { if (!busy) { if (open) onClose(); else onPress(); } }}
           onLongPress={() => { if (!busy) onOpen(); }}
           accessibilityActions={[{ name: "archive", label: archiveLabel }, ...(canDelete ? [{ name: "delete", label: "Delete channel" }] : [])]}
@@ -64,12 +66,12 @@ export function SwipeChannelRow({ c, compact = false, open, busy, canDelete, onO
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { overflow: "hidden" },
   actions: { zIndex: 0, position: "absolute", right: 0, top: 0, bottom: 0, flexDirection: "row" },
   action: { flex: 1, minHeight: 44, paddingHorizontal: space.xs, alignItems: "center", justifyContent: "center" },
-  archive: { backgroundColor: colors.blue },
-  delete: { backgroundColor: colors.red },
-  label: { ...typography.label, color: colors.white },
+  archive: { backgroundColor: colors.primary },
+  delete: { backgroundColor: colors.danger },
+  label: { ...typography.label, color: colors.onPrimary },
   more: { minHeight: 44, minWidth: 44, justifyContent: "center", alignItems: "center", marginRight: space.xs },
-});
+}));

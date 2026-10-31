@@ -4,9 +4,11 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
 import { Button } from "../components/Button";
 import { parseInvite } from "../lib/invite";
-import { colors, radius, space, typography } from "../lib/theme";
+import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
 export default function Scan() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const [permission, request] = useCameraPermissions();
   const done = useRef(false);
 
@@ -42,11 +44,11 @@ export default function Scan() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: "#000" },
-  center: { alignItems: "center", justifyContent: "center", padding: space.side, backgroundColor: colors.white },
+  center: { alignItems: "center", justifyContent: "center", padding: space.side, backgroundColor: colors.background },
   title: { ...typography.title, textAlign: "center", color: colors.ink, marginBottom: space.sm },
   body: { ...typography.body, color: colors.muted, textAlign: "center" },
   hint: { position: "absolute", bottom: 60, left: space.side, right: space.side, alignItems: "center" },
   hintText: { ...typography.bodyStrong, color: colors.white, textAlign: "center", backgroundColor: "rgba(0,0,0,0.7)", paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.md, overflow: "hidden" },
-});
+}));

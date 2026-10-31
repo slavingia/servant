@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { api, type Account } from "./server";
 import { useLive } from "./live";
-import { colors } from "./theme";
+import { createThemedStyles } from "./theme";
 
 // A typing ping lasts this long unless it is refreshed.
 const SHOW_MS = 6000;
@@ -75,6 +75,7 @@ export function useTypingPing(account: Account | null, conversationId: string, t
 }
 
 export function TypingLine({ names }: { names: string[] }) {
+  const styles = useStyles();
   const text = typingText(names);
   // The line keeps its height so the messages don't jump when someone starts typing.
   return (
@@ -86,7 +87,7 @@ export function TypingLine({ names }: { names: string[] }) {
   );
 }
 
-const styles = StyleSheet.create({
-  line: { height: 20, paddingHorizontal: 20, justifyContent: "center", backgroundColor: colors.white },
+const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
+  line: { height: 20, paddingHorizontal: 20, justifyContent: "center", backgroundColor: colors.background },
   text: { fontSize: 13, color: colors.muted },
-});
+}));

@@ -6,11 +6,13 @@ import { AppIcon } from "../components/AppIcon";
 import { api, ServerError } from "../lib/server";
 import { useLive } from "../lib/live";
 import { useSession } from "../lib/session";
-import { colors, controls, space, typography } from "../lib/theme";
+import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
 const clean = (s: string) => s.toLowerCase().replace(/^#/, "").replace(/[\s_]+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 40);
 
 export default function NewChannel() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const { account } = useSession();
   const { refresh } = useLive();
   const [name, setName] = useState("");
@@ -59,7 +61,7 @@ export default function NewChannel() {
           <Text style={styles.switchLabel}>Private channel</Text>
           <Text style={styles.help}>{priv ? "Only invited people can find and join it." : "Anyone in the workspace can find and join it."}</Text>
         </View>
-        <Switch accessibilityLabel="Private channel" value={priv} onValueChange={setPriv} trackColor={{ true: colors.blue }} />
+        <Switch accessibilityLabel="Private channel" value={priv} onValueChange={setPriv} trackColor={{ true: colors.primary }} />
       </View>
 
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
@@ -68,8 +70,8 @@ export default function NewChannel() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white },
+const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.background },
   content: { padding: space.side, paddingBottom: space.xxl },
   intro: { ...typography.caption, color: colors.muted, marginBottom: space.xs },
   label: { ...typography.label, marginTop: space.md, marginBottom: space.xs, color: colors.ink },
@@ -81,4 +83,4 @@ const styles = StyleSheet.create({
   switchRow: { marginTop: space.lg, paddingVertical: space.md, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.line, flexDirection: "row", alignItems: "center" },
   switchLabel: { ...typography.bodyStrong, color: colors.ink },
   error: { ...typography.caption, marginTop: space.md, color: colors.red },
-});
+}));

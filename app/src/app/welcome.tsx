@@ -4,10 +4,12 @@ import { router } from "expo-router";
 import { Band, PageTitle } from "../components/Band";
 import { Button } from "../components/Button";
 import { parseInvite } from "../lib/invite";
-import { colors, controls, space, typography } from "../lib/theme";
+import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
 import { useSession } from "../lib/session";
 
 export default function Welcome() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const { account } = useSession();
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -58,8 +60,8 @@ export default function Welcome() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white },
+const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.background },
   body: { paddingTop: space.sm, paddingBottom: space.xxl, width: "100%", maxWidth: 480, alignSelf: "center" },
   label: { ...typography.label, marginTop: space.sm, marginHorizontal: space.side, color: colors.ink },
   input: { ...controls.input, ...controls.inputMultiline, minHeight: 88, marginTop: space.xs, marginHorizontal: space.side },
@@ -67,4 +69,4 @@ const styles = StyleSheet.create({
   action: { marginTop: space.md, marginHorizontal: space.side },
   error: { ...typography.caption, marginTop: space.xs, marginHorizontal: space.side, color: colors.red },
   note: { ...typography.caption, marginTop: space.xl, marginHorizontal: space.side, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line, color: colors.muted },
-});
+}));

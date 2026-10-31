@@ -1,14 +1,23 @@
 import { NativeTabs } from "expo-router/native-tabs";
 import { useLive } from "../../lib/live";
-import { colors } from "../../lib/theme";
+import { useTheme } from "../../lib/theme";
 
 const Icon = NativeTabs.Trigger.Icon;
 
 export default function TabsLayout() {
   const { unread } = useLive();
+  const { colors } = useTheme();
   const badge = (n: number) => (n > 0 ? String(n > 99 ? "99+" : n) : undefined);
   return (
-    <NativeTabs tintColor={colors.blue} minimizeBehavior="never">
+    <NativeTabs
+      tintColor={colors.blue}
+      backgroundColor={colors.background}
+      iconColor={{ default: colors.muted, selected: colors.blue }}
+      labelStyle={{ default: { color: colors.muted }, selected: { color: colors.blue } }}
+      badgeBackgroundColor={colors.primary}
+      badgeTextColor={colors.onPrimary}
+      minimizeBehavior="never"
+    >
       <NativeTabs.Trigger name="channels">
         <Icon sf="house.fill" src={require("../../../assets/tab-icons/home.png")} />
         <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>

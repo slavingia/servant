@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, ServerError, type Account, type Chat, type Conversation, type Person, type SearchResults } from "../lib/server";
 import { useSession } from "../lib/session";
 import { matchesQuery, omnibarShortcuts, searchExcerpt } from "../lib/omnibar";
-import { colors, radius, space, typography } from "../lib/theme";
+import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 import { Button } from "./Button";
 import { AppIcon, type AppIconName } from "./AppIcon";
 
@@ -25,6 +25,8 @@ export function Omnibar() {
 }
 
 function SearchBar({ account }: { account: Account }) {
+  const styles = useStyles();
+  const { colors, scheme } = useTheme();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const mobile = width < 600;
@@ -194,14 +196,14 @@ function SearchBar({ account }: { account: Account }) {
     <View style={[styles.header, { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right }]}>
       <View style={styles.headerRow}>
         <Pressable ref={trigger} accessibilityRole="button" accessibilityLabel="Search Servant" accessibilityHint="Find channels, people, messages, and quick actions" accessibilityState={{ expanded: visible }} onPress={open} style={({ pressed }) => [styles.trigger, pressed && styles.triggerPressed]}>
-          <AppIcon name="search" color={colors.white} size={18} />
+          <AppIcon name="search" color={colors.onBrand} size={18} />
           <Text numberOfLines={1} style={styles.placeholder}>Search</Text>
           {Platform.OS === "web" && width >= 600 ? <Text style={styles.shortcut}>⌘ / Ctrl K</Text> : null}
         </Pressable>
       </View>
     </View>
     <Modal transparent visible={visible} animationType="fade" onRequestClose={close} onShow={() => input.current?.focus()}>
-      {visible && mobile ? <StatusBar style="dark" /> : null}
+      {visible && mobile ? <StatusBar style={scheme === "dark" ? "light" : "dark"} /> : null}
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalRoot}>
         <View style={[styles.overlay, mobile && styles.mobileOverlay, { paddingTop: insets.top + (mobile ? 0 : space.sm), paddingBottom: mobile ? 0 : Math.max(insets.bottom, space.sm) }]}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close search" onPress={close} style={StyleSheet.absoluteFill} />
@@ -246,19 +248,19 @@ function SearchBar({ account }: { account: Account }) {
   </>;
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   header: { backgroundColor: colors.navy },
   headerRow: { paddingHorizontal: space.side, paddingTop: space.xs, paddingBottom: space.sm },
   trigger: { minWidth: 0, minHeight: 44, paddingHorizontal: space.sm, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", gap: space.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: "rgba(255,255,255,0.22)", backgroundColor: "rgba(255,255,255,0.13)" },
   triggerPressed: { backgroundColor: "rgba(255,255,255,0.2)" },
-  placeholder: { ...typography.body, color: colors.white, flex: 1 },
-  shortcut: { ...typography.caption, color: colors.white },
+  placeholder: { ...typography.body, color: colors.onBrand, flex: 1 },
+  shortcut: { ...typography.caption, color: colors.onBrand },
   modalRoot: { flex: 1 },
   overlay: { flex: 1, paddingHorizontal: space.sm, alignItems: "center", backgroundColor: "rgba(20,30,45,0.45)" },
-  mobileOverlay: { paddingHorizontal: 0, backgroundColor: colors.white },
+  mobileOverlay: { paddingHorizontal: 0, backgroundColor: colors.background },
   mobilePanel: { flex: 1, borderRadius: 0 },
   mobileResults: { flex: 1 },
-  panel: { width: "100%", maxWidth: 760, maxHeight: "100%", flexShrink: 1, borderRadius: radius.lg, backgroundColor: colors.white, overflow: "hidden" },
+  panel: { width: "100%", maxWidth: 760, maxHeight: "100%", flexShrink: 1, borderRadius: radius.lg, backgroundColor: colors.background, overflow: "hidden" },
   searchRow: { minHeight: 56, paddingLeft: space.md, paddingRight: space.xs, flexDirection: "row", alignItems: "center", gap: space.sm, borderBottomWidth: 1, borderBottomColor: colors.line },
   input: { ...typography.body, color: colors.ink, flex: 1, minWidth: 0, minHeight: 48, paddingVertical: space.xs },
   cancel: { minHeight: 44, paddingHorizontal: space.sm, justifyContent: "center" },
@@ -286,4 +288,4 @@ const styles = StyleSheet.create({
   emptyTitle: { ...typography.heading, color: colors.ink },
   emptyBody: { ...typography.body, color: colors.muted, textAlign: "center" },
   keyboardHint: { ...typography.caption, color: colors.muted, padding: space.sm, textAlign: "center", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
-});
+}));

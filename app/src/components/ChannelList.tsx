@@ -10,7 +10,7 @@ import { api, ServerError, type Conversation, type BrowseChannel } from "../lib/
 import { useChannelDiscovery } from "../lib/channel-discovery";
 import { useLive } from "../lib/live";
 import { useSession } from "../lib/session";
-import { colors, radius, space, typography } from "../lib/theme";
+import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
 type HomeRow =
   | { kind: "channel" | "dm"; id: string; conversation: Conversation }
@@ -21,6 +21,8 @@ type HomeRow =
   | { kind: "discovery"; id: "discovery-header" | "discovery-status" };
 
 export function ChannelList({ archived = false }: { archived?: boolean }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const { account } = useSession();
   const { conversations, error, refresh, connected } = useLive();
   const [refreshing, setRefreshing] = useState(false);
@@ -196,8 +198,8 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white },
+const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.background },
   content: { paddingBottom: space.xxl },
   filters: { flexDirection: "row", gap: space.xs, paddingHorizontal: space.side, paddingVertical: space.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   filter: { minHeight: 44, paddingHorizontal: space.md, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", gap: space.xs, borderRadius: radius.md },
@@ -232,4 +234,4 @@ const styles = StyleSheet.create({
   emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center" },
   emptyBody: { ...typography.body, color: colors.muted, textAlign: "center" },
   loading: { margin: space.lg },
-});
+}));

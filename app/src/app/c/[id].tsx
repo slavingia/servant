@@ -15,7 +15,7 @@ import { TypingLine, useTyping, useTypingPing } from "../../lib/typing";
 import { api, ServerError, type Conversation, type Upload, type Post, type LiveEvent } from "../../lib/server";
 import { useLive } from "../../lib/live";
 import { useSession } from "../../lib/session";
-import { colors, space, typography } from "../../lib/theme";
+import { space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 
 const errorText = (e: unknown, fallback: string) => (e instanceof ServerError ? e.message : fallback);
 
@@ -27,6 +27,8 @@ function merge(list: Post[], incoming: Post[]) {
 }
 
 export default function ConversationScreen() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const { id, compose } = useLocalSearchParams<{ id: string; compose?: string }>();
   const { account } = useSession();
   const focused = useIsFocused();
@@ -310,9 +312,9 @@ export default function ConversationScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white },
-  presence: { paddingHorizontal: space.side, paddingBottom: space.xs, paddingTop: space.xxs, backgroundColor: colors.white, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.background },
+  presence: { paddingHorizontal: space.side, paddingBottom: space.xs, paddingTop: space.xxs, backgroundColor: colors.background, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   peer: { flexDirection: "row", flexWrap: "wrap", gap: space.xs, alignItems: "center" },
   peerName: { ...typography.captionStrong, color: colors.ink },
   headerAction: { minHeight: 44, minWidth: 44, justifyContent: "center" },
@@ -323,4 +325,4 @@ const styles = StyleSheet.create({
   introBody: { ...typography.body, marginTop: space.xs, color: colors.muted },
   joinBar: { padding: space.side, paddingBottom: space.xl, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line, backgroundColor: colors.surface },
   joinText: { ...typography.body, textAlign: "center", color: colors.muted, marginBottom: space.sm },
-});
+}));

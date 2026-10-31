@@ -4,7 +4,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { File } from "expo-file-system";
 import type { Attachment, Upload } from "../lib/server";
-import { colors, radius, space, typography } from "../lib/theme";
+import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 import { formatFileSize, isPreviewImage, isPreviewVideo, jpegPhotoUpload, MAX_FILE_BYTES, MAX_UPLOAD_BYTES, MAX_VIDEO_BYTES, uploadImageUri, uploadMediaMime, validateAttachmentSelection } from "../lib/media";
 import { MediaGalleryProvider, useAttachmentContent, useMediaGallery } from "./MediaGallery";
 import { DraftVideoPreview, VideoPreview } from "./VideoMedia";
@@ -84,6 +84,7 @@ export async function pickAttachments(mediaLibrary: boolean, existing: readonly 
 }
 
 export function DraftAttachments({ files, onRemove, disabled }: { files: DraftAttachment[]; onRemove: (index: number) => void; disabled: boolean }) {
+  const styles = useStyles();
   return <ScrollView horizontal accessibilityLabel="Selected attachments" contentContainerStyle={styles.drafts}>
     {files.map((file, i) => <View key={i} style={styles.draft}>
       {isPreviewVideo(file) ? <View style={styles.draftImage}><DraftVideoPreview uri={file.uri} name={file.name} /></View> : file.mime.startsWith("image/") ? <Image source={{ uri: file.uri }} accessibilityLabel={file.name} style={styles.draftImage} resizeMode="cover" /> : <View style={styles.draftFile}><Text style={styles.fileType}>File</Text></View>}
@@ -94,6 +95,8 @@ export function DraftAttachments({ files, onRemove, disabled }: { files: DraftAt
 }
 
 function ImageAttachment({ file, tiled }: { file: Attachment; tiled: boolean }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const content = useAttachmentContent(file);
   const gallery = useMediaGallery();
   const [aspect, setAspect] = useState(4 / 3);
@@ -115,6 +118,8 @@ function ImageAttachment({ file, tiled }: { file: Attachment; tiled: boolean }) 
 }
 
 function FileAttachment({ file }: { file: Attachment }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const gallery = useMediaGallery();
   return <Pressable accessibilityRole="button" accessibilityLabel={`Open ${file.name}, ${formatFileSize(file.size)}`} accessibilityHint="View in the conversation gallery" onPress={() => gallery?.open(file)} style={({ pressed }) => [styles.file, pressed && styles.pressed]}>
     <View style={styles.fileIcon}><AppIcon name="paperclip" size={23} color={colors.blueDark} /></View>
@@ -124,6 +129,7 @@ function FileAttachment({ file }: { file: Attachment }) {
 }
 
 function AttachmentTiles({ files }: { files: Attachment[] }) {
+  const styles = useStyles();
   const media = files.filter(file => isPreviewImage(file) || isPreviewVideo(file));
   const documents = files.filter(file => !isPreviewImage(file) && !isPreviewVideo(file));
   return <View style={styles.attachments}>
@@ -143,6 +149,8 @@ export function Attachments({ files }: { files: Attachment[] }) {
 
 /** Optimistic uploads remain local until the server supplies an attachment ID. */
 export function PendingAttachments({ files }: { files: Upload[] }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   return <View accessibilityLabel="Attachments being sent" style={styles.attachments}>
     <View style={styles.photos}>{files.map((file, index) => {
       const uri = uploadImageUri(file);
@@ -153,7 +161,7 @@ export function PendingAttachments({ files }: { files: Upload[] }) {
   </View>;
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   drafts: { padding: space.xs, gap: space.xs },
   draft: { width: 120, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, borderRadius: radius.md, overflow: "hidden" },
   draftImage: { width: "100%", height: 72 },
@@ -173,7 +181,7 @@ const styles = StyleSheet.create({
   retry: { minHeight: 44, justifyContent: "center", alignItems: "center" },
   retryText: { ...typography.captionStrong, color: colors.blue },
   pressed: { opacity: 0.75 },
-  file: { minHeight: 64, padding: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.white, flexDirection: "row", alignItems: "center", gap: space.sm },
+  file: { minHeight: 64, padding: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.background, flexDirection: "row", alignItems: "center", gap: space.sm },
   fileIcon: { width: 40, height: 44, borderRadius: radius.sm, alignItems: "center", justifyContent: "center", backgroundColor: colors.blueSoft },
   fileCopy: { flex: 1, minWidth: 0 },
   filename: { ...typography.label, color: colors.ink, flexShrink: 1 },
@@ -182,4 +190,4 @@ const styles = StyleSheet.create({
   pendingText: { ...typography.meta, color: colors.white },
   videoLabel: { ...typography.captionStrong, color: colors.blueDark },
   pendingFile: { width: "100%", flexDirection: "row", alignItems: "center", padding: space.sm, gap: space.xs, borderRadius: radius.md, backgroundColor: colors.surface },
-});
+}));

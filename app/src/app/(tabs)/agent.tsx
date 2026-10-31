@@ -5,7 +5,7 @@ import { AppIcon } from "../../components/AppIcon";
 import { Button } from "../../components/Button";
 import { api, ServerError, type Chat } from "../../lib/server";
 import { useSession } from "../../lib/session";
-import { colors, radius, space, typography } from "../../lib/theme";
+import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 import { activeAgentTurn, agentTurnLabel } from '../../lib/agent-turns';
 
 function when(ms: number) {
@@ -16,6 +16,8 @@ function when(ms: number) {
 }
 
 export default function Chats() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const { account, setAccount, signOut } = useSession();
   const [chats, setChats] = useState<Chat[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +72,9 @@ export default function Chats() {
         keyExtractor={(c) => c.id}
         refreshControl={
           <RefreshControl
+            tintColor={colors.blue}
+            colors={[colors.blue]}
+            progressBackgroundColor={colors.surface}
             refreshing={refreshing}
             onRefresh={async () => {
               setRefreshing(true);
@@ -128,10 +133,10 @@ export default function Chats() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white },
+const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.background },
   inbox: { marginHorizontal: space.side, marginBottom: space.md, padding: space.md, backgroundColor: colors.blueSoft, borderRadius: radius.lg },
-  inboxTitle: { ...typography.bodyStrong, color: colors.navy, marginBottom: space.xs },
+  inboxTitle: { ...typography.bodyStrong, color: colors.brandText, marginBottom: space.xs },
   approvalRow: { paddingVertical: space.xs, gap: space.xxs }, approvalDetail: { ...typography.caption, color: colors.ink }, review: { ...typography.captionStrong, color: colors.blue },
   rowCopy: { flex: 1 }, turnLabel: { ...typography.meta, color: colors.blue, marginTop: space.xxs },
   header: { minHeight: 60, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.xs },
@@ -157,4 +162,4 @@ const styles = StyleSheet.create({
   emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center", marginTop: space.md },
   emptyBody: { ...typography.body, marginTop: space.xs, color: colors.muted, textAlign: "center", maxWidth: 360 },
   emptyAction: { marginTop: space.lg },
-});
+}));

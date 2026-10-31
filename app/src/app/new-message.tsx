@@ -6,10 +6,12 @@ import { Avatar } from "../components/Messaging";
 import { AppIcon } from "../components/AppIcon";
 import { api, ServerError, type Person } from "../lib/server";
 import { useSession } from "../lib/session";
-import { colors, radius, space, typography } from "../lib/theme";
+import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
 // Pick one person for a direct message, or a few for a group message.
 export default function NewMessage() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const { account } = useSession();
   const [people, setPeople] = useState<Person[] | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
@@ -85,7 +87,7 @@ export default function NewMessage() {
             >
               <Avatar name={item.name} size={36} />
               <Text style={styles.name}>{item.name}</Text>
-              <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[styles.check, on && styles.checkOn]}>{on ? <AppIcon name="check" size={16} color={colors.white} /> : null}</View>
+              <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[styles.check, on && styles.checkOn]}>{on ? <AppIcon name="check" size={16} color={colors.onPrimary} /> : null}</View>
             </Pressable>
           );
         }}
@@ -99,8 +101,8 @@ export default function NewMessage() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white },
+const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.background },
   recipientRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: space.side, gap: space.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   to: { ...typography.bodyStrong, color: colors.muted },
   intro: { ...typography.caption, marginVertical: space.sm, marginHorizontal: space.side, color: colors.muted },
@@ -115,9 +117,9 @@ const styles = StyleSheet.create({
   rowDisabled: { opacity: 0.5 },
   name: { ...typography.body, flex: 1, marginLeft: space.sm, marginRight: space.sm, color: colors.ink },
   check: { width: 22, height: 22, borderRadius: 4, borderWidth: 1.5, borderColor: colors.borderStrong, alignItems: "center", justifyContent: "center" },
-  checkOn: { backgroundColor: colors.blue, borderColor: colors.blue },
+  checkOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   empty: { marginTop: space.xl, marginHorizontal: space.side, alignItems: "center" },
   emptyText: { ...typography.body, textAlign: "center", color: colors.muted },
   footer: { padding: space.side, paddingBottom: space.xl, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   error: { ...typography.caption, color: colors.red, marginBottom: space.sm },
-});
+}));

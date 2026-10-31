@@ -1,9 +1,10 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { AgentApproval } from '../lib/agent-turns';
-import { colors, radius, space, typography } from '../lib/theme';
+import { radius, space, typography, createThemedStyles } from '../lib/theme';
 import { Button } from './Button';
 
 export function AgentApprovalCard({ approval, busy, error, onAnswer }: { approval: AgentApproval; busy?: boolean; error?: string | null; onAnswer: (choice: 'once' | 'deny') => void }) {
+  const styles = useStyles();
   return <View style={styles.card}>
     <Text accessibilityRole="header" style={styles.title}>Your approval is needed</Text>
     <Text style={styles.description}>{approval.description || 'Review this action before the agent continues.'}</Text>
@@ -16,10 +17,10 @@ export function AgentApprovalCard({ approval, busy, error, onAnswer }: { approva
     </View>
   </View>;
 }
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   card: { margin: space.side, padding: space.md, gap: space.xs, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.lg },
   title: { ...typography.bodyStrong, color: colors.ink }, description: { ...typography.caption, color: colors.ink },
-  commandBox: { maxHeight: 130, borderRadius: radius.sm, padding: space.xs, backgroundColor: colors.white }, command: { ...typography.caption, color: colors.ink },
+  commandBox: { maxHeight: 130, borderRadius: radius.sm, padding: space.xs, backgroundColor: colors.background }, command: { ...typography.caption, color: colors.ink },
   detail: { ...typography.meta, color: colors.muted }, error: { ...typography.caption, color: colors.red },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs, marginTop: space.xxs }, button: { flexGrow: 1 },
-});
+}));

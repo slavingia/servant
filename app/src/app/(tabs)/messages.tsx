@@ -6,9 +6,11 @@ import { ConversationRow } from "../../components/Messaging";
 import { Button } from "../../components/Button";
 import { useLive } from "../../lib/live";
 import { useSession } from "../../lib/session";
-import { colors, radius, space, typography } from "../../lib/theme";
+import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 
 export default function Messages() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const { account } = useSession();
   const { conversations, error, refresh, connected } = useLive();
   const [refreshing, setRefreshing] = useState(false);
@@ -37,6 +39,9 @@ export default function Messages() {
         keyExtractor={(c) => c.id}
         refreshControl={
           <RefreshControl
+            tintColor={colors.blue}
+            colors={[colors.blue]}
+            progressBackgroundColor={colors.surface}
             refreshing={refreshing}
             onRefresh={() => void reload()}
           />
@@ -75,8 +80,8 @@ export default function Messages() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white },
+const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.background },
   content: { paddingBottom: space.xxl, flexGrow: 1 },
   header: { minHeight: 60, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.xs },
   title: { ...typography.title, color: colors.ink, flexShrink: 1 },
@@ -93,4 +98,4 @@ const styles = StyleSheet.create({
   emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center", marginTop: space.md },
   emptyBody: { ...typography.body, marginTop: space.xs, maxWidth: 320, color: colors.muted, textAlign: "center" },
   emptyAction: { marginTop: space.lg },
-});
+}));

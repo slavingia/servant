@@ -10,9 +10,11 @@ import { api, ServerError, type Person } from "../../lib/server";
 import { useLive } from "../../lib/live";
 import { presenceLabel } from "../../lib/message-status";
 import { useSession } from "../../lib/session";
-import { colors, controls, space, typography } from "../../lib/theme";
+import { space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 
 export default function Members() {
+  const styles = useStyles();
+  const { colors, controls } = useTheme();
   const { account } = useSession();
   const { presence, connected } = useLive();
   const now = useStatusNow();
@@ -51,7 +53,7 @@ export default function Members() {
       data={shown}
       keyExtractor={person => person.id}
       keyboardShouldPersistTaps="handled"
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />}
+      refreshControl={<RefreshControl tintColor={colors.blue} colors={[colors.blue]} progressBackgroundColor={colors.surface} refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />}
       ListHeaderComponent={<>
         <PageTitle action={account.user.role === "owner" ? <Button label="Invite people" kind="link" compact onPress={() => router.push("/invite")} /> : undefined}>People</PageTitle>
         <View style={[styles.searchBox, searchFocused && controls.inputFocused]}>
@@ -79,8 +81,8 @@ export default function Members() {
     />
   </View>;
 }
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white },
+const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.background },
   content: { paddingBottom: space.xl, flexGrow: 1 },
   searchBox: { ...controls.input, flexDirection: "row", alignItems: "center", gap: space.xs, marginHorizontal: space.side, marginBottom: space.md, paddingVertical: 0, backgroundColor: colors.surface },
   search: { ...typography.body, flex: 1, minWidth: 0, minHeight: 44, paddingVertical: space.sm, color: colors.ink },
@@ -97,4 +99,4 @@ const styles = StyleSheet.create({
   emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center" },
   emptyBody: { ...typography.body, marginTop: space.xs, maxWidth: 320, color: colors.muted, textAlign: "center" },
   emptyAction: { marginTop: space.lg },
-});
+}));

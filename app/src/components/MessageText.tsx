@@ -1,9 +1,10 @@
 import { memo } from 'react';
 import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { inlineMessage, messageBlocks } from '../lib/message-format';
-import { colors, radius, space, typography } from '../lib/theme';
+import { radius, space, typography, createThemedStyles } from '../lib/theme';
 
 export const MessageText = memo(function MessageText({ text, failed = false }: { text: string; failed?: boolean }) {
+  const styles = useStyles();
   return <View style={styles.blocks}>{messageBlocks(text).map((block, index) => {
     if (block.kind === 'code') return <View key={index} style={styles.codeBlock}>
       {block.language ? <Text style={styles.language}>{block.language}</Text> : null}
@@ -19,7 +20,7 @@ export const MessageText = memo(function MessageText({ text, failed = false }: {
 });
 
 const mono = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' });
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   blocks: { gap: space.xs }, body: { ...typography.body, color: colors.ink },
   heading: { ...typography.bodyStrong }, strong: { fontWeight: '700' }, em: { fontStyle: 'italic' },
   inlineCode: { fontFamily: mono, backgroundColor: colors.subtle, fontSize: 14 },
@@ -27,4 +28,4 @@ const styles = StyleSheet.create({
   language: { ...typography.meta, color: colors.muted }, code: { fontFamily: mono, fontSize: 13, lineHeight: 20, color: colors.ink },
   list: { flexDirection: 'row', gap: space.xs }, marker: { ...typography.body, color: colors.muted, minWidth: 16 }, copy: { flex: 1, minWidth: 0 },
   quote: { borderLeftWidth: 3, borderLeftColor: colors.borderStrong, paddingLeft: space.sm }, failed: { color: colors.red },
-});
+}));
