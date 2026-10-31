@@ -238,6 +238,14 @@ function revokeDevice(device) {
   delete device.push;
   delete device.pushPresence;
 }
+// True when this was the person's last active device, i.e. they've left.
+function leftServer(state, userId) {
+  return !Object.values(state.devices).some((d) => d.userId === userId && !d.revokedAt);
+}
+function noteIfLeft(left, userId) {
+  if (!left || !messaging) return;
+  try { messaging.noteMemberLeft(userId); } catch (e) { console.error("[servant] left note", e); }
+}
 
 // ---------- upstream (Hermes API server) ----------
 
@@ -450,7 +458,11 @@ async function handle(req, res, cfg) {
   }
 
   if (method === "POST" && url.pathname === "/v1/signout") {
-    mutateAuthenticated(req, (_state, current) => revokeDevice(current.device));
+    const left = mutateAuthenticated(req, (state, current) => {
+      revokeDevice(current.device);
+      return leftServer(state, current.user.id) ? current.user.id : null;
+    });
+    noteIfLeft(!!left, left);
     return send(res, 200, { ok: true });
   }
 
@@ -488,11 +500,14 @@ async function handle(req, res, cfg) {
       return send(res, 200, { devices: list });
     }
     if (method === "DELETE" && parts[1] === "devices" && parts.length === 3) {
-      mutateAuthenticated(req, state => {
+      const left = mutateAuthenticated(req, state => {
         const d = Object.values(state.devices).find((x) => x.id === parts[2]);
         if (!d) throw requestError(404, "not_found", "No such device");
+        const wasActive = !d.revokedAt;
         revokeDevice(d);
+        return wasActive && leftServer(state, d.userId) ? d.userId : null;
       }, true);
+      noteIfLeft(!!left, left);
       return send(res, 200, { ok: true });
     }
     return fail(res, 404, "not_found", "Not found");

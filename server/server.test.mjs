@@ -281,6 +281,27 @@ test("a channel thread started on the limited agent keeps working after switchin
   assert.match(last.text, /try again/);
 });
 
+test("#general notes when someone leaves Servant (last device signed out or removed)", async () => {
+  const owner = await pair("owner", "Owner Ivy");
+  const generalOf = async (token) => (await api("GET", "/v1/conversations", { token })).json.conversations.find((c) => c.name === "general");
+  const general = await generalOf(owner);
+  const notes = async () => ((await api("GET", `/v1/conversations/${general.id}/messages`, { token: owner })).json.messages || [])
+    .filter((m) => m.activity && /left Servant$/.test(m.text)).map((m) => m.text);
+
+  // Signing out of the only device = left.
+  const jo = await pair("member", "Jo Leaves");
+  await api("POST", "/v1/signout", { token: jo });
+  assert.ok((await notes()).includes("Jo Leaves left Servant"));
+
+  // Owner removing someone's only device = left, once.
+  const kim = await pair("member", "Kim Removed");
+  const kimDevice = (await api("GET", "/v1/devices", { token: owner })).json.devices.find((d) => d.user?.name === "Kim Removed");
+  assert.equal((await api("DELETE", `/v1/devices/${kimDevice.id}`, { token: owner })).status, 200);
+  await api("DELETE", `/v1/devices/${kimDevice.id}`, { token: owner });
+  assert.equal((await notes()).filter((t) => t === "Kim Removed left Servant").length, 1);
+  void kim;
+});
+
 test("limited mode: member chat streams from the member agent and hides tool details", async () => {
   await withAgentAccess("limited", async () => {
   const ownerStreamsBefore = owner.calls.filter((c) => c.url.endsWith("/chat/stream")).length;

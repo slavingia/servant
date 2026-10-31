@@ -509,6 +509,16 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     const result = st.insertActivity.run(conv.id, userId, text, now(), action);
     publish(conv.id, "message.created", msgView(st.msg.get(Number(result.lastInsertRowid))));
   }
+  // Someone's last device signed out or was removed: they've left Servant.
+  // Note it in #general so the team sees it (owner, 10/31).
+  function noteMemberLeft(userId) {
+    return transaction(() => {
+      const general = ensureGeneral();
+      const result = st.insertActivity.run(general.id, userId, `${person(userId).name} left Servant`, now(), "left");
+      publish(general.id, "message.created", msgView(st.msg.get(Number(result.lastInsertRowid))));
+      publish(general.id, "conversation.updated", { id: general.id });
+    });
+  }
   function addChannelMember(...args) { return transaction(() => addChannelMemberInTransaction(...args)); }
   function addChannelMemberInTransaction(conv, userId, lastReadSeq = st.lastSeq.get(conv.id).seq) {
     const result = st.addMember.run(conv.id, userId, now(), lastReadSeq);
@@ -1219,7 +1229,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     return true;
   }
 
-  return { handle, notificationFor, joinDefaults, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, close: () => { closeEvents(); db.close(); }, db };
+  return { handle, notificationFor, joinDefaults, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, close: () => { closeEvents(); db.close(); }, db };
 }
 
 function httpError(status, code, message) {
