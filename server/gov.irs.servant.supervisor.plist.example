@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>gov.irs.servant.supervisor</string>
+  <key>ProgramArguments</key><array><string>/bin/bash</string><string>/Users/sahil-irs/.local/share/servant/bootstrap/run-supervisor.sh</string></array>
+  <key>EnvironmentVariables</key><dict>
+    <key>HOME</key><string>/Users/sahil-irs</string>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>SERVANT_RUNTIME_DIR</key><string>/Users/sahil-irs/.local/share/servant</string>
+    <key>SERVANT_DATA_DIR</key><string>/Users/sahil-irs/servant/server/data</string>
+    <key>SERVANT_PORT</key><string>8787</string>
+    <!-- Replace before the first startup. Later startups use deployment.json. -->
+    <key>SERVANT_INITIAL_RELEASE</key><string>REPLACE_WITH_STAGED_RELEASE_ID</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <!-- API rollouts do not restart this job. Bound system shutdown separately. -->
+  <key>ExitTimeOut</key><integer>310</integer>
+  <key>StandardOutPath</key><string>/Users/sahil-irs/.local/share/servant/logs/supervisor.log</string>
+  <key>StandardErrorPath</key><string>/Users/sahil-irs/.local/share/servant/logs/supervisor.log</string>
+</dict></plist>

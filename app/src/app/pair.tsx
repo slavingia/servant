@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Button } from "../components/Button";
 import { pair, ServerError } from "../lib/server";
 import { useSession } from "../lib/session";
-import { colors } from "../lib/theme";
+import { colors, controls, space, typography } from "../lib/theme";
 
 // Opened by servant://pair?code=…&d=… links, the QR scanner, or Welcome.
 // The team link asks for a name; a one-time invite already has one.
 export default function Pair() {
-  const params = useLocalSearchParams<{ code?: string; d?: string; server?: string; hub?: string }>();
+  const params = useLocalSearchParams<{ code?: string; key?: string; d?: string; server?: string; hub?: string }>();
   // Links from the server still say "hub" so builds 2 and 3 can read them.
   const direct = params.server || params.hub || undefined;
   const { account, setAccount } = useSession();
@@ -23,7 +23,7 @@ export default function Pair() {
     setError(null);
     setBusy(true);
     try {
-      const a = await pair({ code: String(params.code || ""), discovery: params.d || undefined, server: direct }, withName);
+      const a = await pair({ code: String(params.code || ""), serverKey: params.key, discovery: params.d || undefined, server: direct }, withName);
       setAccount(a);
       router.replace("/channels");
     } catch (e) {
@@ -48,9 +48,9 @@ export default function Pair() {
   if (error && !askName) {
     return (
       <View style={styles.root}>
-        <Text style={styles.title}>Couldn't join</Text>
-        <Text style={styles.body}>{error}</Text>
-        <Button label="Try again" onPress={() => run()} style={{ marginTop: 24, alignSelf: "stretch" }} />
+        <Text accessibilityRole="header" style={styles.title}>Couldn't join</Text>
+        <Text accessibilityRole="alert" style={styles.body}>{error}</Text>
+        <Button label="Try again" busy={busy} onPress={() => run()} style={{ marginTop: space.lg, alignSelf: "stretch" }} />
         <Button label={account ? "Back to Servant" : "Back"} kind="link" onPress={() => router.replace(account ? "/channels" : "/welcome")} style={{ marginTop: 8 }} />
       </View>
     );
@@ -59,14 +59,16 @@ export default function Pair() {
     const submit = () => name.trim() && run(name.trim());
     return (
       <KeyboardAvoidingView style={styles.form} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <Text style={styles.title}>What's your name?</Text>
-        <Text style={[styles.body, styles.left]}>Everyone on the team will see it</Text>
+        <ScrollView contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
+        <Text accessibilityRole="header" style={styles.title}>Introduce yourself</Text>
+        <Text style={[styles.body, styles.left]}>Choose the name your teammates will see.</Text>
+        <Text style={styles.label}>Your name</Text>
         <TextInput
           accessibilityLabel="Your name"
           value={name}
           onChangeText={setName}
           placeholder="Jordan Lee"
-          placeholderTextColor="#8A8F96"
+          placeholderTextColor={colors.muted}
           style={styles.input}
           autoFocus
           autoComplete="name"
@@ -74,8 +76,9 @@ export default function Pair() {
           returnKeyType="join"
           onSubmitEditing={submit}
         />
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-        <Button label="Join" onPress={submit} busy={busy} disabled={!name.trim()} style={{ marginTop: 24 }} />
+        {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+        <Button label="Join team" onPress={submit} busy={busy} disabled={!name.trim()} style={{ marginTop: space.lg }} />
+        </ScrollView>
       </KeyboardAvoidingView>
     );
   }
@@ -88,11 +91,13 @@ export default function Pair() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, alignItems: "center", justifyContent: "center", padding: 20, backgroundColor: colors.white },
-  form: { flex: 1, justifyContent: "center", padding: 20, backgroundColor: colors.white },
-  title: { fontSize: 22, fontWeight: "700", color: colors.ink },
-  body: { marginTop: 8, fontSize: 17, lineHeight: 24, color: colors.ink, textAlign: "center" },
+  root: { flex: 1, alignItems: "center", justifyContent: "center", padding: space.side, backgroundColor: colors.white },
+  form: { flex: 1, backgroundColor: colors.white },
+  formContent: { flexGrow: 1, justifyContent: "center", padding: space.side, paddingVertical: space.xl },
+  title: { ...typography.title, color: colors.ink },
+  body: { ...typography.body, marginTop: space.xs, color: colors.muted, textAlign: "center" },
   left: { textAlign: "left", color: colors.muted },
-  input: { marginTop: 20, height: 50, borderWidth: 1.5, borderColor: colors.line, borderRadius: 12, paddingHorizontal: 14, fontSize: 17, color: colors.ink },
-  error: { marginTop: 12, color: colors.red, fontSize: 15 },
+  label: { ...typography.label, marginTop: space.xl, color: colors.ink },
+  input: { ...controls.input, marginTop: space.xs },
+  error: { ...typography.caption, marginTop: space.sm, color: colors.red },
 });

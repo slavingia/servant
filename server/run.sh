@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
+# Legacy combined entrypoint, retained for existing installations.
+# New installations use run-api.sh and run-tunnel.sh as separate launchd jobs.
+# See docs/deployment.md for migration; do not run both tunnel entrypoints.
 # launchd entrypoint: server + cloudflared quick tunnel, with discovery publishing.
 # The quick tunnel URL changes on every start, so we publish the current URL to
 # a secret GitHub gist (the discovery URL) that the app reads on launch.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-DATA="$HERE/data"
+DATA="${SERVANT_DATA_DIR:-$HERE/data}"
 LOG="$DATA/cloudflared.log"
 PORT="${SERVANT_PORT:-8787}"
 NODE="${NODE:-$(command -v node || echo /opt/homebrew/bin/node)}"

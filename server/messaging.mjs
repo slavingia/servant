@@ -2,7 +2,7 @@
 // agent joins in when someone mentions @agent.
 //
 // Storage is node:sqlite (built into Node, so the server still has no npm
-// dependencies). People (users) live in the server's state.json; this module only
+// dependencies). People (users) live in the server's state.db; this module only
 // stores their ids.
 
 import { DatabaseSync } from "node:sqlite";
@@ -17,10 +17,9 @@ const MAX_TEXT = 8000;
 // changed and talk about it in that post's thread.
 export const RELEASES_CHANNEL = "whats-new";
 const PAGE = 50;
+const PRESENCE_LEASE_MS = 60000;
 
 const SCHEMA = `
-PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS conversations (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL CHECK (kind IN ('channel', 'dm')),
@@ -56,15 +55,67 @@ CREATE TABLE IF NOT EXISTS messages (
   pending INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS messages_conv ON messages(conversation_id, thread_root, seq);
+CREATE TABLE IF NOT EXISTS message_reads (
+  message_seq INTEGER NOT NULL REFERENCES messages(seq) ON DELETE CASCADE,
+  conversation_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  read_at INTEGER NOT NULL,
+  PRIMARY KEY (message_seq, user_id),
+  FOREIGN KEY (conversation_id, user_id) REFERENCES members(conversation_id, user_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS people_presence (
+  user_id TEXT PRIMARY KEY,
+  last_seen_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS presence_sessions (
+  user_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, session_id)
+);
+CREATE INDEX IF NOT EXISTS presence_expiry ON presence_sessions(expires_at);
+CREATE TABLE IF NOT EXISTS reactions (
+  message_seq INTEGER NOT NULL REFERENCES messages(seq) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
+  emoji TEXT NOT NULL,
+  PRIMARY KEY (message_seq, user_id, emoji)
+);
+CREATE TABLE IF NOT EXISTS attachments (
+  id TEXT PRIMARY KEY,
+  message_seq INTEGER NOT NULL REFERENCES messages(seq) ON DELETE CASCADE,
+  name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, data BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS attachments_message ON attachments(message_seq);
 CREATE TABLE IF NOT EXISTS releases (
   build TEXT PRIMARY KEY,
   seq INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS live_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conversation_id TEXT NOT NULL,
+  event TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  recipients TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS agent_threads (
   key TEXT PRIMARY KEY,
   hermes_session_id TEXT NOT NULL,
   last_seen_seq INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS agent_jobs (
+  trigger_seq INTEGER PRIMARY KEY REFERENCES messages(seq) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','working','done','interrupted','cancelled')),
+  owner TEXT,
+  reply_seq INTEGER,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_jobs_pending ON agent_jobs(status, created_at);
+CREATE TABLE IF NOT EXISTS notification_outbox (
+  id TEXT PRIMARY KEY,
+  event TEXT NOT NULL,
+  created_at INTEGER NOT NULL
 );
 `;
 
@@ -97,19 +148,93 @@ export function mentionsAgent(text, agentName = "") {
  * @param {() => string} o.agentName
  * @param {(o:{sessionId:string, sessionKey:string, text:string, onDelta:(t:string)=>void, onStatus:(t:string)=>void}) => Promise<string>} o.askAgent
  */
-export function createMessaging({ file, users, agentName, askAgent, onMessage = () => {} }) {
+export function createMessaging({ file, users, agentName, askAgent, onMessage = () => {}, externalWorker = false }) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(file);
-  db.exec(SCHEMA);
-  if (!db.prepare("PRAGMA table_info(members)").all().some((column) => column.name === "archived_at")) {
-    db.exec("ALTER TABLE members ADD COLUMN archived_at INTEGER");
-  }
+  db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON');
+  // Serializing schema checks avoids two starting versions racing ALTER TABLE.
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.exec(SCHEMA);
+    if (!db.prepare("PRAGMA table_info(members)").all().some(column => column.name === "archived_at")) {
+      db.exec("ALTER TABLE members ADD COLUMN archived_at INTEGER");
+    }
+    if (!db.prepare("PRAGMA table_info(messages)").all().some(column => column.name === "activity")) {
+      db.exec("ALTER TABLE messages ADD COLUMN activity TEXT");
+    }
+    db.exec('COMMIT');
+  } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
 
-  if (!db.prepare("PRAGMA table_info(messages)").all().some(column => column.name === "activity")) {
-    db.exec("ALTER TABLE messages ADD COLUMN activity TEXT");
+  // SQLite's built-in lower() only folds ASCII. Match literal Unicode text
+  // consistently for channels, names, and messages; %, _, and quotes stay text.
+  const searchText = value => String(value ?? "").normalize("NFKC").toLowerCase();
+  db.function("search_contains", { deterministic: true }, (text, query) => searchText(text).includes(query) ? 1 : 0);
+
+  let inTransaction = false;
+  let committedCallbacks = [];
+  function afterCommit(fn) {
+    if (inTransaction) committedCallbacks.push(fn);
+    else fn();
+  }
+  function transaction(fn) {
+    if (inTransaction) return fn();
+    db.exec('BEGIN IMMEDIATE');
+    inTransaction = true;
+    committedCallbacks = [];
+    let result;
+    let callbacks;
+    try {
+      result = fn();
+      db.exec('COMMIT');
+      callbacks = committedCallbacks;
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    } finally { inTransaction = false; committedCallbacks = []; }
+    // A subscriber failure must not make an already committed write look failed.
+    for (const callback of callbacks) {
+      try { callback(); } catch { console.warn('[servant] live subscriber failed'); }
+    }
+    return result;
+  }
+  function notifyMessage(messageId) {
+    const event = { kind: 'message', messageId: String(messageId) };
+    db.prepare('INSERT OR IGNORE INTO notification_outbox VALUES (?, ?, ?)').run(`message:${messageId}`, JSON.stringify(event), now());
+    if (!externalWorker) afterCommit(() => {
+      onMessage(event);
+      db.prepare('DELETE FROM notification_outbox WHERE id = ?').run(`message:${messageId}`);
+    });
+  }
+  // Enqueue and acknowledge use separate databases. Push enqueue must retain an
+  // idempotency receipt after send, so a crash between these steps is harmless.
+  function drainOutbox(enqueue, limit = 100) {
+    const rows = db.prepare('SELECT * FROM notification_outbox ORDER BY created_at LIMIT ?').all(limit);
+    for (const row of rows) {
+      enqueue(JSON.parse(row.event));
+      db.prepare('DELETE FROM notification_outbox WHERE id = ?').run(row.id);
+    }
+    return rows.length;
   }
   const q = (sql) => db.prepare(sql);
   const st = {
+    reads: q("SELECT user_id AS userId, read_at AS readAt FROM message_reads WHERE message_seq = ? ORDER BY read_at, user_id"),
+    addRead: q("INSERT OR IGNORE INTO message_reads (message_seq, conversation_id, user_id, read_at) VALUES (?, ?, ?, ?)"),
+    read: q("SELECT read_at FROM message_reads WHERE message_seq = ? AND user_id = ?"),
+    lastSeen: q("SELECT last_seen_at FROM people_presence WHERE user_id = ?"),
+    activePresence: q("SELECT 1 FROM presence_sessions WHERE user_id = ? AND expires_at > ? LIMIT 1"),
+    touchPresence: q("INSERT INTO people_presence VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET last_seen_at = MAX(last_seen_at, excluded.last_seen_at)"),
+    touchSession: q("INSERT INTO presence_sessions VALUES (?, ?, ?) ON CONFLICT(user_id, session_id) DO UPDATE SET expires_at = excluded.expires_at"),
+    endSession: q("DELETE FROM presence_sessions WHERE user_id = ? AND session_id = ?"),
+    expiredSessions: q("SELECT DISTINCT user_id FROM presence_sessions WHERE expires_at <= ?"),
+    expireSessions: q("DELETE FROM presence_sessions WHERE expires_at <= ?"),
+    reactions: q("SELECT emoji, user_id FROM reactions WHERE message_seq = ? ORDER BY emoji, user_id"),
+    addReaction: q("INSERT OR IGNORE INTO reactions VALUES (?, ?, ?)"),
+    removeReaction: q("DELETE FROM reactions WHERE message_seq = ? AND user_id = ? AND emoji = ?"),
+    deleteReactions: q("DELETE FROM reactions WHERE message_seq = ?"),
+    attachments: q("SELECT id, name, mime, size FROM attachments WHERE message_seq = ?"),
+    attachment: q("SELECT * FROM attachments WHERE id = ?"),
+    insertAttachment: q("INSERT INTO attachments VALUES (?, ?, ?, ?, ?, ?)"),
+    deleteAttachments: q("DELETE FROM attachments WHERE message_seq = ?"),
     conv: q("SELECT * FROM conversations WHERE id = ?"),
     convByName: q("SELECT * FROM conversations WHERE kind = 'channel' AND name = ?"),
     convByDm: q("SELECT * FROM conversations WHERE dm_key = ?"),
@@ -139,6 +264,23 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
                FROM conversations c WHERE c.kind = 'channel' AND c.private = 0 AND c.archived_at IS NULL
                AND NOT EXISTS (SELECT 1 FROM members m WHERE m.conversation_id = c.id AND m.user_id = ?)
                ORDER BY c.name`),
+    browsePage: q(`SELECT c.*, (SELECT COUNT(*) FROM members m WHERE m.conversation_id = c.id) AS member_count
+               FROM conversations c WHERE c.kind = 'channel' AND c.private = 0 AND c.archived_at IS NULL
+               AND NOT EXISTS (SELECT 1 FROM members m WHERE m.conversation_id = c.id AND m.user_id = ?)
+               AND (c.name > ? OR (c.name = ? AND c.id > ?))
+               ORDER BY c.name, c.id LIMIT ?`),
+    searchChannels: q(`SELECT c.*, m.user_id AS joined_user, m.archived_at AS member_archived_at,
+               (SELECT COUNT(*) FROM members x WHERE x.conversation_id = c.id) AS member_count
+             FROM conversations c LEFT JOIN members m ON m.conversation_id = c.id AND m.user_id = ?
+             WHERE c.kind = 'channel' AND c.archived_at IS NULL AND (c.private = 0 OR m.user_id IS NOT NULL)
+               AND (search_contains(c.name, ?) OR search_contains(c.topic, ?))
+             ORDER BY m.archived_at IS NOT NULL, m.user_id IS NULL, c.name, c.id LIMIT 10`),
+    searchMessages: q(`SELECT x.*, c.kind AS conversation_kind, c.name AS conversation_name
+             FROM messages x JOIN conversations c ON c.id = x.conversation_id
+             JOIN members m ON m.conversation_id = c.id AND m.user_id = ?
+             WHERE c.archived_at IS NULL AND x.deleted_at IS NULL AND x.pending = 0 AND x.activity IS NULL
+               AND search_contains(x.text, ?)
+             ORDER BY x.seq DESC LIMIT 20`),
     memberCount: q("SELECT COUNT(*) AS n FROM members WHERE conversation_id = ?"),
     updateConv: q("UPDATE conversations SET name = ?, topic = ? WHERE id = ?"),
     archive: q("UPDATE conversations SET archived_at = ? WHERE id = ?"),
@@ -150,15 +292,32 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     putAgentThread: q("INSERT INTO agent_threads (key, hermes_session_id, last_seen_seq) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET last_seen_seq = excluded.last_seen_seq"),
     release: q("SELECT * FROM releases WHERE build = ?"),
     releaseBySeq: q("SELECT * FROM releases WHERE seq = ?"),
-    latestRelease: q("SELECT * FROM releases ORDER BY created_at DESC LIMIT 1"),
+    latestRelease: q("SELECT * FROM releases ORDER BY created_at DESC, seq DESC LIMIT 1"),
     putRelease: q("INSERT INTO releases (build, seq, created_at) VALUES (?, ?, ?)"),
     since: q(`SELECT * FROM messages WHERE conversation_id = ? AND seq > ? AND deleted_at IS NULL AND pending = 0 AND activity IS NULL
               AND ((? IS NULL AND thread_root IS NULL) OR thread_root = ? OR seq = ?) ORDER BY seq DESC LIMIT 20`),
   };
 
+  const eventInsert = q("INSERT INTO live_events (conversation_id, event, payload, recipients, created_at) VALUES (?, ?, ?, ?, ?)");
+  const eventPage = q("SELECT * FROM live_events WHERE id > ? AND id <= ? ORDER BY id LIMIT 250");
+  const eventHead = () => Number(q("SELECT seq FROM sqlite_sequence WHERE name = 'live_events'").get()?.seq || 0);
+  const eventFloor = () => Number(q("SELECT MIN(id) AS id FROM live_events").get().id || eventHead() + 1);
+  const EVENT_HISTORY = 10000;
+  const MAX_REPLAY = 2000;
+
   // ----- live events -----
   /** @type {Map<string, Set<(event:string, data:any)=>void>>} */
   const listeners = new Map();
+  const eventStreams = new Set();
+  let closingEvents = false;
+  const agentTasks = new Set();
+  const whenIdle = async () => {
+    while (agentTasks.size) await Promise.allSettled([...agentTasks]);
+  };
+  const closeEvents = () => {
+    closingEvents = true;
+    for (const end of eventStreams) end();
+  };
   function subscribe(userId, fn) {
     if (!listeners.has(userId)) listeners.set(userId, new Set());
     listeners.get(userId).add(fn);
@@ -167,24 +326,96 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
   // Last typing relay per conversation+person, so a chatty phone can't flood the others.
   const TYPING_MIN_GAP_MS = 2000;
   const typingSent = new Map();
+  function resolveEvent(row, userId) {
+    if (!users()[userId] || !JSON.parse(row.recipients).includes(userId)) return null;
+    if (row.event === 'presence.updated') {
+      const { userId: subject } = JSON.parse(row.payload);
+      return users()[subject] ? presence(subject) : null;
+    }
+    // Invalidation contains only an already-known ID and must survive leave/delete.
+    if (row.event === 'conversation.updated') return { id: row.conversation_id };
+    const conv = st.conv.get(row.conversation_id);
+    if (!conv || conv.archived_at || !st.member.get(conv.id, userId)) return null;
+    const data = JSON.parse(row.payload);
+    if (row.event.startsWith('message.')) {
+      const message = st.msg.get(Number(data.messageId));
+      return message && message.conversation_id === conv.id ? msgView(message) : null;
+    }
+    if (row.event === 'typing') {
+      if (now() - row.created_at > 6000 || !users()[data.userId] || !st.member.get(conv.id, data.userId)) return null;
+      return { conversationId: conv.id, threadRoot: data.threadRoot, user: person(data.userId) };
+    }
+    if (row.event === 'messages.read') {
+      if (!users()[data.userId] || !st.member.get(conv.id, data.userId)) return null;
+      const messageIds = data.messageIds.filter(id => {
+        const m = st.msg.get(Number(id));
+        return m && m.conversation_id === conv.id && !m.deleted_at && !m.pending && !m.activity
+          && m.user_id !== AGENT_ID && m.user_id !== data.userId
+          && st.read.get(m.seq, data.userId)?.read_at === data.readAt;
+      });
+      return messageIds.length ? { conversationId: conv.id, userId: data.userId, messageIds, readAt: data.readAt } : null;
+    }
+    if (row.event === 'conversation.read') return { id: conv.id };
+    return null;
+  }
   function publish(conversationId, event, data, onlyUserIds) {
-    const ids = onlyUserIds || st.members.all(conversationId).map((r) => r.user_id);
-    for (const uid of ids) for (const fn of listeners.get(uid) || []) fn(event, data);
+    return transaction(() => {
+      const ids = [...new Set(onlyUserIds || st.members.all(conversationId).map(r => r.user_id))];
+      // Store references, never an old copy of text or attachments which may
+      // subsequently be edited/deleted or become inaccessible to a recipient.
+      const payload = event.startsWith('message.') ? { messageId: data.id }
+        : event === 'typing' ? { userId: data.user.id, threadRoot: data.threadRoot }
+        : event === 'messages.read' ? { userId: data.userId, messageIds: data.messageIds, readAt: data.readAt }
+        : event === 'presence.updated' ? { userId: data.userId } : {};
+      const at = now();
+      const id = Number(eventInsert.run(conversationId, event, JSON.stringify(payload), JSON.stringify(ids), at).lastInsertRowid);
+      db.prepare('DELETE FROM live_events WHERE id <= ?').run(id - EVENT_HISTORY);
+      const row = { id, conversation_id: conversationId, event, payload: JSON.stringify(payload), recipients: JSON.stringify(ids), created_at: at };
+      afterCommit(() => {
+        for (const uid of ids) {
+          const value = resolveEvent(row, uid);
+          if (value) for (const fn of listeners.get(uid) || []) fn(event, value);
+        }
+      });
+      return id;
+    });
   }
 
   // ----- views -----
+  function presence(userId) {
+    return { userId, lastSeenAt: st.lastSeen.get(userId)?.last_seen_at ?? null, online: !!st.activePresence.get(userId, now()) };
+  }
+  function publishPresence(userId) {
+    publish('', 'presence.updated', { userId }, Object.keys(users()));
+  }
+  // Expiration is serialized in the shared database: two API processes cannot
+  // emit duplicate offline transitions, and a crash cannot leave someone online.
+  function expirePresence() {
+    const at = now();
+    if (!st.expiredSessions.all(at).length) return;
+    transaction(() => {
+      const expired = st.expiredSessions.all(at);
+      st.expireSessions.run(at);
+      for (const { user_id: id } of expired) if (users()[id] && !st.activePresence.get(id, at)) publishPresence(id);
+    });
+  }
   const person = (uid) => {
     if (uid === AGENT_ID) return { id: AGENT_ID, name: agentName(), agent: true };
     const u = users()[uid];
-    return u ? { id: u.id, name: u.name } : { id: uid, name: "Former member" };
+    const { lastSeenAt, online } = presence(uid);
+    return u ? { id: u.id, name: u.name, lastSeenAt, online } : { id: uid, name: "Former member" };
   };
-  const msgView = (m) => ({
+  const msgView = (m, includeReads = true) => ({
     id: String(m.seq),
+    readBy: includeReads && !m.deleted_at && !m.pending && !m.activity && m.user_id !== AGENT_ID
+      ? st.reads.all(m.seq).filter(r => !!users()[r.userId]) : [],
     activity: m.activity || undefined,
     conversationId: m.conversation_id,
     user: person(m.user_id),
     threadRoot: m.thread_root ? String(m.thread_root) : null,
     text: m.deleted_at ? "" : m.text,
+    reactions: m.deleted_at ? [] : Object.entries(Object.groupBy(st.reactions.all(m.seq), r => r.emoji)).map(([emoji, rows]) => ({ emoji, userIds: rows.map(r => r.user_id) })),
+    attachments: m.deleted_at ? [] : st.attachments.all(m.seq),
     deleted: !!m.deleted_at,
     pending: !!m.pending,
     replyCount: m.reply_count,
@@ -212,13 +443,14 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       memberCount: memberIds.length,
       members: includeMembers || c.kind === "dm" || memberIds.length <= 50 ? memberIds.map(person) : undefined,
       unread: c.unread ?? 0,
-      lastMessage: last ? msgView(last) : null,
+      lastMessage: last ? msgView(last, !!st.member.get(c.id, me)) : null,
       updatedAt: last ? last.created_at : c.created_at,
     };
   }
 
   // ----- core operations (also used by tests and the CLI) -----
-  function ensureChannel(name, topic, createdBy = "system") {
+  function ensureChannel(...args) { return transaction(() => ensureChannelInTransaction(...args)); }
+  function ensureChannelInTransaction(name, topic, createdBy = "system") {
     let c = st.convByName.get(name);
     if (!c) {
       const id = newId("ch");
@@ -230,7 +462,8 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
   const ensureGeneral = (createdBy) => ensureChannel("general", "Everyone on this server", createdBy);
   const ensureReleases = () => ensureChannel(RELEASES_CHANNEL, "What changed in each build and what to test. Reply in the thread");
 
-  function joinDefaults(userId) {
+  function joinDefaults(...args) { return transaction(() => joinDefaultsInTransaction(...args)); }
+  function joinDefaultsInTransaction(userId) {
     for (const c of [ensureGeneral(), ensureReleases()]) {
       addChannelMember(c, userId);
       publish(c.id, "conversation.updated", { id: c.id });
@@ -245,7 +478,8 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
 
   // One post per build in #whats-new. Posting the same build again updates
   // that post, so iOS and Android scripts can both call this.
-  function postRelease({ build, notes, authorId }) {
+  function postRelease(...args) { return transaction(() => postReleaseInTransaction(...args)); }
+  function postReleaseInTransaction({ build, notes, authorId }) {
     build = String(build || "").trim();
     notes = String(notes || "").trim();
     if (!/^[0-9A-Za-z._-]{1,20}$/.test(build)) throw httpError(400, "bad_build", "Give a build number");
@@ -261,39 +495,61 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       return { ...releaseView(existing), updated: true };
     }
     db.prepare("DELETE FROM releases WHERE build = ?").run(build);
-    const m = post(conv, authorId, text);
+    const m = post(conv, authorId, text, null, { queueAgent: false });
     st.putRelease.run(build, m.seq, now());
     publish(conv.id, "conversation.updated", { id: conv.id });
     return { ...releaseView(st.release.get(build)), updated: false };
   }
   const latestRelease = () => releaseView(st.latestRelease.get());
 
-  function channelActivity(conv, userId, action) {
+  function channelActivity(...args) { return transaction(() => channelActivityInTransaction(...args)); }
+  function channelActivityInTransaction(conv, userId, action) {
     const text = `${person(userId).name} ${action === "joined" ? "joined" : "left"} the channel`;
     const result = st.insertActivity.run(conv.id, userId, text, now(), action);
     publish(conv.id, "message.created", msgView(st.msg.get(Number(result.lastInsertRowid))));
   }
-  function addChannelMember(conv, userId, lastReadSeq = st.lastSeq.get(conv.id).seq) {
+  function addChannelMember(...args) { return transaction(() => addChannelMemberInTransaction(...args)); }
+  function addChannelMemberInTransaction(conv, userId, lastReadSeq = st.lastSeq.get(conv.id).seq) {
     const result = st.addMember.run(conv.id, userId, now(), lastReadSeq);
     if (result.changes) channelActivity(conv, userId, "joined");
     return Number(result.changes);
   }
 
-  function post(conv, userId, text, threadRoot = null, { pending = false } = {}) {
+  function post(...args) { return transaction(() => postInTransaction(...args)); }
+  function postInTransaction(conv, userId, text, threadRoot = null, { pending = false, attachments = [], queueAgent = externalWorker } = {}) {
+    conv = userId === AGENT_ID ? st.conv.get(conv.id) : requireConversation(conv.id, userId, true);
+    if (!conv || conv.archived_at) throw httpError(404, 'not_found', 'That conversation is gone');
+    if (threadRoot) {
+      const root = st.msg.get(threadRoot);
+      if (!root || root.deleted_at || root.conversation_id !== conv.id) throw httpError(404, 'not_found', 'That thread is gone');
+      if (root.activity) throw httpError(400, 'channel_activity', 'Channel activity cannot have replies');
+    }
     const r = st.insertMsg.run(conv.id, userId, threadRoot, text, now(), pending ? 1 : 0);
     const seq = Number(r.lastInsertRowid);
+    for (const a of attachments) st.insertAttachment.run(newId("file"), seq, a.name, a.mime, a.data.length, a.data);
     if (threadRoot) st.bumpThread.run(now(), threadRoot);
     if (userId !== AGENT_ID) st.markRead.run(seq, conv.id, userId);
     const m = st.msg.get(seq);
     publish(conv.id, "message.created", msgView(m));
     if (threadRoot) publish(conv.id, "message.updated", msgView(st.msg.get(threadRoot)));
-    if (!pending) onMessage({ kind: "message", messageId: String(m.seq) });
+    if (!pending) notifyMessage(m.seq);
+    if (queueAgent && externalWorker && userId !== AGENT_ID && mentionsAgent(text, agentName())) {
+      db.prepare('INSERT OR IGNORE INTO agent_jobs (trigger_seq, created_at) VALUES (?, ?)').run(m.seq, now());
+    }
     return m;
   }
 
   // The agent answers in a thread under the message that mentioned it, and
   // sees the recent messages it missed in that thread (or channel) as context.
-  async function agentReply(conv, trigger) {
+  function agentReply(conv, trigger, job) {
+    const task = runAgentReply(conv, trigger, job);
+    agentTasks.add(task);
+    const settled = () => agentTasks.delete(task);
+    task.then(settled, settled);
+    return task;
+  }
+
+  async function runAgentReply(conv, trigger, job) {
     const root = trigger.thread_root || trigger.seq;
     const key = `${conv.id}:${root}`;
     let thread = st.agentThread.get(key);
@@ -309,15 +565,22 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       `[Servant ${where}. Several people can read your reply. Answer the latest message that mentions you, ` +
       `briefly, in plain text.]\n\n${transcript}`;
 
-    const reply = post(conv, AGENT_ID, "", root, { pending: true });
+    const reply = transaction(() => {
+      const message = post(conv, AGENT_ID, "", root, { pending: true });
+      if (job) db.prepare('UPDATE agent_jobs SET reply_seq = ? WHERE trigger_seq = ? AND owner = ? AND status = ?').run(message.seq, job.trigger_seq, job.owner, 'working');
+      return message;
+    });
     let text = "";
     let lastPush = 0;
     const push = (force) => {
       if (!force && now() - lastPush < 250) return;
       lastPush = now();
-      if (!st.conv.get(conv.id)) return;
-      st.setAgentText.run(text, force ? 0 : 1, reply.seq);
-      publish(conv.id, "message.updated", msgView(st.msg.get(reply.seq)));
+      transaction(() => {
+        const current = st.msg.get(reply.seq);
+        if (!st.conv.get(conv.id) || !current || current.deleted_at) return;
+        st.setAgentText.run(text, force ? 0 : 1, reply.seq);
+        publish(conv.id, "message.updated", msgView(st.msg.get(reply.seq)));
+      });
     };
     try {
       const final = await askAgent({
@@ -335,12 +598,66 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     } catch {
       text = text || "I hit a problem. Try asking again";
     }
-    push(true);
-    if (st.conv.get(conv.id)) {
-      st.putAgentThread.run(key, sessionId, reply.seq);
-      onMessage({ kind: "message", messageId: String(reply.seq) });
-    }
+    transaction(() => {
+      push(true);
+      if (st.conv.get(conv.id)) {
+        st.putAgentThread.run(key, sessionId, reply.seq);
+        notifyMessage(reply.seq);
+      }
+      if (job) db.prepare("UPDATE agent_jobs SET status = 'done' WHERE trigger_seq = ? AND owner = ? AND status = 'working'").run(job.trigger_seq, job.owner);
+    });
     return st.msg.get(reply.seq);
+  }
+
+  async function processAgentJob(owner) {
+    if (typeof owner !== 'string' || !owner) throw new Error('Worker owner is required');
+    const job = transaction(() => {
+      const row = db.prepare("SELECT * FROM agent_jobs WHERE status = 'queued' ORDER BY created_at, trigger_seq LIMIT 1").get();
+      if (!row) return null;
+      db.prepare("UPDATE agent_jobs SET status = 'working', owner = ? WHERE trigger_seq = ? AND status = 'queued'").run(owner, row.trigger_seq);
+      return { ...row, owner };
+    });
+    if (!job) return false;
+    const trigger = st.msg.get(job.trigger_seq);
+    const conv = trigger && st.conv.get(trigger.conversation_id);
+    if (!trigger || trigger.deleted_at || !conv || !users()[trigger.user_id] || !st.member.get(conv.id, trigger.user_id)) {
+      db.prepare("UPDATE agent_jobs SET status = 'cancelled' WHERE trigger_seq = ? AND owner = ?").run(job.trigger_seq, owner);
+      return true;
+    }
+    try { await agentReply(conv, trigger, job); }
+    catch (error) {
+      transaction(() => {
+        const current = db.prepare("SELECT * FROM agent_jobs WHERE trigger_seq = ? AND owner = ? AND status = 'working'").get(job.trigger_seq, owner);
+        const reply = current?.reply_seq && st.msg.get(current.reply_seq);
+        if (reply && reply.pending && !reply.deleted_at && st.conv.get(reply.conversation_id)) {
+          st.setAgentText.run(`${reply.text ? reply.text + '\n\n' : ''}The worker could not confirm this answer. Ask again if needed.`, 0, reply.seq);
+          publish(reply.conversation_id, 'message.updated', msgView(st.msg.get(reply.seq)));
+          notifyMessage(reply.seq);
+        }
+        db.prepare("UPDATE agent_jobs SET status = 'interrupted' WHERE trigger_seq = ? AND owner = ? AND status = 'working'").run(job.trigger_seq, owner);
+      });
+      throw error;
+    }
+    return true;
+  }
+
+  // Only call after acquiring exclusive worker ownership. A lost stream may
+  // still run inside Hermes, so recovery never blindly replays a claimed job.
+  function recoverInterruptedJobs() {
+    return transaction(() => {
+      const rows = db.prepare("SELECT * FROM agent_jobs WHERE status = 'working'").all();
+      for (const job of rows) {
+        const reply = job.reply_seq && st.msg.get(job.reply_seq);
+        if (reply && !reply.deleted_at && st.conv.get(reply.conversation_id)) {
+          const text = `${reply.text ? reply.text + '\n\n' : ''}The worker restarted before confirming this answer. Ask again if needed.`;
+          st.setAgentText.run(text, 0, reply.seq);
+          publish(reply.conversation_id, 'message.updated', msgView(st.msg.get(reply.seq)));
+          notifyMessage(reply.seq);
+        }
+        db.prepare("UPDATE agent_jobs SET status = 'interrupted' WHERE trigger_seq = ?").run(job.trigger_seq);
+      }
+      return rows.length;
+    });
   }
 
   function canSee(conv, userId) {
@@ -349,7 +666,22 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     return !!st.member.get(conv.id, userId);
   }
 
-  function createChannel(user, { name, topic = "", private: priv = false, memberIds = [] }) {
+  function requireConversation(conversationId, userId, membership = false) {
+    const current = st.conv.get(conversationId);
+    if (!canSee(current, userId)) throw httpError(404, 'not_found', "That conversation doesn't exist or you can't see it");
+    if (membership && !st.member.get(conversationId, userId)) throw httpError(403, 'not_member', 'Join the channel first');
+    return current;
+  }
+  function requireMessage(messageId, userId, membership = false) {
+    const current = st.msg.get(messageId);
+    if (!current || current.deleted_at) throw httpError(404, 'not_found', 'That message is gone');
+    requireConversation(current.conversation_id, userId, membership);
+    if (current.activity) throw httpError(403, 'channel_activity', 'Channel activity cannot be changed');
+    return current;
+  }
+
+  function createChannel(...args) { return transaction(() => createChannelInTransaction(...args)); }
+  function createChannelInTransaction(user, { name, topic = "", private: priv = false, memberIds = [] }) {
     const n = channelName(name);
     if (!n) throw httpError(400, "bad_name", "Give the channel a name");
     if (st.convByName.get(n)) throw httpError(409, "name_taken", `#${n} already exists`);
@@ -361,7 +693,8 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     return st.conv.get(id);
   }
 
-  function openDm(user, userIds) {
+  function openDm(...args) { return transaction(() => openDmInTransaction(...args)); }
+  function openDmInTransaction(user, userIds) {
     const people = users();
     const ids = [...new Set([user.id, ...userIds])].filter((u) => people[u]).sort();
     if (ids.length < 2 && !userIds.includes(user.id)) throw httpError(400, "bad_people", "Pick someone to message");
@@ -373,6 +706,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       st.insertConv.run(id, "dm", null, "", 1, key, user.id, now());
       for (const uid of ids) st.addMember.run(id, uid, now(), 0);
       c = st.conv.get(id);
+      publish(id, "conversation.updated", { id });
     }
     return c;
   }
@@ -394,13 +728,78 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     return { kind: c.kind, conversationId: c.id, messageId: String(m.seq), threadRoot: release ? m.seq : m.thread_root,
       mentioned: !!release || isMention(m.text, user), participant, badge: Math.max(1, unread),
       title: release ? `Build ${release.build} is out` : c.kind === "channel" ? `${sender} in #${c.name}` : sender,
-      body: m.text, };
+      body: m.text || (st.attachments.all(m.seq).length ? "Sent an attachment" : ""), };
   }
 
   // ----- HTTP -----
-  async function handle(req, res, { user, method, parts, url, send, fail, readBody, cors }) {
+  async function handle(req, res, { user, method, parts, url, send, fail, readBody, cors, isAuthorized = () => true }) {
     const r = parts[1];
-    if (!["people", "conversations", "channels", "messages", "events", "releases"].includes(r)) return false;
+    if (!["people", "conversations", "channels", "messages", "events", "releases", "attachments", "presence", "search"].includes(r)) return false;
+
+    if (r === "search" && method === "GET" && parts.length === 2) {
+      if (!isAuthorized() || !users()[user.id]) return fail(res, 401, "unauthorized", "This device is no longer paired"), true;
+      const input = (url.searchParams.get("q") ?? "").trim();
+      if (input.length > 100) return fail(res, 400, "bad_query", "Search with up to 100 characters"), true;
+      res.setHeader("Cache-Control", "no-store");
+      if (input.length < 2) return send(res, 200, { channels: [], people: [], messages: [] }), true;
+      const query = searchText(input);
+      const channels = st.searchChannels.all(user.id, query, query).map(c => ({
+        id: c.id, name: c.name, topic: c.topic, memberCount: c.member_count,
+        archived: !!c.member_archived_at, joined: !!c.joined_user, private: !!c.private,
+      }));
+      const people = Object.values(users())
+        .filter(u => u.id !== user.id && searchText(u.name).includes(query))
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .slice(0, 10)
+        .map(u => ({ ...person(u.id), owner: u.role === "owner" }));
+      const titles = new Map();
+      const messages = st.searchMessages.all(user.id, query).map(m => {
+        if (!titles.has(m.conversation_id)) titles.set(m.conversation_id,
+          m.conversation_kind === "channel" ? m.conversation_name : convView(st.conv.get(m.conversation_id), user.id).title);
+        return {
+          id: String(m.seq), conversationId: m.conversation_id,
+          conversationTitle: titles.get(m.conversation_id), conversationKind: m.conversation_kind,
+          threadRoot: m.thread_root ? String(m.thread_root) : null,
+          text: m.text, user: person(m.user_id), createdAt: m.created_at,
+        };
+      });
+      send(res, 200, { channels, people, messages });
+      return true;
+    }
+
+    if (r === "presence" && method === "POST" && parts.length === 2) {
+      const body = await readBody(req);
+      if (typeof body.active !== "boolean" || typeof body.sessionId !== "string" || !/^[A-Za-z0-9_-]{8,128}$/.test(body.sessionId)) {
+        return fail(res, 400, "invalid_presence", "Invalid presence session"), true;
+      }
+      const value = transaction(() => {
+        if (!isAuthorized() || !users()[user.id]) throw httpError(401, "unauthorized", "This device is no longer paired");
+        expirePresence();
+        const at = now();
+        if (body.active) {
+          st.touchPresence.run(user.id, at);
+          st.touchSession.run(user.id, body.sessionId, at + PRESENCE_LEASE_MS);
+          publishPresence(user.id);
+        } else if (st.endSession.run(user.id, body.sessionId).changes) {
+          st.touchPresence.run(user.id, at);
+          publishPresence(user.id);
+        }
+        return presence(user.id);
+      });
+      send(res, 200, value);
+      return true;
+    }
+
+    if (r === "attachments" && method === "GET") {
+      const a = st.attachment.get(parts[2] || "");
+      const m = a && st.msg.get(a.message_seq);
+      if (!m || m.deleted_at || !canSee(st.conv.get(m.conversation_id), user.id)) {
+        return fail(res, 404, "not_found", "That attachment is unavailable"), true;
+      }
+      res.setHeader("Cache-Control", "no-store");
+      send(res, 200, { data: Buffer.from(a.data).toString("base64") });
+      return true;
+    }
 
     if (method === "GET" && r === "releases" && parts[2] === "latest" && parts.length === 3) {
       send(res, 200, { release: latestRelease() });
@@ -408,8 +807,9 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     }
 
     if (method === "GET" && r === "people" && parts.length === 2) {
+      expirePresence();
       const list = Object.values(users())
-        .map((u) => ({ id: u.id, name: u.name, owner: u.role === "owner" }))
+        .map((u) => ({ ...person(u.id), owner: u.role === "owner" }))
         .sort((a, b) => a.name.localeCompare(b.name));
       send(res, 200, { people: list, agent: person(AGENT_ID), me: user.id });
       return true;
@@ -418,6 +818,14 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     // POST as well as GET: Cloudflare's quick tunnel buffers streamed GET responses
     // until they end, but passes POST streams straight through. The app uses POST.
     if ((method === "GET" || method === "POST") && r === "events") {
+      // A request accepted before drain may only reach this route later (for
+      // example, after reading/decrypting its envelope). Never open a new stream.
+      if (closingEvents) return fail(res, 503, "draining", "Server restarting. Try again shortly"), true;
+      const rawAfter = url.searchParams.get('after');
+      if (rawAfter !== null && (!/^(0|[1-9][0-9]*)$/.test(rawAfter) || !Number.isSafeInteger(Number(rawAfter)))) {
+        return fail(res, 400, 'invalid_cursor', 'Invalid event cursor'), true;
+      }
+      if (!isAuthorized()) return fail(res, 401, 'unauthorized', 'This device is no longer paired'), true;
       res.writeHead(200, {
         ...cors,
         "Content-Type": "text/event-stream; charset=utf-8",
@@ -425,22 +833,88 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
         "X-Accel-Buffering": "no",
         Connection: "keep-alive",
       });
-      res.write(`event: ready\ndata: {}\n\n`);
-      const off = subscribe(user.id, (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
-      const keepalive = setInterval(() => res.write(": keepalive\n\n"), 15000);
-      res.on("close", () => {
-        off();
+      let cursor = rawAfter === null ? null : Number(rawAfter);
+      let ended = false;
+      let timer;
+      let keepalive;
+      const cleanup = () => {
+        ended = true;
+        eventStreams.delete(end);
+        clearInterval(timer);
         clearInterval(keepalive);
-      });
+      };
+      const end = () => { cleanup(); res.end(); };
+      const emit = (event, data, id) => {
+        if (ended) return false;
+        const writable = res.write(`id: ${id}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+        // A slow client reconnects with its last received cursor; never buffer
+        // an unbounded event history in this API process.
+        if (writable === false) end();
+        return !ended;
+      };
+      const poll = (initial = false) => {
+        if (ended) return;
+        try {
+          if (!isAuthorized() || !users()[user.id]) return end();
+          expirePresence();
+          const head = eventHead();
+          const reset = cursor === null || cursor > head || cursor < eventFloor() - 1 || head - cursor > MAX_REPLAY;
+          if (reset) {
+            cursor = head;
+            emit('ready', { cursor: String(cursor), reset: true }, cursor);
+            return;
+          }
+          const before = cursor;
+          // Initial catch-up is bounded by MAX_REPLAY. Subsequent polls process
+          // one page so a busy conversation cannot monopolize the event loop.
+          do {
+            const rows = eventPage.all(cursor, head);
+            if (!rows.length) { cursor = head; break; }
+            for (const row of rows) {
+              cursor = row.id;
+              const value = resolveEvent(row, user.id);
+              if (value && !emit(row.event, value, row.id)) return;
+            }
+          } while (initial && cursor < head);
+          if (initial) emit('ready', { cursor: String(cursor), reset: false }, cursor);
+          else if (cursor > before) emit('checkpoint', { cursor: String(cursor) }, cursor);
+        } catch { end(); }
+      };
+      eventStreams.add(end);
+      res.on('close', cleanup);
+      poll(true);
+      if (!ended) {
+        timer = setInterval(() => poll(), 250);
+        keepalive = setInterval(() => { if (!ended && res.write(': keepalive\n\n') === false) end(); }, 15000);
+        timer.unref?.(); keepalive.unref?.();
+      }
       return true;
     }
 
     if (r === "channels" && parts[2] === "browse" && method === "GET") {
+      // Old builds receive the full list; new clients opt into cursor pagination.
+      const paged = url.searchParams.has("limit");
+      const limit = Number(url.searchParams.get("limit") || 20);
+      if (paged && (!Number.isInteger(limit) || limit < 1 || limit > 100)) return fail(res, 400, "invalid_limit", "Invalid page size"), true;
+      let after = ["", ""];
+      if (paged && url.searchParams.has("after")) {
+        try {
+          after = JSON.parse(Buffer.from(url.searchParams.get("after"), "base64url").toString());
+          if (!Array.isArray(after) || after.length !== 2 || after.some(v => typeof v !== "string" || v.length > 200)) throw new Error();
+        } catch { return fail(res, 400, "invalid_cursor", "Invalid channel cursor"), true; }
+      }
+      const rows = paged ? st.browsePage.all(user.id, after[0], after[0], after[1], limit + 1) : st.browse.all(user.id);
+      const more = paged && rows.length > limit;
+      const page = more ? rows.slice(0, limit) : rows;
+      const last = page.at(-1);
       send(res, 200, {
-        channels: st.browse.all(user.id).map((c) => ({ id: c.id, name: c.name, topic: c.topic, memberCount: c.member_count })),
+        channels: page.map(c => ({ id: c.id, name: c.name, topic: c.topic, memberCount: c.member_count })),
+        nextCursor: more ? Buffer.from(JSON.stringify([last.name, last.id])).toString("base64url") : null,
       });
       return true;
     }
+
+    if (r === "conversations" && method === "GET") expirePresence();
 
     if (r === "conversations" && parts.length === 2) {
       if (method === "GET") {
@@ -472,8 +946,11 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       if ((sub === "archive" || sub === "restore") && method === "POST") {
         if (conv.kind !== "channel" || !isMember)
           return fail(res, 403, "forbidden", "Join the channel first"), true;
-        st.archiveMember.run(sub === "archive" ? now() : null, conv.id, user.id);
-        publish(conv.id, "conversation.updated", { id: conv.id }, [user.id]);
+        transaction(() => {
+          requireConversation(conv.id, user.id, true);
+          st.archiveMember.run(sub === "archive" ? now() : null, conv.id, user.id);
+          publish(conv.id, "conversation.updated", { id: conv.id }, [user.id]);
+        });
         send(res, 200, { ok: true });
         return true;
       }
@@ -481,14 +958,15 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
         if (conv.kind !== "channel" || (conv.created_by !== user.id && user.role !== "owner"))
           return fail(res, 403, "forbidden", "Only the channel creator or server owner can delete it"), true;
         if (conv.name === "general") return fail(res, 400, "protected_channel", "#general stays open for everyone"), true;
-        const memberIds = st.members.all(conv.id).map((m) => m.user_id);
-        db.exec("BEGIN");
-        try {
+        transaction(() => {
+          const current = requireConversation(conv.id, user.id);
+          if (current.created_by !== user.id && users()[user.id]?.role !== 'owner') throw httpError(403, 'forbidden', 'Only the channel creator or server owner can delete it');
+          if (current.name === 'general') throw httpError(400, 'protected_channel', '#general stays open for everyone');
+          const memberIds = st.members.all(conv.id).map(m => m.user_id);
           st.deleteConv.run(conv.id);
           st.deleteAgentThreads.run(conv.id, conv.id);
-          db.exec("COMMIT");
-        } catch (e) { db.exec("ROLLBACK"); throw e; }
-        publish(conv.id, "conversation.updated", { id: conv.id }, memberIds);
+          publish(conv.id, "conversation.updated", { id: conv.id }, memberIds);
+        });
         send(res, 200, { ok: true });
         return true;
       }
@@ -500,29 +978,40 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       if (!sub && method === "PATCH") {
         if (conv.kind !== "channel" || !isMember) return fail(res, 403, "forbidden", "Only channel members can change it"), true;
         const body = await readBody(req);
-        const name = body.name !== undefined ? channelName(body.name) : conv.name;
-        if (!name) return fail(res, 400, "bad_name", "Give the channel a name"), true;
-        if (conv.name === "general" && name !== conv.name) return fail(res, 400, "protected_channel", "#general cannot be renamed"), true;
-        const clash = st.convByName.get(name);
-        if (clash && clash.id !== conv.id) return fail(res, 409, "name_taken", `#${name} already exists`), true;
-        st.updateConv.run(name, body.topic !== undefined ? String(body.topic).slice(0, 250) : conv.topic, conv.id);
-        publish(conv.id, "conversation.updated", { id: conv.id });
-        send(res, 200, { conversation: convView(st.conv.get(conv.id), user.id) });
+        const view = transaction(() => {
+          const current = requireConversation(conv.id, user.id, true);
+          const name = body.name !== undefined ? channelName(body.name) : current.name;
+          if (!name) throw httpError(400, 'bad_name', 'Give the channel a name');
+          if (current.name === 'general' && name !== current.name) throw httpError(400, 'protected_channel', '#general cannot be renamed');
+          const clash = st.convByName.get(name);
+          if (clash && clash.id !== conv.id) throw httpError(409, 'name_taken', `${name} already exists`);
+          st.updateConv.run(name, body.topic !== undefined ? String(body.topic).slice(0, 250) : current.topic, conv.id);
+          publish(conv.id, 'conversation.updated', { id: conv.id });
+          return convView(st.conv.get(conv.id), user.id);
+        });
+        send(res, 200, { conversation: view });
         return true;
       }
       if (sub === "join" && method === "POST") {
         if (conv.kind !== "channel") return fail(res, 400, "bad_request", "You can only join channels"), true;
-        addChannelMember(conv, user.id);
-        publish(conv.id, "conversation.updated", { id: conv.id });
+        transaction(() => {
+          const current = requireConversation(conv.id, user.id);
+          addChannelMember(current, user.id);
+          publish(conv.id, "conversation.updated", { id: conv.id });
+        });
         send(res, 200, { ok: true });
         return true;
       }
       if (sub === "leave" && method === "POST") {
         if (conv.kind !== "channel") return fail(res, 400, "bad_request", "You can only leave channels"), true;
         if (conv.name === "general") return fail(res, 400, "bad_request", "Everyone stays in #general"), true;
-        if (st.removeMember.run(conv.id, user.id).changes) channelActivity(conv, user.id, "left");
-        publish(conv.id, "conversation.updated", { id: conv.id });
-        publish(conv.id, "conversation.updated", { id: conv.id }, [user.id]);
+        transaction(() => {
+          const current = requireConversation(conv.id, user.id);
+          if (current.name === 'general') throw httpError(400, 'protected_channel', 'Everyone stays in #general');
+          if (st.removeMember.run(conv.id, user.id).changes) channelActivity(current, user.id, "left");
+          publish(conv.id, "conversation.updated", { id: conv.id });
+          publish(conv.id, "conversation.updated", { id: conv.id }, [user.id]);
+        });
         send(res, 200, { ok: true });
         return true;
       }
@@ -531,45 +1020,84 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
         const body = await readBody(req);
         const people = users();
         const ids = (Array.isArray(body.userIds) ? body.userIds : []).map(String).filter((u) => people[u]);
-        let added = 0;
-        for (const uid of new Set(ids)) added += addChannelMember(conv, uid, 0);
-        publish(conv.id, "conversation.updated", { id: conv.id });
+        const added = transaction(() => {
+          requireConversation(conv.id, user.id, true);
+          let count = 0;
+          for (const uid of new Set(ids)) count += addChannelMember(conv, uid, 0);
+          publish(conv.id, "conversation.updated", { id: conv.id });
+          return count;
+        });
         send(res, 200, { ok: true, added });
         return true;
       }
-      // Typing indicator: relayed live to everyone else in the conversation, never stored.
-      // Phones re-send it every few seconds while someone types; it fades after six.
+      // Typing uses the shared log but expires after six seconds. Reconnects
+      // never replay a stale typing indicator.
       if (sub === "typing" && method === "POST") {
         if (!isMember) return fail(res, 403, "not_member", "Join the channel first"), true;
         const body = await readBody(req);
-        const now_ = now();
-        const key = `${conv.id}:${user.id}`;
-        if (now_ - (typingSent.get(key) || 0) >= TYPING_MIN_GAP_MS) {
-          typingSent.set(key, now_);
-          const others = st.members.all(conv.id).map((m) => m.user_id).filter((u) => u !== user.id);
-          publish(conv.id, "typing", { conversationId: conv.id, threadRoot: body.threadRoot ? String(body.threadRoot) : null, user: person(user.id) }, others);
-        }
+        transaction(() => {
+          requireConversation(conv.id, user.id, true);
+          const now_ = now();
+          const key = `${conv.id}:${user.id}`;
+          if (now_ - (typingSent.get(key) || 0) >= TYPING_MIN_GAP_MS) {
+            const others = st.members.all(conv.id).map(m => m.user_id).filter(u => u !== user.id);
+            publish(conv.id, 'typing', { conversationId: conv.id, threadRoot: body.threadRoot ? String(body.threadRoot) : null, user: person(user.id) }, others);
+            afterCommit(() => typingSent.set(key, now_));
+          }
+        });
         send(res, 200, { ok: true });
         return true;
       }
       if (sub === "read" && method === "POST") {
         const body = await readBody(req);
-        st.markRead.run(Number(body.seq) || st.lastSeq.get(conv.id).seq, conv.id, user.id);
-        publish(conv.id, "conversation.read", { id: conv.id }, [user.id]);
+        transaction(() => {
+          if (!isAuthorized()) throw httpError(401, "unauthorized", "This device is no longer paired");
+          requireConversation(conv.id, user.id, true);
+          const membership = st.member.get(conv.id, user.id);
+          let through;
+          if (body.messageIds !== undefined) {
+            if (!Array.isArray(body.messageIds) || body.messageIds.length > 100 || body.messageIds.some(id => typeof id !== "string" || !/^[1-9][0-9]*$/.test(id) || !Number.isSafeInteger(Number(id)))) {
+              throw httpError(400, "invalid_messages", "Choose up to 100 valid message IDs");
+            }
+            const messages = [...new Set(body.messageIds)].map(id => st.msg.get(Number(id)));
+            if (messages.some(m => !m || m.conversation_id !== conv.id)) throw httpError(400, "invalid_messages", "Messages must belong to this conversation");
+            const at = now();
+            const changed = [];
+            through = membership.last_read_seq;
+            for (const m of messages) {
+              if (m.deleted_at || m.pending || m.activity) continue;
+              if (!m.thread_root) through = Math.max(through, m.seq);
+              if (m.user_id === user.id || m.user_id === AGENT_ID || user.id === AGENT_ID) continue;
+              if (st.addRead.run(m.seq, conv.id, user.id, at).changes) changed.push(String(m.seq));
+            }
+            if (changed.length) publish(conv.id, "messages.read", { conversationId: conv.id, userId: user.id, messageIds: changed, readAt: at });
+          } else {
+            // Older clients use this only to clear their unread badge. A cursor,
+            // sending a message, or joining a channel never proves a post was seen.
+            through = body.seq === undefined ? st.lastSeq.get(conv.id).seq : Number(body.seq);
+            if (!Number.isSafeInteger(through) || through < 0) throw httpError(400, "invalid_messages", "Invalid read position");
+            through = Math.min(through, st.lastSeq.get(conv.id).seq);
+          }
+          if (through > membership.last_read_seq) {
+            st.markRead.run(through, conv.id, user.id);
+            publish(conv.id, "conversation.read", { id: conv.id }, [user.id]);
+          }
+        });
         send(res, 200, { ok: true });
         return true;
       }
       if (sub === "messages" && method === "GET") {
         const before = Number(url.searchParams.get("before")) || Number.MAX_SAFE_INTEGER;
         const rows = st.page.all(conv.id, before, PAGE);
-        send(res, 200, { messages: rows.reverse().map(msgView), more: rows.length === PAGE });
+        send(res, 200, { messages: rows.reverse().map(m => msgView(m, isMember)), more: rows.length === PAGE });
         return true;
       }
       if (sub === "messages" && method === "POST") {
         if (!isMember) return fail(res, 403, "not_member", "Join the channel to post"), true;
-        const body = await readBody(req);
+        const body = await readBody(req, 14 * 1024 * 1024);
         const text = String(body.text || "").trim();
-        if (!text) return fail(res, 400, "empty", "Type a message first"), true;
+        const attachments = validateAttachments(body.attachments);
+        if (!text && !attachments.length) return fail(res, 400, "empty", "Type a message first"), true;
         if (text.length > MAX_TEXT) return fail(res, 413, "too_long", "That message is too long"), true;
         let root = null;
         if (body.threadRoot) {
@@ -578,15 +1106,15 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
           if (parent.activity) return fail(res, 400, "channel_activity", "Channel activity cannot have replies"), true;
           root = parent.thread_root || parent.seq;
         }
-        const m = post(conv, user.id, text, root);
+        const m = post(conv, user.id, text, root, { attachments });
         send(res, 201, { message: msgView(m) });
-        if (mentionsAgent(text, agentName())) agentReply(conv, m).catch((e) => console.error("[servant] agent reply", e));
+        if (!externalWorker && mentionsAgent(text, agentName())) agentReply(conv, m).catch((e) => console.error("[servant] agent reply", e));
         return true;
       }
       if (sub === "threads" && parts[4] && method === "GET") {
         const root = st.msg.get(Number(parts[4]));
         if (!root || root.conversation_id !== conv.id || root.thread_root) return fail(res, 404, "not_found", "That thread is gone"), true;
-        send(res, 200, { root: msgView(root), replies: st.replies.all(root.seq).map(msgView) });
+        send(res, 200, { root: msgView(root, isMember), replies: st.replies.all(root.seq).map(m => msgView(m, isMember)) });
         return true;
       }
     }
@@ -597,22 +1125,51 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       if (!m || !canSee(conv, user.id)) return fail(res, 404, "not_found", "That message is gone"), true;
       if (m.activity) return fail(res, 403, "channel_activity", "Channel activity cannot be changed"), true;
       if (m.deleted_at) return fail(res, 404, "not_found", "That message is gone"), true;
+      if (parts[3] === "reactions" && parts.length === 4 && method === "POST") {
+        if (!st.member.get(conv.id, user.id)) return fail(res, 403, "not_member", "Join the channel to react"), true;
+        if (m.pending) return fail(res, 409, "pending", "Wait for the message to finish"), true;
+        const { emoji, active } = await readBody(req);
+        if (!["👍", "❤️", "😂", "😮", "😢", "🙏", "🎉", "✅", "👀", "🔥", "👏", "💯"].includes(emoji) || typeof active !== "boolean") {
+          return fail(res, 400, "invalid_reaction", "Choose a supported reaction"), true;
+        }
+        const v = transaction(() => {
+          const current = requireMessage(m.seq, user.id, true);
+          if (current.pending) throw httpError(409, 'pending', 'Wait for the message to finish');
+          (active ? st.addReaction : st.removeReaction).run(m.seq, user.id, emoji);
+          const value = msgView(st.msg.get(m.seq));
+          publish(conv.id, "message.updated", value);
+          return value;
+        });
+        send(res, 200, { message: v });
+        return true;
+      }
+      if (parts.length !== 3) return fail(res, 404, "not_found", "Not found"), true;
       if (method === "PATCH") {
         if (m.user_id !== user.id) return fail(res, 403, "forbidden", "You can only edit your own messages"), true;
         const body = await readBody(req);
         const text = String(body.text || "").trim();
         if (!text) return fail(res, 400, "empty", "Type a message first"), true;
-        st.setText.run(text.slice(0, MAX_TEXT), now(), m.seq);
-        const v = msgView(st.msg.get(m.seq));
-        publish(conv.id, "message.updated", v);
+        const v = transaction(() => {
+          const current = requireMessage(m.seq, user.id, true);
+          if (current.user_id !== user.id) throw httpError(403, 'forbidden', 'You can only edit your own messages');
+          st.setText.run(text.slice(0, MAX_TEXT), now(), m.seq);
+          const value = msgView(st.msg.get(m.seq));
+          publish(conv.id, "message.updated", value);
+          return value;
+        });
         send(res, 200, { message: v });
         return true;
       }
       if (method === "DELETE") {
         if (m.user_id !== user.id && user.role !== "owner") return fail(res, 403, "forbidden", "You can only delete your own messages"), true;
-        st.softDelete.run(now(), m.seq);
-        const v = msgView(st.msg.get(m.seq));
-        publish(conv.id, "message.updated", v);
+        transaction(() => {
+          const current = requireMessage(m.seq, user.id);
+          if (current.user_id !== user.id && users()[user.id]?.role !== 'owner') throw httpError(403, 'forbidden', 'You can only delete your own messages');
+          st.softDelete.run(now(), m.seq);
+          st.deleteAttachments.run(m.seq);
+          st.deleteReactions.run(m.seq);
+          publish(conv.id, "message.updated", msgView(st.msg.get(m.seq)));
+        });
         send(res, 200, { ok: true });
         return true;
       }
@@ -622,9 +1179,30 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     return true;
   }
 
-  return { handle, notificationFor, joinDefaults, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, subscribe, close: () => db.close(), db };
+  return { handle, notificationFor, joinDefaults, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, close: () => { closeEvents(); db.close(); }, db };
 }
 
 function httpError(status, code, message) {
   return Object.assign(new Error(message), { status, code });
+}
+
+function validateAttachments(input = []) {
+  if (!Array.isArray(input) || input.length > 4) throw httpError(400, "attachments", "Attach up to 4 files");
+  let total = 0;
+  return input.map(a => {
+    if (!a || typeof a.name !== "string" || !a.name.trim() || typeof a.data !== "string" || !a.data.length || a.data.length % 4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(a.data)) {
+      throw httpError(400, "attachments", "Invalid attachment");
+    }
+    const data = Buffer.from(a.data, "base64");
+    total += data.length;
+    if (data.length > 5 * 1024 * 1024 || total > 10 * 1024 * 1024) throw httpError(413, "attachments", "Files must be under 5 MB each and 10 MB total");
+    // Only recognized raster formats may render inline; other files download as binary.
+    let mime = "application/octet-stream";
+    if (data.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) mime = "image/png";
+    else if (data[0] === 255 && data[1] === 216 && data[2] === 255) mime = "image/jpeg";
+    else if (/^GIF8[79]a/.test(data.subarray(0, 6).toString())) mime = "image/gif";
+    else if (data.subarray(0, 4).toString() === "RIFF" && data.subarray(8, 12).toString() === "WEBP") mime = "image/webp";
+    const name = a.name.replace(/[\\/\x00-\x1f\x7f]/g, "_").slice(0, 180);
+    return { name, mime, data };
+  });
 }

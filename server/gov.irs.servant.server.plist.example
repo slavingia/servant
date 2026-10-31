@@ -4,7 +4,8 @@
 <dict>
   <key>Label</key><string>gov.irs.servant.server</string>
   <key>ProgramArguments</key>
-  <array><string>/bin/bash</string><string>/Users/sahil-irs/servant/server/run.sh</string></array>
+  <!-- Install with gov.irs.servant.tunnel.plist; see docs/deployment.md. -->
+  <array><string>/bin/bash</string><string>/Users/sahil-irs/servant/server/run-api.sh</string></array>
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key><string>/Users/sahil-irs</string>
@@ -12,6 +13,8 @@
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
+  <!-- Allow the API's five-minute drain; raise with SERVANT_SHUTDOWN_TIMEOUT_MS. -->
+  <key>ExitTimeOut</key><integer>310</integer>
   <key>ThrottleInterval</key><integer>10</integer>
   <key>StandardOutPath</key><string>/Users/sahil-irs/servant/server/data/server.log</string>
   <key>StandardErrorPath</key><string>/Users/sahil-irs/servant/server/data/server.log</string>

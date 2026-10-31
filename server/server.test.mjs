@@ -9,6 +9,9 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createMessaging } from "./messaging.mjs";
+import { createStateStore } from "./state-store.mjs";
+import { createLiveEventDecoder } from "../app/src/lib/live-events.ts";
+import { testFetch } from "./encrypted-test-client.mjs";
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "servant-test-"));
 process.env.SERVANT_DATA_DIR = dataDir;
@@ -95,15 +98,15 @@ before(async () => {
   base = `http://127.0.0.1:${server.address().port}`;
 });
 
-after(() => {
-  server.close();
+after(async () => {
+  await server.shutdown();
   owner.server.close();
   member.server.close();
   fs.rmSync(dataDir, { recursive: true, force: true });
 });
 
 const api = async (method, p, { token, body } = {}) => {
-  const res = await fetch(base + p, {
+  const res = await testFetch(dataDir, base + p, {
     method,
     headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: body ? JSON.stringify(body) : undefined,
@@ -115,6 +118,14 @@ const api = async (method, p, { token, body } = {}) => {
   } catch {}
   return { status: res.status, json, text };
 };
+
+test("plaintext API access is rejected, including pairing and message history", async () => {
+  for (const [method, route] of [["POST", "/v1/pair"], ["GET", "/v1/chats"], ["POST", "/v1/events"]]) {
+    const response = await fetch(base + route, { method });
+    assert.equal(response.status, 426);
+    assert.equal((await response.json()).error.code, "encryption_required");
+  }
+});
 
 function parseSse(text) {
   return text
@@ -137,6 +148,31 @@ test("everything except health and pairing needs a token", async () => {
   assert.equal((await api("GET", "/health")).status, 200);
   assert.equal((await api("GET", "/v1/chats")).status, 401);
   assert.equal((await api("GET", "/v1/me", { token: "nope" })).status, 401);
+});
+
+test("plaintext transition applies only to explicitly grandfathered unexpired paired devices", async () => {
+  const token = await pair("member", "Legacy transition");
+  const headers = { Authorization: `Bearer ${token}` };
+  const plain = path => fetch(base + path, { headers });
+  assert.equal((await plain("/v1/me")).status, 426);
+  const s = createStateStore({ directory: dataDir });
+  const mutateDevice = fn => s.mutate(state => {
+    const device = Object.values(state.devices).find(d => state.users[d.userId]?.name === "Legacy transition");
+    fn(device);
+  });
+  try {
+    mutateDevice(d => { d.legacyPlaintextUntil = Date.now() + 60000; });
+    const accepted = await plain("/v1/me");
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.headers.get("deprecation"), "true");
+    await accepted.json();
+    assert.equal((await fetch(base + "/v1/pair", { method: "POST", body: "{}" })).status, 426);
+    assert.equal((await fetch(base + "/v1/pair", { method: "POST", headers, body: "{}" })).status, 426);
+    mutateDevice(d => { d.legacyPlaintextUntil = Date.now() - 1; });
+    assert.equal((await plain("/v1/me")).status, 426);
+    mutateDevice(d => { d.legacyPlaintextUntil = Date.now() + 60000; d.revokedAt = Date.now(); });
+    assert.equal((await plain("/v1/me")).status, 426);
+  } finally { s.close(); }
 });
 
 test("server info answers on /v1/server and the older /v1/hub", async () => {
@@ -248,8 +284,10 @@ test("owner gets the owner agent and can invite and revoke", async () => {
 });
 
 test("state on disk holds only token hashes", () => {
-  const raw = fs.readFileSync(path.join(dataDir, "state.json"), "utf8");
-  const mode = fs.statSync(path.join(dataDir, "state.json")).mode & 0o777;
+  const store = createStateStore({ directory: dataDir });
+  let raw;
+  try { raw = JSON.stringify(store.read()); } finally { store.close(); }
+  const mode = fs.statSync(path.join(dataDir, "state.db")).mode & 0o777;
   assert.equal(mode, 0o600);
   assert.ok(!/[A-Za-z0-9_-]{43}/.test(raw.replace(/"[0-9a-f]{64}"/g, "")), "no raw device tokens on disk");
 });
@@ -258,22 +296,13 @@ test("state on disk holds only token hashes", () => {
 
 async function events(token) {
   const ctrl = new AbortController();
-  const res = await fetch(base + "/v1/events", { method: "POST", body: "{}", headers: { Authorization: `Bearer ${token}` }, signal: ctrl.signal });
+  const res = await testFetch(dataDir, base + "/v1/events", { method: "POST", body: "{}", headers: { Authorization: `Bearer ${token}` }, signal: ctrl.signal });
   const got = [];
-  const decoder = new TextDecoder();
-  let buf = "";
+  const decoder = createLiveEventDecoder(frame => got.push(frame));
   (async () => {
     try {
       for await (const chunk of res.body) {
-        buf += decoder.decode(chunk, { stream: true });
-        let i;
-        while ((i = buf.indexOf("\n\n")) >= 0) {
-          const block = buf.slice(0, i);
-          buf = buf.slice(i + 2);
-          if (!block.startsWith("event:")) continue;
-          const [e, d] = block.split("\n");
-          got.push({ event: e.slice(7), data: JSON.parse(d.slice(6)) });
-        }
+        decoder.push(chunk);
       }
     } catch {}
   })();
@@ -568,7 +597,9 @@ test("notification settings and push registration are scoped to the authenticate
   assert.equal((await api("POST", "/v1/notifications/presence", { token, body: { active: true, conversation: "ch_test" } })).status, 200);
   assert.equal((await api("POST", "/v1/signout", { token })).status, 200);
   assert.equal((await api("GET", "/v1/notifications", { token })).status, 401);
-  const saved = JSON.parse(fs.readFileSync(path.join(dataDir, "state.json")));
+  const store = createStateStore({ directory: dataDir });
+  let saved;
+  try { saved = store.read(); } finally { store.close(); }
   assert.equal(Object.values(saved.devices).find(d => d.id === registration.json.deviceId).push, undefined);
 });
 
@@ -594,6 +625,8 @@ test("build notes: one #whats-new post per build, everyone notified, tap opens i
   const reply = m.post(ch, "t", "Works on my phone", Number(first.messageId));
   assert.equal(m.notificationFor(String(reply.seq), people.o).title, "Tester in #whats-new");
   assert.equal(m.postRelease({ build: "6", notes: "Next", authorId: "o" }).build, "6");
+  // Two builds can be recorded in the same millisecond; latest must be stable.
+  m.db.prepare("UPDATE releases SET created_at = ?").run(first.createdAt);
   assert.equal(m.latestRelease().build, "6");
   m.close();
 });
@@ -617,6 +650,101 @@ test("feedback accepts paired reports once and never leaks another user's histor
   assert.equal((await api("POST", "/v1/feedback", { token: a, body })).json.report.id, first.json.report.id);
   assert.equal((await api("GET", "/v1/feedback", { token: a })).json.reports.length, 1);
   assert.equal((await api("GET", "/v1/feedback", { token: b })).json.reports.length, 0);
+});
+
+test("channel discovery pages without duplicates or skipping after a join, excluding private and joined channels", async () => {
+  const author = await pair("member", "Discovery author");
+  const reader = await pair("member", "Discovery reader");
+  const created = [];
+  for (let i = 0; i < 45; i++) {
+    const r = await api("POST", "/v1/conversations", { token: author, body: { name: `discovery-${String(i).padStart(2, "0")}` } });
+    assert.equal(r.status, 201); created.push(r.json.conversation.id);
+  }
+  const privateChannel = await api("POST", "/v1/conversations", { token: author, body: { name: "discovery-private", private: true } });
+  const seen = []; let cursor = null; let pages = 0;
+  do {
+    const r = await api("GET", `/v1/channels/browse?limit=20${cursor ? `&after=${encodeURIComponent(cursor)}` : ""}`, { token: reader });
+    assert.equal(r.status, 200); assert.ok(r.json.channels.length <= 20);
+    seen.push(...r.json.channels.map(c => c.id)); cursor = r.json.nextCursor; pages++;
+    if (pages === 1) await api("POST", `/v1/conversations/${created[0]}/join`, { token: reader });
+    assert.ok(pages < 10);
+  } while (cursor);
+  assert.equal(new Set(seen).size, seen.length);
+  assert.ok(created.every(id => seen.includes(id)));
+  assert.ok(!seen.includes(privateChannel.json.conversation.id));
+  const fresh = await api("GET", "/v1/channels/browse?limit=100", { token: reader });
+  assert.ok(!fresh.json.channels.some(c => c.id === created[0]));
+  assert.equal((await api("GET", "/v1/channels/browse?limit=-1", { token: reader })).status, 400);
+  assert.equal((await api("GET", "/v1/channels/browse?limit=20&after=invalid", { token: reader })).status, 400);
+});
+
+test("attachments round trip privately, survive edits, render metadata in threads, and disappear on deletion", async () => {
+  const sender = await pair("member", "Attachment sender");
+  const outsider = await pair("member", "Attachment outsider");
+  const ch = (await api("POST", "/v1/conversations", { token: sender, body: { name: "attachment-private", private: true } })).json.conversation;
+  const route = `/v1/conversations/${ch.id}/messages`;
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=";
+  const sent = await api("POST", route, { token: sender, body: { attachments: [{ name: "image.png", data: png }] } });
+  assert.equal(sent.status, 201, sent.text);
+  const post = sent.json.message;
+  const file = post.attachments[0];
+  assert.equal(file.mime, "image/png");
+  assert.equal(file.size, Buffer.from(png, "base64").length);
+  assert.equal(file.data, undefined, "history and live events contain only metadata");
+  const download = `/v1/attachments/${file.id}`;
+  assert.equal((await api("GET", download)).status, 401);
+  assert.equal((await api("GET", download, { token: outsider })).status, 404);
+  assert.equal((await api("GET", download, { token: sender })).json.data, png);
+  const edited = await api("PATCH", `/v1/messages/${post.id}`, { token: sender, body: { text: "Caption" } });
+  assert.deepEqual(edited.json.message.attachments, post.attachments);
+  const reply = await api("POST", route, { token: sender, body: { threadRoot: post.id, attachments: [{ name: "../note.txt", data: Buffer.from("hello").toString("base64") }] } });
+  assert.equal(reply.status, 201);
+  assert.equal(reply.json.message.attachments[0].name, ".._note.txt");
+  assert.equal(reply.json.message.attachments[0].mime, "application/octet-stream");
+  const thread = await api("GET", `/v1/conversations/${ch.id}/threads/${post.id}`, { token: sender });
+  assert.equal(thread.json.replies[0].attachments.length, 1);
+  assert.equal((await api("POST", route, { token: sender, body: { attachments: [{ name: "bad", data: "%%%=" }] } })).status, 400);
+  assert.equal((await api("POST", route, { token: sender, body: { attachments: Array(5).fill({ name: "x", data: png }) } })).status, 400);
+  assert.equal((await api("POST", route, { token: sender, body: { attachments: [{ name: "big", data: Buffer.alloc(5 * 1024 * 1024 + 1).toString("base64") }] } })).status, 413);
+  assert.equal((await api("POST", route, { token: sender, body: {} })).status, 400);
+  await api("DELETE", `/v1/messages/${post.id}`, { token: sender });
+  assert.equal((await api("GET", download, { token: sender })).status, 404);
+  const history = await api("GET", route, { token: sender });
+  assert.deepEqual(history.json.messages.find(m => m.id === post.id).attachments, []);
+});
+
+test("reactions persist, sync live, are idempotent and require membership", async () => {
+  const a = await pair("member", "Reaction author");
+  const b = await pair("member", "Reaction reader");
+  const ch = (await api("POST", "/v1/conversations", { token: a, body: { name: "reaction-check" } })).json.conversation;
+  const route = `/v1/conversations/${ch.id}`;
+  const root = (await api("POST", route + "/messages", { token: a, body: { text: "React here" } })).json.message;
+  const endpoint = `/v1/messages/${root.id}/reactions`;
+  const react = (token, emoji, active) => api("POST", endpoint, { token, body: { emoji, active } });
+  assert.equal((await react(b, "👍", true)).status, 403);
+  await api("POST", route + "/join", { token: b });
+  const live = await events(b);
+  try {
+    await waitFor(() => live.got.some(e => e.event === "ready"));
+    assert.equal((await react(a, "👍", true)).status, 200);
+    assert.equal((await react(a, "👍", true)).json.message.reactions[0].userIds.length, 1);
+    assert.equal((await react(b, "👍", true)).json.message.reactions[0].userIds.length, 2);
+    await waitFor(() => live.got.some(e => e.event === "message.updated" && e.data.id === root.id && e.data.reactions[0]?.userIds.length === 2));
+    const saved = (await api("GET", route + "/messages", { token: b })).json.messages.find(p => p.id === root.id);
+    assert.equal(saved.reactions[0].userIds.length, 2);
+    assert.equal((await react(a, "👍", false)).json.message.reactions[0].userIds.length, 1);
+    assert.equal((await react(a, "👍", false)).json.message.reactions[0].userIds.length, 1);
+    assert.equal((await react(a, "invalid", true)).status, 400);
+    assert.equal((await react(a, "❤️", "yes")).status, 400);
+    const reply = (await api("POST", route + "/messages", { token: b, body: { text: "Reply", threadRoot: root.id } })).json.message;
+    assert.equal((await api("POST", `/v1/messages/${reply.id}/reactions`, { token: a, body: { emoji: "❤️", active: true } })).status, 200);
+    const thread = (await api("GET", route + `/threads/${root.id}`, { token: a })).json;
+    assert.equal(thread.replies[0].reactions[0].emoji, "❤️");
+    await api("DELETE", `/v1/messages/${root.id}`, { token: a });
+    assert.equal((await react(b, "👍", true)).status, 404);
+    const gone = (await api("GET", route + `/threads/${root.id}`, { token: a })).json.root;
+    assert.deepEqual(gone.reactions, []);
+  } finally { live.close(); }
 });
 
 test("ten wrong codes lock out pairing from that address; good pairings don't count", async () => {

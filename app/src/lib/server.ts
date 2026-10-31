@@ -1,12 +1,15 @@
 import { Platform } from "react-native";
-import { fetch as expoFetch } from "expo/fetch";
+import { secureFetch, type SecureResponse } from "./secure-fetch";
+import { validServerKey } from "./tunnel-crypto";
 import { getItem, removeItem, setItem } from "./storage";
 import type { Invite } from "./invite";
+import { createLiveEventDecoder } from "./live-events";
 
 export type Role = "owner" | "member";
 export type Account = {
   token: string;
   serverUrl: string;
+  serverKey?: string;
   discovery?: string;
   serverName: string;
   user: { id: string; name: string; role: Role };
@@ -15,8 +18,14 @@ export type Chat = { id: string; title: string; createdAt: number; updatedAt: nu
 export type Message = { id: string; role: "user" | "assistant"; text: string; at?: number | string | null };
 
 // ----- channels, direct messages, threads -----
-export type Person = { id: string; name: string; agent?: boolean; owner?: boolean };
+export type Presence = { userId: string; online: boolean; lastSeenAt: number | null };
+export type Person = { id: string; name: string; agent?: boolean; owner?: boolean; online?: boolean; lastSeenAt?: number | null };
+export type Attachment = { id: string; name: string; mime: string; size: number };
+export type Upload = { name: string; data: string };
 export type Post = {
+  readBy?: { userId: string; readAt: number }[];
+  reactions?: { emoji: string; userIds: string[] }[];
+  attachments?: Attachment[];
   activity?: "joined" | "left";
   id: string;
   conversationId: string;
@@ -46,11 +55,26 @@ export type Conversation = {
   updatedAt: number;
 };
 export type BrowseChannel = { id: string; name: string; topic: string; memberCount: number };
+export type SearchChannel = BrowseChannel & { archived: boolean; joined: boolean; private: boolean };
+export type SearchMessage = {
+  id: string;
+  conversationId: string;
+  conversationTitle: string;
+  conversationKind: "channel" | "dm";
+  threadRoot: string | null;
+  text: string;
+  user: Person;
+  createdAt: number;
+};
+export type SearchResults = { channels: SearchChannel[]; people: Person[]; messages: SearchMessage[] };
 export type LiveEvent =
   | { event: "message.created" | "message.updated"; data: Post }
   | { event: "conversation.updated" | "conversation.read"; data: { id: string } }
+  | { event: "messages.read"; data: { conversationId: string; userId: string; messageIds: string[]; readAt: number } }
+  | { event: "presence.updated"; data: Presence }
   | { event: "typing"; data: { conversationId: string; threadRoot: string | null; user: Person } }
-  | { event: "ready"; data: Record<string, never> };
+  | { event: "ready"; data: { cursor?: string; reset?: boolean } }
+  | { event: "checkpoint"; data: { cursor: string } };
 
 const KEY = "servant.account";
 
@@ -84,15 +108,15 @@ const trim = (u: string) => u.replace(/\/+$/, "");
 
 // The tunnel address changes when the server restarts; the discovery file always
 // has the current one.
-export async function discover(discovery: string): Promise<string> {
-  const res = await fetch(`${discovery}${discovery.includes("?") ? "&" : "?"}t=${Date.now()}`);
+export async function discover(discovery: string, signal?: AbortSignal): Promise<string> {
+  const res = await fetch(`${discovery}${discovery.includes("?") ? "&" : "?"}t=${Date.now()}`, { signal });
   if (!res.ok) throw new ServerError("Couldn't find the server", res.status);
   const data = await res.json();
   if (typeof data.url !== "string" || !/^https?:\/\//.test(data.url)) throw new ServerError("Couldn't find the server");
   return trim(data.url);
 }
 
-async function readError(res: Response): Promise<ServerError> {
+async function readError(res: SecureResponse): Promise<ServerError> {
   try {
     const body = await res.json();
     if (body?.error?.message) return new ServerError(body.error.message, res.status, body.error.code);
@@ -110,10 +134,11 @@ function deviceLabel() {
 }
 
 export async function pair(invite: Invite, name?: string): Promise<Account> {
+  if (!validServerKey(invite.serverKey)) throw new ServerError("This invite needs an encryption key. Ask your admin for a new invite.", 0, "encryption_required");
   const serverUrl = invite.discovery ? await discover(invite.discovery) : trim(invite.server!);
-  let res: Response;
+  let res: SecureResponse;
   try {
-    res = await fetch(`${serverUrl}/v1/pair`, {
+    res = await secureFetch(serverUrl, invite.serverKey, "/v1/pair", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code: invite.code, device: deviceLabel(), ...(name ? { name } : {}) }),
@@ -123,17 +148,17 @@ export async function pair(invite: Invite, name?: string): Promise<Account> {
   }
   if (!res.ok) throw await readError(res);
   const data = await res.json();
-  const account: Account = { token: data.token, serverUrl, discovery: invite.discovery, serverName: data.server?.name || data.hub?.name || "Server", user: data.user };
+  const account: Account = { token: data.token, serverUrl, serverKey: invite.serverKey, discovery: invite.discovery, serverName: data.server?.name || data.hub?.name || "Server", user: data.user };
   await saveAccount(account);
   return account;
 }
 
 // The quick tunnel's address changes when the server restarts. Returns the account
 // pointed at the current address (saved), or null if it hasn't moved.
-export async function relocate(account: Account): Promise<Account | null> {
+export async function relocate(account: Account, signal?: AbortSignal): Promise<Account | null> {
   if (!account.discovery) return null;
   try {
-    const fresh = await discover(account.discovery);
+    const fresh = await discover(account.discovery, signal);
     if (fresh === account.serverUrl) return null;
     const moved = { ...account, serverUrl: fresh };
     await saveAccount(moved);
@@ -144,20 +169,22 @@ export async function relocate(account: Account): Promise<Account | null> {
 }
 
 // A request that re-discovers the server once if the tunnel moved.
-export async function request(account: Account, path: string, init: RequestInit = {}, onMove?: (a: Account) => void): Promise<Response> {
+export async function request(account: Account, path: string, init: RequestInit = {}, onMove?: (a: Account) => void): Promise<SecureResponse> {
+  if (!validServerKey(account.serverKey)) throw new ServerError("Encryption setup required. Open a new invite from your admin.", 0, "encryption_required");
   const go = (base: string) =>
-    fetch(`${base}${path}`, {
+    secureFetch(base, account.serverKey, path, {
       ...init,
       headers: { Authorization: `Bearer ${account.token}`, "Content-Type": "application/json", ...(init.headers || {}) },
     });
-  let res: Response | null = null;
+  let res: SecureResponse | null = null;
   try {
     res = await go(account.serverUrl);
   } catch {
     res = null;
   }
+  if (init.signal?.aborted) throw new ServerError("Request cancelled");
   const looksMoved = !res || res.status === 530 || res.status === 1033 || (res.status === 404 && !(res.headers.get("content-type") || "").includes("json"));
-  const moved = looksMoved ? await relocate(account) : null;
+  const moved = looksMoved ? await relocate(account, init.signal ?? undefined) : null;
   if (moved) {
     account = moved;
     onMove?.(moved);
@@ -184,8 +211,9 @@ export async function sendMessage(
   signal?: AbortSignal,
   onMove?: (a: Account) => void,
 ): Promise<void> {
+  if (!validServerKey(account.serverKey)) throw new ServerError("Encryption setup required. Open a new invite from your admin.", 0, "encryption_required");
   const go = (base: string) =>
-    expoFetch(`${base}/v1/chats/${chatId}/messages`, {
+    secureFetch(base, account.serverKey, `/v1/chats/${chatId}/messages`, {
       method: "POST",
       headers: { Authorization: `Bearer ${account.token}`, "Content-Type": "application/json", Accept: "text/event-stream" },
       body: JSON.stringify({ text }),
@@ -200,13 +228,13 @@ export async function sendMessage(
     }
   }
   if (!res) throw new ServerError("The server isn't reachable right now");
-  if (!res.ok) throw await readError(res as unknown as Response);
+  if (!res.ok) throw await readError(res as SecureResponse);
   if (!res.body) throw new ServerError("The agent didn't answer");
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
   let finished = false;
-  while (!finished) {
+  for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     buf += decoder.decode(value, { stream: true });
@@ -242,44 +270,31 @@ export async function sendMessage(
 
 // Opens the server's live event stream. Resolves when the stream ends; throws on
 // connection errors so the caller can back off and reconnect.
-export async function listen(account: Account, onEvent: (e: LiveEvent) => void, signal: AbortSignal): Promise<void> {
+export async function listen(account: Account, onEvent: (e: LiveEvent) => void, signal: AbortSignal,
+  resume: { cursor?: string; onCursor?: (cursor: string | undefined) => void } = {},
+): Promise<void> {
   // POST, not GET: Cloudflare's quick tunnel holds streamed GET responses until they end.
-  const res = await expoFetch(`${account.serverUrl}/v1/events`, {
+  const decoder = createLiveEventDecoder(frame => onEvent(frame as LiveEvent), resume);
+  const route = `/v1/events${resume.cursor === undefined ? "" : `?after=${encodeURIComponent(resume.cursor)}`}`;
+  const res = await secureFetch(account.serverUrl, account.serverKey, route, {
     method: "POST",
     body: "{}",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${account.token}`, Accept: "text/event-stream" },
     signal,
   });
-  if (!res.ok) throw await readError(res as unknown as Response);
+  if (!res.ok) throw await readError(res as SecureResponse);
   if (!res.body) throw new ServerError("No live updates");
   const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) return;
-    buf += decoder.decode(value, { stream: true });
-    let idx: number;
-    while ((idx = buf.indexOf("\n\n")) >= 0) {
-      const block = buf.slice(0, idx);
-      buf = buf.slice(idx + 2);
-      let name = "";
-      let data = "";
-      for (const line of block.split("\n")) {
-        if (line.startsWith("event:")) name = line.slice(6).trim();
-        else if (line.startsWith("data:")) data += line.slice(5).trim();
-      }
-      if (!name || !data) continue;
-      try {
-        onEvent({ event: name, data: JSON.parse(data) } as LiveEvent);
-      } catch {
-        /* ignore malformed event */
-      }
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) { decoder.finish(); return; }
+      if (value) decoder.push(value);
     }
-  }
+  } finally { await reader.cancel(); }
 }
 
-const json = <T,>(r: Response) => r.json() as Promise<T>;
+const json = <T,>(r: SecureResponse) => r.json() as Promise<T>;
 
 // A build's notes, posted in #whats-new. Testers discuss it in the post's thread.
 export type Release = { build: string; conversationId: string; messageId: string; text: string; createdAt: number };
@@ -287,6 +302,8 @@ export type Release = { build: string; conversationId: string; messageId: string
 export type FeedbackReport = { id: string; text: string; status: string; result: string | null; createdAt: number };
 
 export const api = {
+  search: (a: Account, query: string, signal?: AbortSignal) =>
+    request(a, `/v1/search?q=${encodeURIComponent(query)}`, { signal }).then(json<SearchResults>),
   feedback: (a: Account) => request(a, "/v1/feedback").then(json<{ reports: FeedbackReport[] }>).then(d => d.reports),
   sendFeedback: (a: Account, body: { text: string; requestId: string; context: Record<string, string> }) =>
     request(a, "/v1/feedback", { method: "POST", body: JSON.stringify(body) }).then(json<{ report: FeedbackReport }>).then(d => d.report),
@@ -302,6 +319,8 @@ export const api = {
   conversations: (a: Account, m?: (a: Account) => void) =>
     request(a, "/v1/conversations?includeArchived=1", {}, m).then(json<{ conversations: Conversation[] }>).then((d) => d.conversations),
   conversation: (a: Account, id: string) => request(a, `/v1/conversations/${id}`).then(json<{ conversation: Conversation; joined: boolean }>),
+  browsePage: (a: Account, after?: string) => request(a, `/v1/channels/browse?limit=20${after ? `&after=${encodeURIComponent(after)}` : ""}`)
+    .then(json<{ channels: BrowseChannel[]; nextCursor: string | null }>),
   browse: (a: Account) => request(a, "/v1/channels/browse").then(json<{ channels: BrowseChannel[] }>).then((d) => d.channels),
   createChannel: (a: Account, body: { name: string; topic?: string; private?: boolean; memberIds?: string[] }) =>
     request(a, "/v1/conversations", { method: "POST", body: JSON.stringify(body) }).then(json<{ conversation: Conversation }>).then((d) => d.conversation),
@@ -322,15 +341,26 @@ export const api = {
     request(a, `/v1/conversations/${id}/typing`, { method: "POST", body: JSON.stringify({ threadRoot }) }).catch(() => undefined),
   markRead: (a: Account, id: string, seq?: string) =>
     request(a, `/v1/conversations/${id}/read`, { method: "POST", body: JSON.stringify({ seq: seq ? Number(seq) : undefined }) }).catch(() => undefined),
+  markMessagesRead: async (a: Account, id: string, messageIds: string[]) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      return await request(a, `/v1/conversations/${id}/read`, { method: "POST", body: JSON.stringify({ messageIds }), signal: controller.signal });
+    } finally { clearTimeout(timeout); }
+  },
+  presence: (a: Account, sessionId: string, active: boolean, signal?: AbortSignal) =>
+    request(a, "/v1/presence", { method: "POST", body: JSON.stringify({ sessionId, active }), signal }),
   posts: (a: Account, id: string, before?: string) =>
     request(a, `/v1/conversations/${id}/messages${before ? `?before=${before}` : ""}`).then(json<{ messages: Post[]; more: boolean }>),
   thread: (a: Account, id: string, root: string) => request(a, `/v1/conversations/${id}/threads/${root}`).then(json<{ root: Post; replies: Post[] }>),
-  post: (a: Account, id: string, text: string, threadRoot?: string) =>
-    request(a, `/v1/conversations/${id}/messages`, { method: "POST", body: JSON.stringify({ text, threadRoot }) })
+  post: (a: Account, id: string, text: string, threadRoot?: string, attachments: Upload[] = []) =>
+    request(a, `/v1/conversations/${id}/messages`, { method: "POST", body: JSON.stringify({ text, threadRoot, attachments }) })
       .then(json<{ message: Post }>)
       .then((d) => d.message),
   editPost: (a: Account, postId: string, text: string) =>
     request(a, `/v1/messages/${postId}`, { method: "PATCH", body: JSON.stringify({ text }) }).then(json<{ message: Post }>).then((d) => d.message),
+  reactToPost: (a: Account, postId: string, emoji: string, active: boolean) =>
+    request(a, `/v1/messages/${postId}/reactions`, { method: "POST", body: JSON.stringify({ emoji, active }) }).then(json<{ message: Post }>).then((d) => d.message),
   deletePost: (a: Account, postId: string) => request(a, `/v1/messages/${postId}`, { method: "DELETE" }),
   latestRelease: (a: Account) =>
     request(a, "/v1/releases/latest").then(json<{ release: Release | null }>).then((d) => d.release),

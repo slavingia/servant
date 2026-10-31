@@ -1,11 +1,12 @@
 import { useCallback, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
-import { Band, PageTitle } from "../../components/Band";
+import { PageTitle } from "../../components/Band";
 import { ConversationRow } from "../../components/Messaging";
+import { Button } from "../../components/Button";
 import { useLive } from "../../lib/live";
 import { useSession } from "../../lib/session";
-import { colors } from "../../lib/theme";
+import { colors, space, typography } from "../../lib/theme";
 
 export default function Messages() {
   const { account } = useSession();
@@ -16,50 +17,48 @@ export default function Messages() {
       refresh();
     }, [refresh]),
   );
+  const reload = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await refresh();
+    } finally {
+      setRefreshing(false);
+    }
+  };
   if (!account) return null;
   const list = (conversations ?? []).filter((c) => c.kind === "dm");
   return (
     <View style={styles.root}>
-      <Band
-        right={
-          <Pressable accessibilityRole="button" onPress={() => router.push("/new-message")} hitSlop={12}>
-            <Text style={styles.bandLink}>New message</Text>
-          </Pressable>
-        }
-      />
       <FlatList
         data={list}
         keyExtractor={(c) => c.id}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={async () => {
-              setRefreshing(true);
-              await refresh();
-              setRefreshing(false);
-            }}
+            onRefresh={() => void reload()}
           />
         }
         ListHeaderComponent={
-          <View style={{ marginBottom: 8 }}>
-            <PageTitle>Messages</PageTitle>
-            {error && conversations ? <Text style={styles.error}>{error}</Text> : null}
+          <View style={styles.header}>
+            <PageTitle description="One-to-one and small group conversations." action={<Button label="New message" compact onPress={() => router.push("/new-message")} />}>Messages</PageTitle>
+            {error && conversations ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
             {!connected && conversations ? <Text style={styles.note}>Reconnecting…</Text> : null}
           </View>
         }
         ListEmptyComponent={
           conversations === null ? (
-            error ? <Text style={styles.error}>{error}</Text> : <ActivityIndicator style={{ marginTop: 40 }} color={colors.blue} />
+            error ? <View style={styles.empty}><Text accessibilityRole="alert" style={styles.emptyBody}>{error}</Text><Button label="Try again" kind="secondary" busy={refreshing} onPress={() => void reload()} style={styles.emptyAction} /></View> : <ActivityIndicator accessibilityLabel="Loading messages" style={styles.loading} color={colors.blue} />
           ) : (
             <View style={styles.empty}>
               <Text style={styles.emptyTitle}>No messages yet</Text>
-              <Text style={styles.emptyBody}>Message anyone on this server, one to one or in a small group</Text>
+              <Text style={styles.emptyBody}>Start a conversation with someone on your server.</Text>
+              <Button label="Start a conversation" kind="secondary" onPress={() => router.push("/new-message")} style={styles.emptyAction} />
             </View>
           )
         }
         renderItem={({ item }) => <ConversationRow c={item} onPress={() => router.push({ pathname: "/c/[id]", params: { id: item.id } })} />}
-        ListFooterComponent={undefined}
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={styles.content}
       />
     </View>
   );
@@ -67,12 +66,13 @@ export default function Messages() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
-  bandLink: { color: colors.white, fontSize: 16, fontWeight: "600" },
-  error: { marginTop: 8, marginHorizontal: 20, fontSize: 15, color: colors.red },
-  note: { marginTop: 8, marginHorizontal: 20, fontSize: 15, color: colors.muted },
-  empty: { marginTop: 48, alignItems: "center", paddingHorizontal: 20 },
-  emptyTitle: { fontSize: 20, fontWeight: "600", color: colors.ink },
-  emptyBody: { marginTop: 6, fontSize: 16, color: colors.muted, textAlign: "center" },
-  footerLink: { minHeight: 52, paddingHorizontal: 20, justifyContent: "center" },
-  footerText: { color: colors.blue, fontSize: 17, fontWeight: "600" },
+  content: { paddingBottom: 120, flexGrow: 1 },
+  header: { marginBottom: space.xs },
+  loading: { marginTop: space.xxl },
+  error: { ...typography.caption, marginTop: space.xs, marginHorizontal: space.side, color: colors.red },
+  note: { ...typography.caption, marginTop: space.xs, marginHorizontal: space.side, color: colors.muted },
+  empty: { marginTop: space.xxl, alignItems: "center", paddingHorizontal: space.lg },
+  emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center" },
+  emptyBody: { ...typography.body, marginTop: space.xs, maxWidth: 320, color: colors.muted, textAlign: "center" },
+  emptyAction: { marginTop: space.lg },
 });

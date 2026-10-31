@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { Button } from "../components/Button";
 import { Avatar } from "../components/Messaging";
 import { api, ServerError, type Person } from "../lib/server";
 import { useSession } from "../lib/session";
-import { colors } from "../lib/theme";
+import { colors, controls, radius, space, typography } from "../lib/theme";
 
 // Pick one person for a direct message, or a few for a group message.
 export default function NewMessage() {
@@ -16,16 +16,17 @@ export default function NewMessage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadPeople = useCallback(() => {
     if (!account) return;
-    api.people(account).then(
-      (d) => setPeople(d.people.filter((p) => p.id !== d.me)),
+    void api.people(account).then(
+      (d) => { setError(null); setPeople(d.people.filter((p) => p.id !== d.me)); },
       (e) => {
         setPeople([]);
         setError(e instanceof ServerError ? e.message : "Couldn't load people");
       },
     );
   }, [account]);
+  useEffect(loadPeople, [loadPeople]);
   if (!account) return null;
 
   const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : p.length >= 8 ? p : [...p, id]));
@@ -44,7 +45,14 @@ export default function NewMessage() {
 
   return (
     <View style={styles.root}>
-      <TextInput accessibilityLabel="Search people" value={query} onChangeText={setQuery} placeholder="Search people" placeholderTextColor="#8A8F96" style={styles.search} autoCorrect={false} />
+      <Text style={styles.intro}>Choose one person, or up to eight for a group.</Text>
+      <TextInput accessibilityLabel="Search people" value={query} onChangeText={setQuery} placeholder="Search by name" placeholderTextColor={colors.muted} style={styles.search} autoCorrect={false} />
+      {picked.length ? <View style={styles.selection}>
+        <Text accessibilityLiveRegion="polite" style={styles.selectionCount}>{picked.length} of 8 selected</Text>
+        <ScrollView horizontal contentContainerStyle={styles.chips} keyboardShouldPersistTaps="handled">{picked.map(id => <Pressable key={id} disabled={busy} accessibilityState={{ disabled: busy }} accessibilityRole="button" accessibilityLabel={`Remove ${people?.find(p => p.id === id)?.name ?? "person"}`} onPress={() => toggle(id)} style={styles.chip}>
+          <Text style={styles.chipText}>{people?.find(p => p.id === id)?.name ?? "Person"} ×</Text>
+        </Pressable>)}</ScrollView>
+      </View> : null}
       <FlatList
         data={shown}
         keyExtractor={(p) => p.id}
@@ -53,17 +61,23 @@ export default function NewMessage() {
           people === null ? (
             <ActivityIndicator style={{ marginTop: 40 }} color={colors.blue} />
           ) : (
-            <Text style={styles.empty}>{error ?? (people.length ? "No one matches" : "No one else is on this server yet. Invite someone from the You tab")}</Text>
+            <View style={styles.empty}>
+              <Text accessibilityRole={error ? "alert" : undefined} style={styles.emptyText}>{error ?? (people.length ? "No people match your search." : account.user.role === "owner" ? "Invite a teammate to start a conversation." : "Your teammates will appear here when they join.")}</Text>
+              {error ? <Button label="Try again" kind="secondary" onPress={() => { setError(null); setPeople(null); loadPeople(); }} style={{ marginTop: space.md }} /> : !people.length && account.user.role === "owner" ? <Button label="Invite a teammate" kind="secondary" onPress={() => router.push("/invite")} style={{ marginTop: space.md }} /> : null}
+            </View>
           )
         }
         renderItem={({ item }) => {
           const on = picked.includes(item.id);
+          const disabled = busy || (!on && picked.length >= 8);
           return (
             <Pressable
               accessibilityRole="checkbox"
-              accessibilityState={{ checked: on }}
+              accessibilityLabel={item.name}
+              accessibilityState={{ checked: on, disabled }}
+              disabled={disabled}
               onPress={() => toggle(item.id)}
-              style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}
+              style={({ pressed }) => [styles.row, on && styles.rowSelected, disabled && !on && styles.rowDisabled, pressed && { backgroundColor: colors.surface }]}
             >
               <Avatar name={item.name} />
               <Text style={styles.name}>{item.name}</Text>
@@ -71,10 +85,10 @@ export default function NewMessage() {
             </Pressable>
           );
         }}
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{ paddingBottom: space.lg }}
       />
       <View style={styles.footer}>
-        {error && people?.length ? <Text style={styles.error}>{error}</Text> : null}
+        {error && people?.length ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         <Button label={picked.length > 1 ? "Start group message" : "Start conversation"} onPress={start} busy={busy} disabled={!picked.length} />
       </View>
     </View>
@@ -83,13 +97,22 @@ export default function NewMessage() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
-  search: { margin: 20, marginBottom: 8, minHeight: 46, borderRadius: 12, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 14, fontSize: 17, color: colors.ink },
-  row: { minHeight: 60, paddingHorizontal: 20, flexDirection: "row", alignItems: "center" },
-  name: { flex: 1, marginLeft: 12, fontSize: 17, color: colors.ink },
-  check: { width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: colors.line, alignItems: "center", justifyContent: "center" },
+  intro: { ...typography.body, marginTop: space.side, marginHorizontal: space.side, color: colors.muted },
+  search: { ...controls.input, marginHorizontal: space.side, marginTop: space.md, marginBottom: space.sm },
+  selection: { paddingHorizontal: space.side, paddingBottom: space.sm },
+  selectionCount: { ...typography.caption, color: colors.muted, marginBottom: space.xs },
+  chips: { flexDirection: "row", gap: space.xs },
+  chip: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.sm, backgroundColor: colors.blueSoft, borderRadius: radius.sm },
+  chipText: { ...typography.captionStrong, color: colors.blueDark },
+  row: { minHeight: 72, paddingHorizontal: space.side, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  rowSelected: { backgroundColor: colors.blueSoft },
+  rowDisabled: { opacity: 0.5 },
+  name: { ...typography.body, flex: 1, marginLeft: space.sm, marginRight: space.sm, color: colors.ink },
+  check: { width: 26, height: 26, borderRadius: radius.pill, borderWidth: 2, borderColor: colors.borderStrong, alignItems: "center", justifyContent: "center" },
   checkOn: { backgroundColor: colors.blue, borderColor: colors.blue },
-  tick: { color: colors.white, fontWeight: "700" },
-  empty: { marginTop: 40, marginHorizontal: 20, textAlign: "center", color: colors.muted, fontSize: 16 },
-  footer: { padding: 20, paddingBottom: 36, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
-  error: { color: colors.red, fontSize: 15, marginBottom: 12 },
+  tick: { ...typography.captionStrong, color: colors.white },
+  empty: { marginTop: space.xl, marginHorizontal: space.side, alignItems: "center" },
+  emptyText: { ...typography.body, textAlign: "center", color: colors.muted },
+  footer: { padding: space.side, paddingBottom: space.xl, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
+  error: { ...typography.caption, color: colors.red, marginBottom: space.sm },
 });

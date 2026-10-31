@@ -3,9 +3,10 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } fr
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import Constants from "expo-constants";
 import { nativeBuildVersion } from "expo-application";
+import { Button } from "../components/Button";
 import { useSession } from "../lib/session";
 import { api, type FeedbackReport } from "../lib/server";
-import { colors } from "../lib/theme";
+import { colors, controls, radius, space, typography } from "../lib/theme";
 
 const labels: Record<string, string> = { queued: "Queued", working: "Investigating", released: "Fix released", needs_info: "More information needed", reviewed: "Reviewed", interrupted: "Needs retry" };
 
@@ -43,19 +44,18 @@ export default function Feedback() {
     finally { setBusy(false); }
   };
   return <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
-    <Text style={styles.heading}>Send feedback to Servant</Text>
-    <Text style={styles.body}>Describe what went wrong and what you expected. The development agent will investigate, fix verified issues, and ship a new build.</Text>
+    <Text accessibilityRole="header" style={styles.heading}>Help improve Servant</Text>
+    <Text style={styles.intro}>Tell us what happened and what you expected. Follow your report's progress below.</Text>
+    <Text style={styles.label}>Your feedback</Text>
     <TextInput accessibilityLabel="Feedback" placeholder="What should we fix?" value={text}
       onChangeText={value => { setText(value); setSent(false); }} multiline maxLength={4000} autoFocus
-      editable={!busy} style={styles.input} textAlignVertical="top" />
+      placeholderTextColor={colors.muted} editable={!busy} style={styles.input} textAlignVertical="top" />
     <Text style={styles.caption}>Includes this screen, app build, and platform. Messages and screenshots are not attached.</Text>
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-    <Pressable accessibilityRole="button" disabled={busy || !text.trim()} onPress={send}
-      style={[styles.button, (busy || !text.trim()) && { opacity: 0.5 }]}>
-      <Text style={styles.buttonText}>{busy ? "Sending…" : "Send feedback"}</Text>
-    </Pressable>
+    <Button label="Send feedback" busy={busy} disabled={!text.trim()} onPress={send} />
     {sent ? <Text accessibilityLiveRegion="polite" style={styles.body}>Feedback saved. You can close this screen while the agent works.</Text> : null}
-    <Text style={styles.heading}>Your reports</Text>
+    <Text accessibilityRole="header" style={styles.sectionHeading}>Your reports</Text>
+    {!reports.length ? <Text style={styles.intro}>Your reports and updates will appear here.</Text> : null}
     {reports.map(report => <View key={report.id} style={styles.report}>
       <Text style={styles.status}>{labels[report.status] || report.status}</Text>
       <Text style={styles.body}>{report.text}</Text>
@@ -68,10 +68,17 @@ export default function Feedback() {
   </ScrollView>;
 }
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white }, content: { padding: 20, gap: 16, paddingBottom: 80 },
-  heading: { fontSize: 22, fontWeight: "700", color: colors.ink }, body: { fontSize: 16, lineHeight: 23, color: colors.ink },
-  input: { borderWidth: 1, borderColor: colors.line, borderRadius: 10, padding: 14, minHeight: 130, fontSize: 17, color: colors.ink },
-  caption: { fontSize: 13, color: colors.muted }, error: { color: colors.red },
-  button: { backgroundColor: colors.blue, borderRadius: 10, padding: 15, alignItems: "center" }, buttonText: { color: colors.white, fontSize: 17, fontWeight: "600" },
-  report: { padding: 16, gap: 8, borderRadius: 10, backgroundColor: colors.surface }, status: { fontWeight: "700", color: colors.ink }, link: { color: colors.blue, paddingVertical: 12 },
+  root: { flex: 1, backgroundColor: colors.white },
+  content: { padding: space.side, gap: space.md, paddingBottom: space.xxl },
+  heading: { ...typography.title, color: colors.ink },
+  sectionHeading: { ...typography.heading, marginTop: space.lg, color: colors.ink },
+  label: { ...typography.label, color: colors.ink, marginTop: space.xs, marginBottom: -space.xs },
+  intro: { ...typography.body, color: colors.muted },
+  body: { ...typography.body, color: colors.ink },
+  input: { ...controls.input, ...controls.inputMultiline, minHeight: 160 },
+  caption: { ...typography.caption, color: colors.muted },
+  error: { ...typography.caption, color: colors.red },
+  report: { padding: space.md, gap: space.xs, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
+  status: { ...typography.captionStrong, color: colors.blueDark },
+  link: { ...typography.bodyStrong, color: colors.blue, paddingVertical: space.sm, minHeight: 44 },
 });

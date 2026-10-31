@@ -1,9 +1,13 @@
-import { useEffect, useRef, useState, type ComponentRef } from "react";
-import { Alert, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type PressableProps } from "react-native";
+import { useEffect, useRef, useState, type ComponentRef, type ReactNode } from "react";
+import { Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type PressableProps } from "react-native";
+import * as Clipboard from "expo-clipboard";
+import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { Conversation, Person, Post } from "../lib/server";
+import type { Conversation, Person, Post, Upload } from "../lib/server";
 import { activeMention, insertMention, mentionMatches, mentionText } from "../lib/mentions";
-import { colors } from "../lib/theme";
+import { receiptStatus, statusTime } from "../lib/message-status";
+import { Attachments, DraftAttachments, pickAttachments, type DraftAttachment } from "./Attachments";
+import { colors, radius, space, typography } from "../lib/theme";
 
 export function when(ms: number) {
   const d = new Date(ms);
@@ -25,7 +29,7 @@ export function Avatar({ name, agent, size = 36 }: { name: string; agent?: boole
       importantForAccessibility="no"
       style={[styles.avatar, { width: size, height: size, borderRadius: agent ? size / 2 : 8 }, agent && { backgroundColor: colors.navy }]}
     >
-      <Text style={[styles.avatarText, { fontSize: size * 0.4 }]}>{agent ? "AI" : initials || "?"}</Text>
+      <Text style={[styles.avatarText, { fontSize: size * 0.4 }, agent && { color: colors.white }]}>{agent ? "AI" : initials || "?"}</Text>
     </View>
   );
 }
@@ -34,7 +38,7 @@ export function Avatar({ name, agent, size = 36 }: { name: string; agent?: boole
 function Rich({ text, style }: { text: string; style: object }) {
   const parts = text.split(/(@[\p{L}\p{M}\p{N}_’'.-]+)/gu);
   return (
-    <Text selectable style={style}>
+    <Text selectable={Platform.OS === "web"} style={style}>
       {parts.map((p, i) =>
         p.startsWith("@") ? (
           <Text key={i} style={styles.mention}>
@@ -51,35 +55,77 @@ function Rich({ text, style }: { text: string; style: object }) {
 type PostProps = {
   post: Post;
   me: string;
+  members?: Person[];
   compact?: boolean; // same author as the post above, within five minutes
   onOpenThread?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
+  onReact?: (emoji: string, active: boolean) => Promise<void>;
 };
 
-export function PostRow({ post, me, compact, onOpenThread, onEdit, onDelete }: PostProps) {
+const REACTIONS = [
+  ["👍", "Like"], ["❤️", "Love"], ["😂", "Laugh"], ["😮", "Surprised"],
+  ["😢", "Sad"], ["🙏", "Thanks"], ["🎉", "Celebrate"], ["✅", "Done"],
+  ["👀", "Looking"], ["🔥", "Fire"], ["👏", "Applause"], ["💯", "Hundred"],
+];
+
+export function PostRow({ post, me, members, compact, onOpenThread, onEdit, onDelete, onReact }: PostProps) {
+  const [menu, setMenu] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const [copyStatus, setCopyStatus] = useState("");
+  const [copying, setCopying] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const reacting = useRef(false);
+  const insets = useSafeAreaInsets();
+  const available = !post.deleted && !post.pending && !post.activity;
+  const reactions = post.reactions ?? [];
+  const choose = async (emoji: string) => {
+    if (!onReact || !available || reacting.current) return;
+    reacting.current = true;
+    setBusy(true);
+    setMenu(false);
+    try { await onReact(emoji, !reactions.some(r => r.emoji === emoji && r.userIds.includes(me))); }
+    finally { reacting.current = false; setBusy(false); }
+  };
+  const copy = async () => {
+    if (!available || !post.text || copying) return;
+    setCopying(true);
+    try {
+      const copied = await Clipboard.setStringAsync(post.text);
+      setCopyStatus(copied ? "Copied" : "Couldn't copy. Select the text below to copy it.");
+    } catch {
+      setCopyStatus("Couldn't copy. Select the text below to copy it.");
+    } finally {
+      setCopying(false);
+    }
+  };
   if (post.activity) return (
-    <View accessible accessibilityLabel={`${post.text}, ${when(post.createdAt)}`} style={{ paddingHorizontal: 20, paddingVertical: 12, alignItems: "center" }}>
-      <Text style={{ color: colors.muted, fontSize: 14, lineHeight: 20, textAlign: "center" }}>{post.text} · {when(post.createdAt)}</Text>
+    <View accessible accessibilityLabel={`${post.text}, ${when(post.createdAt)}`} style={styles.activity}>
+      <Text style={styles.activityText}>{post.text} · {when(post.createdAt)}</Text>
     </View>
   );
   const mine = post.user.id === me;
+  const receipt = receiptStatus(post, me, members);
+  const options = [
+    ...(onOpenThread ? [{ text: "Reply in thread", onPress: onOpenThread }] : []),
+    ...(mine && onEdit ? [{ text: "Edit", onPress: onEdit }] : []),
+    ...(mine && onDelete ? [{ text: "Delete", onPress: onDelete }] : []),
+  ];
   const actions = () => {
-    if (post.deleted || post.pending) return;
-    const options = [
-      ...(onOpenThread ? [{ text: "Reply in thread", onPress: onOpenThread }] : []),
-      ...(mine && onEdit ? [{ text: "Edit", onPress: onEdit }] : []),
-      ...(mine && onDelete ? [{ text: "Delete", style: "destructive" as const, onPress: onDelete }] : []),
-    ];
-    if (!options.length) return;
-    if (Platform.OS === "web") return options[0]!.onPress();
-    Alert.alert("Message", undefined, [...options, { text: "Cancel", style: "cancel" }]);
+    if (!available || (!post.text && !onReact && !options.length && !receipt?.read)) return;
+    Keyboard.dismiss();
+    setCopyStatus("");
+    setSelecting(false);
+    setMenu(true);
+    if (Platform.OS !== "web") void Haptics.selectionAsync().catch(() => {});
   };
   const label = `${post.user.name}, ${when(post.createdAt)}. ${post.deleted ? "Message deleted" : post.text}${post.replyCount ? `. ${post.replyCount} ${post.replyCount === 1 ? "reply" : "replies"}` : ""}`;
   return (
-    <Pressable onLongPress={actions} accessible={!(onOpenThread && post.replyCount > 0)} accessibilityLabel={label} accessibilityHint={onOpenThread || mine ? "Long press to reply in a thread" + (mine ? ", edit or delete" : "") : undefined} style={[styles.post, compact && styles.postCompact]}>
+    <>
+    <Pressable onLongPress={actions} delayLongPress={400} accessible={false} style={[styles.post, compact && styles.postCompact, menu && { backgroundColor: colors.surface }]}>
       <View style={styles.gutter}>{compact ? null : <Avatar name={post.user.name} agent={post.user.agent} />}</View>
-      <View style={{ flex: 1 }}>
+      <View style={styles.postContent}>
+        <View accessible accessibilityLabel={label} accessibilityHint={available ? "Touch and hold to copy, select text, react or open message actions" : undefined} accessibilityActions={available ? [{ name: "activate", label: "Copy, react or open message actions" }] : undefined} onAccessibilityAction={actions}>
         {compact ? null : (
           <View style={styles.meta}>
             <Text style={styles.author}>{post.user.name}</Text>
@@ -95,6 +141,17 @@ export function PostRow({ post, me, compact, onOpenThread, onEdit, onDelete }: P
           <Rich text={post.text + (post.editedAt ? " " : "")} style={styles.body} />
         )}
         {post.editedAt && !post.deleted ? <Text style={styles.edited}>Edited</Text> : null}
+        </View>
+        {!post.deleted && post.attachments?.length ? <Attachments files={post.attachments} /> : null}
+        {available && reactions.length > 0 ? <View style={styles.reactions}>
+          {reactions.map(r => {
+            const selected = r.userIds.includes(me);
+            return <Pressable key={r.emoji} accessibilityRole="button" accessibilityLabel={`${r.emoji}, ${r.userIds.length} reactions${selected ? ", including you. Remove reaction" : ". Add reaction"}`} accessibilityState={{ selected, disabled: busy || !onReact }} disabled={busy || !onReact} onPress={() => choose(r.emoji)} style={[styles.reaction, selected && styles.selectedReaction]}>
+              <Text style={styles.reactionText}>{r.emoji} {r.userIds.length}</Text>
+            </Pressable>;
+          })}
+        </View> : null}
+        {available && Platform.OS === "web" ? <Pressable accessibilityRole="button" accessibilityLabel={`Actions for ${post.user.name}'s message`} onPress={actions} style={styles.more}><Text style={styles.moreText}>•••</Text></Pressable> : null}
         {onOpenThread && post.replyCount > 0 ? (
           <Pressable accessibilityRole="button" accessibilityLabel={`${post.replyCount} ${post.replyCount === 1 ? "reply" : "replies"}, open thread`} onPress={onOpenThread} hitSlop={8} style={styles.replies}>
             <Text style={styles.repliesText}>
@@ -103,8 +160,44 @@ export function PostRow({ post, me, compact, onOpenThread, onEdit, onDelete }: P
             {post.lastReplyAt ? <Text style={styles.time}> · {when(post.lastReplyAt)}</Text> : null}
           </Pressable>
         ) : null}
+        {receipt ? <Text testID={`message-receipt-${post.id}`} accessibilityLabel={receipt.accessibilityLabel} style={[styles.receipt, receipt.read && styles.receiptRead]}>{receipt.label}</Text> : null}
       </View>
     </Pressable>
+    {menu && available ? <Modal transparent animationType="fade" visible onRequestClose={() => setMenu(false)}>
+      <View style={[styles.menuOverlay, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 16 }]}>
+        <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel="Dismiss message actions" onPress={() => setMenu(false)} />
+        <View accessibilityViewIsModal style={styles.menuCard}>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <Text style={styles.menuAuthor}>{post.user.name}</Text>
+            {receipt && !selecting ? <View style={styles.receiptDetails}>
+              <Text style={styles.menuTitle}>{receipt.read ? "Read by" : "Sent"}</Text>
+              {receipt.readers.map(reader => <Text key={reader.userId} style={styles.receiptDetail}>{reader.name} · {statusTime(reader.readAt)}</Text>)}
+            </View> : null}
+            {post.text ? <>
+              <Pressable testID="message-copy" accessibilityRole="button" accessibilityLabel="Copy message" accessibilityState={{ disabled: copying }} disabled={copying} onPress={copy} style={styles.menuAction}>
+                <Text style={styles.menuActionText}>{copying ? "Copying…" : "Copy"}</Text>
+              </Pressable>
+              {copyStatus ? <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.copyStatus}>{copyStatus}</Text> : null}
+              <Pressable testID="message-select-text" accessibilityRole="button" onPress={() => setSelecting(!selecting)} style={styles.menuAction}>
+                <Text style={styles.menuActionText}>{selecting ? "Back to message actions" : "Select text"}</Text>
+              </Pressable>
+              {selecting ? <Text style={styles.copyStatus}>Touch and hold a word, then drag the selection handles to copy part of this message.</Text> : null}
+              <Text key={selecting ? "full-text" : "preview"} testID="message-selectable-text" selectable={selecting} numberOfLines={selecting ? undefined : 4} style={styles.menuPreview}>{post.text}</Text>
+            </> : null}
+            {onReact && !selecting ? <>
+              <Text style={styles.menuTitle}>React</Text>
+              <View style={styles.emojiGrid}>{REACTIONS.map(([emoji, name]) => {
+                const selected = reactions.some(r => r.emoji === emoji && r.userIds.includes(me));
+                return <Pressable key={emoji} accessibilityRole="button" accessibilityLabel={`${selected ? "Remove" : "Add"} ${name} reaction`} accessibilityState={{ selected, disabled: busy }} disabled={busy} onPress={() => choose(emoji!)} style={[styles.emojiButton, selected && styles.selectedReaction]}><Text style={styles.emoji}>{emoji}</Text></Pressable>;
+              })}</View>
+            </> : null}
+            {!selecting && options.map(option => <Pressable key={option.text} accessibilityRole="button" onPress={() => { setMenu(false); option.onPress(); }} style={styles.menuAction}><Text style={[styles.menuActionText, option.text === "Delete" && { color: colors.red }]}>{option.text}</Text></Pressable>)}
+            <Pressable accessibilityRole="button" onPress={() => setMenu(false)} style={styles.menuAction}><Text style={styles.menuActionText}>Cancel</Text></Pressable>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal> : null}
+    </>
   );
 }
 
@@ -118,15 +211,20 @@ export function Composer({
   members = [],
   me = "",
   autoFocus = false,
+  allowAttachments = true,
+  clearOnSend = false,
 }: {
   placeholder: string;
-  onSend: (text: string) => Promise<boolean>;
+  onSend: (text: string, attachments?: Upload[]) => Promise<boolean>;
   initial?: string;
   sendLabel?: string;
   onCancel?: () => void;
   members?: Person[];
   me?: string;
   autoFocus?: boolean;
+  allowAttachments?: boolean;
+  // Long agent replies should leave the input free for the next draft.
+  clearOnSend?: boolean;
   onTyping?: (text: string) => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -143,6 +241,23 @@ export function Composer({
   }, []);
   const [text, setText] = useState(initial);
   const [busy, setBusy] = useState(false);
+  const [files, setFiles] = useState<DraftAttachment[]>([]);
+  const [picking, setPicking] = useState(false);
+  const [fileError, setFileError] = useState("");
+  const sending = useRef(false);
+  const pick = async (photos: boolean) => {
+    if (picking || busy) return;
+    setPicking(true);
+    setFileError("");
+    try {
+      const added = await pickAttachments(photos);
+      const next = [...files, ...added];
+      if (next.length > 4) throw new Error("Attach up to 4 files");
+      if (next.reduce((n, f) => n + f.size, 0) > 10 * 1024 * 1024) throw new Error("Attachments must be under 10 MB total");
+      setFiles(next);
+    } catch (e) { setFileError(e instanceof Error ? e.message : "Couldn't select files"); }
+    finally { setPicking(false); }
+  };
   const input = useRef<ComponentRef<typeof TextInput>>(null);
   const [selection, setSelection] = useState({ start: initial.length, end: initial.length });
   const [insertedSelection, setInsertedSelection] = useState<{ start: number; end: number }>();
@@ -161,17 +276,31 @@ export function Composer({
   };
   const send = async () => {
     const body = text.trim();
-    if (!body || busy) return;
+    if ((!body && !files.length) || sending.current || picking) return;
+    sending.current = true;
     setBusy(true);
-    setText("");
-    setInsertedSelection(undefined);
-    const ok = await onSend(body);
-    if (!ok) setText(body);
-    setBusy(false);
+    setFileError("");
+    if (clearOnSend) setText("");
+    try {
+      const ok = await onSend(body, files.map(({ name, data }) => ({ name, data })));
+      if (ok) { if (!clearOnSend) setText(""); setFiles([]); setInsertedSelection(undefined); }
+      else if (clearOnSend) setText(current => current || body);
+    } catch {
+      if (clearOnSend) setText(current => current || body);
+      setFileError("Couldn't send. Your draft is saved here; try again");
+    }
+    finally { sending.current = false; setBusy(false); }
   };
-  const off = !text.trim() || busy;
+  const off = (!text.trim() && !files.length) || busy || picking;
   return (
     <View style={styles.composerWrap}>
+      {fileError ? <Text accessibilityRole="alert" style={styles.composerError}>{fileError}</Text> : null}
+      {files.length ? <DraftAttachments files={files} disabled={busy || picking} onRemove={i => setFiles(old => old.filter((_, index) => index !== i))} /> : null}
+      {!onCancel && allowAttachments ? <View style={styles.attachmentTools}>
+        <Text style={styles.attachmentLabel}>Attach</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="Attach photos" accessibilityState={{ disabled: busy || picking }} disabled={busy || picking} onPress={() => pick(true)} style={styles.attachmentButton}><Text style={styles.attachmentText}>Photos</Text></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Attach files" accessibilityState={{ disabled: busy || picking }} disabled={busy || picking} onPress={() => pick(false)} style={styles.attachmentButton}><Text style={styles.attachmentText}>{picking ? "Loading…" : "Files"}</Text></Pressable>
+      </View> : null}
       {match ? (
         <ScrollView keyboardShouldPersistTaps="always" style={styles.suggestions} accessibilityLabel="Mention suggestions">
           {suggestions.length ? suggestions.map(person => (
@@ -189,6 +318,7 @@ export function Composer({
         </Pressable>
       ) : null}
       <TextInput
+        editable={!busy || clearOnSend}
         ref={input}
         autoFocus={autoFocus}
         testID="composer-input"
@@ -204,26 +334,27 @@ export function Composer({
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         placeholder={placeholder}
-        placeholderTextColor="#8A8F96"
+        placeholderTextColor={colors.muted}
         multiline
-        style={styles.input}
+        style={[styles.input, focused && styles.inputFocused]}
         onSubmitEditing={Platform.OS === "web" ? send : undefined}
         blurOnSubmit={false}
       />
-      <Pressable testID="composer-send" accessibilityRole="button" accessibilityState={{ disabled: off }} onPress={send} disabled={off} style={[styles.send, off && { opacity: 0.4 }]}>
-        <Text style={styles.sendText}>{sendLabel}</Text>
+      <Pressable testID="composer-send" accessibilityRole="button" accessibilityState={{ disabled: off, busy }} onPress={send} disabled={off} style={({ pressed }) => [styles.send, off && styles.sendDisabled, pressed && !off && { backgroundColor: colors.blueDark }]}>
+        <Text style={styles.sendText}>{busy ? "Sending…" : sendLabel}</Text>
       </Pressable>
     </View>
     </View>
   );
 }
 
-export function ConversationRow({ c, onPress, onLongPress, accessibilityActions, onAccessibilityAction }: { c: Conversation; onPress: () => void } & Pick<PressableProps, "onLongPress" | "accessibilityActions" | "onAccessibilityAction">) {
+export function ConversationRow({ c, onPress, onLongPress, accessibilityActions, onAccessibilityAction, trailing }: { c: Conversation; onPress: () => void; trailing?: ReactNode } & Pick<PressableProps, "onLongPress" | "accessibilityActions" | "onAccessibilityAction">) {
   const last = c.lastMessage;
-  const preview = last ? (last.deleted ? "Message deleted" : `${!last.activity && (c.kind === "channel" || (c.members?.length ?? 0) > 2) ? `${last.user.name}: ` : ""}${last.text || "Thinking…"}`) : c.topic || "No messages yet";
-  const bold = c.unread > 0;
+  const preview = last ? (last.deleted ? "Message deleted" : `${!last.activity && (c.kind === "channel" || (c.members?.length ?? 0) > 2) ? `${last.user.name}: ` : ""}${last.text || (last.attachments?.length ? `${last.attachments.length} attachment${last.attachments.length === 1 ? "" : "s"}` : "Thinking…")}`) : c.topic || "No messages yet";
+  const bold = c.unread > 0 && !c.archived;
   const title = c.kind === "channel" ? `#${c.title}` : c.title;
   return (
+    <View style={styles.rowContainer}>
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${title}${c.private && c.kind === "channel" ? ", private" : ""}${bold ? `, ${c.unread} unread` : ""}. ${preview}`}
@@ -232,10 +363,10 @@ export function ConversationRow({ c, onPress, onLongPress, accessibilityActions,
       accessibilityHint={onLongPress ? "Swipe left or long press for channel actions" : undefined}
       accessibilityActions={accessibilityActions}
       onAccessibilityAction={onAccessibilityAction}
-      style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}
+      style={({ pressed }) => [styles.row, trailing ? styles.rowWithTrailing : null, pressed && { backgroundColor: colors.surface }]}
     >
       {c.kind === "dm" ? <Avatar name={c.title} size={40} /> : null}
-      <View style={{ flex: 1, marginLeft: c.kind === "dm" ? 12 : 0 }}>
+      <View style={{ flex: 1, minWidth: 0, marginLeft: c.kind === "dm" ? space.sm : 0 }}>
         <View style={styles.rowTop}>
           <Text style={[styles.rowTitle, bold && styles.bold]} numberOfLines={1}>
             {title}
@@ -255,43 +386,78 @@ export function ConversationRow({ c, onPress, onLongPress, accessibilityActions,
         </View>
       </View>
     </Pressable>
+    {trailing}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  avatar: { backgroundColor: colors.blue, alignItems: "center", justifyContent: "center" },
-  avatarText: { color: colors.white, fontWeight: "700" },
-  post: { flexDirection: "row", paddingHorizontal: 16, paddingTop: 10, paddingBottom: 2 },
-  postCompact: { paddingTop: 0 },
+  activity: { paddingHorizontal: space.side, paddingVertical: space.sm, alignItems: "center" },
+  activityText: { ...typography.caption, color: colors.muted, textAlign: "center" },
+  reactions: { flexDirection: "row", flexWrap: "wrap", gap: space.xs, marginTop: space.xs },
+  reaction: { minHeight: 44, minWidth: 48, paddingHorizontal: space.sm, alignItems: "center", justifyContent: "center", borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
+  selectedReaction: { backgroundColor: colors.blueSoft, borderColor: colors.blue },
+  reactionText: { ...typography.label, color: colors.ink },
+  more: { position: "absolute", right: -space.xs, top: -space.xxs, minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center", borderRadius: radius.sm },
+  moreText: { ...typography.label, color: colors.muted },
+  menuOverlay: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: space.side, backgroundColor: "rgba(0,0,0,0.35)" },
+  menuCard: { width: "100%", maxWidth: 420, maxHeight: "100%", backgroundColor: colors.white, borderRadius: radius.lg, padding: space.side },
+  copyStatus: { ...typography.caption, color: colors.muted, marginVertical: space.xs },
+  menuAuthor: { ...typography.bodyStrong, color: colors.ink, marginBottom: space.xs },
+  menuPreview: { ...typography.body, color: colors.muted, marginTop: space.xs, marginBottom: space.md },
+  menuTitle: { ...typography.label, color: colors.muted, marginTop: space.xs, marginBottom: space.xs },
+  emojiGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: space.xxs, marginBottom: space.sm },
+  emojiButton: { width: 48, height: 48, borderRadius: radius.md, borderWidth: 1, borderColor: "transparent", justifyContent: "center", alignItems: "center" },
+  emoji: { fontSize: 28 },
+  menuAction: { minHeight: 48, paddingVertical: space.sm, justifyContent: "center", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
+  menuActionText: { ...typography.body, color: colors.blue },
+  avatar: { backgroundColor: colors.blueSoft, alignItems: "center", justifyContent: "center" },
+  avatarText: { color: colors.blueDark, fontWeight: "600" },
+  post: { flexDirection: "row", paddingHorizontal: space.side, paddingTop: space.md, paddingBottom: space.xxs },
+  postCompact: { paddingTop: space.xxs },
+  postContent: { flex: 1, minWidth: 0, minHeight: Platform.OS === "web" ? 44 : undefined, paddingRight: Platform.OS === "web" ? space.xl : 0 },
   gutter: { width: 48 },
-  meta: { flexDirection: "row", alignItems: "baseline", marginBottom: 2 },
-  author: { fontSize: 16, fontWeight: "700", color: colors.ink },
-  agentTag: { marginLeft: 6, fontSize: 12, fontWeight: "700", color: colors.navy, backgroundColor: "#E1E7F1", paddingHorizontal: 5, borderRadius: 4, overflow: "hidden" },
-  time: { marginLeft: 8, fontSize: 13, color: colors.muted },
-  body: { fontSize: 16, lineHeight: 22, color: colors.ink },
+  meta: { flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", columnGap: space.xs, marginBottom: space.xxs },
+  author: { ...typography.bodyStrong, color: colors.ink, flexShrink: 1 },
+  agentTag: { ...typography.captionStrong, color: colors.blueDark, backgroundColor: colors.blueSoft, paddingHorizontal: space.xxs, borderRadius: radius.sm, overflow: "hidden" },
+  time: { ...typography.caption, color: colors.muted, flexShrink: 0 },
+  body: { ...typography.body, color: colors.ink },
   mention: { color: colors.blue, fontWeight: "600" },
-  deleted: { fontSize: 16, color: colors.muted, fontStyle: "italic" },
-  edited: { fontSize: 12, color: colors.muted, marginTop: 1 },
-  replies: { flexDirection: "row", alignItems: "baseline", marginTop: 4, minHeight: 28 },
-  repliesText: { color: colors.blue, fontWeight: "600", fontSize: 15 },
-  composerWrap: { backgroundColor: colors.white },
+  deleted: { ...typography.body, color: colors.muted, fontStyle: "italic" },
+  edited: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
+  receipt: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
+  receiptRead: { color: colors.blueDark },
+  receiptDetails: { marginBottom: space.sm },
+  receiptDetail: { ...typography.caption, color: colors.ink, paddingVertical: space.xxs },
+  replies: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", marginTop: space.xxs, minHeight: 44 },
+  repliesText: { ...typography.captionStrong, color: colors.blue },
+  composerWrap: { backgroundColor: colors.white, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
+  composerError: { ...typography.caption, color: colors.red, paddingHorizontal: space.side, paddingTop: space.sm },
+  attachmentTools: { flexDirection: "row", alignItems: "center", paddingHorizontal: space.side, gap: space.md },
+  attachmentLabel: { ...typography.caption, color: colors.muted },
+  attachmentButton: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.xxs },
+  attachmentText: { ...typography.captionStrong, color: colors.blue },
   suggestions: { maxHeight: 190, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
-  suggestion: { flexDirection: "row", alignItems: "center", minHeight: 56, paddingHorizontal: 20, paddingVertical: 8 },
-  suggestionName: { fontSize: 16, fontWeight: "600", color: colors.ink },
-  suggestionHandle: { fontSize: 13, color: colors.muted, marginTop: 2 },
-  noSuggestions: { paddingHorizontal: 20, paddingVertical: 14, color: colors.muted, fontSize: 14 },
-  composer: { flexDirection: "row", alignItems: "flex-end", paddingHorizontal: 20, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line, backgroundColor: colors.white },
-  input: { flex: 1, minHeight: 44, maxHeight: 140, borderRadius: 22, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 16, paddingTop: 11, paddingBottom: 11, fontSize: 17, color: colors.ink, backgroundColor: colors.surface },
-  send: { marginLeft: 8, height: 44, paddingHorizontal: 16, borderRadius: 22, backgroundColor: colors.blue, alignItems: "center", justifyContent: "center" },
-  sendText: { color: colors.white, fontSize: 16, fontWeight: "600" },
-  cancel: { height: 44, justifyContent: "center", paddingRight: 8 },
-  cancelText: { color: colors.blue, fontSize: 16 },
-  row: { minHeight: 68, paddingHorizontal: 20, paddingVertical: 10, flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
-  rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  rowTitle: { flex: 1, fontSize: 17, color: colors.ink, marginRight: 8 },
-  bold: { fontWeight: "700" },
-  lock: { fontSize: 13, color: colors.muted, fontWeight: "400" },
-  preview: { flex: 1, marginTop: 2, fontSize: 15, color: colors.muted, marginRight: 8 },
-  badge: { minWidth: 22, height: 22, borderRadius: 11, backgroundColor: colors.blue, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
-  badgeText: { color: colors.white, fontSize: 13, fontWeight: "700" },
+  suggestion: { flexDirection: "row", alignItems: "center", minHeight: 56, paddingHorizontal: space.side, paddingVertical: space.xs },
+  suggestionName: { ...typography.bodyStrong, color: colors.ink },
+  suggestionHandle: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
+  noSuggestions: { ...typography.caption, paddingHorizontal: space.side, paddingVertical: space.sm, color: colors.muted },
+  composer: { flexDirection: "row", alignItems: "flex-end", paddingHorizontal: space.md, paddingTop: space.xs, backgroundColor: colors.white },
+  input: { ...typography.body, flex: 1, minHeight: 48, maxHeight: 160, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, paddingHorizontal: space.sm, paddingVertical: space.sm, color: colors.ink, backgroundColor: colors.surface },
+  inputFocused: { borderColor: colors.blue, backgroundColor: colors.white },
+  send: { marginLeft: space.xs, minHeight: 48, paddingVertical: space.sm, paddingHorizontal: space.md, borderRadius: radius.md, backgroundColor: colors.blue, alignItems: "center", justifyContent: "center" },
+  sendDisabled: { opacity: 0.45 },
+  sendText: { ...typography.label, color: colors.white },
+  cancel: { minHeight: 48, justifyContent: "center", paddingRight: space.xs },
+  cancelText: { ...typography.label, color: colors.blue },
+  rowContainer: { flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  row: { flex: 1, minWidth: 0, minHeight: 80, paddingHorizontal: space.side, paddingVertical: space.md, flexDirection: "row", alignItems: "center" },
+  rowWithTrailing: { paddingRight: space.xs },
+  rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.xs },
+  rowTitle: { ...typography.body, flex: 1, color: colors.ink },
+  bold: { fontWeight: "600" },
+  lock: { ...typography.caption, color: colors.muted, fontWeight: "400" },
+  preview: { ...typography.caption, flex: 1, marginTop: space.xxs, color: colors.muted },
+  badge: { minWidth: 22, minHeight: 22, borderRadius: radius.pill, backgroundColor: colors.blue, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
+  badgeText: { ...typography.captionStrong, color: colors.white },
 });

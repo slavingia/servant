@@ -1,46 +1,59 @@
-import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, StyleSheet, Text, View } from "react-native";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useChromeHeight } from "../../components/AppChrome";
+import { Composer } from "../../components/Messaging";
+import { Button } from "../../components/Button";
 import { api, sendMessage, ServerError, type Message } from "../../lib/server";
 import { useSession } from "../../lib/session";
-import { colors } from "../../lib/theme";
+import { colors, radius, space, typography } from "../../lib/theme";
 
 type Row = Message & { pending?: boolean; failed?: boolean };
 
 export default function ChatScreen() {
   const { id, title } = useLocalSearchParams<{ id: string; title?: string }>();
   const { account, setAccount } = useSession();
-  const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
+  const chromeHeight = useChromeHeight();
   const [messages, setMessages] = useState<Row[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [heading, setHeading] = useState(title && title !== "New chat" ? title : "New chat");
   const list = useRef<FlatList<Row>>(null);
   const abort = useRef<AbortController | null>(null);
+  const currentLoad = useRef<object | null>(null);
+
+  const load = useCallback(async () => {
+    if (!account || !id) return;
+    const request = {};
+    currentLoad.current = request;
+    setMessages(null);
+    setLoadError(null);
+    try {
+      const history = await api.messages(account, id);
+      if (request === currentLoad.current) setMessages(history);
+    } catch (e) {
+      if (request !== currentLoad.current) return;
+      setMessages([]);
+      setLoadError(e instanceof ServerError ? e.message : "Check your connection and try again.");
+    }
+  }, [account, id]);
 
   useEffect(() => {
-    if (!account || !id) return;
-    api
-      .messages(account, id)
-      .then((m) => setMessages(m))
-      .catch((e) => {
-        setMessages([]);
-        setLoadError(e instanceof ServerError ? e.message : "Couldn't load this chat");
-      });
-    return () => abort.current?.abort();
-  }, [account, id]);
+    void load();
+    return () => {
+      currentLoad.current = null;
+      abort.current?.abort();
+    };
+  }, [load]);
 
   if (!account) return null;
 
-  const send = async () => {
+  const send = async (text: string) => {
     const body = text.trim();
-    if (!body || busy) return;
-    setText("");
+    if (!body || busy || messages === null || loadError) return false;
     setBusy(true);
     setStatus(null);
     if (heading === "New chat") setHeading(body.replace(/\s+/g, " ").slice(0, 60));
@@ -50,6 +63,7 @@ export default function ChatScreen() {
     setMessages((m) => [...(m ?? []), mine, reply]);
     const update = (fn: (r: Row) => Row) => setMessages((m) => (m ?? []).map((r) => (r.id === reply.id ? fn(r) : r)));
     abort.current = new AbortController();
+    let failed = false;
     try {
       await sendMessage(
         account,
@@ -61,19 +75,24 @@ export default function ChatScreen() {
             update((r) => ({ ...r, text: r.text + e.text }));
           } else if (e.type === "message") update((r) => ({ ...r, text: e.text || r.text }));
           else if (e.type === "status") setStatus(e.text);
-          else if (e.type === "error") update((r) => ({ ...r, text: r.text || e.message, failed: !r.text }));
+          else if (e.type === "error") {
+            failed = true;
+            update((r) => ({ ...r, text: r.text || e.message, failed: !r.text }));
+          }
           else if (e.type === "done") update((r) => ({ ...r, pending: false }));
         },
         abort.current.signal,
         setAccount,
       );
     } catch (e) {
+      failed = true;
       update((r) => ({ ...r, pending: false, failed: true, text: e instanceof ServerError ? e.message : "Couldn't send. Check your connection" }));
     } finally {
       update((r) => ({ ...r, pending: false }));
       setBusy(false);
       setStatus(null);
     }
+    return !failed;
   };
 
   const data = [...(messages ?? [])].reverse();
@@ -81,7 +100,7 @@ export default function ChatScreen() {
   return (
     <View style={styles.root}>
       <Stack.Screen options={{ title: heading }} />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={headerHeight}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={headerHeight + chromeHeight}>
         {messages === null ? (
           <ActivityIndicator style={{ flex: 1 }} color={colors.blue} />
         ) : (
@@ -94,13 +113,16 @@ export default function ChatScreen() {
             ListFooterComponent={
               messages.length === 0 ? (
                 <View style={styles.empty}>
-                  <Text style={styles.emptyTitle}>{loadError ?? "What can I help with?"}</Text>
-                  {!loadError ? <Text style={styles.emptyBody}>Your messages go to {account.serverName}</Text> : null}
+                  <Text accessibilityRole="header" style={styles.emptyTitle}>{loadError ? "Couldn't load this chat" : "What can I help with?"}</Text>
+                  {loadError ? <>
+                    <Text accessibilityRole="alert" style={styles.emptyBody}>{loadError}</Text>
+                    <Button label="Try again" kind="secondary" onPress={() => void load()} style={styles.retry} />
+                  </> : <Text style={styles.emptyBody}>A private conversation with the agent on {account.serverName}.</Text>}
                 </View>
               ) : undefined
             }
             renderItem={({ item }) => (
-              <View style={[styles.bubble, item.role === "user" ? styles.mine : styles.theirs, item.failed && styles.failed]}>
+              <View accessibilityLabel={item.role === "user" ? "Your message" : "Agent response"} style={[styles.bubble, item.role === "user" ? styles.mine : styles.theirs, item.failed && styles.failed]}>
                 {item.pending && !item.text ? (
                   <Text style={styles.typing}>{status ?? "Thinking…"}</Text>
                 ) : (
@@ -112,28 +134,7 @@ export default function ChatScreen() {
             )}
           />
         )}
-        <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
-          <TextInput
-            accessibilityLabel="Message"
-            value={text}
-            onChangeText={setText}
-            placeholder="Message"
-            placeholderTextColor="#8A8F96"
-            multiline
-            style={styles.input}
-            onSubmitEditing={Platform.OS === "web" ? send : undefined}
-            blurOnSubmit={false}
-          />
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Send"
-            onPress={send}
-            disabled={!text.trim() || busy}
-            style={[styles.send, (!text.trim() || busy) && { opacity: 0.4 }]}
-          >
-            <Text style={styles.sendText}>Send</Text>
-          </Pressable>
-        </View>
+        {messages !== null && !loadError ? <Composer placeholder="Message the agent" onSend={send} allowAttachments={false} clearOnSend /> : null}
       </KeyboardAvoidingView>
     </View>
   );
@@ -141,41 +142,17 @@ export default function ChatScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
-  list: { paddingHorizontal: 16, paddingVertical: 16 },
-  bubble: { maxWidth: "84%", borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10, marginVertical: 4 },
-  mine: { alignSelf: "flex-end", backgroundColor: colors.bubbleMine, borderBottomRightRadius: 6 },
-  theirs: { alignSelf: "flex-start", backgroundColor: colors.bubbleAgent, borderBottomLeftRadius: 6 },
-  failed: { backgroundColor: "#FDECEF" },
-  text: { fontSize: 17, lineHeight: 23, color: colors.ink },
+  list: { paddingHorizontal: space.side, paddingVertical: space.md },
+  bubble: { maxWidth: "88%", borderRadius: radius.lg, paddingHorizontal: space.md, paddingVertical: space.sm, marginVertical: space.xxs },
+  mine: { alignSelf: "flex-end", backgroundColor: colors.bubbleMine, borderBottomRightRadius: radius.sm },
+  theirs: { alignSelf: "flex-start", backgroundColor: colors.bubbleAgent, borderBottomLeftRadius: radius.sm },
+  failed: { backgroundColor: colors.redSoft },
+  text: { ...typography.body, color: colors.ink },
   mineText: { color: colors.white },
   failedText: { color: colors.red },
-  typing: { fontSize: 16, color: colors.muted, fontStyle: "italic" },
-  empty: { alignItems: "center", marginTop: 80, paddingHorizontal: 20 },
-  emptyTitle: { fontSize: 20, fontWeight: "600", color: colors.ink, textAlign: "center" },
-  emptyBody: { marginTop: 6, fontSize: 15, color: colors.muted, textAlign: "center" },
-  composer: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.line,
-    backgroundColor: colors.white,
-  },
-  input: {
-    flex: 1,
-    minHeight: 44,
-    maxHeight: 140,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: colors.line,
-    paddingHorizontal: 16,
-    paddingTop: 11,
-    paddingBottom: 11,
-    fontSize: 17,
-    color: colors.ink,
-    backgroundColor: colors.surface,
-  },
-  send: { marginLeft: 8, height: 44, paddingHorizontal: 16, borderRadius: 22, backgroundColor: colors.blue, alignItems: "center", justifyContent: "center" },
-  sendText: { color: colors.white, fontSize: 16, fontWeight: "600" },
+  typing: { ...typography.body, color: colors.muted, fontStyle: "italic" },
+  empty: { alignItems: "center", marginTop: space.xxl, paddingHorizontal: space.side, paddingBottom: space.lg },
+  emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center" },
+  emptyBody: { ...typography.body, marginTop: space.xs, color: colors.muted, textAlign: "center", maxWidth: 360 },
+  retry: { marginTop: space.lg },
 });

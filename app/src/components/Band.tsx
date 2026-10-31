@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors } from "../lib/theme";
+import { colors, space, typography } from "../lib/theme";
 
 // Navy band under the status bar, on every screen without a back button.
 export function Band({ right }: { right?: React.ReactNode }) {
@@ -17,17 +17,25 @@ export function Band({ right }: { right?: React.ReactNode }) {
   );
 }
 
-export function PageTitle({ children }: { children: string }) {
+export function PageTitle({ children, description, action }: { children: string; description?: string; action?: React.ReactNode }) {
   return (
-    <Text style={styles.title} accessibilityRole="header">
-      {children}
-    </Text>
+    <View style={styles.pageHeader}>
+      <View style={styles.titleRow}>
+        <Text style={styles.title} accessibilityRole="header">{children}</Text>
+        {action ? <View style={styles.action}>{action}</View> : null}
+      </View>
+      {description ? <Text style={styles.description}>{description}</Text> : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   band: { backgroundColor: colors.navy },
-  row: { height: 48, paddingHorizontal: 20, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  mark: { color: colors.white, fontSize: 17, fontWeight: "700", letterSpacing: 0.3 },
-  title: { marginTop: 20, marginHorizontal: 20, fontSize: 30, fontWeight: "700", color: colors.ink },
+  row: { minHeight: 48, paddingVertical: space.xs, paddingHorizontal: space.side, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm },
+  mark: { ...typography.bodyStrong, color: colors.white, letterSpacing: 0.2 },
+  pageHeader: { marginTop: space.lg, marginHorizontal: space.side, marginBottom: space.side },
+  titleRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: space.sm },
+  title: { ...typography.title, color: colors.ink, flexShrink: 1 },
+  action: { maxWidth: "100%" },
+  description: { ...typography.body, color: colors.muted, marginTop: space.xs },
 });

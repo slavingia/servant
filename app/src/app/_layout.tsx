@@ -6,7 +6,9 @@ import { SessionProvider, useSession } from "../lib/session";
 import { NotificationsProvider } from "../lib/notifications";
 import { LiveProvider } from "../lib/live";
 import { FeedbackGesture } from "../components/FeedbackGesture";
-import { colors } from "../lib/theme";
+import { AppChrome } from "../components/AppChrome";
+import { colors, typography } from "../lib/theme";
+import { validServerKey } from "../lib/tunnel-crypto";
 
 export default function RootLayout() {
   return (
@@ -20,6 +22,7 @@ export default function RootLayout() {
 
 function SessionNavigation() {
   const { ready, account } = useSession();
+  const paired = !!account && validServerKey(account.serverKey);
   // Wait for the saved account before mounting any invite screen.
   if (!ready) {
     return (
@@ -33,12 +36,13 @@ function SessionNavigation() {
     <NotificationsProvider>
     <FeedbackGesture>
     <StatusBar style="light" />
+    <AppChrome enabled={paired}>
     <Stack
       screenOptions={{
         headerStyle: { backgroundColor: colors.navy },
         headerTintColor: colors.white,
         headerTitleAlign: "center",
-        headerTitleStyle: { fontWeight: "600" },
+        headerTitleStyle: { fontSize: typography.bodyStrong.fontSize, fontWeight: typography.bodyStrong.fontWeight },
         headerBackButtonDisplayMode: "minimal",
         contentStyle: { backgroundColor: colors.white },
         // iOS 26+ wraps the back chevron in a light glass circle, which reads light blue on
@@ -64,18 +68,19 @@ function SessionNavigation() {
       }}
     >
       <Stack.Screen name="index" options={{ headerShown: false }} />
-      <Stack.Protected guard={!account} redirectTo="/channels">
+      <Stack.Protected guard={!paired} redirectTo="/channels">
         <Stack.Screen name="welcome" options={{ headerShown: false }} />
         <Stack.Screen name="pair" options={{ title: "Joining", headerBackVisible: false }} />
         <Stack.Screen name="scan" options={{ title: "Scan invite" }} />
       </Stack.Protected>
-      <Stack.Protected guard={!!account} redirectTo="/welcome">
+      <Stack.Protected guard={paired} redirectTo="/welcome">
         <Stack.Screen name="(tabs)" options={{ headerShown: false, title: "Back" }} />
         <Stack.Screen name="c/[id]" options={{ title: "" }} />
         <Stack.Screen name="thread" options={{ title: "Thread" }} />
         <Stack.Screen name="new-channel" options={{ title: "New channel" }} />
         <Stack.Screen name="new-message" options={{ title: "New message" }} />
-        <Stack.Screen name="browse" options={{ title: "Browse channels" }} />
+        <Stack.Screen name="browse" options={{ headerShown: false }} />
+        <Stack.Screen name="archived-channels" options={{ title: "Archived channels" }} />
         <Stack.Screen name="channel-info" options={{ title: "Details" }} />
         <Stack.Screen name="chat/[id]" options={{ title: "" }} />
         <Stack.Screen name="feedback" options={{ title: "Feedback" }} />
@@ -83,6 +88,7 @@ function SessionNavigation() {
         <Stack.Screen name="invite" options={{ title: "Invite someone" }} />
       </Stack.Protected>
     </Stack>
+    </AppChrome>
     </FeedbackGesture>
     </NotificationsProvider>
     </LiveProvider>

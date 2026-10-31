@@ -22,10 +22,11 @@ import os from "node:os";
 import { createFeedback, feedbackPrompt, feedbackResult } from "./feedback.mjs";
 import { createPushService, preferences, updatePushRegistration, updatePreferences } from "./push.mjs";
 import { createPushTransport } from "./push-transport.mjs";
+import { createSecureTransport, serverIdentity } from "./secure-transport.mjs";
+import { createStateStore } from "./state-store.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.SERVANT_DATA_DIR || path.join(HERE, "data");
-const STATE_FILE = path.join(DATA_DIR, "state.json");
 const CONFIG_FILE = path.join(DATA_DIR, "config.json");
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -68,15 +69,12 @@ export function loadConfig() {
   };
 }
 
-function emptyState() {
-  return { users: {}, devices: {}, invites: {}, chats: {} };
-}
-
-let state = loadJson(STATE_FILE, emptyState());
-const persist = () => saveJson(STATE_FILE, state);
-const reload = () => {
-  state = loadJson(STATE_FILE, emptyState());
-};
+// Lazy initialization keeps the independent feedback worker from migrating or
+// opening account storage just because it imports runFeedback.
+let stateStore;
+const store = () => stateStore ??= createStateStore({ directory: DATA_DIR });
+const readState = () => store().read();
+const mutateState = fn => store().mutate(fn);
 
 const id = (prefix) => `${prefix}_${crypto.randomBytes(9).toString("base64url")}`;
 const sha256 = (s) => crypto.createHash("sha256").update(s).digest("hex");
@@ -94,37 +92,40 @@ const normalizeCode = (c) => String(c || "").toUpperCase().replace(/[^0-9A-Z]/g,
 
 // userId: pair another device (phone, iPad) for someone who's already on the server.
 export function createInvite({ name, role = "member", userId }) {
-  reload();
-  if (!["owner", "member"].includes(role)) throw new Error("role must be owner or member");
-  const existing = userId ? state.users[userId] : null;
-  if (userId && !existing) throw new Error("No such user");
-  const code = inviteCode();
-  state.invites[sha256(normalizeCode(code))] = {
-    name: existing ? existing.name : String(name || "").slice(0, 80) || "Guest",
-    role: existing ? existing.role : role,
-    ...(existing ? { userId: existing.id } : {}),
-    createdAt: now(),
-    expiresAt: now() + INVITE_TTL_MS,
-  };
-  persist();
-  return code;
+  return mutateState(state => {
+    if (!["owner", "member"].includes(role)) throw new Error("role must be owner or member");
+    const existing = userId ? state.users[userId] : null;
+    if (userId && !existing) throw new Error("No such user");
+    const code = inviteCode();
+    state.invites[sha256(normalizeCode(code))] = {
+      name: existing ? existing.name : String(name || "").slice(0, 80) || "Guest",
+      role: existing ? existing.role : role,
+      ...(existing ? { userId: existing.id } : {}),
+      createdAt: now(),
+      expiresAt: now() + INVITE_TTL_MS,
+    };
+    return code;
+  });
 }
 
 // The team's join link: anyone with it can join as a member (they type their own
 // name) until it expires. One live link at a time; fresh replaces the old one.
 export function joinLink({ fresh = false } = {}) {
-  reload();
+  return mutateState(state => makeJoinLink(state, { fresh }));
+}
+
+function makeJoinLink(state, { fresh }) {
   const live = Object.values(state.invites).find((i) => i.reusable && !i.revokedAt && i.expiresAt > now());
   if (live && !fresh) return { code: live.code, expiresAt: live.expiresAt };
   if (live) live.revokedAt = now();
   const code = inviteCode();
   state.invites[sha256(normalizeCode(code))] = { reusable: true, code, role: "member", uses: 0, createdAt: now(), expiresAt: now() + INVITE_TTL_MS };
-  persist();
   return { code, expiresAt: now() + INVITE_TTL_MS };
 }
 
 export function pairLink(code, cfg = loadConfig()) {
   const params = new URLSearchParams({ code });
+  params.set("key", serverIdentity(DATA_DIR).publicKey);
   if (cfg.discoveryUrl) params.set("d", cfg.discoveryUrl);
   else if (cfg.publicUrl) params.set("hub", cfg.publicUrl);
   return `servant://pair?${params}`;
@@ -154,13 +155,13 @@ function send(res, status, body, headers = {}) {
 
 const fail = (res, status, code, message) => send(res, status, { error: { code, message } });
 
-function readBody(req) {
+function readBody(req, limit = MAX_BODY) {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
     req.on("data", (c) => {
       size += c.length;
-      if (size > MAX_BODY) {
+      if (size > limit) {
         reject(Object.assign(new Error("Message is too long"), { status: 413 }));
         req.destroy();
         return;
@@ -196,15 +197,37 @@ function clientIp(req) {
   return String(req.headers["cf-connecting-ip"] || req.socket.remoteAddress || "");
 }
 
-function authenticate(req) {
+function authenticate(req, state) {
   const header = String(req.headers.authorization || "");
   if (!header.startsWith("Bearer ")) return null;
   const device = state.devices[sha256(header.slice(7).trim())];
   if (!device || device.revokedAt) return null;
   const user = state.users[device.userId];
   if (!user) return null;
-  device.lastSeenAt = now();
   return { device, user };
+}
+
+const requestError = (status, code, message) => Object.assign(new Error(message), { status, code });
+function requireAuth(req, state = readState(), owner = false) {
+  const auth = authenticate(req, state);
+  if (!auth) throw requestError(401, "unauthorized", "This device isn't paired, or was removed");
+  if (owner && auth.user.role !== "owner") throw requestError(403, "forbidden", "Only the owner can do that");
+  return auth;
+}
+const mutateAuthenticated = (req, fn, owner = false) => mutateState(state => {
+  const auth = requireAuth(req, state, owner);
+  auth.device.lastSeenAt = now();
+  return fn(state, auth);
+});
+function requireChat(state, userId, chatId) {
+  const chat = state.chats[chatId];
+  if (!chat || chat.deletedAt || chat.userId !== userId) throw requestError(404, "not_found", "No such chat");
+  return chat;
+}
+function revokeDevice(device) {
+  device.revokedAt = now();
+  delete device.push;
+  delete device.pushPresence;
 }
 
 // ---------- upstream (Hermes API server) ----------
@@ -293,6 +316,7 @@ function textOf(content) {
 let push;
 let feedback;
 let messaging = null;
+let secureTransport = null;
 
 async function handle(req, res, cfg) {
   const url = new URL(req.url, "http://server");
@@ -313,33 +337,45 @@ async function handle(req, res, cfg) {
     return send(res, 200, { name: cfg.name, publicUrl: cfg.publicUrl || null });
   }
 
+  if (method === "POST" && url.pathname === "/v1/secure" && !req.encryptedTransport) {
+    return secureTransport.handle(req, res, (innerReq, innerRes) => handle(innerReq, innerRes, cfg));
+  }
+  if (url.pathname.startsWith("/v1/") && !req.encryptedTransport) {
+    // Only an operator can grandfather an already-paired device during the
+    // initial rollout. New devices/pairing remain encrypted, and the grant is
+    // bounded by an explicit expiry stored in private transactional state.
+    const legacy = authenticate(req, readState());
+    if (url.pathname === "/v1/pair" || !legacy || !Number.isSafeInteger(legacy.device.legacyPlaintextUntil) || legacy.device.legacyPlaintextUntil <= now()) {
+      return fail(res, 426, "encryption_required", "Update Servant and open a new invite from your admin to enable encryption");
+    }
+    res.setHeader("Deprecation", "true");
+    res.setHeader("Sunset", new Date(legacy.device.legacyPlaintextUntil).toUTCString());
+  }
+
   if (method === "POST" && url.pathname === "/v1/pair") {
     const ip = clientIp(req);
     if (!pairAllowed(ip)) return fail(res, 429, "rate_limited", "Too many tries. Wait ten minutes");
     const body = await readBody(req);
-    reload();
-    const key = sha256(normalizeCode(body.code));
-    const invite = state.invites[key];
-    if (!invite || invite.usedAt || invite.revokedAt || invite.expiresAt < now()) {
-      pairFailed(ip);
-      return fail(res, 403, "invalid_invite", "That invite link doesn't work. Ask for a new one");
-    }
-    const name = invite.reusable ? String(body.name || "").trim().slice(0, 80) : invite.name;
-    if (!name) return fail(res, 400, "name_required", "Enter your name");
-    if (invite.reusable) invite.uses += 1;
-    else invite.usedAt = now();
-    const user = (invite.userId && state.users[invite.userId]) || { id: id("usr"), name, role: invite.role, createdAt: now() };
-    const token = crypto.randomBytes(32).toString("base64url");
-    const device = {
-      id: id("dev"),
-      userId: user.id,
-      label: String(body.device || "Phone").slice(0, 80),
-      createdAt: now(),
-      lastSeenAt: now(),
-    };
-    state.users[user.id] = user;
-    state.devices[sha256(token)] = device;
-    persist();
+    const { token, user } = mutateState(state => {
+      const key = sha256(normalizeCode(body.code));
+      const invite = state.invites[key];
+      if (!invite || invite.usedAt || invite.revokedAt || invite.expiresAt < now()) {
+        pairFailed(ip);
+        throw requestError(403, "invalid_invite", "That invite link doesn't work. Ask for a new one");
+      }
+      const name = invite.reusable ? String(body.name || "").trim().slice(0, 80) : invite.name;
+      if (!name) throw requestError(400, "name_required", "Enter your name");
+      if (invite.reusable) invite.uses += 1;
+      else invite.usedAt = now();
+      const user = (invite.userId && state.users[invite.userId]) || { id: id("usr"), name, role: invite.role, createdAt: now() };
+      const token = crypto.randomBytes(32).toString("base64url");
+      state.users[user.id] = user;
+      state.devices[sha256(token)] = {
+        id: id("dev"), userId: user.id, label: String(body.device || "Phone").slice(0, 80),
+        createdAt: now(), lastSeenAt: now(),
+      };
+      return { token, user };
+    });
     messaging?.joinDefaults(user.id);
     return send(res, 201, { token, user: { id: user.id, name: user.name, role: user.role }, server: { name: cfg.name }, hub: { name: cfg.name } });
   }
@@ -352,22 +388,25 @@ async function handle(req, res, cfg) {
     const ok = cfg.adminKey && key.length === cfg.adminKey.length && crypto.timingSafeEqual(Buffer.from(key), Buffer.from(cfg.adminKey));
     if (!local || !ok) return fail(res, 403, "forbidden", "Not allowed");
     const body = await readBody(req);
-    reload();
-    const owner = Object.values(state.users).find((u) => u.role === "owner");
+    const owner = Object.values(readState().users).find((u) => u.role === "owner");
     if (!owner) return fail(res, 409, "no_owner", "Pair the owner first");
     return send(res, 200, { release: messaging.postRelease({ build: body.build, notes: body.notes, authorId: owner.id }) });
   }
 
   // Everything below needs a device token.
   if (parts[0] !== "v1") return fail(res, 404, "not_found", "Not found");
-  reload();
-  const auth = authenticate(req);
-  if (!auth) return fail(res, 401, "unauthorized", "This device isn't paired, or was removed");
+  const state = readState();
+  const auth = requireAuth(req, state);
   const { user, device } = auth;
+  const readAuthorizedBody = async (...args) => {
+    const body = await readBody(...args);
+    requireAuth(req);
+    return body;
+  };
 
   if (parts[1] === "feedback") {
     if (method === "GET" && parts.length === 2) return send(res, 200, { reports: feedback.list(user.id) });
-    if (method === "POST" && parts.length === 2) return send(res, 202, { report: feedback.submit(user.id, await readBody(req)) });
+    if (method === "POST" && parts.length === 2) return send(res, 202, { report: feedback.submit(user.id, await readAuthorizedBody(req)) });
     if (method === "POST" && parts.length === 4 && parts[3] === "retry") {
       feedback.retry(user.id, parts[2]);
       return send(res, 200, { ok: true });
@@ -376,15 +415,12 @@ async function handle(req, res, cfg) {
   }
 
   if (method === "GET" && url.pathname === "/v1/me") {
-    persist();
+    mutateAuthenticated(req, (_state, current) => { current.device.lastSeenAt = now(); });
     return send(res, 200, { user: { id: user.id, name: user.name, role: user.role }, device: { id: device.id, label: device.label }, server: { name: cfg.name }, hub: { name: cfg.name } });
   }
 
   if (method === "POST" && url.pathname === "/v1/signout") {
-    device.revokedAt = now();
-    delete device.push;
-    delete device.pushPresence;
-    persist();
+    mutateAuthenticated(req, (_state, current) => revokeDevice(current.device));
     return send(res, 200, { ok: true });
   }
 
@@ -393,17 +429,16 @@ async function handle(req, res, cfg) {
     if (method === "GET" && parts.length === 2) return send(res, 200, { preferences: preferences(user), registered: !!device.push, deviceId: device.id });
     if (["PUT", "PATCH", "POST"].includes(method)) {
       const body = await readBody(req);
-      reload();
-      const current = authenticate(req);
-      if (!current) return fail(res, 401, "unauthorized", "This device is no longer paired");
-      if (method === "PUT" && parts.length === 2) updatePushRegistration(state, current.device, body);
-      else if (method === "PATCH" && parts.length === 2) updatePreferences(current.user, body);
-      else if (method === "POST" && parts[2] === "presence") {
-        const conversation = typeof body.conversation === "string" && /^(ch|dm|cht)_[A-Za-z0-9_-]+$/.test(body.conversation) ? body.conversation : null;
-        current.device.pushPresence = { conversation, until: body.active === true ? now() + 75000 : 0 };
-      } else return fail(res, 404, "not_found", "Not found");
-      persist();
-      return send(res, 200, { preferences: preferences(current.user), registered: !!current.device.push, deviceId: current.device.id });
+      const result = mutateAuthenticated(req, (state, current) => {
+        if (method === "PUT" && parts.length === 2) updatePushRegistration(state, current.device, body);
+        else if (method === "PATCH" && parts.length === 2) updatePreferences(current.user, body);
+        else if (method === "POST" && parts[2] === "presence") {
+          const conversation = typeof body.conversation === "string" && /^(ch|dm|cht)_[A-Za-z0-9_-]+$/.test(body.conversation) ? body.conversation : null;
+          current.device.pushPresence = { conversation, until: body.active === true ? now() + 75000 : 0 };
+        } else throw requestError(404, "not_found", "Not found");
+        return { preferences: preferences(current.user), registered: !!current.device.push, deviceId: current.device.id };
+      });
+      return send(res, 200, result);
     }
     return fail(res, 404, "not_found", "Not found");
   }
@@ -413,8 +448,7 @@ async function handle(req, res, cfg) {
     if (user.role !== "owner") return fail(res, 403, "forbidden", "Only the owner can do that");
     if (method === "POST" && parts[1] === "invites" && parts.length === 2) {
       const body = await readBody(req);
-      const { code, expiresAt } = joinLink({ fresh: body.fresh === true });
-      reload();
+      const { code, expiresAt } = mutateAuthenticated(req, state => makeJoinLink(state, { fresh: body.fresh === true }), true);
       return send(res, 200, { code, link: pairLink(code, cfg), expiresAt });
     }
     if (method === "GET" && parts[1] === "devices" && parts.length === 2) {
@@ -424,48 +458,62 @@ async function handle(req, res, cfg) {
       return send(res, 200, { devices: list });
     }
     if (method === "DELETE" && parts[1] === "devices" && parts.length === 3) {
-      const d = Object.values(state.devices).find((x) => x.id === parts[2]);
-      if (!d) return fail(res, 404, "not_found", "No such device");
-      d.revokedAt = now();
-      delete d.push;
-      delete d.pushPresence;
-      persist();
+      mutateAuthenticated(req, state => {
+        const d = Object.values(state.devices).find((x) => x.id === parts[2]);
+        if (!d) throw requestError(404, "not_found", "No such device");
+        revokeDevice(d);
+      }, true);
       return send(res, 200, { ok: true });
     }
     return fail(res, 404, "not_found", "Not found");
   }
 
   // ----- channels, direct messages, threads -----
-  if (messaging && (await messaging.handle(req, res, { user, method, parts, url, send, fail, readBody, cors: CORS }))) return undefined;
+  if (messaging && (await messaging.handle(req, res, { user, method, parts, url, send, fail, readBody: readAuthorizedBody, cors: CORS,
+    isAuthorized: () => authenticate(req, readState())?.user.id === user.id,
+  }))) return undefined;
 
   // ----- chats with the agent -----
   if (parts[1] !== "chats") return fail(res, 404, "not_found", "Not found");
   const up = upstreamFor(user, cfg);
   if (!up) return fail(res, 503, "agent_unavailable", "The agent isn't set up on this server yet");
-  const mine = Object.values(state.chats).filter((c) => c.userId === user.id && !c.deletedAt);
+  const currentState = readState();
+  requireAuth(req, currentState);
+  const mine = Object.values(currentState.chats).filter((c) => c.userId === user.id && !c.deletedAt);
 
   if (method === "GET" && parts.length === 2) {
-    persist();
     return send(res, 200, { chats: mine.sort((a, b) => b.updatedAt - a.updatedAt).map(chatView) });
   }
 
   if (method === "POST" && parts.length === 2) {
-    const body = await readBody(req);
+    const body = await readAuthorizedBody(req);
+    const creator = requireAuth(req).user;
+    const creationUp = upstreamFor(creator, cfg);
+    if (!creationUp) return fail(res, 503, "agent_unavailable", "The agent isn't set up on this server yet");
     const chatId = id("cht");
-    const hermesSessionId = `servant_${user.id}_${chatId}`;
-    const r = await hermes(up, "POST", "/api/sessions", { id: hermesSessionId, title: `Servant · ${user.name} · ${chatId.slice(-6)}` });
+    const hermesSessionId = `servant_${creator.id}_${chatId}`;
+    const r = await hermes(creationUp, "POST", "/api/sessions", { id: hermesSessionId, title: `Servant · ${creator.name} · ${chatId.slice(-6)}` });
     if (!r.ok) return fail(res, 502, "agent_error", `The agent didn't start a chat (${r.status})`);
     const chat = {
       id: chatId,
-      userId: user.id,
-      role: user.role,
+      userId: creator.id,
+      role: creator.role,
       hermesSessionId,
       title: String(body.title || "New chat").slice(0, 80),
       createdAt: now(),
       updatedAt: now(),
     };
-    state.chats[chatId] = chat;
-    persist();
+    try {
+      mutateAuthenticated(req, (state, current) => {
+        if (current.user.role !== creator.role || current.user.id !== creator.id) throw requestError(403, "forbidden", "Your access changed. Start a new chat");
+        state.chats[chatId] = chat;
+      });
+    } catch (error) {
+      // The upstream call ran outside the transaction. Do not retain an orphan
+      // session if the device was revoked while that call was pending.
+      void hermes(creationUp, "DELETE", `/api/sessions/${encodeURIComponent(hermesSessionId)}`).catch(() => {});
+      throw error;
+    }
     return send(res, 201, { chat: chatView(chat) });
   }
 
@@ -475,8 +523,7 @@ async function handle(req, res, cfg) {
   const chatUp = cfg.upstreams[chat.role === "owner" ? "owner" : "member"];
 
   if (method === "DELETE" && parts.length === 3) {
-    chat.deletedAt = now();
-    persist();
+    mutateAuthenticated(req, (state, current) => { requireChat(state, current.user.id, chat.id).deletedAt = now(); });
     hermes(chatUp, "DELETE", `/api/sessions/${encodeURIComponent(chat.hermesSessionId)}`).catch(() => {});
     return send(res, 200, { ok: true });
   }
@@ -485,6 +532,8 @@ async function handle(req, res, cfg) {
     const r = await hermes(chatUp, "GET", `/api/sessions/${encodeURIComponent(chat.hermesSessionId)}/messages`);
     if (!r.ok) return fail(res, 502, "agent_error", `Couldn't load messages (${r.status})`);
     const data = await r.json();
+    const latest = readState();
+    requireChat(latest, requireAuth(req, latest).user.id, chat.id);
     const raw = data.messages || data.data || [];
     const messages = raw
       .filter((m) => (m.role === "user" || m.role === "assistant") && textOf(m.content).trim())
@@ -498,9 +547,13 @@ async function handle(req, res, cfg) {
     if (!text) return fail(res, 400, "empty", "Type a message first");
     if (text.length > MAX_MESSAGE_CHARS) return fail(res, 413, "too_long", "That message is too long");
 
-    if (chat.title === "New chat") chat.title = text.replace(/\s+/g, " ").slice(0, 60);
-    chat.updatedAt = now();
-    persist();
+    const turnUser = mutateAuthenticated(req, (state, current) => {
+      const active = requireChat(state, current.user.id, chat.id);
+      if (active.title === "New chat") active.title = text.replace(/\s+/g, " ").slice(0, 60);
+      active.updatedAt = now();
+      chat.title = active.title;
+      return current.user;
+    });
 
     res.writeHead(200, {
       ...CORS,
@@ -518,7 +571,7 @@ async function handle(req, res, cfg) {
     });
 
     // Re-emit a small, stable event set. Members never see tool arguments.
-    const owner = user.role === "owner";
+    const owner = turnUser.role === "owner";
     const forward = (name, payload) => {
       if (closed) return;
       switch (name) {
@@ -536,7 +589,7 @@ async function handle(req, res, cfg) {
     };
 
     try {
-      const answer = await streamTurn(chatUp, chat.hermesSessionId, text, sessionKey(user), forward);
+      const answer = await streamTurn(chatUp, chat.hermesSessionId, text, sessionKey(turnUser), forward);
       if (answer) {
         try { push?.enqueue({ kind: "agent", eventId: id("reply"), chatId: chat.id, userId: user.id, text: answer }); }
         catch { console.error("Could not queue agent notification"); }
@@ -549,12 +602,10 @@ async function handle(req, res, cfg) {
       emit("done", {});
       res.end();
     }
-    reload();
-    if (state.chats[chat.id]) {
-      state.chats[chat.id].updatedAt = now();
-      if (state.chats[chat.id].title === "New chat") state.chats[chat.id].title = chat.title;
-      persist();
-    }
+    mutateState(state => {
+      const active = state.chats[chat.id];
+      if (active && !active.deletedAt) active.updatedAt = now();
+    });
     return undefined;
   }
 
@@ -571,15 +622,15 @@ export async function runFeedback(report) {
   return feedbackResult(await streamTurn(up, sid, feedbackPrompt(report), "servant:development-feedback", () => {}));
 }
 
-export function startServer(fixedCfg) {
-  // Without a fixed config, re-read it per request so a new tunnel address
-  // (written by publish.mjs) shows up without a restart.
-  const cfg = fixedCfg || loadConfig();
+function createServices(fixedCfg, { externalWorker = false, autoDrain = true } = {}) {
   process.umask(0o077); // messages.db and its WAL files are private to this user
-  messaging ??= createMessaging({
+  store();
+  let servicePush;
+  const serviceMessaging = createMessaging({
     file: path.join(DATA_DIR, "messages.db"),
-    users: () => state.users,
-    onMessage: event => { try { push?.enqueue(event); } catch { console.warn("[push] could not queue notification"); } },
+    externalWorker,
+    users: () => readState().users,
+    onMessage: event => servicePush.enqueue(event),
     agentName: () => (fixedCfg || loadConfig()).agentName || "Agent",
     // In channels several people read the answer, so the agent always runs
     // as the limited member profile, never the owner's.
@@ -595,31 +646,102 @@ export function startServer(fixedCfg) {
       });
     },
   });
-  push ??= createPushService({
+  servicePush = createPushService({
     file: path.join(DATA_DIR, "push.db"),
-    state: () => { reload(); return state; },
-    mutate: fn => { reload(); fn(state); persist(); },
+    autoDrain,
+    state: readState,
+    mutate: mutateState,
     resolve: (event, user) => {
-      if (event.kind === "message") return messaging.notificationFor(event.messageId, user);
-      const chat = state.chats[event.chatId];
+      if (event.kind === "message") return serviceMessaging.notificationFor(event.messageId, user);
+      const chat = readState().chats[event.chatId];
       if (event.userId !== user.id || !chat || chat.deletedAt || chat.userId !== user.id) return null;
       return { kind: "agent", chatId: chat.id, title: "Agent · " + chat.title, body: event.text };
     },
     send: createPushTransport(() => loadJson(process.env.SERVANT_PUSH_CONFIG || path.join(os.homedir(), ".config/servant/push.json"), {})),
   });
+  return { messaging: serviceMessaging, push: servicePush, closeState: () => { stateStore?.close(); stateStore = null; } };
+}
+
+export function createWorkerServices() {
+  return createServices(undefined, { externalWorker: true, autoDrain: false });
+}
+
+export function startServer(fixedCfg) {
+  // Config is re-read per request so discovery changes require no restart.
+  const cfg = fixedCfg || loadConfig();
+  const externalWorker = process.env.SERVANT_WORKER_MODE === "external";
+  if (!messaging) ({ messaging, push } = createServices(fixedCfg, { externalWorker, autoDrain: !externalWorker }));
+  secureTransport ??= createSecureTransport(DATA_DIR);
   feedback ??= createFeedback({ file: path.join(DATA_DIR, "feedback.db"), interval: 0, recover: false });
   messaging.ensureGeneral();
-  reload();
-  for (const uid of Object.keys(state.users)) messaging.joinDefaults(uid);
+  for (const uid of Object.keys(readState().users)) messaging.joinDefaults(uid);
+  let draining = false;
+  const requests = new Set();
   const server = http.createServer((req, res) => {
-    handle(req, res, fixedCfg || loadConfig()).catch((err) => {
+    const pathname = req.url.split("?")[0];
+    if (req.method === "GET" && pathname === "/ready") {
+      return send(res, draining ? 503 : 200, {
+        ok: !draining, release: process.env.SERVANT_RELEASE_ID || "development", deploymentProtocol: 1,
+      });
+    }
+    if (draining && !(req.method === "GET" && pathname === "/health")) {
+      res.setHeader("Connection", "close");
+      res.setHeader("Retry-After", "1");
+      return fail(res, 503, "draining", "Server restarting. Try again shortly");
+    }
+    // A disconnected client can still have an agent turn running upstream.
+    // Track the handler, not just the lifetime of its HTTP response.
+    const task = handle(req, res, fixedCfg || loadConfig()).catch((err) => {
       if (res.headersSent) return res.end();
       const status = err.status || 500;
       if (status === 500) console.error("[servant]", err);
       fail(res, status, status === 500 ? "server_error" : err.code || "bad_request", status === 500 ? "Something went wrong on the server" : err.message);
     });
+    requests.add(task);
+    const settled = () => requests.delete(task);
+    task.then(settled, settled);
   });
-  server.on("close", () => { push?.close(); push = null; feedback?.close(); feedback = null; });
+  let cleanupPromise;
+  const cleanup = () => cleanupPromise ??= (async () => {
+    while (requests.size) await Promise.allSettled([...requests]);
+    await messaging?.whenIdle();
+    await push?.shutdown();
+    push = null;
+    feedback?.close(); feedback = null;
+    messaging?.close(); messaging = null;
+    secureTransport?.close(); secureTransport = null;
+    stateStore?.close(); stateStore = null;
+  })();
+  server.on("close", () => { void cleanup().catch(err => console.error("[servant] shutdown cleanup failed", err)); });
+  // Kept separate from shutdown so a future proxy can withdraw readiness first.
+  // This does not make overlapping API processes safe against the same data.
+  server.drain = () => {
+    draining = true;
+    messaging?.closeEvents();
+  };
+  // The proxy first retires persistent event streams while allowing requests
+  // already assigned to this version to reach the still-open listener.
+  server.drainEvents = () => messaging?.closeEvents();
+  let shutdownPromise;
+  server.shutdown = ({ timeoutMs = 300000 } = {}) => {
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0) throw new Error("Invalid shutdown timeout");
+    if (shutdownPromise) return shutdownPromise;
+    server.drain();
+    shutdownPromise = (async () => {
+      let timer;
+      try {
+        const finished = new Promise((resolve, reject) => {
+          server.close(err => err ? reject(err) : resolve());
+        }).then(cleanup).then(() => true);
+        if (timeoutMs === 0) return await finished;
+        return await Promise.race([
+          finished,
+          new Promise(resolve => { timer = setTimeout(() => resolve(false), timeoutMs); }),
+        ]);
+      } finally { clearTimeout(timer); }
+    })();
+    return shutdownPromise;
+  };
   server.requestTimeout = 0; // agent turns can take minutes
   server.headersTimeout = 30000;
   return new Promise((resolve, reject) => {
@@ -652,10 +774,29 @@ if (isMain) {
       console.error("usage: server.mjs release <build> <notes.md>");
       process.exit(2);
     }
+    // The stable ingress deliberately blocks administrative routes. Discover
+    // the private active API port through the operator-only control socket.
+    const defaultRuntime = path.join(os.homedir(), ".local/share/servant");
+    const runtimeDir = process.env.SERVANT_RUNTIME_DIR ??
+      (fs.existsSync(path.join(defaultRuntime, "control.sock")) ? defaultRuntime : null);
+    let adminPort = loadConfig().port;
+    if (runtimeDir !== null) {
+      try {
+        if (!runtimeDir.trim()) throw new Error("SERVANT_RUNTIME_DIR must be a directory");
+        const { controlRequest } = await import("./deploy.mjs");
+        const status = await controlRequest(runtimeDir, "/status");
+        if (status.stopping || !status.active?.ready || !Number.isInteger(status.active.port) ||
+            status.active.port < 1 || status.active.port > 65535) throw new Error("No active API is ready");
+        adminPort = status.active.port;
+      } catch (error) {
+        console.error(`Couldn't locate the active API: ${error.message}`);
+        process.exit(1);
+      }
+    }
     const raw = loadJson(CONFIG_FILE, {});
     if (!raw.adminKey) saveJson(CONFIG_FILE, { ...raw, adminKey: crypto.randomBytes(24).toString("base64url") });
     const cfg = loadConfig();
-    const r = await fetch(`http://127.0.0.1:${cfg.port}/admin/releases`, {
+    const r = await fetch(`http://127.0.0.1:${adminPort}/admin/releases`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Servant-Admin": cfg.adminKey },
       body: JSON.stringify({ build, notes: fs.readFileSync(file, "utf8") }),
@@ -667,22 +808,41 @@ if (isMain) {
     }
     console.log(`${data.release.updated ? "Updated" : "Posted"} build ${build} notes in #whats-new (message ${data.release.messageId})`);
   } else if (cmd === "devices") {
+    const state = readState();
     for (const d of Object.values(state.devices).filter((x) => !x.revokedAt)) {
       const u = state.users[d.userId] || {};
       console.log(`${d.id}  ${u.role || "?"}  ${u.name || "?"}  ${d.label}  last seen ${new Date(d.lastSeenAt).toISOString()}`);
     }
   } else if (cmd === "revoke") {
-    const d = Object.values(state.devices).find((x) => x.id === process.argv[3]);
-    if (!d) {
+    const revoked = mutateState(state => {
+      const d = Object.values(state.devices).find((x) => x.id === process.argv[3]);
+      if (d) revokeDevice(d);
+      return d?.id;
+    });
+    if (!revoked) {
       console.error("No such device");
       process.exit(1);
     }
-    d.revokedAt = now();
-    persist();
-    console.log(`Revoked ${d.id}`);
+    console.log(`Revoked ${revoked}`);
   } else {
+    const timeoutMs = Number(process.env.SERVANT_SHUTDOWN_TIMEOUT_MS ?? 300000);
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0) throw new Error("Invalid SERVANT_SHUTDOWN_TIMEOUT_MS");
     const cfg = loadConfig();
     const server = await startServer();
+    process.on("message", message => { if (message?.type === "drain-events") server.drainEvents(); });
+    let stopping = false;
+    for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, () => {
+      if (stopping) return;
+      stopping = true;
+      console.log("[servant] draining requests and agent work");
+      server.shutdown({ timeoutMs }).then(finished => {
+        if (!finished) console.error("[servant] shutdown deadline exceeded; unfinished work may be interrupted");
+        process.exit(finished ? 0 : 1);
+      }).catch(err => {
+        console.error("[servant] shutdown failed", err);
+        process.exit(1);
+      });
+    });
     const { port } = server.address();
     console.log(`[servant] server listening on http://${cfg.host}:${port}`);
     for (const [role, up] of Object.entries(cfg.upstreams)) {
