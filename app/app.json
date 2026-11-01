@@ -24,6 +24,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "gov.irs.servant",
+      "blockedPermissions": ["android.permission.READ_MEDIA_IMAGES"],
       "googleServicesFile": "./google-services.json",
       "versionCode": 16
     },

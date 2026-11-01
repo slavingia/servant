@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { api, type Release } from "../../lib/server";
 import { PageTitle } from "../../components/Band";
@@ -8,6 +8,7 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { AppIcon } from "../../components/AppIcon";
 import Constants from "expo-constants";
 import { useSession } from "../../lib/session";
+import { feedbackGestureHint } from "../../lib/feedback-trigger";
 import { createThemedStyles, useTheme, radius, space, typography } from "../../lib/theme";
 
 function Row({ label, value, onPress }: { label: string; value?: string; onPress?: () => void }) {
@@ -31,6 +32,7 @@ export default function Settings() {
   const { colors } = useTheme();
   const styles = useStyles();
   const [release, setRelease] = useState<Release | null>(null);
+  const feedbackHint = feedbackGestureHint(Platform.OS, Platform.Version);
   const [confirming, setConfirming] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,7 +85,7 @@ export default function Settings() {
       <View style={styles.group}>
         <Row label="Send feedback" onPress={() => router.push("/feedback")} />
       </View>
-      <Text style={styles.hint}>Or shake your phone, or take a screenshot, on any screen.</Text>
+      {feedbackHint ? <Text style={styles.hint}>{feedbackHint}</Text> : null}
       {release ? (
           <Pressable
             accessibilityRole="button"

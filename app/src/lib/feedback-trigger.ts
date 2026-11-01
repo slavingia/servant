@@ -18,9 +18,17 @@ export function createShakeDetector(options: Partial<typeof SHAKE> = {}) {
   const o = { ...SHAKE, ...options };
   let peaks: number[] = [];
   let lastFire = -Infinity;
+  let aboveThreshold = false;
   return function push(s: Sample): boolean {
     const g = Math.sqrt(s.x * s.x + s.y * s.y + s.z * s.z);
-    if (g < o.threshold) return false;
+    if (g < o.threshold) {
+      aboveThreshold = false;
+      return false;
+    }
+    // Count a new swing only after it settles below the threshold. Sampling
+    // one sustained jolt after each gap must not turn it into several peaks.
+    if (aboveThreshold) return false;
+    aboveThreshold = true;
     if (s.t - lastFire < o.cooldown) return false;
     if (peaks.length && s.t - peaks[peaks.length - 1] < o.gap) return false;
     peaks = [...peaks.filter((p) => s.t - p <= o.window), s.t];
@@ -29,6 +37,19 @@ export function createShakeDetector(options: Partial<typeof SHAKE> = {}) {
     lastFire = s.t;
     return true;
   };
+}
+
+// Older Android versions need broad photo access for screenshot detection.
+// Keep reporting available through shake/settings and the explicit photo picker.
+export function supportsScreenshotFeedback(platform: string, version: number | string): boolean {
+  return platform === "ios" || (platform === "android" && Number(version) >= 34);
+}
+
+export function feedbackGestureHint(platform: string, version: number | string): string {
+  if (platform !== "ios" && platform !== "android") return "";
+  return supportsScreenshotFeedback(platform, version)
+    ? "You can also shake your phone or take a screenshot on the screen that's wrong."
+    : "You can also shake your phone on the screen that's wrong.";
 }
 
 // Screens where the prompt would be in the way or meaningless.

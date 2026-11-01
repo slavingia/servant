@@ -7,6 +7,7 @@ import { Button } from "../components/Button";
 import { DraftAttachments, pickAttachments, type DraftAttachment } from "../components/Attachments";
 import { useSession } from "../lib/session";
 import { api, type FeedbackReport } from "../lib/server";
+import { feedbackGestureHint } from "../lib/feedback-trigger";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
 const labels: Record<string, string> = { queued: "Queued", working: "Investigating", released: "Fix released", needs_info: "More information needed", reviewed: "Reviewed", interrupted: "Needs retry" };
@@ -16,6 +17,7 @@ export default function Feedback() {
   const { colors } = useTheme();
   const { account } = useSession();
   const { screen, via } = useLocalSearchParams<{ screen?: string; via?: string }>();
+  const feedbackHint = feedbackGestureHint(Platform.OS, Platform.Version);
   const [text, setText] = useState("");
   const [reports, setReports] = useState<FeedbackReport[]>([]);
   const [busy, setBusy] = useState(false);
@@ -58,7 +60,7 @@ export default function Feedback() {
     finally { setBusy(false); }
   };
   return <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
-    <Text style={styles.intro}>Tell us what happened and what you expected. Next time, just shake your phone or take a screenshot on the screen that's wrong.</Text>
+    <Text style={styles.intro}>Tell us what happened and what you expected.{feedbackHint ? ` ${feedbackHint}` : ""}</Text>
     <Text style={styles.label}>Your feedback</Text>
     <TextInput accessibilityLabel="Feedback" placeholder="What should we fix?" value={text}
       onChangeText={value => { setText(value); setSent(false); }} multiline maxLength={4000} autoFocus

@@ -6,7 +6,7 @@ import { Accelerometer } from "expo-sensors";
 import * as ScreenCapture from "expo-screen-capture";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "./Button";
-import { createShakeDetector, feedbackPromptAllowed } from "../lib/feedback-trigger";
+import { createShakeDetector, feedbackPromptAllowed, supportsScreenshotFeedback } from "../lib/feedback-trigger";
 import { useSession } from "../lib/session";
 import { radius, space, typography, createThemedStyles } from "../lib/theme";
 
@@ -25,6 +25,7 @@ export function FeedbackPrompt({ children }: { children: ReactNode }) {
   const reason = prompt?.reason ?? null;
   const [active, setActive] = useState(AppState.currentState === "active");
   const allowed = feedbackPromptAllowed(pathname, !!account) && Platform.OS !== "web";
+  const screenshotAllowed = allowed && supportsScreenshotFeedback(Platform.OS, Platform.Version);
   const offer = useCallback((why: Reason) => {
     setPrompt((open) => open ?? { reason: why, screen: pathname });
   }, [pathname]);
@@ -49,11 +50,11 @@ export function FeedbackPrompt({ children }: { children: ReactNode }) {
   }, [allowed, active, offer]);
 
   useEffect(() => {
-    if (!allowed) return;
+    if (!screenshotAllowed || !active) return;
     // Android 14+ and iOS report screenshots without any permission.
     const sub = ScreenCapture.addScreenshotListener(() => offer("screenshot"));
     return () => sub.remove();
-  }, [allowed, offer]);
+  }, [screenshotAllowed, active, offer]);
 
   const close = () => setPrompt(null);
   const report = () => {
