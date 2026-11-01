@@ -85,34 +85,36 @@ export function validateUploads(input = [], { imagesOnly = false, mediaOnly = fa
   });
 }
 
-// Hermes keeps at most 64K characters per text part, so long messages travel
-// as several parts. Hermes joins parts with a newline, which is why a split
-// at a newline drops that newline and the joined text matches the original.
+// The legacy session-chat endpoint caps each text part at 64K and joins
+// text-only parts with a newline. Split only at existing newlines: inserting
+// one into a long JSON string, URL, or source line changes the user's input.
 export const TEXT_PART_CHARS = 60000;
 export function splitText(text, size = TEXT_PART_CHARS) {
   const parts = [];
   let rest = String(text || "");
   while (rest.length > size) {
-    const window = rest.slice(0, size + 1);
-    const newline = window.lastIndexOf("\n");
-    if (newline > size / 2) { parts.push(rest.slice(0, newline)); rest = rest.slice(newline + 1); continue; }
-    const space = window.lastIndexOf(" ", size);
-    const cut = space > size / 2 ? space + 1 : size;
-    parts.push(rest.slice(0, cut)); rest = rest.slice(cut);
+    // Empty text parts are discarded by Hermes, so do not split at either end.
+    const newline = rest.lastIndexOf("\n", Math.min(size, rest.length - 2));
+    if (newline <= 0) throw Object.assign(new Error("This agent cannot receive a text line this long without changing it. Use the durable agent bridge."), { status: 413, code: "agent_text_too_long" });
+    parts.push(rest.slice(0, newline)); rest = rest.slice(newline + 1);
   }
   if (rest || !parts.length) parts.push(rest);
   return parts;
 }
 
-export function hermesInput(text, attachments = []) {
-  const textParts = text ? splitText(text) : [];
+export function hermesInput(text, attachments = [], { durable = false } = {}) {
+  // Runs accept the original content without the legacy per-part truncation.
+  const textParts = text ? (durable ? [text] : splitText(text)) : [];
   if (!attachments.length) return textParts.length > 1 ? textParts.map(part => ({ type: "text", text: part })) : text;
+  // With images Hermes retains the blocks instead of newline-joining them.
+  // Keep those separators explicitly (still below its 64K per-part limit).
+  const images = attachments.filter(a => a.mime.startsWith("image/"));
   const videos = attachments.filter(a => a.mime.startsWith("video/"));
   const notice = videos.length ? `[Servant shared video attachments: ${videos.map(a => `${JSON.stringify(a.name)} (${a.mime}, ${a.data.length} bytes, SHA-256 ${crypto.createHash("sha256").update(a.data).digest("hex")})`).join("; ")}]. The videos are available to people in this conversation. This Hermes API accepts images and text only, so you have not received the video bytes and cannot inspect or describe their contents. Ask for a description or still frames if needed.` : "";
   return [
-    ...textParts.map(part => ({ type: "text", text: part })),
+    ...textParts.map((part, index) => ({ type: "text", text: part + (!durable && images.length && index < textParts.length - 1 ? "\n" : "") })),
     ...(notice ? [{ type: "text", text: notice }] : []),
-    ...attachments.filter(a => a.mime.startsWith("image/")).map(a => ({ type: "image_url", image_url: { url: `data:${a.mime};base64,${Buffer.from(a.data).toString("base64")}` } })),
+    ...images.map(a => ({ type: "image_url", image_url: { url: `data:${a.mime};base64,${Buffer.from(a.data).toString("base64")}` } })),
   ];
 }
 

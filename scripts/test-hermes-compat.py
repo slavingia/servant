@@ -126,6 +126,17 @@ class HermesContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status, 202, await response.text())
         return (await response.json())["run_id"]
 
+    async def test_durable_run_preserves_long_flat_text_and_image_text(self):
+        text = json.dumps({"payload": "x" * 70000})
+        for content in (text, [{"type": "text", "text": text}, {"type": "image_url", "image_url": {"url": DATA_URL}}]):
+            with self.subTest(multimodal=isinstance(content, list)):
+                run_id = await self.start(input=[{"role": "user", "content": content}])
+                data = await self.wait_status(run_id)
+                self.assertEqual(data["status"], "completed", data)
+                received = self.agents[-1].call["user_message"]
+                self.assertEqual(received, content)
+                self.assertEqual(json.loads(received if isinstance(received, str) else received[0]["text"]), json.loads(text))
+
     async def test_capabilities_auth_and_session_resources(self):
         response = await self.client.get("/v1/capabilities")
         data = await response.json()

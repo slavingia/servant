@@ -237,7 +237,29 @@ test("long agent messages split into text parts that rejoin to the original", ()
   const input = hermesInput(lines);
   assert.ok(Array.isArray(input) && input.every(p => p.type === "text"));
   assert.equal(input.map(p => p.text).join("\n"), lines);
-  const flat = "y".repeat(TEXT_PART_CHARS * 2 + 5);
-  assert.equal(splitText(flat).join(""), flat);
   assert.equal(hermesInput("short"), "short");
+});
+
+test("durable input preserves long JSON strings and image text as one unchanged value", () => {
+  const text = JSON.stringify({ payload: "x".repeat(TEXT_PART_CHARS - 14) + "😀" + " with spaces".repeat(1000) });
+  const plain = hermesInput(text, [], { durable: true });
+  assert.equal(plain, text);
+  assert.deepEqual(JSON.parse(plain), JSON.parse(text));
+  const image = { mime: "image/png", data: Buffer.from("synthetic image bytes") };
+  const media = hermesInput(text, [image], { durable: true });
+  assert.deepEqual(media, [{ type: "text", text }, { type: "image_url", image_url: { url: `data:image/png;base64,${image.data.toString("base64")}` } }]);
+});
+
+test("legacy splitting preserves newline boundaries or rejects an unrepresentable line", () => {
+  for (const text of ["a\n" + "b".repeat(59999), "a\r\n" + "b".repeat(59999), "a\n" + "b".repeat(59998) + "\n"]) {
+    const parts = splitText(text);
+    assert.ok(parts.every(part => part.length && part.length <= TEXT_PART_CHARS));
+    assert.equal(parts.join("\n"), text);
+    const media = hermesInput(text, [{ mime: "image/png", data: Buffer.from("image") }]);
+    assert.equal(media.filter(part => part.type === "text").map(part => part.text).join(""), text);
+    assert.ok(media.filter(part => part.type === "text").every(part => part.text.length < 65536));
+  }
+  for (const text of [JSON.stringify({ payload: "x".repeat(70000) }), "words with spaces ".repeat(4000), "x".repeat(TEXT_PART_CHARS) + "\n"]) {
+    assert.throws(() => hermesInput(text), { code: "agent_text_too_long", status: 413 });
+  }
 });

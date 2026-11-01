@@ -28,7 +28,7 @@ import { createChatMediaStore } from "./chat-media.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { supportsDurableRuns, runDurableHermes } from "./hermes-runs.mjs";
 import { verifyMemberUpstream } from "./member-policy.mjs";
-import { validateUploads, normalizeMediaContent, hermesInput, mediaPage, createMediaDeltaFilter, MAX_UPLOAD_BODY } from "./media.mjs";
+import { validateUploads, normalizeMediaContent, hermesInput, mediaPage, createMediaDeltaFilter, MAX_UPLOAD_BODY, TEXT_PART_CHARS } from "./media.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.SERVANT_DATA_DIR || path.join(HERE, "data");
@@ -36,17 +36,17 @@ const CONFIG_FILE = path.join(DATA_DIR, "config.json");
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_BODY = 64 * 1024;
-// Agent chats take long pastes. Up to INLINE_MESSAGE_CHARS travel inline (in
-// pieces, see splitText). Longer ones are saved beside the server data and the
+// Agent chats take long pastes. Up to INLINE_MESSAGE_CHARS travel inline on
+// durable runs. Longer ones are saved beside the server data and the
 // agent reads them from the file, so the message never overflows its context.
 const MAX_MESSAGE_CHARS = 5_000_000;
 const INLINE_MESSAGE_CHARS = 100_000;
 const LONG_MESSAGE_PREVIEW_CHARS = 4000;
 const LONG_MESSAGE_DIR = path.join(DATA_DIR, "long-messages");
 
-export function agentText(turn, full) {
+export function agentText(turn, full, inlineLimit = INLINE_MESSAGE_CHARS) {
   const text = String(turn.text || "");
-  if (!full || text.length <= INLINE_MESSAGE_CHARS) return text;
+  if (!full || text.length <= inlineLimit) return text;
   fs.mkdirSync(LONG_MESSAGE_DIR, { recursive: true, mode: 0o700 });
   const file = path.join(LONG_MESSAGE_DIR, `${turn.chat_id}-${turn.id}.txt`);
   fs.writeFileSync(file, text, { mode: 0o600 });
@@ -760,7 +760,10 @@ async function executePrivateTurn(turn, hooks, cfg) {
   if (!up) throw requestError(502, "agent_error", "The agent is unavailable");
   const full = agentRole(turn.role, cfg) === "owner";
   if (!full) await verifyMemberUpstream(up);
-  const input = hermesInput(agentText(turn, full), turn.attachments);
+  const durable = !!turn.run_id || await supportsDurableRuns(up);
+  // Legacy owner agents can read the exact saved input instead of receiving
+  // altered chunks. Restricted agents never receive a local-file fallback.
+  const input = hermesInput(agentText(turn, full, durable ? INLINE_MESSAGE_CHARS : TEXT_PART_CHARS), turn.attachments, { durable });
   let assistantMessage;
   const saveAssistant = content => {
     if (assistantMessage) return;
@@ -798,7 +801,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
     } else if (name === "error") hooks.emit("error", { message: "The agent hit a problem. Try again" });
   };
   let result;
-  if (turn.run_id || await supportsDurableRuns(up)) {
+  if (durable) {
     if (turn.run_id && !turn.accepted) onAccepted();
     result = await runDurableHermes({ up, sessionId: turn.session_id, input, sessionKey: sessionKey(user), runId: turn.run_id,
       onAccepted, onEvent, checkpoint: hooks.checkpoint, controls: hooks.controls });

@@ -16,7 +16,7 @@ async function until(check) {
   for (let i = 0; i < 300; i++) { const value = await check(); if (value) return value; await sleep(20); }
   throw new Error('Timed out waiting for private turn');
 }
-async function fixture(t) {
+async function fixture(t, { durable = true, restricted = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'servant-turn-api-'));
   const children = [], runs = new Map(), histories = new Map([['session', []]]), approvals = [];
   let historyOffline = false, pollsOffline = 0, controlsOffline = 0, startCount = 0;
@@ -30,7 +30,17 @@ async function fixture(t) {
     const body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
     if (req.headers.authorization !== 'Bearer fixture-key') return res.writeHead(401).end();
     const json = (status, value) => res.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(value));
-    if (req.url === '/v1/capabilities') return json(200, { features: { servant_durable_media_runs: true, servant_exact_approvals: true } });
+    if (req.url === '/v1/capabilities') return json(durable || restricted ? 200 : 404, {
+      features: { servant_durable_media_runs: durable, servant_exact_approvals: durable, servant_member_isolation: restricted },
+      servant: { memberPolicy: { version: 1, persistentMemory: false, localContext: false, localMedia: false, allowedTools: [] } },
+    });
+    if (req.url === '/api/sessions/session/chat/stream' && req.method === 'POST') {
+      startCount++;
+      runs.set(`legacy_${startCount}`, { input: [{ role: 'user', content: body.message }] });
+      histories.get('session').push({ id: `user_${startCount}`, role: 'user', content: body.message });
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      return res.end('event: assistant.completed\ndata: {"content":"Read exact input"}\n\n');
+    }
     if (req.url === '/api/sessions/session/messages') return json(historyOffline ? 503 : 200, { data: histories.get('session') });
     if (req.url === '/v1/runs' && req.method === 'POST') {
       startCount++;
@@ -64,11 +74,11 @@ async function fixture(t) {
   });
   await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
   const up = { url: `http://127.0.0.1:${upstream.address().port}`, key: 'fixture-key' };
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ host: '127.0.0.1', port: 0, upstreams: { owner: up, member: up } }));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ host: '127.0.0.1', port: 0, agentAccess: restricted ? 'limited' : 'full', upstreams: { owner: up, member: up } }));
   fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify({
     users: { owner: { id: 'owner', role: 'owner', name: 'Owner' }, stranger: { id: 'stranger', role: 'owner', name: 'Stranger' } },
     devices: Object.fromEntries(['owner', 'stranger'].map(id => [crypto.createHash('sha256').update(id).digest('hex'), { id: `device_${id}`, userId: id }])),
-    chats: { chat: { id: 'chat', userId: 'owner', role: 'owner', hermesSessionId: 'session', title: 'Test', createdAt: 1, updatedAt: 1 } }, invites: {},
+    chats: { chat: { id: 'chat', userId: 'owner', role: restricted ? 'member' : 'owner', hermesSessionId: 'session', title: 'Test', createdAt: 1, updatedAt: 1 } }, invites: {},
   }));
   let apiChild, workerChild, base;
   const start = async name => {
@@ -189,6 +199,48 @@ test('a message too long to send inline is saved for the agent to read in sectio
   assert.equal(fs.readFileSync(file, 'utf8'), text);
   f.finish(run, 'Read it all');
   await until(async () => (await f.latest()).status === 'completed');
+  const history = await (await f.api('/v1/chats/chat/messages')).json();
+  assert.equal(history.messages.find(m => m.role === 'user').text, text);
+  assert.equal((await f.api('/v1/chats/chat', 'DELETE')).status, 200);
+  assert.equal(fs.existsSync(file), false);
+});
+
+test('durable restricted delivery preserves long JSON without granting local-file access', { timeout: 15000 }, async t => {
+  const f = await fixture(t, { restricted: true });
+  const text = JSON.stringify({ payload: 'x'.repeat(70000) });
+  const response = await f.api('/v1/chats/chat/messages', 'POST', { text, requestId: 'exact_json' });
+  assert.equal(response.status, 200); await response.body.cancel();
+  await until(async () => (await f.latest())?.accepted);
+  const run = [...f.runs.values()][0];
+  assert.equal(run.input.at(-1).content, text);
+  assert.deepEqual(JSON.parse(run.input.at(-1).content), JSON.parse(text));
+  assert.equal(fs.existsSync(path.join(f.dir, 'long-messages')), false);
+  f.finish(run, 'Exact JSON received');
+  await until(async () => (await f.latest()).status === 'completed');
+});
+
+test('unsupported legacy restricted input fails before acceptance instead of changing text or exposing a file', { timeout: 15000 }, async t => {
+  const f = await fixture(t, { durable: false, restricted: true });
+  const text = JSON.stringify({ payload: 'x'.repeat(70000) });
+  const response = await f.api('/v1/chats/chat/messages', 'POST', { text, requestId: 'legacy_member_json' });
+  assert.equal(response.status, 200); await response.body.cancel();
+  const turn = await until(async () => { const value = await f.latest(); return value?.status === 'failed' && value; });
+  assert.equal(turn.accepted, false);
+  assert.equal(f.startCount(), 0);
+  assert.equal(fs.existsSync(path.join(f.dir, 'long-messages')), false);
+});
+
+test('legacy owner delivery uses an exact private file for text above its inline limit', { timeout: 15000 }, async t => {
+  const f = await fixture(t, { durable: false });
+  const text = JSON.stringify({ payload: 'x'.repeat(70000) });
+  const response = await f.api('/v1/chats/chat/messages', 'POST', { text, requestId: 'legacy_exact_json' });
+  assert.equal(response.status, 200); await response.body.cancel();
+  await until(async () => (await f.latest())?.status === 'completed');
+  const sent = [...f.runs.values()][0].input.at(-1).content;
+  assert.equal(typeof sent, 'string'); assert.ok(sent.length < 60000);
+  const file = sent.match(/saved at ([^ ]+\.txt)/)[1];
+  assert.equal(fs.readFileSync(file, 'utf8'), text);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   const history = await (await f.api('/v1/chats/chat/messages')).json();
   assert.equal(history.messages.find(m => m.role === 'user').text, text);
   assert.equal((await f.api('/v1/chats/chat', 'DELETE')).status, 200);
