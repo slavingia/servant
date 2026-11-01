@@ -623,7 +623,47 @@ test("channel deletion enforces permissions, protects general, and removes threa
   assert.equal((await api("PATCH", `/v1/conversations/${general.id}`, { token: ownerToken, body: { name: "renamed-general" } })).status, 400);
   const otherId = (await api("GET", "/v1/me", { token: other })).json.user.id;
   const dm = (await api("POST", "/v1/conversations", { token: creator, body: { kind: "dm", userIds: [otherId] } })).json.conversation;
-  assert.equal((await api("DELETE", `/v1/conversations/${dm.id}`, { token: creator })).status, 403);
+  assert.equal((await api("DELETE", `/v1/conversations/${dm.id}`, { token: ownerToken })).status, 404, "people outside a direct conversation can't delete it");
+});
+
+test("direct conversations swipe to archive, come back on a new message, and delete for everyone in them", async () => {
+  const a = await pair("member", "DM swipe A");
+  const b = await pair("member", "DM swipe B");
+  const outsider = await pair("member", "DM swipe outsider");
+  const bid = (await api("GET", "/v1/me", { token: b })).json.user.id;
+  const dm = (await api("POST", "/v1/conversations", { token: a, body: { kind: "dm", userIds: [bid] } })).json.conversation;
+  const route = `/v1/conversations/${dm.id}`;
+  const listed = async (t, all = false) => (await api("GET", `/v1/conversations${all ? "?includeArchived=1" : ""}`, { token: t })).json.conversations.find(c => c.id === dm.id);
+  assert.equal((await api("POST", route + "/archive", { token: outsider })).status, 404);
+  // Archive is personal and reversible.
+  assert.equal((await api("POST", route + "/archive", { token: a })).status, 200);
+  assert.equal(await listed(a), undefined);
+  assert.equal((await listed(a, true)).archived, true);
+  assert.equal((await listed(b)).archived, false);
+  assert.equal((await api("POST", route + "/restore", { token: a })).status, 200);
+  assert.equal((await listed(a)).archived, false);
+  // A new message brings it back; so does opening it again from New message.
+  await api("POST", route + "/archive", { token: a });
+  assert.equal((await api("POST", route + "/messages", { token: b, body: { text: "Are you there?" } })).status, 201);
+  assert.equal((await listed(a)).archived, false);
+  await api("POST", route + "/archive", { token: a });
+  await api("POST", route + "/archive", { token: b });
+  assert.equal((await api("POST", "/v1/conversations", { token: a, body: { kind: "dm", userIds: [bid] } })).json.conversation.archived, false);
+  assert.equal((await listed(b, true)).archived, true, "reopening only restores it for the person who reopened it");
+  // Anyone in it can delete it, for everyone in it.
+  const live = await events(b);
+  try {
+    await waitFor(() => live.got.some(e => e.event === "ready"));
+    assert.equal((await api("DELETE", route, { token: outsider })).status, 404);
+    assert.equal((await api("DELETE", route, { token: a })).status, 200);
+    await waitFor(() => live.got.some(e => e.event === "conversation.updated" && e.data.id === dm.id));
+  } finally { live.close(); }
+  assert.equal((await api("GET", route, { token: b })).status, 404);
+  assert.equal(await listed(b, true), undefined);
+  // Starting a new message afterwards opens a fresh, empty conversation.
+  const fresh = (await api("POST", "/v1/conversations", { token: b, body: { kind: "dm", userIds: [(await api("GET", "/v1/me", { token: a })).json.user.id] } })).json.conversation;
+  assert.notEqual(fresh.id, dm.id);
+  assert.equal(fresh.lastMessage, null);
 });
 
 test("legacy membership migration preserves history and personal archive survives reopen", () => {

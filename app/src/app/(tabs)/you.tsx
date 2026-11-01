@@ -78,7 +78,7 @@ export default function Settings() {
       <View style={styles.group}>
         <Row label="People" onPress={() => router.push("/members")} />
         {owner ? <Row label="Invite people" onPress={() => router.push("/invite")} /> : null}
-        <Row label="Archived channels" onPress={() => router.push("/archived-channels")} />
+        <Row label="Archived" onPress={() => router.push("/archived-channels")} />
       </View>
 
       <Text accessibilityRole="header" style={styles.section}>Help & updates</Text>

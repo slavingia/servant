@@ -551,6 +551,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     }
     const r = st.insertMsg.run(conv.id, userId, threadRoot, text, now(), pending ? 1 : 0);
     const seq = Number(r.lastInsertRowid);
+    if (conv.kind === "dm") unarchiveDm(conv.id);
     for (const a of attachments) st.insertAttachment.run(newId("file"), seq, a.name, a.mime, a.data.length, a.data);
     if (threadRoot) st.bumpThread.run(now(), threadRoot);
     if (userId !== AGENT_ID) st.markRead.run(seq, conv.id, userId);
@@ -764,6 +765,13 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     return st.conv.get(id);
   }
 
+  // Archiving a direct conversation hides it until someone writes in it again.
+  function unarchiveDm(convId, onlyUserId = null) {
+    const archived = st.members.all(convId).filter(m => (!onlyUserId || m.user_id === onlyUserId) && st.member.get(convId, m.user_id)?.archived_at);
+    for (const m of archived) st.archiveMember.run(null, convId, m.user_id);
+    if (archived.length) publish(convId, "conversation.updated", { id: convId }, archived.map(m => m.user_id));
+  }
+
   function openDm(...args) { return transaction(() => openDmInTransaction(...args)); }
   function openDmInTransaction(user, userIds) {
     const people = users();
@@ -778,7 +786,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       for (const uid of ids) st.addMember.run(id, uid, now(), 0);
       c = st.conv.get(id);
       publish(id, "conversation.updated", { id });
-    }
+    } else unarchiveDm(c.id, user.id);
     return c;
   }
 
@@ -1024,12 +1032,25 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       }
 
       if ((sub === "archive" || sub === "restore") && method === "POST") {
-        if (conv.kind !== "channel" || !isMember)
-          return fail(res, 403, "forbidden", "Join the channel first"), true;
+        if (!isMember)
+          return fail(res, 403, "forbidden", conv.kind === "dm" ? "You're not in this conversation" : "Join the channel first"), true;
         transaction(() => {
           requireConversation(conv.id, user.id, true);
           st.archiveMember.run(sub === "archive" ? now() : null, conv.id, user.id);
           publish(conv.id, "conversation.updated", { id: conv.id }, [user.id]);
+        });
+        send(res, 200, { ok: true });
+        return true;
+      }
+      if (!sub && method === "DELETE" && conv.kind === "dm") {
+        // Anyone in a direct conversation can delete it, for everyone in it.
+        if (!isMember) return fail(res, 403, "forbidden", "You're not in this conversation"), true;
+        transaction(() => {
+          requireConversation(conv.id, user.id, true);
+          const memberIds = st.members.all(conv.id).map(m => m.user_id);
+          st.deleteConv.run(conv.id);
+          st.deleteAgentThreads.run(conv.id, conv.id);
+          publish(conv.id, "conversation.updated", { id: conv.id }, memberIds);
         });
         send(res, 200, { ok: true });
         return true;

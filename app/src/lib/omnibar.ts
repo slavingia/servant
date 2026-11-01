@@ -5,7 +5,7 @@ const shortcuts: Shortcut[] = [
   { id: "new-channel", title: "New channel", detail: "Make a space for a team or topic", path: "/new-channel", keywords: "create team topic" },
   { id: "agent", title: "Ask the agent", detail: "Open your private agent chats", path: "/agent", keywords: "assistant ai help" },
   { id: "members", title: "Find a teammate", detail: "Browse the member directory", path: "/members", keywords: "people members directory" },
-  { id: "archive", title: "Archived channels", detail: "Browse past conversations", path: "/archived-channels", keywords: "archive restore" },
+  { id: "archive", title: "Archived", detail: "Channels and messages you archived", path: "/archived-channels", keywords: "archive archived restore channels messages" },
   { id: "notifications", title: "Notifications", detail: "Manage alerts and message previews", path: "/notifications", keywords: "settings preferences pause alerts" },
   { id: "invite", title: "Invite teammates", detail: "Share an invite to your server", path: "/invite", keywords: "people invite join link", owner: true },
   { id: "you", title: "Your settings", detail: "Account, preferences, and help", path: "/you", keywords: "you profile settings account feedback" },

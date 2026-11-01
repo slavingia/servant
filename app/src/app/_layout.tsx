@@ -99,7 +99,7 @@ function SessionNavigation() {
         <Stack.Screen name="new-channel" options={{ title: "New channel" }} />
         <Stack.Screen name="new-message" options={{ title: "New message" }} />
         <Stack.Screen name="browse" options={{ headerShown: false }} />
-        <Stack.Screen name="archived-channels" options={{ title: "Archived channels" }} />
+        <Stack.Screen name="archived-channels" options={{ title: "Archived" }} />
         <Stack.Screen name="channel-info" options={{ title: "Details" }} />
         <Stack.Screen name="chat/[id]" options={{ title: "" }} />
         <Stack.Screen name="feedback" options={{ title: "Feedback" }} />

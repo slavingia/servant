@@ -1,12 +1,10 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { AppIcon } from "./AppIcon";
 import { Button } from "./Button";
-import { ConfirmDialog } from "./ConfirmDialog";
-import { ConversationRow } from "./Messaging";
-import { SwipeChannelRow } from "./SwipeChannelRow";
-import { api, ServerError, type Conversation, type BrowseChannel } from "../lib/server";
+import { SwipeChannelRow, useConversationActions } from "./SwipeChannelRow";
+import { type Conversation, type BrowseChannel } from "../lib/server";
 import { useChannelDiscovery } from "../lib/channel-discovery";
 import { useLive } from "../lib/live";
 import { useSession } from "../lib/session";
@@ -32,12 +30,7 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
   const [dmsOpen, setDmsOpen] = useState(true);
   const [discovering, setDiscovering] = useState(false);
   const discovery = useChannelDiscovery(!archived && discovering);
-  const [openId, setOpenId] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const busy = useRef(false);
-  const [deleting, setDeleting] = useState<Conversation | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const closeRow = useCallback(() => setOpenId(null), []);
+  const { openId, busyId, closeRow, rowProps, dialog, actionError } = useConversationActions(account, refresh);
 
   const reload = async () => {
     if (refreshing) return;
@@ -45,26 +38,6 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
     try { await Promise.all([refresh(), discovery.refresh()]); }
     finally { setRefreshing(false); }
   };
-  const act = async (c: Conversation, remove = false) => {
-    if (!account || busy.current) return;
-    busy.current = true;
-    setBusyId(c.id);
-    setActionError(null);
-    try {
-      if (remove) await api.deleteChannel(account, c.id);
-      else if (c.archived) await api.restoreChannel(account, c.id);
-      else await api.archiveChannel(account, c.id);
-      setDeleting(null);
-      closeRow();
-      await refresh();
-    } catch (e) {
-      setActionError(e instanceof ServerError ? e.message : "Couldn't update the channel. Try again.");
-    } finally {
-      busy.current = false;
-      setBusyId(null);
-    }
-  };
-
   useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
   if (!account) return null;
 
@@ -72,6 +45,8 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
   const activeChannels = channels.filter(c => !c.archived);
   const archivedChannels = channels.filter(c => c.archived);
   const dms = (conversations ?? []).filter(c => c.kind === "dm" && !c.archived);
+  const archivedDms = (conversations ?? []).filter(c => c.kind === "dm" && c.archived);
+  const archivedCount = archivedChannels.length + archivedDms.length;
   const shownChannels = activeChannels.filter(c => !unreadOnly || c.unread > 0);
   const shownDms = dms.filter(c => !unreadOnly || c.unread > 0);
   const unreadCount = [...activeChannels, ...dms].filter(c => c.unread > 0).length;
@@ -80,6 +55,7 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
   const rows: HomeRow[] = [];
   if (archived) {
     rows.push(...archivedChannels.map(c => ({ kind: "channel" as const, id: c.id, conversation: c })));
+    rows.push(...archivedDms.map(c => ({ kind: "dm" as const, id: c.id, conversation: c })));
   } else if (conversations !== null) {
     rows.push({ kind: "section", id: "channels-section" });
     if (channelsOpen) {
@@ -114,14 +90,14 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
         onScrollBeginDrag={closeRow}
         refreshControl={<RefreshControl refreshing={refreshing} tintColor={colors.blue} onRefresh={() => void reload()} />}
         ListHeaderComponent={<View>
-          {archived ? <Text style={styles.archiveIntro}>Restore a channel to bring it back to Home.</Text> : <View style={styles.filters}>
+          {archived ? <Text style={styles.archiveIntro}>Swipe left to restore a conversation to Home</Text> : <View style={styles.filters}>
             {[false, true].map(value => <Pressable key={String(value)} accessibilityRole="button" accessibilityLabel={value ? `Unread conversations, ${unreadCount}` : "All conversations"} accessibilityState={{ selected: unreadOnly === value }}
               onPress={() => { setUnreadOnly(value); closeRow(); }} style={({ pressed }) => [styles.filter, unreadOnly === value && styles.selectedFilter, pressed && styles.pressed]}>
               <Text style={[styles.filterText, unreadOnly === value && styles.selectedFilterText]}>{value ? "Unread" : "All"}</Text>
               {value && unreadCount ? <Text style={[styles.filterCount, unreadOnly && styles.selectedFilterText]}>{unreadCount}</Text> : null}
             </Pressable>)}
           </View>}
-          {actionError && !deleting ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
+          {actionError ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
           {error && conversations !== null ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           {/* Keep the status line measured so reconnecting never moves the list. */}
           <Text aria-hidden={!reconnecting} style={[styles.note, { opacity: reconnecting ? 1 : 0 }]}>Reconnecting…</Text>
@@ -131,20 +107,15 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
             <ActivityIndicator accessibilityLabel="Loading conversations" style={styles.loading} color={colors.blue} /> :
           <View style={styles.empty}>
             <AppIcon name="archive" size={28} color={colors.muted} />
-            <Text accessibilityRole="header" style={styles.emptyTitle}>No archived channels</Text>
-            <Text style={styles.emptyBody}>Archived channels stay here until you restore them.</Text>
+            <Text accessibilityRole="header" style={styles.emptyTitle}>Nothing archived</Text>
+            <Text style={styles.emptyBody}>Conversations stay here until you restore them or someone writes in them</Text>
             <Button label="Back to Home" kind="secondary" onPress={() => router.dismissTo("/channels")} />
           </View>}
         renderItem={({ item }) => {
-          if (item.kind === "channel") {
+          if (item.kind === "channel" || item.kind === "dm") {
             const c = item.conversation;
-            return <SwipeChannelRow c={c} compact open={openId === c.id} busy={busyId !== null}
-              canDelete={c.name !== "general" && (account.user.role === "owner" || c.createdBy === account.user.id)}
-              onOpen={() => setOpenId(c.id)} onClose={closeRow}
-              onPress={() => router.push({ pathname: "/c/[id]", params: { id: c.id } })}
-              onArchive={() => { void act(c); }} onDelete={() => { setActionError(null); setDeleting(c); }} />;
+            return <SwipeChannelRow {...rowProps(c)} compact onPress={() => router.push({ pathname: "/c/[id]", params: { id: c.id } })} />;
           }
-          if (item.kind === "dm") return <ConversationRow c={item.conversation} compact onPress={() => router.push({ pathname: "/c/[id]", params: { id: item.conversation.id } })} />;
           if (item.kind === "section") {
             const isChannels = item.id === "channels-section";
             const expanded = isChannels ? channelsOpen : dmsOpen;
@@ -161,10 +132,10 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
           }
           if (item.kind === "note") return <Text style={styles.sectionNote}>{item.text}</Text>;
           if (item.kind === "action") {
-            if (item.id === "archive-link") return <Pressable accessibilityRole="button" accessibilityLabel={`Archived channels, ${archivedChannels.length}`} onPress={() => { closeRow(); router.push("/archived-channels"); }} style={({ pressed }) => [styles.quietRow, pressed && styles.pressed]}>
+            if (item.id === "archive-link") return <Pressable accessibilityRole="button" accessibilityLabel={`Archived, ${archivedCount}`} onPress={() => { closeRow(); router.push("/archived-channels"); }} style={({ pressed }) => [styles.quietRow, pressed && styles.pressed]}>
               <View style={styles.actionIcon}><AppIcon name="archive" size={17} color={colors.muted} /></View>
-              <Text style={styles.quietLabel}>Archived channels</Text>
-              {archivedChannels.length ? <Text style={styles.quietCount}>{archivedChannels.length}</Text> : null}
+              <Text style={styles.quietLabel}>Archived</Text>
+              {archivedCount ? <Text style={styles.quietCount}>{archivedCount}</Text> : null}
             </Pressable>;
             const addChannels = item.id === "add-channels";
             return <Pressable accessibilityRole="button" accessibilityState={addChannels ? { expanded: discovering } : undefined} onPress={() => { closeRow(); if (addChannels) setDiscovering(value => !value); else router.push("/new-message"); }} style={({ pressed }) => [styles.actionRow, pressed && styles.pressed]}>
@@ -192,10 +163,7 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
         }}
         contentContainerStyle={styles.content}
       />
-      <ConfirmDialog visible={!!deleting} title={`Delete #${deleting?.title ?? "channel"}?`}
-        description="This permanently deletes the channel and all its messages for everyone. This can't be undone."
-        confirmLabel="Delete channel" busy={busyId !== null} error={actionError}
-        onCancel={() => { setDeleting(null); setActionError(null); }} onConfirm={() => { if (deleting) void act(deleting, true); }} />
+      {dialog}
     </View>
   );
 }

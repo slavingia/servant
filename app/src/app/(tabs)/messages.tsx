@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { AppIcon } from "../../components/AppIcon";
-import { ConversationRow } from "../../components/Messaging";
+import { SwipeChannelRow, useConversationActions } from "../../components/SwipeChannelRow";
 import { Button } from "../../components/Button";
 import { useLive } from "../../lib/live";
 import { useSession } from "../../lib/session";
@@ -16,6 +16,7 @@ export default function Messages() {
   const reconnecting = !connected && conversations !== null;
   const [refreshing, setRefreshing] = useState(false);
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const { openId, busyId, closeRow, rowProps, dialog, actionError } = useConversationActions(account, refresh);
   useFocusEffect(
     useCallback(() => {
       refresh();
@@ -38,6 +39,8 @@ export default function Messages() {
       <FlatList
         data={list}
         keyExtractor={(c) => c.id}
+        extraData={{ openId, busyId }}
+        onScrollBeginDrag={closeRow}
         refreshControl={
           <RefreshControl
             tintColor={colors.blue}
@@ -58,6 +61,7 @@ export default function Messages() {
             <View style={styles.filters}>{[false, true].map(value => <Pressable key={String(value)} accessibilityRole="button" accessibilityState={{ selected: unreadOnly === value }} onPress={() => setUnreadOnly(value)} style={({ pressed }) => [styles.filter, unreadOnly === value && styles.selectedFilter, pressed && { opacity: 0.7 }]}>
               <Text style={[styles.filterText, unreadOnly === value && styles.selectedFilterText]}>{value ? "Unread" : "All"}</Text>
             </Pressable>)}</View>
+            {actionError ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
             {error && conversations ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
             {/* Keep the status line measured so reconnecting never moves the list. */}
             <Text aria-hidden={!reconnecting} style={[styles.note, { opacity: reconnecting ? 1 : 0 }]}>Reconnecting…</Text>
@@ -75,9 +79,10 @@ export default function Messages() {
             </View>
           )
         }
-        renderItem={({ item }) => <ConversationRow c={item} onPress={() => router.push({ pathname: "/c/[id]", params: { id: item.id } })} />}
+        renderItem={({ item }) => <SwipeChannelRow {...rowProps(item)} onPress={() => router.push({ pathname: "/c/[id]", params: { id: item.id } })} />}
         contentContainerStyle={styles.content}
       />
+      {dialog}
     </View>
   );
 }

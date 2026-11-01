@@ -426,7 +426,7 @@ export function ConversationRow({ c, onPress, onLongPress, accessibilityActions,
         accessibilityLabel={`${title}${c.private && c.kind === "channel" ? ", private" : ""}${bold ? `, ${c.unread} unread` : ""}${compact ? "" : `. ${preview}`}`}
         onPress={onPress}
         onLongPress={onLongPress}
-        accessibilityHint={onLongPress ? "Swipe left or long press for channel actions" : undefined}
+        accessibilityHint={onLongPress ? "Swipe left or long press to archive or delete" : undefined}
         accessibilityActions={accessibilityActions}
         onAccessibilityAction={onAccessibilityAction}
         style={({ pressed }) => [styles.row, compact && styles.compactRow, trailing ? styles.rowWithTrailing : null, pressed && { backgroundColor: colors.surface }]}
