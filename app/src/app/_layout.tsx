@@ -85,14 +85,15 @@ function SessionNavigation() {
           : {}),
       }}
     >
-      <Stack.Screen name="index" options={{ headerShown: false }} />
+      {/* Startup redirects should reveal the landing screen in place. */}
+      <Stack.Screen name="index" options={{ headerShown: false, animation: "none" }} />
       <Stack.Protected guard={!paired} redirectTo="/channels">
-        <Stack.Screen name="welcome" options={{ headerShown: false }} />
+        <Stack.Screen name="welcome" options={{ headerShown: false, animation: "none" }} />
         <Stack.Screen name="pair" options={{ title: "Joining", headerBackVisible: false }} />
         <Stack.Screen name="scan" options={{ title: "Scan invite" }} />
       </Stack.Protected>
       <Stack.Protected guard={paired} redirectTo="/welcome">
-        <Stack.Screen name="(tabs)" options={{ headerShown: false, title: "Back" }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false, title: "Back", animation: "none" }} />
         <Stack.Screen name="c/[id]" options={{ title: "" }} />
         <Stack.Screen name="thread" options={{ title: "Thread" }} />
         <Stack.Screen name="new-channel" options={{ title: "New channel" }} />
