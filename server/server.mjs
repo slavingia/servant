@@ -36,7 +36,29 @@ const CONFIG_FILE = path.join(DATA_DIR, "config.json");
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_BODY = 64 * 1024;
-const MAX_MESSAGE_CHARS = 8000;
+// Agent chats take long pastes. Up to INLINE_MESSAGE_CHARS travel inline (in
+// pieces, see splitText). Longer ones are saved beside the server data and the
+// agent reads them from the file, so the message never overflows its context.
+const MAX_MESSAGE_CHARS = 5_000_000;
+const INLINE_MESSAGE_CHARS = 100_000;
+const LONG_MESSAGE_PREVIEW_CHARS = 4000;
+const LONG_MESSAGE_DIR = path.join(DATA_DIR, "long-messages");
+
+export function agentText(turn, full) {
+  const text = String(turn.text || "");
+  if (!full || text.length <= INLINE_MESSAGE_CHARS) return text;
+  fs.mkdirSync(LONG_MESSAGE_DIR, { recursive: true, mode: 0o700 });
+  const file = path.join(LONG_MESSAGE_DIR, `${turn.chat_id}-${turn.id}.txt`);
+  fs.writeFileSync(file, text, { mode: 0o600 });
+  const lines = text.split("\n").length;
+  return `[Servant: this message is ${text.length.toLocaleString("en-US")} characters (${lines.toLocaleString("en-US")} lines), too long to send in one piece. The whole message is saved at ${file}. Read it in sections with read_file (offset and limit), go through every section, then answer it. Don't tell the person it was too long.]\n\nIt begins:\n${text.slice(0, LONG_MESSAGE_PREVIEW_CHARS)}`;
+}
+
+function removeLongMessages(chatId) {
+  try {
+    for (const name of fs.readdirSync(LONG_MESSAGE_DIR)) if (name.startsWith(`${chatId}-`)) fs.rmSync(path.join(LONG_MESSAGE_DIR, name), { force: true });
+  } catch {}
+}
 
 // ---------- config + state ----------
 
@@ -584,6 +606,7 @@ async function handle(req, res, cfg) {
   if (method === "DELETE" && parts.length === 3) {
     mutateAuthenticated(req, (state, current) => { requireChat(state, current.user.id, chat.id).deletedAt = now(); });
     chatMediaStore().deleteChat(chat.id);
+    removeLongMessages(chat.id);
     hermes(chatUp, "DELETE", `/api/sessions/${encodeURIComponent(chat.hermesSessionId)}`).catch(() => {});
     return send(res, 200, { ok: true });
   }
@@ -667,7 +690,9 @@ async function handle(req, res, cfg) {
     const text = String(body.text || "").trim();
     const attachments = validateUploads(body.attachments, { mediaOnly: true });
     if (!text && !attachments.length) return fail(res, 400, "empty", "Type a message first");
-    if (text.length > MAX_MESSAGE_CHARS) return fail(res, 413, "too_long", "That message is too long");
+    // Only the full agent can read a saved long message from disk.
+    const limit = agentRole(chat.role, cfg) === "owner" ? MAX_MESSAGE_CHARS : INLINE_MESSAGE_CHARS;
+    if (text.length > limit) return fail(res, 413, "too_long", "That message is too long");
     const prior = agentTurns.replay({ chat, text, attachments, requestId: body.requestId });
     if (prior) return streamPrivateTurn(req, res, prior.id, () => ownTurn(prior.id));
     // Establish history before the worker records new accepted deliveries.
@@ -735,7 +760,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
   if (!up) throw requestError(502, "agent_error", "The agent is unavailable");
   const full = agentRole(turn.role, cfg) === "owner";
   if (!full) await verifyMemberUpstream(up);
-  const input = hermesInput(turn.text, turn.attachments);
+  const input = hermesInput(agentText(turn, full), turn.attachments);
   let assistantMessage;
   const saveAssistant = content => {
     if (assistantMessage) return;

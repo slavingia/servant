@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { normalizeMediaContent, validateUploads, hermesInput, createMediaDeltaFilter, mediaMime, MAX_VIDEO, MAX_FILE, MAX_UPLOAD_TOTAL, MAX_UPLOAD_BODY } from "./media.mjs";
+import { normalizeMediaContent, validateUploads, hermesInput, splitText, TEXT_PART_CHARS, createMediaDeltaFilter, mediaMime, MAX_VIDEO, MAX_FILE, MAX_UPLOAD_TOTAL, MAX_UPLOAD_BODY } from "./media.mjs";
 import { createChatMediaStore } from "./chat-media.mjs";
 import { createMessaging } from "./messaging.mjs";
 
@@ -225,4 +225,19 @@ test("channel agent workers receive human image bytes and persist returned image
     assert.equal(reply.text, "");
     assert.equal(messages.db.prepare("SELECT COUNT(*) AS n FROM attachments WHERE message_seq=?").get(reply.seq).n, 1);
   } finally { messages.close(); }
+});
+
+
+test("long agent messages split into text parts that rejoin to the original", () => {
+  const lines = Array.from({ length: 5000 }, (_, i) => `line ${i} ` + "x".repeat(40)).join("\n");
+  const parts = splitText(lines);
+  assert.ok(parts.length > 1);
+  assert.ok(parts.every(p => p.length <= TEXT_PART_CHARS));
+  assert.equal(parts.join("\n"), lines);
+  const input = hermesInput(lines);
+  assert.ok(Array.isArray(input) && input.every(p => p.type === "text"));
+  assert.equal(input.map(p => p.text).join("\n"), lines);
+  const flat = "y".repeat(TEXT_PART_CHARS * 2 + 5);
+  assert.equal(splitText(flat).join(""), flat);
+  assert.equal(hermesInput("short"), "short");
 });

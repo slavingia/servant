@@ -89,7 +89,7 @@ async function fixture(t) {
   const api = (route, method = 'GET', body, user = 'owner') => testFetch(dir, base + route, { method,
     headers: { Authorization: `Bearer ${user}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
   const latest = async () => (await (await api('/v1/chats/chat/turns')).json()).turns[0];
-  return { api, latest, runs, approvals, startCount: () => startCount,
+  return { dir, api, latest, runs, approvals, startCount: () => startCount,
     disconnectEvents: run => run.response?.destroy(),
     offlineHistory: value => { historyOffline = value; }, offlinePolls: count => { pollsOffline = count; },
     offlineControls: count => { controlsOffline = count; },
@@ -172,4 +172,25 @@ test('worker restart resumes one existing run, and authorized Stop really reache
   const messages = (await (await f.api('/v1/chats/chat/messages')).json()).messages;
   assert.equal(messages.at(-1).interrupted, true);
   assert.equal(messages.at(-1).text, 'Saved partial');
+});
+
+test('a message too long to send inline is saved for the agent to read in sections, and the person sees it whole', { timeout: 15000 }, async t => {
+  const f = await fixture(t);
+  const text = Array.from({ length: 4000 }, (_, i) => `row ${i} ` + 'z'.repeat(40)).join('\n');
+  const response = await f.api('/v1/chats/chat/messages', 'POST', { text, requestId: 'request_huge' });
+  assert.equal(response.status, 200);
+  await response.body.cancel();
+  await until(async () => (await f.latest())?.accepted);
+  const run = [...f.runs.values()][0];
+  const sent = JSON.stringify(run.input.at(-1).content);
+  assert.match(sent, /too long to send in one piece/);
+  assert.ok(sent.length < 10000);
+  const file = sent.match(/saved at ([^ ]+\.txt)/)[1];
+  assert.equal(fs.readFileSync(file, 'utf8'), text);
+  f.finish(run, 'Read it all');
+  await until(async () => (await f.latest()).status === 'completed');
+  const history = await (await f.api('/v1/chats/chat/messages')).json();
+  assert.equal(history.messages.find(m => m.role === 'user').text, text);
+  assert.equal((await f.api('/v1/chats/chat', 'DELETE')).status, 200);
+  assert.equal(fs.existsSync(file), false);
 });

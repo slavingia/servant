@@ -85,12 +85,32 @@ export function validateUploads(input = [], { imagesOnly = false, mediaOnly = fa
   });
 }
 
+// Hermes keeps at most 64K characters per text part, so long messages travel
+// as several parts. Hermes joins parts with a newline, which is why a split
+// at a newline drops that newline and the joined text matches the original.
+export const TEXT_PART_CHARS = 60000;
+export function splitText(text, size = TEXT_PART_CHARS) {
+  const parts = [];
+  let rest = String(text || "");
+  while (rest.length > size) {
+    const window = rest.slice(0, size + 1);
+    const newline = window.lastIndexOf("\n");
+    if (newline > size / 2) { parts.push(rest.slice(0, newline)); rest = rest.slice(newline + 1); continue; }
+    const space = window.lastIndexOf(" ", size);
+    const cut = space > size / 2 ? space + 1 : size;
+    parts.push(rest.slice(0, cut)); rest = rest.slice(cut);
+  }
+  if (rest || !parts.length) parts.push(rest);
+  return parts;
+}
+
 export function hermesInput(text, attachments = []) {
-  if (!attachments.length) return text;
+  const textParts = text ? splitText(text) : [];
+  if (!attachments.length) return textParts.length > 1 ? textParts.map(part => ({ type: "text", text: part })) : text;
   const videos = attachments.filter(a => a.mime.startsWith("video/"));
   const notice = videos.length ? `[Servant shared video attachments: ${videos.map(a => `${JSON.stringify(a.name)} (${a.mime}, ${a.data.length} bytes, SHA-256 ${crypto.createHash("sha256").update(a.data).digest("hex")})`).join("; ")}]. The videos are available to people in this conversation. This Hermes API accepts images and text only, so you have not received the video bytes and cannot inspect or describe their contents. Ask for a description or still frames if needed.` : "";
   return [
-    ...(text ? [{ type: "text", text }] : []),
+    ...textParts.map(part => ({ type: "text", text: part })),
     ...(notice ? [{ type: "text", text: notice }] : []),
     ...attachments.filter(a => a.mime.startsWith("image/")).map(a => ({ type: "image_url", image_url: { url: `data:${a.mime};base64,${Buffer.from(a.data).toString("base64")}` } })),
   ];
