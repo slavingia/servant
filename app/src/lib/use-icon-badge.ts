@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { request, type Account } from './server';
-import { createIconBadgeSync, loadIconBadge } from './icon-badge';
+import { createIconBadgeSync, createIconBadgeWriter, loadIconBadge } from './icon-badge';
 
 export function useIconBadge(account: Account | null, unread: Readonly<Record<string, number>>, connected: boolean) {
   const sync = useRef<ReturnType<typeof createIconBadgeSync> | null>(null);
@@ -22,7 +22,7 @@ export function useIconBadge(account: Account | null, unread: Readonly<Record<st
           );
         } finally { controller.abort(); clearTimeout(timeout); signal.removeEventListener('abort', abort); }
       },
-      setBadge: count => Notifications.setBadgeCountAsync(count),
+      setBadge: createIconBadgeWriter(Platform.OS, count => Notifications.setBadgeCountAsync(count)),
       active: () => AppState.currentState === 'active',
     });
     sync.current = badge;

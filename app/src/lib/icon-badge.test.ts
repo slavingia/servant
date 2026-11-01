@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createIconBadgeSync, loadIconBadge } from './icon-badge.ts';
+import { createIconBadgeSync, createIconBadgeWriter, loadIconBadge } from './icon-badge.ts';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -9,13 +9,13 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-test('foreground and receipt refreshes clear a stale icon 1 even when inbox zero is unchanged', async () => {
+test('iOS foreground and receipt refreshes clear a stale icon 1 even when inbox zero is unchanged', async () => {
   let icon = 1;
   let loads = 0;
   const written: number[] = [];
   const sync = createIconBadgeSync({
     load: async () => { loads++; return loadIconBadge(async () => [], async () => []); },
-    setBadge: async count => { written.push(count); icon = count; }, active: () => true,
+    setBadge: createIconBadgeWriter('ios', async count => { written.push(count); icon = count; }), active: () => true,
   });
   await sync.refresh();
   assert.equal(icon, 0);
@@ -27,7 +27,54 @@ test('foreground and receipt refreshes clear a stale icon 1 even when inbox zero
   sync.dispose();
 });
 
-test('badge totals include both inboxes, exclude archived conversations, and accept legacy agent counts', async () => {
+test('Android receipt and repeated zero refreshes preserve a newly presented agent notification', async () => {
+  const pendingLoad = deferred<void>();
+  const started = deferred<void>();
+  const cards = new Set(['existing-notification']);
+  const written: number[] = [];
+  let loads = 0;
+  const sync = createIconBadgeSync({
+    load: async () => {
+      if (++loads === 1) { started.resolve(); await pendingLoad.promise; }
+      // The deployed /v1/chats API omits unread even for a newly answered chat.
+      return loadIconBadge(async () => [], async () => [{}]);
+    },
+    setBadge: createIconBadgeWriter('android', async count => {
+      written.push(count);
+      if (count === 0) cards.clear(); // Expo Android calls NotificationManager.cancelAll().
+    }), active: () => true,
+  });
+  const receipt = sync.refresh();
+  await started.promise;
+  cards.add('new-agent-reply'); // Native presentation wins the race with the fetch.
+  pendingLoad.resolve();
+  await receipt;
+  await sync.refresh();
+  await sync.refresh(0);
+  assert.equal(loads, 2);
+  assert.deepEqual(written, []);
+  assert.deepEqual([...cards], ['existing-notification', 'new-agent-reply']);
+  sync.dispose();
+});
+
+test('Android positive badge updates still apply without dismissing notification cards', async () => {
+  const cards = new Set(['unread-message']);
+  const written: number[] = [];
+  const sync = createIconBadgeSync({
+    load: () => loadIconBadge(async () => [{ unread: 2 }], async () => []),
+    setBadge: createIconBadgeWriter('android', async count => {
+      written.push(count);
+      if (count === 0) cards.clear();
+    }), active: () => true,
+  });
+  await sync.refresh();
+  await sync.refresh(3);
+  assert.deepEqual(written, [2, 3]);
+  assert.deepEqual([...cards], ['unread-message']);
+  sync.dispose();
+});
+
+test('badge totals sum reported counts, exclude archived conversations, and tolerate unavailable legacy agent counts', async () => {
   assert.equal(await loadIconBadge(async () => [
     { unread: 2 }, { unread: 3, archived: false }, { unread: 90, archived: true },
   ], async () => [{ unread: 4 }, {}, { unread: 0 }]), 9);
