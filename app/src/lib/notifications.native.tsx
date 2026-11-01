@@ -9,13 +9,15 @@ import { ServerError } from './server';
 import { notificationApi, defaultNotifications, type NotificationPreferences } from './notifications-api';
 import { notificationRoute } from './notification-route';
 import type { NotificationState } from './notifications';
+import { useIconBadge } from './use-icon-badge';
 
 const Ctx = createContext<NotificationState | null>(null);
 // Default to silent until a paired account and its current screen are known.
 Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: false }) });
 export function NotificationsProvider({ children }: { children: ReactNode }) {
   const { account } = useSession();
-  const { unread } = useLive();
+  const { unread, connected } = useLive();
+  useIconBadge(account, unread, connected);
   const pathname = usePathname();
   const params = useGlobalSearchParams<{ id?: string; conv?: string }>();
   const navigation = useRootNavigationState();
@@ -85,7 +87,8 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       const matches = !!account && data.userId === account.user.id && data.deviceId === deviceId;
       const visible = AppState.currentState === 'active' && conversation && (data.conversationId === conversation || data.chatId === conversation);
       const show = !!matches && !visible && preferences.mode !== 'none' && preferences.pausedUntil <= Date.now();
-      return { shouldShowBanner: show, shouldShowList: show, shouldPlaySound: show, shouldSetBadge: show };
+      // A delayed push must not overwrite the freshly fetched foreground count.
+      return { shouldShowBanner: show, shouldShowList: show, shouldPlaySound: show, shouldSetBadge: show && AppState.currentState !== 'active' };
     } });
   }, [account, conversation, deviceId, preferences]);
 
@@ -102,8 +105,6 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     const timer = setInterval(presence, 30000);
     return () => { clearInterval(timer); sub.remove(); };
   }, [account, conversation]);
-
-  useEffect(() => { if (account) void Notifications.setBadgeCountAsync(unread.channels + unread.messages); }, [account, unread.channels, unread.messages]);
 
   useEffect(() => {
     if (!account || !deviceId || !navigation?.key) return;
