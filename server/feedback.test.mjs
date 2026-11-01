@@ -42,3 +42,20 @@ test('agent instruction scopes work to Servant and rejects unstructured/private 
   assert.equal(feedbackResult('internal log secret').status,'interrupted');
   assert.equal(feedbackResult('{"status":"released","summary":"Commit abc, build 14"}').status,'released');
 });
+test('a report can carry one screenshot: the agent gets the image, clients only a count', async () => {
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'feedback-'));
+  let seen;
+  const q=createFeedback({file:path.join(dir,'feedback.db'),run:async r=>{ seen=r; return {status:'reviewed',summary:'ok'}; }});
+  try {
+    const png=Buffer.from('89504e470d0a1a0a0000000d4948445200000001','hex');
+    const r=q.submit('a',{...report('Send button is hidden','request-shot'),context:{screen:'/c/x',via:'screenshot'}},[{name:'screen.png',mime:'image/png',data:png},{name:'extra.png',mime:'image/png',data:png}]);
+    assert.equal(r.screenshots,1);
+    assert.equal(r.context.via,'screenshot');
+    assert.equal(JSON.stringify(q.list('a')).includes(png.toString('base64')),false,'image bytes never go back to clients');
+    await q.tick();
+    assert.equal(seen.images.length,1);
+    assert.deepEqual(Buffer.from(seen.images[0].data),png);
+    assert.match(feedbackPrompt(seen),/attached a screenshot/);
+    assert.doesNotMatch(feedbackPrompt({...seen,images:[]}),/attached a screenshot/);
+  } finally {q.close(); fs.rmSync(dir,{recursive:true});}
+});

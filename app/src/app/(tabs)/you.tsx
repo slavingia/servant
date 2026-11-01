@@ -83,6 +83,7 @@ export default function Settings() {
       <View style={styles.group}>
         <Row label="Send feedback" onPress={() => router.push("/feedback")} />
       </View>
+      <Text style={styles.hint}>Or shake your phone, or take a screenshot, on any screen.</Text>
       {release ? (
           <Pressable
             accessibilityRole="button"
@@ -110,6 +111,7 @@ export default function Settings() {
 }
 
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
+  hint: { ...typography.caption, color: colors.muted, marginTop: space.xs, marginHorizontal: space.xs },
   root: { flex: 1, backgroundColor: colors.surface },
   content: { paddingBottom: space.xl },
   profile: { marginHorizontal: space.side, marginBottom: space.lg, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", gap: space.sm },

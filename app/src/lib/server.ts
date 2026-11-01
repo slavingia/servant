@@ -270,13 +270,13 @@ const json = <T,>(r: SecureResponse) => r.json() as Promise<T>;
 // A build's notes, posted in #whats-new. Testers discuss it in the post's thread.
 export type Release = { build: string; conversationId: string; messageId: string; text: string; createdAt: number };
 
-export type FeedbackReport = { id: string; text: string; status: string; result: string | null; createdAt: number };
+export type FeedbackReport = { id: string; text: string; status: string; result: string | null; createdAt: number; screenshots?: number };
 
 export const api = {
   search: (a: Account, query: string, signal?: AbortSignal) =>
     request(a, `/v1/search?q=${encodeURIComponent(query)}`, { signal }).then(json<SearchResults>),
   feedback: (a: Account) => request(a, "/v1/feedback").then(json<{ reports: FeedbackReport[] }>).then(d => d.reports),
-  sendFeedback: (a: Account, body: { text: string; requestId: string; context: Record<string, string> }) =>
+  sendFeedback: (a: Account, body: { text: string; requestId: string; context: Record<string, string>; attachments?: { name: string; data: string }[] }) =>
     request(a, "/v1/feedback", { method: "POST", body: JSON.stringify(body) }).then(json<{ report: FeedbackReport }>).then(d => d.report),
   retryFeedback: (a: Account, id: string) => request(a, `/v1/feedback/${id}/retry`, { method: "POST", body: "{}" }),
   me: (a: Account, m?: (a: Account) => void) => request(a, "/v1/me", {}, m).then((r) => r.json()),

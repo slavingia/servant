@@ -4,6 +4,7 @@ import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import Constants from "expo-constants";
 import { nativeBuildVersion } from "expo-application";
 import { Button } from "../components/Button";
+import { DraftAttachments, pickAttachments, type DraftAttachment } from "../components/Attachments";
 import { useSession } from "../lib/session";
 import { api, type FeedbackReport } from "../lib/server";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
@@ -14,12 +15,23 @@ export default function Feedback() {
   const styles = useStyles();
   const { colors } = useTheme();
   const { account } = useSession();
-  const { screen } = useLocalSearchParams<{ screen?: string }>();
+  const { screen, via } = useLocalSearchParams<{ screen?: string; via?: string }>();
   const [text, setText] = useState("");
   const [reports, setReports] = useState<FeedbackReport[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
+  const [shot, setShot] = useState<DraftAttachment[]>([]);
+  const [picking, setPicking] = useState(false);
+  const addScreenshot = async () => {
+    if (picking || busy) return;
+    setPicking(true); setError("");
+    try {
+      const picked = (await pickAttachments(true, [])).filter(f => f.mime.startsWith("image/")).slice(0, 1);
+      if (picked.length) setShot(picked);
+    } catch (e) { setError(e instanceof Error ? e.message : "Couldn't add the screenshot"); }
+    finally { setPicking(false); }
+  };
   const requestId = useRef("");
   useFocusEffect(useCallback(() => {
     if (!account) return;
@@ -37,21 +49,24 @@ export default function Feedback() {
     try {
       const report = await api.sendFeedback(account, { text, requestId: requestId.current, context: {
         screen: screen || "/you", platform: Platform.OS, version: Constants.expoConfig?.version || "",
-        build: nativeBuildVersion || "development",
-      } });
+        build: nativeBuildVersion || "development", via: via || "settings",
+      }, attachments: shot.map(({ name, data }) => ({ name, data })) });
       setReports(r => [report, ...r.filter(x => x.id !== report.id)]);
-      setText(""); setSent(true);
+      setText(""); setShot([]); setSent(true);
       requestId.current = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     } catch (e) { setError(e instanceof Error ? e.message : "Couldn't send feedback. Please try again."); }
     finally { setBusy(false); }
   };
   return <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
-    <Text style={styles.intro}>Tell us what happened and what you expected.</Text>
+    <Text style={styles.intro}>Tell us what happened and what you expected. Next time, just shake your phone or take a screenshot on the screen that's wrong.</Text>
     <Text style={styles.label}>Your feedback</Text>
     <TextInput accessibilityLabel="Feedback" placeholder="What should we fix?" value={text}
       onChangeText={value => { setText(value); setSent(false); }} multiline maxLength={4000} autoFocus
       placeholderTextColor={colors.muted} editable={!busy} style={styles.input} textAlignVertical="top" />
-    <Text style={styles.caption}>Includes this screen, app build, and platform. Messages and screenshots are not attached.</Text>
+    {shot.length
+      ? <DraftAttachments files={shot} onRemove={() => setShot([])} disabled={busy} />
+      : <Button label={via === "screenshot" ? "Attach the screenshot" : "Add a screenshot"} kind="secondary" busy={picking} disabled={busy} onPress={addScreenshot} />}
+    <Text style={styles.caption}>Includes this screen, app build, and platform{shot.length ? ", plus your screenshot" : ""}. Your messages are not attached.</Text>
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
     <Button label="Send feedback" busy={busy} disabled={!text.trim()} onPress={send} />
     {sent ? <Text accessibilityLiveRegion="polite" style={styles.body}>Feedback saved. Updates will appear below.</Text> : null}

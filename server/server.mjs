@@ -444,7 +444,12 @@ async function handle(req, res, cfg) {
 
   if (parts[1] === "feedback") {
     if (method === "GET" && parts.length === 2) return send(res, 200, { reports: feedback.list(user.id) });
-    if (method === "POST" && parts.length === 2) return send(res, 202, { report: feedback.submit(user.id, await readAuthorizedBody(req)) });
+    if (method === "POST" && parts.length === 2) {
+      const body = await readAuthorizedBody(req, MAX_UPLOAD_BODY);
+      const screenshots = validateUploads(body.attachments || [], { imagesOnly: true });
+      if (screenshots.length > 1) return fail(res, 400, "invalid_feedback", "Attach one screenshot");
+      return send(res, 202, { report: feedback.submit(user.id, body, screenshots) });
+    }
     if (method === "POST" && parts.length === 4 && parts[3] === "retry") {
       feedback.retry(user.id, parts[2]);
       return send(res, 200, { ok: true });
@@ -800,7 +805,7 @@ export async function runFeedback(report) {
   const sid = `servant_feedback_${report.id}`;
   const made = await hermes(up, "POST", "/api/sessions", { id: sid, title: `Servant feedback ${report.id}` });
   if (!made.ok && made.status !== 409) throw new Error("Could not create feedback session");
-  return feedbackResult(await streamTurn(up, sid, feedbackPrompt(report), "servant:development-feedback", () => {}));
+  return feedbackResult(await streamTurn(up, sid, hermesInput(feedbackPrompt(report), report.images || []), "servant:development-feedback", () => {}));
 }
 
 function createServices(fixedCfg, { externalWorker = false, autoDrain = true } = {}) {

@@ -6,7 +6,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { SessionProvider, useSession } from "../lib/session";
 import { NotificationsProvider } from "../lib/notifications";
 import { LiveProvider } from "../lib/live";
-import { FeedbackGesture } from "../components/FeedbackGesture";
+import { FeedbackPrompt } from "../components/FeedbackPrompt";
 import { AppChrome } from "../components/AppChrome";
 import { ThemeProvider, useTheme, typography } from "../lib/theme";
 import { validServerKey } from "../lib/tunnel-crypto";
@@ -52,7 +52,7 @@ function SessionNavigation() {
     <NavigationThemeProvider value={navigationTheme}>
     <LiveProvider>
     <NotificationsProvider>
-    <FeedbackGesture>
+    <FeedbackPrompt>
     <StatusBar style={paired || pathname === "/welcome" || scheme === "dark" ? "light" : "dark"} />
     <AppChrome enabled={paired}>
     <Stack
@@ -108,7 +108,7 @@ function SessionNavigation() {
       </Stack.Protected>
     </Stack>
     </AppChrome>
-    </FeedbackGesture>
+    </FeedbackPrompt>
     </NotificationsProvider>
     </LiveProvider>
     </NavigationThemeProvider>
