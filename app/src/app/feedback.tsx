@@ -29,7 +29,7 @@ export default function Feedback() {
     if (picking || busy) return;
     setPicking(true); setError("");
     try {
-      const picked = (await pickAttachments(true, [])).filter(f => f.mime.startsWith("image/")).slice(0, 1);
+      const picked = await pickAttachments(true, [], { limit: 1, imagesOnly: true });
       if (picked.length) setShot(picked);
     } catch (e) { setError(e instanceof Error ? e.message : "Couldn't add the screenshot"); }
     finally { setPicking(false); }

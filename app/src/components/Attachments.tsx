@@ -34,24 +34,27 @@ async function readFile(uri: string, size?: number, blob?: Blob, limit = MAX_FIL
   return { data, size: file.size };
 }
 
-export async function pickAttachments(mediaLibrary: boolean, existing: readonly DraftAttachment[] = []): Promise<DraftAttachment[]> {
-  const count = 4 - existing.length;
-  if (count <= 0) throw new Error("Attach up to 4 files");
+export async function pickAttachments(mediaLibrary: boolean, existing: readonly DraftAttachment[] = [], { limit = 4, imagesOnly = false }: { limit?: 1 | 2 | 3 | 4; imagesOnly?: boolean } = {}): Promise<DraftAttachment[]> {
+  const count = limit - existing.length;
+  const limitMessage = limit === 1 ? "Attach one file" : `Attach up to ${limit} files`;
+  if (count <= 0) throw new Error(limitMessage);
   const files: DraftAttachment[] = [];
   let remaining = MAX_UPLOAD_BYTES - existing.reduce((total, file) => total + file.size, 0);
   const add = (file: DraftAttachment) => {
+    if (imagesOnly && !file.mime.startsWith("image/")) throw new Error("Choose an image");
     validateAttachmentSelection([...existing, ...files, file]);
     files.push(file); remaining -= file.size;
   };
   if (mediaLibrary) {
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images", "videos"], allowsMultipleSelection: true, selectionLimit: count, orderedSelection: true, quality: 0.85, base64: true });
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: imagesOnly ? ["images"] : ["images", "videos"], allowsMultipleSelection: limit > 1, selectionLimit: count, orderedSelection: limit > 1, quality: 0.85, base64: true });
     if (result.canceled) return [];
-    if (result.assets.length > count) throw new Error("Attach up to 4 files");
+    if (result.assets.length > count) throw new Error(limitMessage);
     // Read one selection at a time, rejecting its size before creating base64.
     // Several large clips should never be decoded concurrently on a phone.
     for (const asset of result.assets) {
       const video = asset.type === "video" || asset.type === "pairedVideo" || asset.mimeType?.startsWith("video/") || /\.(mp4|mov|webm)$/i.test(asset.fileName ?? asset.uri);
       if (video) {
+        if (imagesOnly) throw new Error("Choose an image");
         const content = await readFile(asset.uri, asset.fileSize, asset.file, MAX_VIDEO_BYTES, remaining);
         const mime = uploadMediaMime(content.data);
         if (!mime || !isPreviewVideo({ mime })) throw new Error("Choose an MP4, MOV, or WebM video");
@@ -72,9 +75,9 @@ export async function pickAttachments(mediaLibrary: boolean, existing: readonly 
     }
     return files;
   }
-  const result = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true });
+  const result = await DocumentPicker.getDocumentAsync({ type: imagesOnly ? "image/*" : "*/*", multiple: limit > 1, copyToCacheDirectory: true });
   if (result.canceled) return [];
-  if (result.assets.length > count) throw new Error("Attach up to 4 files");
+  if (result.assets.length > count) throw new Error(limitMessage);
   for (const asset of result.assets) {
     const mayBeVideo = asset.mimeType?.startsWith("video/") || /\.(mp4|mov|webm)$/i.test(asset.name);
     const content = await readFile(asset.uri, asset.size, asset.file, mayBeVideo ? MAX_VIDEO_BYTES : MAX_FILE_BYTES, remaining);
