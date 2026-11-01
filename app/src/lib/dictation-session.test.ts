@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { createDictationCoordinator, type DictationEvent, type DictationState } from './dictation-session.ts';
 import { insertDictation } from './dictation-text.ts';
 
-function fixture(permission = async () => ({ granted: true }), start: () => void | Promise<void> = () => {}) {
+function fixture(permission = async () => ({ granted: true }), start: () => void | Promise<void> = () => {}, permissionMayBackgroundApp = false) {
   const listeners = new Set<(event: DictationEvent) => void>();
   const calls = { start: 0, stop: 0, abort: 0 };
   const coordinator = createDictationCoordinator({ permission,
     start: () => { calls.start++; return start(); }, stop: () => { calls.stop++; }, abort: () => { calls.abort++; },
     subscribe: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
-  });
+  }, { permissionMayBackgroundApp });
   const emit = (event: DictationEvent) => [...listeners].forEach(listener => listener(event));
   const session = (onText?: (text: string) => void) => {
     const words: string[] = [], states: DictationState[] = [];
@@ -112,4 +112,144 @@ test('recognizer errors prevent a pending send from silently dropping unfinished
   assert.equal(await sending, false);
   assert.match(session.states.at(-1)!.error, /connection/);
   assert.deepEqual(session.words, []);
+});
+
+test('Android first grant waits for the permission Activity to return to foreground', async () => {
+  let grant!: (value: { granted: boolean }) => void;
+  const f = fixture(() => new Promise(resolve => { grant = resolve; }), undefined, true);
+  const session = f.session();
+  const starting = session.start('en-US');
+  session.setForeground(false);
+  grant({ granted: true });
+  await Promise.resolve();
+  assert.equal(f.calls.start, 0, 'a granted permission cannot start recording in the background');
+  session.setForeground(true);
+  await starting;
+  assert.equal(f.calls.start, 1);
+  f.emit({ type: 'result', isFinal: true, text: 'First granted words' });
+  f.emit({ type: 'end' });
+  assert.deepEqual(session.words, ['First granted words']);
+});
+
+test('Android foreground can arrive before the first permission result', async () => {
+  let grant!: (value: { granted: boolean }) => void;
+  const f = fixture(() => new Promise(resolve => { grant = resolve; }), undefined, true);
+  const session = f.session();
+  const starting = session.start('en-US');
+  session.setForeground(false);
+  session.setForeground(true);
+  assert.equal(f.calls.start, 0);
+  grant({ granted: true });
+  await starting;
+  assert.equal(f.calls.start, 1);
+  f.emit({ type: 'end' });
+});
+
+test('Android first denial retains guidance after the permission Activity returns', async () => {
+  let grant!: (value: { granted: boolean }) => void;
+  const f = fixture(() => new Promise(resolve => { grant = resolve; }), undefined, true);
+  const session = f.session();
+  const starting = session.start('en-US');
+  session.setForeground(false);
+  grant({ granted: false });
+  await starting;
+  session.setForeground(true);
+  assert.equal(f.calls.start, 0);
+  assert.equal(session.states.at(-1)!.listening, false);
+  assert.match(session.states.at(-1)!.error, /Allow the microphone in Settings/);
+  assert.equal(await session.finish(), true, 'typed messages remain sendable after denial');
+});
+
+test('a grant left in the background expires instead of recording on a later return', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let grant!: (value: { granted: boolean }) => void;
+  const f = fixture(() => new Promise(resolve => { grant = resolve; }), undefined, true);
+  const session = f.session();
+  const starting = session.start('en-US');
+  session.setForeground(false);
+  grant({ granted: true });
+  await Promise.resolve();
+  t.mock.timers.tick(1001);
+  await starting;
+  session.setForeground(true);
+  assert.equal(f.calls.start, 0);
+  assert.equal(f.listeners.size, 0);
+  assert.equal(session.states.at(-1)!.listening, false);
+  assert.match(session.states.at(-1)!.error, /Tap the microphone to try again/);
+});
+
+test('a long background stay during the permission request requires another tap', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 0 });
+  let grant!: (value: { granted: boolean }) => void;
+  const f = fixture(() => new Promise(resolve => { grant = resolve; }), undefined, true);
+  const session = f.session();
+  const starting = session.start('en-US');
+  session.setForeground(false);
+  t.mock.timers.setTime(60_001);
+  session.setForeground(true);
+  grant({ granted: true });
+  await starting;
+  assert.equal(f.calls.start, 0);
+  assert.match(session.states.at(-1)!.error, /Tap the microphone to try again/);
+});
+
+test('navigation cancels the Android foreground handoff without affecting the next composer', async () => {
+  let grant!: (value: { granted: boolean }) => void;
+  let requests = 0;
+  const f = fixture(() => ++requests === 1 ? new Promise(resolve => { grant = resolve; }) : Promise.resolve({ granted: true }), undefined, true);
+  const old = f.session(), next = f.session();
+  const starting = old.start('en-US');
+  old.setForeground(false);
+  grant({ granted: true });
+  await Promise.resolve();
+  old.setActive(false);
+  await starting;
+  await next.start('en-US');
+  old.setForeground(true);
+  f.emit({ type: 'result', isFinal: true, text: 'Next composer only' });
+  f.emit({ type: 'end' });
+  assert.equal(f.calls.start, 1);
+  assert.deepEqual(old.words, []);
+  assert.deepEqual(next.words, ['Next composer only']);
+});
+
+test('background during Android recording aborts and rejects late transcript events', async () => {
+  const f = fixture(undefined, undefined, true), session = f.session();
+  await session.start('en-US');
+  session.setForeground(false);
+  assert.equal(f.calls.abort, 1);
+  f.emit({ type: 'result', isFinal: true, text: 'Must not reach draft' });
+  f.emit({ type: 'end' });
+  session.setForeground(true);
+  assert.deepEqual(session.words, []);
+  assert.equal(f.calls.start, 1, 'foreground does not resume cancelled recording');
+  assert.equal(session.states.at(-1)!.listening, false);
+});
+
+test('finish during the permission foreground handoff releases it without starting recording', async () => {
+  let grant!: (value: { granted: boolean }) => void;
+  const f = fixture(() => new Promise(resolve => { grant = resolve; }), undefined, true);
+  const session = f.session();
+  const starting = session.start('en-US');
+  session.setForeground(false);
+  grant({ granted: true });
+  await Promise.resolve();
+  assert.equal(await session.finish(), false, 'a backgrounded composer cannot send');
+  session.setForeground(true);
+  await starting;
+  assert.equal(f.calls.start, 0);
+  assert.equal(session.states.at(-1)!.listening, false);
+});
+
+test('other platforms still cancel a pending permission request on real app background', async () => {
+  let grant!: (value: { granted: boolean }) => void;
+  const f = fixture(() => new Promise(resolve => { grant = resolve; }));
+  const session = f.session();
+  const starting = session.start('en-US');
+  session.setForeground(false);
+  session.setForeground(true);
+  grant({ granted: true });
+  await starting;
+  assert.equal(f.calls.start, 0);
+  assert.equal(session.states.at(-1)!.listening, false);
 });

@@ -20,10 +20,11 @@ const messages: Record<string, string> = {
 
 // Recognition is one native service, even when several navigation screens keep
 // their composers mounted. Only its owning session may receive words or stop it.
-export function createDictationCoordinator(speech: Speech) {
-  type Session = { active: boolean; state: DictationState; onText: (text: string) => void; onState: (state: DictationState) => void };
-  type Run = { session: Session; native: boolean; cancelled: boolean; failed: boolean; stopping: boolean;
-    done: Promise<boolean>; resolve: (ok: boolean) => void; unsubscribe?: () => void; timeout?: ReturnType<typeof setTimeout> };
+export function createDictationCoordinator(speech: Speech, { permissionMayBackgroundApp = false } = {}) {
+  type Session = { active: boolean; foreground: boolean; state: DictationState; onText: (text: string) => void; onState: (state: DictationState) => void };
+  type Run = { session: Session; native: boolean; permissionPending: boolean; permissionBackgroundAt?: number; cancelled: boolean; failed: boolean; stopping: boolean;
+    done: Promise<boolean>; resolve: (ok: boolean) => void; unsubscribe?: () => void; timeout?: ReturnType<typeof setTimeout>;
+    resume?: (foreground: boolean) => void; resumeTimeout?: ReturnType<typeof setTimeout> };
   let owner: Run | undefined;
   const update = (session: Session, next: Partial<DictationState>) => {
     session.state = { ...session.state, ...next };
@@ -33,9 +34,11 @@ export function createDictationCoordinator(speech: Speech) {
     if (owner !== run) return;
     owner = undefined;
     clearTimeout(run.timeout);
+    clearTimeout(run.resumeTimeout);
+    run.resume?.(false);
     run.unsubscribe?.();
     update(run.session, { listening: false, partial: '' });
-    run.resolve(ok && !run.cancelled && run.session.active);
+    run.resolve(ok && !run.cancelled && run.session.active && run.session.foreground);
   };
   const expire = (run: Run) => {
     clearTimeout(run.timeout);
@@ -49,7 +52,7 @@ export function createDictationCoordinator(speech: Speech) {
   };
   return {
     createSession(onText: Session['onText'], onState: Session['onState']) {
-      const session: Session = { active: false, state: { listening: false, partial: '', error: '' }, onText, onState };
+      const session: Session = { active: false, foreground: true, state: { listening: false, partial: '', error: '' }, onText, onState };
       const cancel = () => {
         const run = owner;
         if (!run || run.session !== session) return;
@@ -62,29 +65,65 @@ export function createDictationCoordinator(speech: Speech) {
         if (!run.timeout) expire(run);
         try { speech.abort(); } catch { settle(run, false); }
       };
+      const permissionExpired = (run: Run) => run.permissionBackgroundAt !== undefined && Date.now() - run.permissionBackgroundAt > 60_000;
+      const retryPermission = () => {
+        update(session, { error: 'Dictation did not start. Tap the microphone to try again.' });
+        cancel();
+      };
       return {
         setActive(active: boolean) {
           session.active = active;
           if (!active) cancel();
           else onState(session.state);
         },
+        setForeground(foreground: boolean) {
+          if (session.foreground === foreground) return;
+          session.foreground = foreground;
+          const run = owner?.session === session ? owner : undefined;
+          // Android's permission Activity backgrounds the app. Keep only that
+          // pending decision, not a recording, and never resume a stale request.
+          if (!foreground) {
+            if (run && permissionMayBackgroundApp && run.permissionPending) run.permissionBackgroundAt ??= Date.now();
+            else cancel();
+          } else if (run && !run.native && permissionExpired(run)) retryPermission();
+          else {
+            if (session.active) onState(session.state);
+            run?.resume?.(true);
+          }
+        },
         cancel,
         async start(language: string) {
-          if (!session.active || owner?.session === session) return;
+          if (!session.active || !session.foreground || owner?.session === session) return;
           if (owner) { update(session, { error: 'Dictation is finishing. Try again.' }); return; }
           let resolve!: Run['resolve'];
           const done = new Promise<boolean>(yes => { resolve = yes; });
-          const run: Run = { session, native: false, cancelled: false, failed: false, stopping: false, done, resolve };
+          const run: Run = { session, native: false, permissionPending: true, cancelled: false, failed: false, stopping: false, done, resolve };
           owner = run;
           update(session, { listening: true, partial: '', error: '' });
           try {
             const permission = await speech.permission();
+            run.permissionPending = false;
             if (owner !== run || !session.active || run.cancelled) return;
             if (!permission?.granted) {
               update(session, { error: messages['not-allowed'] });
               settle(run, false); return;
             }
             if (run.stopping) { settle(run, true); return; }
+            if (permissionExpired(run)) { retryPermission(); return; }
+            if (!session.foreground) {
+              // The permission result can precede Android's foreground event.
+              // Allow that handoff for one second, then require a fresh tap.
+              const resumed = await new Promise<boolean>(resolve => {
+                run.resume = resolve;
+                run.resumeTimeout = setTimeout(() => resolve(false), 1000);
+              });
+              clearTimeout(run.resumeTimeout);
+              run.resume = undefined;
+              if (owner !== run || !session.active || run.cancelled) return;
+              if (!resumed || !session.foreground || permissionExpired(run)) { retryPermission(); return; }
+            }
+            if (run.stopping) { settle(run, true); return; }
+            run.permissionBackgroundAt = undefined;
             run.unsubscribe = speech.subscribe(event => {
               if (owner !== run) return;
               if (event.type === 'end') { settle(run, !run.failed); return; }
@@ -112,10 +151,11 @@ export function createDictationCoordinator(speech: Speech) {
         },
         finish(): Promise<boolean> {
           const run = owner;
-          if (!run || run.session !== session) return Promise.resolve(session.active);
+          if (!run || run.session !== session) return Promise.resolve(session.active && session.foreground);
           if (run.cancelled) return Promise.resolve(false);
           if (!run.stopping) {
             run.stopping = true;
+            if (run.resume) { settle(run, true); return run.done; }
             expire(run);
             if (run.native) {
               try { speech.stop(); }

@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { AppState } from "react-native";
+import { AppState, Platform } from "react-native";
 import { useIsFocused } from "expo-router";
 import { ExpoSpeechRecognitionModule } from "expo-speech-recognition";
 import { createDictationCoordinator, type DictationState } from "./dictation-session";
@@ -24,7 +24,7 @@ const coordinator = createDictationCoordinator({
     ];
     return () => subscriptions.forEach(subscription => subscription.remove());
   },
-});
+}, { permissionMayBackgroundApp: Platform.OS === 'android' });
 
 function deviceLanguage() {
   try { return Intl.DateTimeFormat().resolvedOptions().locale || "en-US"; } catch { return "en-US"; }
@@ -40,12 +40,13 @@ export function useDictation(onText: (spoken: string) => void): Dictation {
   useLayoutEffect(() => { commit.current = onText; });
   const session = useRef<ReturnType<typeof coordinator.createSession> | null>(null);
   useLayoutEffect(() => {
-    // Permission dialogs can make iOS temporarily inactive. Only leaving the
-    // app or conversation cancels the request; granting permission may proceed.
+    // Route ownership and foreground state are separate: Android permission
+    // Activities may temporarily background this still-focused conversation.
     const current = coordinator.createSession(spoken => commit.current(spoken), setState);
     session.current = current;
-    current.setActive(focused && AppState.currentState !== 'background');
-    const subscription = AppState.addEventListener('change', appState => current.setActive(focused && appState !== 'background'));
+    current.setForeground(AppState.currentState !== 'background');
+    current.setActive(focused);
+    const subscription = AppState.addEventListener('change', appState => current.setForeground(appState !== 'background'));
     return () => { subscription.remove(); session.current = null; current.setActive(false); };
   }, [focused]);
   const toggle = useCallback(() => {
