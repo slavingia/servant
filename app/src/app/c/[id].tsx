@@ -10,6 +10,7 @@ import { PresenceLine } from "../../components/Presence";
 import { useReadReceipts } from "../../lib/use-read-receipts";
 import { mergeReadEvent } from "../../lib/read-receipts";
 import { latestMessageReceipts } from "../../lib/message-status";
+import { canCompactPost } from "../../lib/message-device";
 import { TypingLine, useTyping, useTypingPing } from "../../lib/typing";
 import { api, ServerError, type Conversation, type Upload, type Post, type LiveEvent } from "../../lib/server";
 import { useLive } from "../../lib/live";
@@ -276,7 +277,7 @@ export default function ConversationScreen() {
             renderItem={({ item, index }) => {
               const above = data[index + 1];
               const newDay = !above || new Date(item.createdAt).toDateString() !== new Date(above.createdAt).toDateString();
-              const compact = !newDay && !!above && !above.activity && !item.activity && above.user.id === item.user.id && item.createdAt - above.createdAt < 5 * 60 * 1000 && !above.replyCount;
+              const compact = canCompactPost(above, item, account.user.role);
               return (
                 <View>
                 {newDay ? <MessageDate at={item.createdAt} /> : null}

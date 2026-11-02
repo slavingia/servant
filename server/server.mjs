@@ -24,6 +24,8 @@ import { createPushService, preferences, updatePushRegistration, updatePreferenc
 import { createPushTransport } from "./push-transport.mjs";
 import { createSecureTransport, serverIdentity } from "./secure-transport.mjs";
 import { createStateStore } from "./state-store.mjs";
+import { createDeviceLink, previewDeviceLink, approveDeviceLink, denyDeviceLink, pollDeviceLink } from "./device-links.mjs";
+import { privateMessageView } from "./source-device.mjs";
 import { createChatMediaStore } from "./chat-media.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { supportsDurableRuns, runDurableHermes } from "./hermes-runs.mjs";
@@ -405,11 +407,40 @@ async function handle(req, res, cfg) {
     // initial rollout. New devices/pairing remain encrypted, and the grant is
     // bounded by an explicit expiry stored in private transactional state.
     const legacy = authenticate(req, readState());
-    if (url.pathname === "/v1/pair" || !legacy || !Number.isSafeInteger(legacy.device.legacyPlaintextUntil) || legacy.device.legacyPlaintextUntil <= now()) {
+    if (url.pathname === "/v1/pair" || parts[1] === "device-links" || !legacy || !Number.isSafeInteger(legacy.device.legacyPlaintextUntil) || legacy.device.legacyPlaintextUntil <= now()) {
       return fail(res, 426, "encryption_required", "Update Servant and open a new invite from your admin to enable encryption");
     }
     res.setHeader("Deprecation", "true");
     res.setHeader("Sunset", new Date(legacy.device.legacyPlaintextUntil).toUTCString());
+  }
+
+  if (parts[0] === "v1" && parts[1] === "device-links") {
+    if (method === "POST" && parts.length === 2) {
+      const body = await readBody(req);
+      const link = mutateState(state => createDeviceLink(state, { device: body?.device, ip: clientIp(req) }));
+      return send(res, 201, link);
+    }
+    if (method === "POST" && parts.length === 4 && parts[3] === "poll") {
+      const body = await readBody(req);
+      const result = mutateState(state => pollDeviceLink(state, parts[2], body?.secret));
+      return send(res, 200, result.status === "approved" ? { ...result, server: { name: cfg.name } } : result);
+    }
+    if (method === "GET" && parts.length === 3) {
+      const state = readState();
+      requireAuth(req, state);
+      return send(res, 200, previewDeviceLink(state, parts[2]));
+    }
+    if (method === "POST" && parts.length === 4 && ["approve", "deny"].includes(parts[3])) {
+      // Consume the request first, then authorize inside the same transaction
+      // as approval so revocation while a body is uploading cannot race it.
+      requireAuth(req);
+      await readBody(req);
+      const result = mutateAuthenticated(req, (state, auth) => parts[3] === "approve"
+        ? approveDeviceLink(state, parts[2], auth)
+        : denyDeviceLink(state, parts[2], auth));
+      return send(res, 200, result);
+    }
+    return fail(res, 404, "not_found", "Not found");
   }
 
   if (method === "POST" && url.pathname === "/v1/pair") {
@@ -549,7 +580,7 @@ async function handle(req, res, cfg) {
     if (!chat || chat.deletedAt || chat.userId !== current.id) return fail(res, 404, "not_found", "That attachment is unavailable");
     return send(res, 200, { data: Buffer.from(a.data).toString("base64") });
   }
-  if (messaging && (await messaging.handle(req, res, { user, method, parts, url, send, fail, readBody: readAuthorizedBody, cors: CORS,
+  if (messaging && (await messaging.handle(req, res, { user, device, method, parts, url, send, fail, readBody: readAuthorizedBody, cors: CORS,
     isAuthorized: () => authenticate(req, readState())?.user.id === user.id,
   }))) return undefined;
 
@@ -647,7 +678,9 @@ async function handle(req, res, cfg) {
       attachments: [], pending: !terminalTurn(turn), interrupted: terminalTurn(turn), turnId: turn.id,
     });
     messages.sort((a, b) => a.at - b.at);
-    return send(res, 200, { messages, latestTurn, upstreamUnavailable });
+    const current = requireAuth(req);
+    const sources = agentTurns.messageSources(chat.id);
+    return send(res, 200, { messages: messages.map(message => privateMessageView(message, current.user, sources)), latestTurn, upstreamUnavailable });
   }
 
   if (method === "GET" && parts[3] === "media" && parts.length === 4) {
@@ -711,6 +744,7 @@ async function handle(req, res, cfg) {
       const latest = readState();
       const current = requireAuth(req, latest);
       if (latest.chats[chat.id]?.userId !== current.user.id) throw requestError(404, "not_found", "No such chat");
+      return current;
     });
   }
 
@@ -719,6 +753,7 @@ async function handle(req, res, cfg) {
 
 function streamPrivateTurn(req, res, turnId, authorize, after = 0) {
   authorize();
+  const sources = agentTurns.turnMessageSources(turnId);
   res.writeHead(200, { ...CORS, "Content-Type": "text/event-stream; charset=utf-8",
     "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no", Connection: "keep-alive" });
   return new Promise(resolve => {
@@ -734,10 +769,13 @@ function streamPrivateTurn(req, res, turnId, authorize, after = 0) {
     const flush = () => {
       if (closed) return;
       try {
-        authorize();
+        const current = authorize();
         const events = agentTurns.events(turnId, after);
         for (const event of events) {
-          res.write(`event: ${event.event}\ndata: ${JSON.stringify(event.payload)}\nid: ${event.seq}\n\n`);
+          const payload = event.event === 'sent'
+            ? { ...event.payload, message: privateMessageView(event.payload.message, current?.user, sources) }
+            : event.event === 'message' ? privateMessageView(event.payload, current?.user, sources) : event.payload;
+          res.write(`event: ${event.event}\ndata: ${JSON.stringify(payload)}\nid: ${event.seq}\n\n`);
           after = event.seq;
           if (event.event === "done") { close(); break; }
         }

@@ -18,6 +18,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          # Exercise API rollouts against the pinned, older worker source.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '24'

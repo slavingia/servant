@@ -12,6 +12,7 @@ import { MessageText } from "../../components/MessageText";
 import { AgentApprovalCard } from "../../components/AgentApprovalCard";
 import { activeAgentTurn, agentTurnLabel, type AgentTurn } from "../../lib/agent-turns";
 import { bufferAgentReply } from "../../lib/agent-events";
+import { messageDeviceLabel } from "../../lib/message-device";
 import { api, sendMessage, ServerError, type Message, type Upload } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { space, typography, useTheme, createThemedStyles } from "../../lib/theme";
@@ -285,13 +286,15 @@ function ChatConversation() {
               const mine = item.role === "user";
               const working = !mine && item.pending;
               const timestamp = typeof item.at === "number" ? item.at : item.at ? new Date(item.at).getTime() : NaN;
-              return <View accessibilityLabel={mine ? "Your message" : "Agent response"} style={[styles.message, item.failed && styles.failed]}>
+              const deviceLabel = messageDeviceLabel(account.user.role, item);
+              return <View accessibilityLabel={mine ? `Your message${deviceLabel ? `, sent from ${deviceLabel}` : ""}` : "Agent response"} style={[styles.message, item.failed && styles.failed]}>
                 <Avatar name={mine ? account.user.name : "Servant"} agent={!mine} size={34} />
                 <View style={styles.messageCopy}>
                   <View style={styles.messageMeta}>
                     <Text style={styles.author}>{mine ? account.user.name : "Servant"}</Text>
                     {!mine ? <Text style={styles.agentTag}>Agent</Text> : null}
                     {Number.isFinite(timestamp) ? <Text style={styles.time}>{when(timestamp)}</Text> : null}
+                    {deviceLabel ? <Text testID={`message-device-${item.id}`} accessibilityLabel={`Sent from ${deviceLabel}`} style={styles.time}>· {deviceLabel}</Text> : null}
                   </View>
                   {!working && item.text ? mine ? <Text selectable style={[styles.text, item.failed && styles.failedText]}>{item.text}</Text> : <MessageText text={item.text} failed={item.failed} /> : null}
                   {!working && item.attachments?.length ? <Attachments files={item.attachments} /> : null}

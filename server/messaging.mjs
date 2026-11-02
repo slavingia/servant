@@ -11,6 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { isMention } from "./push.mjs";
 import { validateUploads, mediaPage, MAX_UPLOAD_BODY, MAX_UPLOAD_TOTAL } from "./media.mjs";
+import { sourceDeviceKind, sourceDeviceFields } from "./source-device.mjs";
 
 export const AGENT_ID = "agent";
 const MAX_TEXT = 8000;
@@ -172,6 +173,11 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     if (!db.prepare("PRAGMA table_info(messages)").all().some(column => column.name === "activity")) {
       db.exec("ALTER TABLE messages ADD COLUMN activity TEXT");
     }
+    for (const column of ['source_device_kind', 'source_device_id']) {
+      if (!db.prepare('PRAGMA table_info(messages)').all().some(value => value.name === column)) {
+        db.exec(`ALTER TABLE messages ADD COLUMN ${column} TEXT`);
+      }
+    }
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
 
@@ -254,7 +260,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     addMember: q("INSERT OR IGNORE INTO members (conversation_id, user_id, joined_at, last_read_seq) VALUES (?, ?, ?, ?)"),
     removeMember: q("DELETE FROM members WHERE conversation_id = ? AND user_id = ?"),
     lastSeq: q("SELECT COALESCE(MAX(seq), 0) AS seq FROM messages WHERE conversation_id = ?"),
-    insertMsg: q("INSERT INTO messages (conversation_id, user_id, thread_root, text, created_at, pending) VALUES (?, ?, ?, ?, ?, ?)"),
+    insertMsg: q("INSERT INTO messages (conversation_id, user_id, thread_root, text, created_at, pending, source_device_kind, source_device_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"),
     insertActivity: q("INSERT INTO messages (conversation_id, user_id, text, created_at, activity) VALUES (?, ?, ?, ?, ?)"),
     msg: q("SELECT * FROM messages WHERE seq = ?"),
     bumpThread: q("UPDATE messages SET reply_count = reply_count + 1, last_reply_at = ? WHERE seq = ?"),
@@ -352,7 +358,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     const data = JSON.parse(row.payload);
     if (row.event.startsWith('message.')) {
       const message = st.msg.get(Number(data.messageId));
-      return message && message.conversation_id === conv.id ? msgView(message) : null;
+      return message && message.conversation_id === conv.id ? msgView(message, true, userId) : null;
     }
     if (row.event === 'typing') {
       if (now() - row.created_at > 6000 || !users()[data.userId] || !st.member.get(conv.id, data.userId)) return null;
@@ -418,8 +424,9 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     const { lastSeenAt, online } = presence(uid);
     return u ? { id: u.id, name: u.name, lastSeenAt, online } : { id: uid, name: "Former member" };
   };
-  const msgView = (m, includeReads = true) => ({
+  const msgView = (m, includeReads = true, viewerId) => ({
     id: String(m.seq),
+    ...(!m.activity && m.user_id !== AGENT_ID ? sourceDeviceFields(m.source_device_kind, users()[viewerId]) : {}),
     readBy: includeReads && !m.deleted_at && !m.pending && !m.activity && m.user_id !== AGENT_ID
       ? st.reads.all(m.seq).filter(r => !!users()[r.userId]) : [],
     activity: m.activity || undefined,
@@ -458,7 +465,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       memberCount: memberIds.length,
       members: includeMembers || c.kind === "dm" || memberIds.length <= 50 ? memberIds.map(person) : undefined,
       unread: c.unread ?? 0,
-      lastMessage: last ? msgView(last, !!st.member.get(c.id, me)) : null,
+      lastMessage: last ? msgView(last, !!st.member.get(c.id, me), me) : null,
       updatedAt: last ? last.created_at : c.created_at,
     };
   }
@@ -541,7 +548,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
   }
 
   function post(...args) { return transaction(() => postInTransaction(...args)); }
-  function postInTransaction(conv, userId, text, threadRoot = null, { pending = false, attachments = [], queueAgent = externalWorker } = {}) {
+  function postInTransaction(conv, userId, text, threadRoot = null, { pending = false, attachments = [], queueAgent = externalWorker, device } = {}) {
     conv = userId === AGENT_ID ? st.conv.get(conv.id) : requireConversation(conv.id, userId, true);
     if (!conv || conv.archived_at) throw httpError(404, 'not_found', 'That conversation is gone');
     if (threadRoot) {
@@ -549,7 +556,8 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       if (!root || root.deleted_at || root.conversation_id !== conv.id) throw httpError(404, 'not_found', 'That thread is gone');
       if (root.activity) throw httpError(400, 'channel_activity', 'Channel activity cannot have replies');
     }
-    const r = st.insertMsg.run(conv.id, userId, threadRoot, text, now(), pending ? 1 : 0);
+    const humanDevice = userId !== AGENT_ID && device?.userId === userId ? device : null;
+    const r = st.insertMsg.run(conv.id, userId, threadRoot, text, now(), pending ? 1 : 0, sourceDeviceKind(humanDevice), humanDevice?.id || null);
     const seq = Number(r.lastInsertRowid);
     if (conv.kind === "dm") unarchiveDm(conv.id);
     for (const a of attachments) st.insertAttachment.run(newId("file"), seq, a.name, a.mime, a.data.length, a.data);
@@ -811,7 +819,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
   }
 
   // ----- HTTP -----
-  async function handle(req, res, { user, method, parts, url, send, fail, readBody, cors, isAuthorized = () => true }) {
+  async function handle(req, res, { user, device, method, parts, url, send, fail, readBody, cors, isAuthorized = () => true }) {
     const r = parts[1];
     if (!["people", "conversations", "channels", "messages", "events", "releases", "attachments", "presence", "search"].includes(r)) return false;
 
@@ -840,6 +848,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
           conversationTitle: titles.get(m.conversation_id), conversationKind: m.conversation_kind,
           threadRoot: m.thread_root ? String(m.thread_root) : null,
           text: m.text, user: person(m.user_id), createdAt: m.created_at,
+          ...(!m.activity && m.user_id !== AGENT_ID ? sourceDeviceFields(m.source_device_kind, users()[user.id]) : {}),
         };
       });
       send(res, 200, { channels, people, messages });
@@ -1190,7 +1199,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       if (sub === "messages" && method === "GET") {
         const before = Number(url.searchParams.get("before")) || Number.MAX_SAFE_INTEGER;
         const rows = st.page.all(conv.id, before, PAGE);
-        send(res, 200, { messages: rows.reverse().map(m => msgView(m, isMember)), more: rows.length === PAGE });
+        send(res, 200, { messages: rows.reverse().map(m => msgView(m, isMember, user.id)), more: rows.length === PAGE });
         return true;
       }
       if (sub === "messages" && method === "POST") {
@@ -1207,15 +1216,15 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
           if (parent.activity) return fail(res, 400, "channel_activity", "Channel activity cannot have replies"), true;
           root = parent.thread_root || parent.seq;
         }
-        const m = post(conv, user.id, text, root, { attachments });
-        send(res, 201, { message: msgView(m) });
+        const m = post(conv, user.id, text, root, { attachments, device });
+        send(res, 201, { message: msgView(m, true, user.id) });
         if (!externalWorker && wantsAgent(conv, m)) agentReply(conv, m).catch((e) => console.error("[servant] agent reply", e));
         return true;
       }
       if (sub === "threads" && parts[4] && method === "GET") {
         const root = st.msg.get(Number(parts[4]));
         if (!root || root.conversation_id !== conv.id || root.thread_root) return fail(res, 404, "not_found", "That thread is gone"), true;
-        send(res, 200, { root: msgView(root, isMember), replies: st.replies.all(root.seq).map(m => msgView(m, isMember)) });
+        send(res, 200, { root: msgView(root, isMember, user.id), replies: st.replies.all(root.seq).map(m => msgView(m, isMember, user.id)) });
         return true;
       }
     }
@@ -1237,7 +1246,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
           const current = requireMessage(m.seq, user.id, true);
           if (current.pending) throw httpError(409, 'pending', 'Wait for the message to finish');
           (active ? st.addReaction : st.removeReaction).run(m.seq, user.id, emoji);
-          const value = msgView(st.msg.get(m.seq));
+          const value = msgView(st.msg.get(m.seq), true, user.id);
           publish(conv.id, "message.updated", value);
           return value;
         });
@@ -1254,7 +1263,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
           const current = requireMessage(m.seq, user.id, true);
           if (current.user_id !== user.id) throw httpError(403, 'forbidden', 'You can only edit your own messages');
           st.setText.run(text.slice(0, MAX_TEXT), now(), m.seq);
-          const value = msgView(st.msg.get(m.seq));
+          const value = msgView(st.msg.get(m.seq), true, user.id);
           publish(conv.id, "message.updated", value);
           return value;
         });

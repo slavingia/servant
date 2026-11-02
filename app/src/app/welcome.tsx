@@ -6,6 +6,8 @@ import { Button } from "../components/Button";
 import { parseInvite } from "../lib/invite";
 import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
 import { useSession } from "../lib/session";
+import { getDesktopWorkspace } from "../lib/desktop";
+import { DesktopSignIn } from "../components/DesktopSignIn";
 
 export default function Welcome() {
   const styles = useStyles();
@@ -13,6 +15,8 @@ export default function Welcome() {
   const { account } = useSession();
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [useInvite, setUseInvite] = useState(false);
+  const desktopWorkspace = getDesktopWorkspace();
 
   const join = () => {
     const invite = parseInvite(text);
@@ -22,6 +26,8 @@ export default function Welcome() {
     }
     router.push({ pathname: "/pair", params: { code: invite.code, key: invite.serverKey ?? "", d: invite.discovery ?? "", server: invite.server ?? "" } });
   };
+
+  if (desktopWorkspace && !useInvite) return <DesktopSignIn workspace={desktopWorkspace} onUseInvite={() => setUseInvite(true)} />;
 
   return (
     <View style={styles.root}>
@@ -51,6 +57,7 @@ export default function Welcome() {
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
 
           <Button label="Continue" onPress={join} disabled={!text.trim()} style={styles.action} />
+          {desktopWorkspace ? <Button label="Sign in with your phone" kind="secondary" onPress={() => setUseInvite(false)} style={[styles.action, { marginTop: space.sm }]} /> : null}
           {Platform.OS !== "web" ? <Button label="Scan an invite code" kind="secondary" onPress={() => router.push("/scan")} style={[styles.action, { marginTop: space.sm }]} /> : null}
 
           <Text style={styles.note}>For non-sensitive work only. Don't share taxpayer information here until your agency approves Servant for it</Text>

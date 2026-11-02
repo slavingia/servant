@@ -6,6 +6,9 @@ import type { Invite } from "./invite";
 import { createLiveEventDecoder } from "./live-events";
 import { createAgentEventDecoder, type StreamEvent } from "./agent-events";
 import { parseAgentTurn, type AgentTurn } from './agent-turns';
+import { isDesktop } from './desktop';
+import { createAccountWrites } from './account-writes';
+import type { SourceDevice } from './message-device';
 export type { StreamEvent } from "./agent-events";
 
 export type Role = "owner" | "member";
@@ -18,7 +21,7 @@ export type Account = {
   user: { id: string; name: string; role: Role };
 };
 export type Chat = { id: string; title: string; createdAt: number; updatedAt: number; latestTurn?: AgentTurn | null };
-export type Message = { id: string; role: "user" | "assistant"; text: string; at?: number | string | null; attachments?: Attachment[]; pending?: boolean; interrupted?: boolean };
+export type Message = { id: string; role: "user" | "assistant"; text: string; at?: number | string | null; attachments?: Attachment[]; pending?: boolean; interrupted?: boolean; sourceDevice?: SourceDevice };
 
 // ----- channels, direct messages, threads -----
 export type Presence = { userId: string; online: boolean; lastSeenAt: number | null };
@@ -26,6 +29,7 @@ export type Person = { id: string; name: string; agent?: boolean; owner?: boolea
 export type Attachment = { id: string; name: string; mime: string; size: number };
 export type Upload = { name: string; data: string };
 export type Post = {
+  sourceDevice?: SourceDevice;
   readBy?: { userId: string; readAt: number }[];
   reactions?: { emoji: string; userIds: string[] }[];
   attachments?: Attachment[];
@@ -60,6 +64,7 @@ export type Conversation = {
 export type BrowseChannel = { id: string; name: string; topic: string; memberCount: number };
 export type SearchChannel = BrowseChannel & { archived: boolean; joined: boolean; private: boolean };
 export type SearchMessage = {
+  sourceDevice?: SourceDevice;
   id: string;
   conversationId: string;
   conversationTitle: string;
@@ -104,8 +109,12 @@ export async function loadAccount(): Promise<Account | null> {
   }
 }
 
-export const saveAccount = (a: Account) => setItem(KEY, JSON.stringify(a));
-export const clearAccount = () => removeItem(KEY);
+const accountWrites = createAccountWrites({
+  read: () => getItem(KEY), write: value => setItem(KEY, value), remove: () => removeItem(KEY),
+});
+export const saveAccount = async (a: Account) => { await accountWrites.save(JSON.stringify(a)); };
+export const saveAccountIfCurrent = (a: Account, current: () => boolean) => accountWrites.save(JSON.stringify(a), current);
+export const clearAccount = accountWrites.clear;
 
 const trim = (u: string) => u.replace(/\/+$/, "");
 
@@ -133,7 +142,7 @@ async function readError(res: SecureResponse): Promise<ServerError> {
 }
 
 function deviceLabel() {
-  return Platform.OS === "ios" ? "iPhone" : Platform.OS === "android" ? "Android phone" : "Browser";
+  return isDesktop() ? "Mac" : Platform.OS === "ios" ? "iPhone" : Platform.OS === "android" ? "Android phone" : "Browser";
 }
 
 export async function pair(invite: Invite, name?: string): Promise<Account> {

@@ -1,4 +1,4 @@
-import { ActivityIndicator, Platform, View } from "react-native";
+import { ActivityIndicator, Platform, Text, View } from "react-native";
 import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider as NavigationThemeProvider, usePathname } from "expo-router";
 import { useMemo } from "react";
 import { StatusBar } from "expo-status-bar";
@@ -8,6 +8,7 @@ import { NotificationsProvider } from "../lib/notifications";
 import { LiveProvider } from "../lib/live";
 import { FeedbackPrompt } from "../components/FeedbackPrompt";
 import { AppChrome } from "../components/AppChrome";
+import { Button } from "../components/Button";
 import { ThemeProvider, useTheme, typography } from "../lib/theme";
 import { validServerKey } from "../lib/tunnel-crypto";
 
@@ -24,7 +25,7 @@ export default function RootLayout() {
 }
 
 function SessionNavigation() {
-  const { ready, account } = useSession();
+  const { ready, account, loadError, retryLoad } = useSession();
   const { colors, scheme } = useTheme();
   const pathname = usePathname();
   const navigationTheme = useMemo(() => ({
@@ -45,6 +46,14 @@ function SessionNavigation() {
     return (
       <View style={{ flex: 1, backgroundColor: colors.navy, alignItems: "center", justifyContent: "center" }}>
         <ActivityIndicator color={colors.white} />
+      </View>
+    );
+  }
+  if (loadError) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.background, alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <Text accessibilityRole="alert" style={{ ...typography.body, color: colors.ink, textAlign: "center", maxWidth: 400 }}>{loadError}</Text>
+        <Button label="Try again" onPress={retryLoad} style={{ marginTop: 24, minWidth: 200 }} />
       </View>
     );
   }
@@ -87,10 +96,11 @@ function SessionNavigation() {
     >
       {/* Startup redirects should reveal the landing screen in place. */}
       <Stack.Screen name="index" options={{ headerShown: false, animation: "none" }} />
+      <Stack.Screen name="scan" options={{ title: "Scan QR code" }} />
+      <Stack.Screen name="link-device" options={{ title: "Link a computer" }} />
       <Stack.Protected guard={!paired} redirectTo="/channels">
         <Stack.Screen name="welcome" options={{ headerShown: false, animation: "none" }} />
         <Stack.Screen name="pair" options={{ title: "Joining", headerBackVisible: false }} />
-        <Stack.Screen name="scan" options={{ title: "Scan invite" }} />
       </Stack.Protected>
       <Stack.Protected guard={paired} redirectTo="/welcome">
         <Stack.Screen name="(tabs)" options={{ headerShown: false, title: "Back", animation: "none" }} />

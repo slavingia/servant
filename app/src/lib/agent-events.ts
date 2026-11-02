@@ -1,5 +1,6 @@
 import type { Attachment, Message } from "./server";
 import { parseAgentTurn, parseApproval, type AgentTurn, type AgentApproval } from './agent-turns.ts';
+import { parseSourceDevice } from './message-device.ts';
 
 export type StreamEvent =
   | { type: "turn"; turn: AgentTurn }
@@ -65,7 +66,8 @@ export function parseAgentEvent(name: string, payload: Record<string, unknown>):
   const body = typeof value.text === "string" ? value.text : "";
   if (name === "sent") {
     if (!id || value.role !== "user" || (!body && !files?.length)) return null;
-    return { type: "sent", message: { id, role: "user", text: body, at, attachments: files } };
+    const sourceDevice = parseSourceDevice(value.sourceDevice);
+    return { type: "sent", message: { id, role: "user", text: body, at, attachments: files, ...(sourceDevice ? { sourceDevice } : {}) } };
   }
   return { type: "message", id, text: body, at, attachments: files };
 }

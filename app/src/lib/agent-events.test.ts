@@ -5,6 +5,17 @@ import { bufferAgentReply, createAgentEventDecoder, parseAgentEvent, type Stream
 const photo = { id: "chat_file_1", name: "Lake.jpg", mime: "image/jpeg", size: 1200 };
 const frame = (name: string, value: unknown) => `event: ${name}\r\ndata: ${JSON.stringify(value)}\r\n\r\n`;
 
+test("accepted user messages retain canonical device provenance while agent replies do not", () => {
+  const sourceDevice = { kind: "computer", label: "Computer" };
+  const sent = parseAgentEvent("sent", { message: { id: "u1", role: "user", text: "Hello", sourceDevice } });
+  assert.equal(sent?.type, "sent");
+  if (sent?.type === "sent") assert.deepEqual(sent.message.sourceDevice, sourceDevice);
+  const unknown = parseAgentEvent("sent", { message: { id: "u2", role: "user", text: "Hello", sourceDevice: { kind: "unknown", label: "Laptop" } } });
+  if (unknown?.type === "sent") assert.equal(unknown.message.sourceDevice, undefined);
+  const reply = parseAgentEvent("message", { id: "a1", text: "Hello", sourceDevice });
+  assert.ok(reply && !("sourceDevice" in reply));
+});
+
 test("fragmented streams retain accepted image-only messages and assistant images", () => {
   const received: StreamEvent[] = [];
   const decoder = createAgentEventDecoder(event => received.push(event));

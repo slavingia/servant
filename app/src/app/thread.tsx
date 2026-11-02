@@ -10,6 +10,7 @@ import { api, ServerError, type Upload, type Post, type Conversation, type LiveE
 import { useReadReceipts } from "../lib/use-read-receipts";
 import { mergeReadEvent } from "../lib/read-receipts";
 import { latestMessageReceipts } from "../lib/message-status";
+import { canCompactPost } from "../lib/message-device";
 import { useLive } from "../lib/live";
 import { useSession } from "../lib/session";
 import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
@@ -243,7 +244,7 @@ export default function ThreadScreen() {
               </View>;
               const above = rows[index - 1];
               const newDay = !!above && new Date(item.createdAt).toDateString() !== new Date(above.createdAt).toDateString();
-              const compact = !newDay && !!above && above.id !== root && above.user.id === item.user.id && item.createdAt - above.createdAt < 5 * 60 * 1000;
+              const compact = above?.id !== root && canCompactPost(above, item, account.user.role);
               return <View style={item.id === focus ? styles.searchMatch : undefined}>
                 {newDay ? <MessageDate at={item.createdAt} /> : null}
                 {item.id === focus ? <Text style={styles.searchLabel}>Search match</Text> : null}

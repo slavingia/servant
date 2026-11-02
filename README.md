@@ -22,6 +22,7 @@ Status: private while it gets good. It is meant to be open source (CC0) when it 
 ```
 
 - **App** (`app/`): an Expo app for iOS and Android. Testers get it through TestFlight and Firebase App Distribution.
+- **Mac app** (`desktop/`): [download Servant for Mac](https://servant-desktop.web.app), then use **You → Link a computer** in phone build 25 or later to scan and approve sign-in. The initial Mac release is an unnotarized preview. See [desktop builds and distribution](desktop/README.md).
 - **Server** (`server/`): a Node server with no dependencies. It pairs devices from one-time invites, issues a token for each device, keeps each person's conversations separate, and passes messages to the agent. The agent's API key stays on the Mac.
 - **Relay**: the optional [stable relay](docs/relay-transport.md) gives the Mac a fixed address and forwards encrypted traffic over an outbound connection. It needs no gist or GitHub login. Legacy quick tunnels remain supported.
 
@@ -55,6 +56,16 @@ The attachment picker and sharing modules require a new native app build for exi
 
 - **Owner**: the person whose computer runs the agent. Full agent.
 - **Member**: anyone the owner invites. The checked-in member bridge allows text and inline-image reasoning, with an empty host-tool allowlist, no local context files and no persistent memory. The server refuses an unverified member upstream. See the [reproducible member policy](docs/member-security.md), including its intentionally restricted capabilities.
+
+Each person can sign in on multiple devices without an account-wide device cap.
+QR linking and existing-user invites add separate credentials to the same account;
+signing out or revoking a device leaves the others active.
+
+The owner can preview the sending-device category beside messages: Mobile,
+Computer, or Browser. The server records the authenticated session's category at
+send time and excludes it from member responses. Older messages with no known
+source stay unlabeled. This does not give the owner access to anyone else's
+private conversations.
 
 ## Security notes
 

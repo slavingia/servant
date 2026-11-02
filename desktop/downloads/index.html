@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Download Servant for Mac. Sign in with the Servant app on your phone and keep your existing conversations.">
+  <meta name="theme-color" content="#112e51">
+  <title>Servant for Mac</title>
+  <style>
+    :root { color-scheme: light; --navy: #112e51; --blue: #0071bc; --ink: #192b3e; --muted: #526477; --line: #d9e2eb; --paper: #f4f7fa; }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--ink); background: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: var(--blue); text-underline-offset: .2em; }
+    a:focus-visible { outline: 3px solid #eba64a; outline-offset: 5px; }
+    .wrap { max-width: 1120px; margin: auto; padding: 0 32px; }
+    header { border-top: 5px solid var(--blue); border-bottom: 1px solid var(--line); }
+    .top { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+    .brand { color: var(--navy); display: flex; align-items: center; gap: 12px; font-weight: 750; font-size: 23px; letter-spacing: -.7px; }
+    .brandmark { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; background: var(--navy); color: white; font-size: 23px; font-weight: 650; }
+    .top-label { color: var(--muted); font-size: 13px; }
+    main { padding-top: 72px; }
+    .hero { display: grid; grid-template-columns: 1.04fr 1fr; align-items: center; gap: 54px; }
+    .eyebrow { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 19px; color: var(--blue); font-size: 12px; font-weight: 750; letter-spacing: 1.5px; text-transform: uppercase; }
+    .eyebrow::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--blue); }
+    h1 { margin: 0; color: var(--navy); font-size: clamp(38px, 5.2vw, 60px); font-weight: 750; letter-spacing: -2.8px; line-height: 1.06; }
+    .intro { color: var(--muted); margin: 22px 0 27px; max-width: 460px; font-size: 18px; line-height: 1.65; }
+    .downloads { display: grid; gap: 10px; }
+    .download { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 63px; padding: 14px 18px; border: 1px solid var(--navy); border-radius: 10px; background: var(--navy); color: white; text-decoration: none; font-size: 15px; font-weight: 650; transition: background .15s; }
+    .download:hover { background: #1b426e; }
+    .download.secondary { background: white; border-color: var(--line); color: var(--navy); }
+    .download.secondary:hover { background: var(--paper); }
+    .download small { display: block; margin-top: 4px; opacity: .8; font-size: 12px; font-weight: 400; }
+    .arrow { font-size: 23px; line-height: 1; }
+    .system { color: var(--muted); margin: 15px 0 0; font-size: 12px; line-height: 1.7; }
+    .preview { position: relative; padding: 34px 0 34px 20px; }
+    .preview::before { content: ""; position: absolute; z-index: -1; inset: -16px -32px -16px 34px; background: var(--paper); border-radius: 34px 0 0 34px; }
+    .app-window { overflow: hidden; border: 1px solid #bccbd9; border-radius: 13px; background: #fff; box-shadow: 0 22px 45px #112e5115, 0 3px 8px #112e510a; }
+    .window-bar { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-bottom: 1px solid var(--line); background: #f8fafc; }
+    .dot { width: 8px; height: 8px; border: 1px solid #c5cdd6; border-radius: 50%; background: #e0e6ec; }
+    .window-title { flex: 1; padding-right: 34px; text-align: center; color: #617184; font-size: 10px; font-weight: 600; }
+    .window-body { display: flex; min-height: 296px; }
+    .sidebar { width: 125px; flex-shrink: 0; background: var(--navy); color: #c6d7e8; font-size: 10px; padding: 21px 10px; }
+    .workspace { color: #fff; margin: 0 0 25px 6px; font-size: 13px; font-weight: 650; }
+    .sidebar-label { font-size: 8px; text-transform: uppercase; letter-spacing: 1px; margin: 16px 6px 8px; color: #9fb9d4; }
+    .channel { padding: 7px 8px; margin-bottom: 3px; border-radius: 5px; white-space: nowrap; }
+    .channel.selected { background: #fff2; color: #fff; font-weight: 600; }
+    .chat { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .chat-heading { padding: 18px 17px 14px; border-bottom: 1px solid #e7edf3; color: var(--navy); font-size: 12px; font-weight: 700; }
+    .chat-content { padding: 20px 15px 15px; flex: 1; }
+    .message { display: flex; gap: 9px; margin-bottom: 20px; }
+    .avatar { width: 26px; height: 26px; flex-shrink: 0; border-radius: 8px; background: #e3eef7; display: grid; place-items: center; color: #1e6194; font-size: 9px; font-weight: 700; }
+    .avatar.agent { background: #e8ebf4; color: #58638b; }
+    .message-name { margin: 1px 0 5px; font-size: 10px; font-weight: 650; }
+    .message-text { color: #607387; font-size: 10px; line-height: 1.6; }
+    .compose { margin: 0 13px 13px; padding: 11px; border: 1px solid var(--line); border-radius: 7px; color: #7c8b9c; font-size: 9px; }
+    .mock-caption { color: var(--muted); margin: 18px 0 0; font-size: 12px; text-align: center; }
+    .notice { margin: 40px 0 0; padding: 18px 20px; border: 1px solid #e5d1a8; border-radius: 10px; background: #fffaf0; color: #70521e; font-size: 14px; line-height: 1.65; }
+    .notice strong { display: block; margin-bottom: 2px; }
+    .setup { margin-top: 68px; padding-top: 38px; border-top: 1px solid var(--line); }
+    h2 { margin: 0; color: var(--navy); font-size: 28px; letter-spacing: -.7px; }
+    .setup-intro { margin: 10px 0 27px; color: var(--muted); font-size: 15px; line-height: 1.65; }
+    .steps { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; }
+    .step-number { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: #e9f2f9; color: var(--blue); font-size: 13px; font-weight: 750; }
+    h3 { margin: 16px 0 8px; font-size: 16px; color: var(--navy); }
+    .steps p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.75; }
+    .help { margin: 34px 0 0; padding: 18px 20px; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); background: var(--paper); font-size: 13px; line-height: 1.7; }
+    .help strong { color: var(--ink); }
+    footer { margin-top: 64px; padding: 25px 0 30px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.8; }
+    .footer-row { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px 28px; }
+    footer p { margin: 9px 0 0; }
+    @media (max-width: 830px) { .hero { gap: 28px; } .preview { padding-left: 0; } .sidebar { width: 102px; } .wrap { padding: 0 24px; } h1 { letter-spacing: -2px; } }
+    @media (max-width: 680px) { main { padding-top: 42px; } .hero { grid-template-columns: 1fr; } .preview { margin-top: 14px; padding: 20px 8px; } .preview::before { inset: 0 -24px; border-radius: 0; } .intro { max-width: none; } .sidebar { width: 125px; } .window-body { min-height: 270px; } .steps { grid-template-columns: 1fr; gap: 26px; } .steps li { display: grid; grid-template-columns: 32px 1fr; column-gap: 15px; } .steps h3 { margin: 5px 0 8px; } .steps p { grid-column: 2; } .setup { margin-top: 42px; padding-top: 28px; } .notice { margin-top: 27px; } .top-label { font-size: 12px; } h1 { font-size: 48px; } footer { margin-top: 44px; } }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap top">
+      <div class="brand"><span class="brandmark" aria-hidden="true">S</span>Servant</div>
+      <span class="top-label">Your workspace, on your Mac</span>
+    </div>
+  </header>
+  <main class="wrap">
+    <section class="hero" aria-labelledby="title">
+      <div>
+        <p class="eyebrow">For macOS</p>
+        <h1 id="title">A little more room<br>to work together.</h1>
+        <p class="intro">Your channels, direct messages, and agent in one Mac app. Sign in with your phone and pick up where you left off.</p>
+        <div class="downloads">
+          <a class="download" href="https://github.com/slavingia/servant-desktop-releases/releases/download/v1.0.1-preview.1/Servant-1.0.1-arm64.dmg" download><span>Download for Apple silicon<small>Macs with an M-series chip</small></span><span class="arrow" aria-hidden="true">↓</span></a>
+          <a class="download secondary" href="https://github.com/slavingia/servant-desktop-releases/releases/download/v1.0.1-preview.1/Servant-1.0.1-x64.dmg" download><span>Download for Intel<small>Macs with an Intel processor</small></span><span class="arrow" aria-hidden="true">↓</span></a>
+        </div>
+        <p class="system">Version 1.0.1 · macOS 13 Ventura or later<br>Not sure which Mac you have? Choose Apple menu → About This Mac.</p>
+      </div>
+      <div class="preview">
+        <div class="app-window" aria-hidden="true">
+          <div class="window-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="window-title">Servant</span></div>
+          <div class="window-body">
+            <div class="sidebar"><div class="workspace">Your workspace</div><div class="sidebar-label">Channels</div><div class="channel selected"># general</div><div class="channel"># projects</div><div class="channel"># whats-new</div><div class="sidebar-label">Direct messages</div><div class="channel">● Teammates</div><div class="channel">✦ Your agent</div></div>
+            <div class="chat"><div class="chat-heading"># general</div><div class="chat-content"><div class="message"><div class="avatar">T</div><div><div class="message-name">Your team</div><div class="message-text">A place to share ideas<br>and keep work moving.</div></div></div><div class="message"><div class="avatar agent">✦</div><div><div class="message-name">Your agent</div><div class="message-text">Ready when you need a hand.</div></div></div></div><div class="compose">Message your workspace</div></div>
+          </div>
+        </div>
+        <p class="mock-caption">Workspace illustration · The same conversations.</p>
+      </div>
+    </section>
+
+    <!-- Release owner: update only after verifying the final downloaded artifacts. -->
+    <aside class="notice" aria-label="Preview release status">
+      <strong>Preview release — not signed or notarized by Apple.</strong>
+      macOS may prevent this preview from opening. A signed release is needed for the normal installation experience.
+      See <a href="https://support.apple.com/en-us/102445">Apple’s instructions for opening an app from an unidentified developer</a>. Managed Macs may require your IT administrator.
+    </aside>
+
+    <section class="setup" aria-labelledby="setup-title">
+      <h2 id="setup-title">From download to your workspace.</h2>
+      <p class="setup-intro">Use the Servant account already on your phone. Your conversations and account stay the same. Add as many devices as you need.</p>
+      <ol class="steps">
+        <li><span class="step-number" aria-hidden="true">1</span><h3>Install Servant on your Mac</h3><p>Download the version for your Mac, open the disk image, and drag Servant to Applications. Open Servant to see your sign-in code.</p></li>
+        <li><span class="step-number" aria-hidden="true">2</span><h3>Update your phone app</h3><p>Install Servant build 25 or later through your existing TestFlight, Firebase App Distribution, or Google Play testing access. Sign in on your phone first.</p></li>
+        <li><span class="step-number" aria-hidden="true">3</span><h3>Scan and confirm</h3><p>On your phone, open <strong>You → Link a computer</strong>. Scan the QR code on your Mac, check that the numbers match, and approve sign-in.</p></li>
+      </ol>
+      <p class="help"><strong>Only approve a Mac you’re signing in to.</strong> If the code expires, generate a new one in the Mac app. If “Link a computer” is missing, check your phone’s build number and update the app.</p>
+    </section>
+  </main>
+  <footer>
+    <div class="wrap">
+      <div class="footer-row"><span>Servant for Mac · Version 1.0.1</span><a href="SHA256SUMS">Download checksums</a></div>
+      <p>For non-sensitive work only. Don’t share taxpayer information until your agency approves Servant for it.</p>
+    </div>
+  </footer>
+</body>
+</html>

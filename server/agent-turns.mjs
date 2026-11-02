@@ -3,6 +3,7 @@
 // never cancels the worker's upstream connection.
 import { DatabaseSync } from 'node:sqlite';
 import crypto from 'node:crypto';
+import { sourceDeviceKind } from './source-device.mjs';
 
 const activeStates = ['queued', 'running', 'waiting_for_approval', 'stopping'];
 const active = status => activeStates.includes(status);
@@ -35,10 +36,14 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
     );`);
   // Compatible with an earlier development build of the journal during a
   // rolling API replacement. Existing rows retain their original delivery IDs.
-  const columns = new Set(db.prepare('PRAGMA table_info(private_turns)').all().map(c => c.name));
-  for (const column of ['request_id', 'request_hash', 'message_id']) {
-    if (!columns.has(column)) db.exec(`ALTER TABLE private_turns ADD COLUMN ${column} TEXT`);
-  }
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const columns = new Set(db.prepare('PRAGMA table_info(private_turns)').all().map(c => c.name));
+    for (const column of ['request_id', 'request_hash', 'message_id', 'source_device_kind']) {
+      if (!columns.has(column)) db.exec(`ALTER TABLE private_turns ADD COLUMN ${column} TEXT`);
+    }
+    db.exec('COMMIT');
+  } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS private_turn_request ON private_turns(chat_id,request_id)');
   const row = id => db.prepare('SELECT * FROM private_turns WHERE id=?').get(id);
   const view = t => t && ({ id: t.id, chatId: t.chat_id, status: t.status,
@@ -109,8 +114,8 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
         throw fault(409, 'turn_active', 'The agent is still working in this chat');
       }
       const id = `turn_${crypto.randomBytes(12).toString('base64url')}`;
-      db.prepare(`INSERT INTO private_turns(id,chat_id,user_id,role,device_id,session_id,text,payload,status,created_at,updated_at,request_id,request_hash)
-        VALUES (?,?,?,?,?,?,?,?,'queued',?,?,?,?)`).run(id, chat.id, user.id, chat.role, device.id, chat.hermesSessionId, text, payload, clock(), clock(), requestId || null, fingerprint);
+      db.prepare(`INSERT INTO private_turns(id,chat_id,user_id,role,device_id,session_id,text,payload,status,created_at,updated_at,request_id,request_hash,source_device_kind)
+        VALUES (?,?,?,?,?,?,?,?,'queued',?,?,?,?,?)`).run(id, chat.id, user.id, chat.role, device.id, chat.hermesSessionId, text, payload, clock(), clock(), requestId || null, fingerprint, sourceDeviceKind(device));
       const turn = view(row(id));
       event(id, 'turn', { turn });
       return turn;
@@ -188,7 +193,16 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
       db.prepare('DELETE FROM private_turn_outbox WHERE turn_id=?').run(item.turn_id);
     }
   }
+  // The accepted user message ID is already stable in every compatible worker
+  // (chat-media.accept uses chatId:user:turnId). Project this API-owned snapshot
+  // without requiring the independent worker to rewrite cached messages/events.
+  const sourceMap = rows => new Map(rows.map(t => [
+    `msg_${crypto.createHash('sha256').update(`${t.chat_id}:user:${t.id}`).digest('hex').slice(0, 32)}`,
+    t.source_device_kind,
+  ]));
   return { enqueue, replay, processNext, recoverInterrupted, requestStop, requestApproval, drainOutbox,
+    messageSources: chatId => sourceMap(db.prepare('SELECT id,chat_id,source_device_kind FROM private_turns WHERE chat_id=?').all(chatId)),
+    turnMessageSources: id => sourceMap(db.prepare('SELECT id,chat_id,source_device_kind FROM private_turns WHERE id=?').all(id)),
     get: id => view(row(id)),
     owns: (id, chatId, userId) => { const t = row(id); return !!t && t.chat_id === chatId && t.user_id === userId; },
     latest: chatId => db.prepare('SELECT * FROM private_turns WHERE chat_id=? ORDER BY seq DESC LIMIT 20').all(chatId).map(view),

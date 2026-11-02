@@ -8,6 +8,8 @@ import { useDictation } from "../lib/dictation";
 import { insertDictation } from "../lib/dictation-text";
 import { activeMention, insertMention, mentionMatches, mentionText } from "../lib/mentions";
 import type { MessageReceipt } from "../lib/message-status";
+import { messageDeviceLabel } from "../lib/message-device";
+import { useSession } from "../lib/session";
 import { validateAttachmentSelection } from "../lib/media";
 import { Attachments, DraftAttachments, pickAttachments, type DraftAttachment } from "./Attachments";
 import { AppIcon } from "./AppIcon";
@@ -81,7 +83,7 @@ type PostProps = {
   post: Post;
   me: string;
   receipt?: MessageReceipt;
-  compact?: boolean; // same author as the post above, within five minutes
+  compact?: boolean; // same author and visible device category within five minutes
   onOpenThread?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
@@ -97,6 +99,8 @@ const REACTIONS = [
 export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDelete, onReact }: PostProps) {
   const styles = useStyles();
   const { colors } = useTheme();
+  const { account } = useSession();
+  const deviceLabel = messageDeviceLabel(account?.user.role, post);
   const [menu, setMenu] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [copyStatus, setCopyStatus] = useState("");
@@ -146,20 +150,21 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
     setMenu(true);
     if (Platform.OS !== "web") void Haptics.selectionAsync().catch(() => {});
   };
-  const label = `${post.user.name}, ${when(post.createdAt)}. ${post.deleted ? "Message deleted" : working ? "Working…" : post.text}${post.replyCount ? `. ${post.replyCount} ${post.replyCount === 1 ? "reply" : "replies"}` : ""}`;
+  const label = `${post.user.name}, ${when(post.createdAt)}${deviceLabel ? `, sent from ${deviceLabel}` : ""}. ${post.deleted ? "Message deleted" : working ? "Working…" : post.text}${post.replyCount ? `. ${post.replyCount} ${post.replyCount === 1 ? "reply" : "replies"}` : ""}`;
   return (
     <>
     <Pressable onLongPress={actions} delayLongPress={400} accessible={false} style={[styles.post, compact && styles.postCompact, menu && { backgroundColor: colors.surface }]}>
       <View style={styles.gutter}>{compact ? null : <Avatar name={post.user.name} agent={post.user.agent} />}</View>
       <View style={styles.postContent}>
         <View accessible accessibilityLabel={label} accessibilityHint={available ? "Touch and hold to copy, select text, react or open message actions" : undefined} accessibilityActions={available ? [{ name: "activate", label: "Copy, react or open message actions" }] : undefined} onAccessibilityAction={actions}>
-        {compact ? null : (
+        {!compact || deviceLabel ? (
           <View style={styles.meta}>
-            <Text style={styles.author}>{post.user.name}</Text>
-            {post.user.agent ? <Text style={styles.agentTag}>Agent</Text> : null}
+            {!compact ? <Text style={styles.author}>{post.user.name}</Text> : null}
+            {!compact && post.user.agent ? <Text style={styles.agentTag}>Agent</Text> : null}
             <Text style={styles.time}>{when(post.createdAt)}</Text>
+            {deviceLabel ? <Text testID={`message-device-${post.id}`} accessibilityLabel={`Sent from ${deviceLabel}`} style={styles.time}>· {deviceLabel}</Text> : null}
           </View>
-        )}
+        ) : null}
         {post.deleted ? (
           <Text style={styles.deleted}>Message deleted</Text>
         ) : working || (post.pending && !post.text && !post.attachments?.length) ? (
