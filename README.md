@@ -36,6 +36,20 @@ The repository-owned Hermes bridge adds real **Stop** and owner **Allow once / D
 
 Agent replies render headings, lists, bold text, quotations and code. Native notifications show generic alerts with no names or message text; the app fetches the content over its encrypted connection when opened. Native encrypted lock-screen previews are not implemented.
 
+### Working with the agent: images and approvals
+
+Send the agent a photo, it asks before it touches your Mac, and its reply comes back with an image.
+
+| 1. Send a photo with a request | 2. The Agent tab shows what needs you |
+| --- | --- |
+| ![Agent conversation with a whiteboard photo attached and a request typed](docs/readme/01-agent-photo-draft.jpg) | ![Agent tab with a Needs your approval card for the request](docs/readme/02-agent-approval-inbox.jpg) |
+| **3. Allow once or Deny** | **4. The reply, with an image** |
+| ![Approval card asking to save files to the Desktop, showing the exact command, with Deny and Allow once](docs/readme/03-agent-approval.jpg) | ![Agent reply summarizing the whiteboard, with a clean timeline image](docs/readme/04-agent-image-reply.jpg) |
+
+The card shows the exact command before anything runs. **Allow once** covers that one request; the next action asks again. Only the owner sees approvals.
+
+These are the Servant web build (`3c56025`) at 1280 by 860 against a throwaway local server, with made-up people and sample images. The agent is a scripted stand-in that speaks the Hermes bridge protocol, so the screens are real but the agent's reply is staged.
+
 ## Last seen and read receipts
 
 Members and direct messages show **Online** while a person is using the app, then their last seen time. Each device has its own presence session; a lost connection expires after about a minute.
