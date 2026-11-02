@@ -215,3 +215,9 @@ compares it with the version in `latest-mac.yml`.
 
 Builds released before 1.0.2 have no updater; those users install one release
 manually through **Help → Download the latest Servant**.
+The download page carries a notice telling 1.0.0 and 1.0.1 users to do this.
+
+Silent installs need a **Developer ID Application** certificate (see Signing and
+notarization). The first signed build still reaches preview users through the
+download prompt, because their ad-hoc copies can't verify it; after that, updates
+install in the background.
