@@ -12,7 +12,8 @@ insights dashboard, and publishing automated UX Research SME reviews with tags.
 
 All captures were taken on November 1, 2026:
 
-- Servant screens: the web build from `main` (`ffa430a`) at 393 by 852, signed in
+- Servant screens: the web build from the local checkout (`ffa430a` plus
+  uncommitted work in progress) at 393 by 852, signed in
   to an isolated test server (`scripts/test-instance.mjs`, port 8789) with
   made-up people and messages. The test invite QR code is covered. The dev-only
   error toast was hidden before capture.
