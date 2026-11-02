@@ -232,6 +232,13 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
   );
 }
 
+// Keyboard-and-pointer browsers and the Mac app send on Return, like Slack.
+// Touch browsers keep Return for new lines and use the send button.
+function useEnterSends() {
+  const [fine] = useState(() => Platform.OS === "web" && typeof window !== "undefined" && !!window.matchMedia?.("(pointer: fine)").matches);
+  return fine;
+}
+
 export function Composer({
   placeholder,
   onSend,
@@ -302,6 +309,7 @@ export function Composer({
   const [selection, setSelection] = useState({ start: initial.length, end: initial.length });
   const [insertedSelection, setInsertedSelection] = useState<{ start: number; end: number }>();
   const [focused, setFocused] = useState(false);
+  const enterSends = useEnterSends();
   const match = focused && !busy ? activeMention(text, selection) : null;
   const suggestions = match ? mentionMatches(members, me, match.query, mentionAgent) : [];
   const latest = useRef({ text, selection });
@@ -373,6 +381,14 @@ export function Composer({
           accessibilityLabel={placeholder}
           value={text}
           onChangeText={(t) => {
+            // Browsers don't reliably fire `select` while typing, so read the
+            // caret from the textarea; mention suggestions depend on it.
+            const node = input.current as unknown as { selectionStart?: unknown; selectionEnd?: unknown } | null;
+            if (Platform.OS === "web" && typeof node?.selectionStart === "number" && typeof node.selectionEnd === "number") {
+              const caret = { start: node.selectionStart, end: node.selectionEnd };
+              latest.current = { ...latest.current, selection: caret };
+              setSelection(caret);
+            }
             latest.current = { ...latest.current, text: t };
             setText(t);
             setInsertedSelection(undefined);
@@ -389,7 +405,14 @@ export function Composer({
           placeholderTextColor={colors.muted}
           multiline
           style={styles.input}
-          onSubmitEditing={Platform.OS === "web" ? send : undefined}
+          onKeyPress={enterSends ? (event) => {
+            // Return sends (or picks the top mention); Shift+Return adds a line.
+            const key = event as unknown as { key: string; shiftKey: boolean; nativeEvent: { isComposing?: boolean }; preventDefault(): void };
+            if (key.key !== "Enter" || key.shiftKey || key.nativeEvent.isComposing) return;
+            key.preventDefault();
+            if (suggestions[0]) choose(suggestions[0]);
+            else void send();
+          } : undefined}
           blurOnSubmit={false}
         />
         {files.length ? <DraftAttachments files={files} disabled={busy || picking} onRemove={i => setFiles(old => old.filter((_, index) => index !== i))} /> : null}
@@ -406,7 +429,7 @@ export function Composer({
             : allowAttachments ? <Pressable accessibilityRole="button" accessibilityLabel={attachmentMenu ? "Close attachment options" : "Add attachments"} accessibilityState={{ disabled: busy || picking, expanded: attachmentMenu }} disabled={busy || picking} onPress={() => setAttachmentMenu(open => !open)} style={[styles.attachmentButton, attachmentMenu && styles.attachmentButtonSelected]}>
               <AppIcon name={attachmentMenu ? "close" : "plus"} size={21} color={colors.muted} />
             </Pressable> : null}
-          <Text style={styles.composerHint} numberOfLines={1} accessibilityLiveRegion="polite">{dictation.listening ? (dictation.partial || "Listening…") : picking ? "Adding attachment…" : !onCancel && (members.length || mentionAgent) ? "@ to mention someone" : ""}</Text>
+          <Text style={styles.composerHint} numberOfLines={1} accessibilityLiveRegion="polite">{dictation.listening ? (dictation.partial || "Listening…") : picking ? "Adding attachment…" : enterSends && text.trim() ? "Shift + Return for a new line" : !onCancel && (members.length || mentionAgent) ? "@ to mention someone" : ""}</Text>
           {!onCancel && dictation.available ? <Pressable testID="composer-dictate" accessibilityRole="button" accessibilityLabel={dictation.listening ? "Stop dictation" : "Dictate a message"} accessibilityState={{ disabled: busy, selected: dictation.listening }} disabled={busy} onPress={dictation.toggle} hitSlop={6} style={[styles.dictate, dictation.listening && styles.dictateOn]}>
             <AppIcon name={dictation.listening ? "stop" : "mic"} size={21} color={dictation.listening ? colors.onPrimary : colors.muted} />
           </Pressable> : null}
