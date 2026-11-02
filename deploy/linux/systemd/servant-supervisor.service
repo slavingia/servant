@@ -1,0 +1,35 @@
+# Stable loopback ingress on 127.0.0.1:8787 plus the API releases behind it.
+# Same as launchd gov.irs.servant.supervisor on the Mac. API deploys go through
+# its control socket (servant status / deploy.mjs deploy), never a restart.
+[Unit]
+Description=Servant API supervisor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=servant
+Group=servant
+EnvironmentFile=/etc/servant/servant.env
+EnvironmentFile=/etc/servant/supervisor.env
+ExecStart=/bin/bash /var/lib/servant/runtime/bootstrap/run-supervisor.sh
+Restart=always
+RestartSec=10
+# Retiring APIs wait for accepted agent work before exiting.
+TimeoutStopSec=310
+KillMode=mixed
+StandardOutput=append:/var/lib/servant/runtime/logs/supervisor.log
+StandardError=append:/var/lib/servant/runtime/logs/supervisor.log
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/servant
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

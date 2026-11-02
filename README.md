@@ -107,10 +107,12 @@ For shared UI tokens, components, and navigation patterns, see the
 [design system](docs/design-system.md).
 
 For staged API releases, traffic switching, durable workers, and rollback,
-see [Deployment](docs/deployment.md).
+see [Deployment](docs/deployment.md). To run the server on a Linux host (cloud
+VM or data center) with systemd, see [Linux](docs/linux.md).
 
 ```
 server/    Node server (no npm dependencies)
+deploy/    Linux installer and systemd units
 relay/     optional Cloudflare Worker relay (development tests use Miniflare)
 config/    reproducible restricted member profile and policy
 app/    Expo mobile app

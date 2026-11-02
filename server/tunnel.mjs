@@ -25,7 +25,7 @@ export function tunnelOptions(env = process.env) {
   const args = ['tunnel', '--no-autoupdate'];
   if (named) args.push('--config', env.SERVANT_TUNNEL_CONFIG, 'run', env.SERVANT_TUNNEL_ID);
   else args.push('--url', `http://127.0.0.1:${port}`);
-  return { executable: env.CF || '/opt/homebrew/bin/cloudflared', args, dataDir,
+  return { executable: env.CF || (fs.existsSync('/opt/homebrew/bin/cloudflared') ? '/opt/homebrew/bin/cloudflared' : 'cloudflared'), args, dataDir,
     publicUrl: named ? env.SERVANT_PUBLIC_URL.replace(/\/$/, '') : '', node: env.NODE || process.execPath };
 }
 
