@@ -1,11 +1,12 @@
 export type AgentApproval = { id: string; command: string; description: string; choices: ('once' | 'deny')[] };
 export type AgentTurn = {
-  id: string; chatId: string; status: 'queued' | 'running' | 'waiting_for_approval' | 'stopping' | 'completed' | 'cancelled' | 'failed' | 'interrupted';
+  id: string; chatId: string; status: 'queued' | 'running' | 'waiting_for_approval' | 'stopping' | 'completed' | 'cancelled' | 'failed' | 'interrupted' | 'steered';
   accepted: boolean; text: string; assistantText: string; canStop: boolean; approval?: AgentApproval | null;
+  steerRequested?: boolean;
   createdAt: number; updatedAt: number;
 };
 
-const states = new Set(['queued', 'running', 'waiting_for_approval', 'stopping', 'completed', 'cancelled', 'failed', 'interrupted']);
+const states = new Set(['queued', 'running', 'waiting_for_approval', 'stopping', 'completed', 'cancelled', 'failed', 'interrupted', 'steered']);
 export function activeAgentTurn(turn: AgentTurn | null | undefined) {
   return !!turn && ['queued', 'running', 'waiting_for_approval', 'stopping'].includes(turn.status);
 }
@@ -27,5 +28,19 @@ export function parseAgentTurn(value: unknown): AgentTurn | null {
     || typeof t.createdAt !== 'number' || typeof t.updatedAt !== 'number') return null;
   return { id: t.id, chatId: t.chatId, status: t.status as AgentTurn['status'], accepted: t.accepted === true,
     text: typeof t.text === 'string' ? t.text : '', assistantText: typeof t.assistantText === 'string' ? t.assistantText : '',
-    canStop: t.canStop === true, approval: parseApproval(t.approval), createdAt: t.createdAt, updatedAt: t.updatedAt };
+    canStop: t.canStop === true, approval: parseApproval(t.approval), steerRequested: t.steerRequested === true, createdAt: t.createdAt, updatedAt: t.updatedAt };
+}
+
+// The server lists newest first. The reply in progress is the one turn that
+// has started; everything still queued waits behind it, oldest first.
+export function splitTurns(turns: AgentTurn[]) {
+  const current = turns.find(t => ['running', 'waiting_for_approval', 'stopping'].includes(t.status))
+    ?? turns.find(t => t.status !== 'queued' && t.status !== 'steered') ?? null;
+  const waiting = turns.filter(t => t.status === 'queued').sort((a, b) => a.createdAt - b.createdAt);
+  return { current, waiting };
+}
+// Steer folds a waiting message into the reply in progress. Only text can be
+// steered, and only while a reply is actually running.
+export function canSteer(waiting: AgentTurn, current: AgentTurn | null) {
+  return !!current && ['running', 'waiting_for_approval'].includes(current.status) && !waiting.steerRequested && !!waiting.text.trim();
 }

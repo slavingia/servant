@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, FlatList, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, AppState, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { randomUUID } from "expo-crypto";
 import { ConversationKeyboardView } from "../../components/ConversationKeyboardView";
@@ -10,7 +10,7 @@ import { mediaFromMessages } from "../../lib/media";
 import { Button } from "../../components/Button";
 import { MessageText } from "../../components/MessageText";
 import { AgentApprovalCard } from "../../components/AgentApprovalCard";
-import { activeAgentTurn, agentTurnLabel, type AgentTurn } from "../../lib/agent-turns";
+import { activeAgentTurn, agentTurnLabel, canSteer, splitTurns, type AgentTurn } from "../../lib/agent-turns";
 import { bufferAgentReply } from "../../lib/agent-events";
 import { messageDeviceLabel } from "../../lib/message-device";
 import { api, sendMessage, ServerError, type Message, type Upload } from "../../lib/server";
@@ -37,6 +37,9 @@ function ChatConversation() {
   const [status, setStatus] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [turn, setTurn] = useState<AgentTurn | null>(null);
+  // Messages sent while the agent works wait here, oldest first.
+  const [waiting, setWaiting] = useState<AgentTurn[]>([]);
+  const [steering, setSteering] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [heading, setHeading] = useState(title && title !== "New chat" ? title : "New chat");
@@ -57,8 +60,9 @@ function ChatConversation() {
     })]).then(([history, turns]) => {
       if (request === currentLoad.current) {
         setMessages(history);
-        setTurn(turns[0] ?? null);
-        lastTurnUpdate.current = turns[0]?.updatedAt ?? 0;
+        const split = splitTurns(turns);
+        setTurn(split.current); setWaiting(split.waiting);
+        lastTurnUpdate.current = Math.max(0, ...turns.map(t => t.updatedAt));
         setLoadError(null);
       }
     }).catch(e => {
@@ -86,13 +90,15 @@ function ChatConversation() {
       try {
         const turns = await api.agentTurns(account, id);
         if (!active) return;
-        const latest = turns[0] ?? null;
+        const { current: latest, waiting: queued } = splitTurns(turns);
+        const newest = Math.max(0, ...turns.map(t => t.updatedAt));
         setTurn(current => current && (!latest || current.updatedAt > latest.updatedAt) ? current : latest);
-        if ((foregroundRefresh || (latest?.updatedAt ?? 0) !== lastTurnUpdate.current) && !abort.current) {
+        setWaiting(queued);
+        if ((foregroundRefresh || newest !== lastTurnUpdate.current) && !abort.current) {
           const history = await api.messages(account, id);
           if (active && !abort.current) {
             setMessages(history); setLoadError(null); setSendError(null);
-            lastTurnUpdate.current = latest?.updatedAt ?? 0;
+            lastTurnUpdate.current = newest;
             foregroundRefresh = false;
           }
         }
@@ -123,9 +129,57 @@ function ChatConversation() {
   const media = useMemo(() => mediaFromMessages(messages ?? [], account?.user.name ?? "You", "Servant"), [messages, account?.user.name]);
   if (!account) return null;
 
-  const send = async (text: string, attachments: Upload[] = []) => {
+  const refreshTurns = async () => {
+    try {
+      const split = splitTurns(await api.agentTurns(account, String(id)));
+      if (mounted.current) { setTurn(split.current); setWaiting(split.waiting); }
+    } catch { /* the 2.5s refresh catches up */ }
+  };
+
+  // Sent while the agent is working: the server queues it behind the current
+  // reply. We don't follow its stream here; the waiting row shows it until it
+  // runs, then the regular refresh shows the reply.
+  const queue = async (body: string, attachments: Upload[]) => {
+    // Same draft retried after an uncertain send reuses its key: no duplicate.
+    const previous = delivery.current;
+    if (!previous || previous.text !== body || previous.uploads.length !== attachments.length) {
+      delivery.current = { text: body, uploads: attachments, id: randomUUID() };
+    }
+    const requestId = delivery.current!.id;
+    const controller = new AbortController();
+    let queued = false;
+    try {
+      await sendMessage(account, String(id), body, e => {
+        if (e.type === 'turn' && e.turn.status === 'queued' && !queued) {
+          queued = true;
+          setWaiting(w => w.some(t => t.id === e.turn.id) ? w : [...w, e.turn]);
+          controller.abort();
+        }
+      }, controller.signal, setAccount, attachments, requestId);
+    } catch (e) {
+      if (!queued) {
+        setSendError(e instanceof ServerError ? e.message : "Couldn't queue your message. Your draft is saved; try again.");
+        return false;
+      }
+    }
+    setSendError(null);
+    delivery.current = null;
+    void refreshTurns();
+    return queued;
+  };
+
+  // The composer frees itself once the Mac accepts the message (or it fails
+  // before that); the reply keeps streaming here without holding the box.
+  const send = (text: string, attachments: Upload[] = []) => new Promise<boolean>(resolve => {
+    let settled = false;
+    const settle = (value: boolean) => { if (!settled) { settled = true; resolve(value); } };
+    void deliver(text, attachments, () => settle(true)).then(settle, () => settle(false));
+  });
+
+  const deliver = async (text: string, attachments: Upload[], onAccepted: () => void) => {
     const body = text.trim();
-    if ((!body && !attachments.length) || busy || activeAgentTurn(turn) || messages === null || loadError) return false;
+    if ((!body && !attachments.length) || messages === null || loadError) return false;
+    if (busy || activeAgentTurn(turn)) return await queue(body, attachments);
     setBusy(true);
     setStatus(null);
     setSendError(null);
@@ -158,6 +212,7 @@ function ChatConversation() {
     const accept = () => {
       if (accepted) return;
       accepted = true;
+      onAccepted();
       if (heading === "New chat") setHeading((body || attachments[0]?.name || "New chat").replace(/\s+/g, " ").slice(0, 60));
       setMessages((m) => (m ?? []).map((r) => r.localId === mineKey ? { ...r, pending: false } : r));
     };
@@ -226,7 +281,7 @@ function ChatConversation() {
         setStatus(null);
         abort.current = null;
         lastTurnUpdate.current = -1;
-        void api.agentTurns(account, String(id)).then(turns => { if (mounted.current) setTurn(turns[0] ?? null); }).catch(() => {});
+        void refreshTurns();
       }
     }
     // An accepted message stays sent even if Hermes cannot finish its reply.
@@ -234,13 +289,32 @@ function ChatConversation() {
     return accepted || !failed;
   };
 
+  const steer = async (target: AgentTurn) => {
+    if (steering) return;
+    setSteering(target.id); setActionError(null);
+    // Optimistic: one tap and it's on its way.
+    setWaiting(w => w.map(t => t.id === target.id ? { ...t, steerRequested: true } : t));
+    try { await api.steerAgent(account, String(id), target.id); }
+    catch (e) {
+      if (mounted.current) {
+        setWaiting(w => w.map(t => t.id === target.id ? { ...t, steerRequested: false } : t));
+        setActionError(e instanceof Error ? e.message : "Couldn't steer. It will run next");
+      }
+    } finally { if (mounted.current) { setSteering(null); void refreshTurns(); } }
+  };
+
+  const unqueue = async (target: AgentTurn) => {
+    setWaiting(w => w.filter(t => t.id !== target.id));
+    try { await api.stopAgent(account, String(id), target.id); } catch { /* refresh restores it */ }
+    void refreshTurns();
+  };
+
   const answer = async (choice: 'once' | 'deny') => {
     if (!turn?.approval || actionBusy) return;
     setActionBusy(true); setActionError(null);
     try {
       await api.answerApproval(account, String(id), turn.id, turn.approval.id, choice);
-      const turns = await api.agentTurns(account, String(id));
-      if (mounted.current) setTurn(turns[0] ?? null);
+      await refreshTurns();
     } catch (e) { if (mounted.current) setActionError(e instanceof Error ? e.message : 'Could not send your decision. Try again.'); }
     finally { if (mounted.current) setActionBusy(false); }
   };
@@ -249,8 +323,7 @@ function ChatConversation() {
     setActionBusy(true); setActionError(null);
     try {
       await api.stopAgent(account, String(id), turn.id);
-      const turns = await api.agentTurns(account, String(id));
-      if (mounted.current) setTurn(turns[0] ?? null);
+      await refreshTurns();
     } catch (e) { if (mounted.current) setActionError(e instanceof Error ? e.message : 'Could not stop the agent. Try again.'); }
     finally { if (mounted.current) setActionBusy(false); }
   };
@@ -315,6 +388,18 @@ function ChatConversation() {
           {turn.canStop ? <Button label="Stop" kind="danger" compact busy={actionBusy} disabled={turn.status === 'stopping'} onPress={() => { void stop(); }} /> : null}
         </View> : null}
         {turn && ['cancelled', 'interrupted', 'failed'].includes(turn.status) ? <View style={styles.turnStatus}><Text accessibilityLiveRegion="polite" style={styles.turnLabel}>{agentTurnLabel(turn)}</Text></View> : null}
+        {waiting.length ? <View accessibilityLabel="Waiting messages" style={styles.queue}>
+          {waiting.map(item => <View key={item.id} style={styles.queued}>
+            <View style={styles.turnCopy}>
+              <Text numberOfLines={2} style={styles.queuedText}>{item.text || "Attachment"}</Text>
+              <Text style={styles.turnDetail}>{item.steerRequested ? "Steering the current reply…" : "Sends when the agent finishes"}</Text>
+            </View>
+            {canSteer(item, turn) ? <Button label="Steer" kind="secondary" compact busy={steering === item.id}
+              onPress={() => { void steer(item); }} /> : null}
+            {!item.steerRequested ? <Pressable accessibilityRole="button" accessibilityLabel="Remove waiting message" hitSlop={12}
+              onPress={() => { void unqueue(item); }} style={styles.remove}><Text style={styles.removeText}>✕</Text></Pressable> : null}
+          </View>)}
+        </View> : null}
         {actionError && !turn?.approval ? <Text accessibilityRole="alert" style={styles.sendError}>{actionError}</Text> : null}
         {messages !== null && !loadError ? <Composer placeholder="Message the agent" onSend={send} allowFileAttachments={false} /> : null}
       </ConversationKeyboardView>
@@ -326,6 +411,10 @@ function ChatConversation() {
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   turnStatus: { flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs, backgroundColor: colors.surface },
+  queue: { backgroundColor: colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
+  queued: { flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs },
+  queuedText: { ...typography.body, color: colors.ink },
+  remove: { paddingHorizontal: space.xs, paddingVertical: space.xxs }, removeText: { ...typography.body, color: colors.muted },
   turnCopy: { flex: 1 }, turnLabel: { ...typography.captionStrong, color: colors.ink }, turnDetail: { ...typography.meta, color: colors.muted },
   list: { paddingVertical: space.sm },
   message: { flexDirection: "row", paddingHorizontal: space.side, paddingVertical: space.sm, gap: 10 },

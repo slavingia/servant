@@ -126,6 +126,9 @@ class ServantAPIServerAdapter(APIServerAdapter):
         super().__init__(config)
         self._run_streams = _ObservedRunStreams(self)
         self._servant_approval_receipts = {}
+        # run_id -> agent that received a steer, so its unread leftover can be
+        # reported after the run ends (Hermes drops the agent reference).
+        self._servant_steer_agents = {}
 
     def _pending_approval(self, run_id):
         from tools import approval
@@ -152,8 +155,33 @@ class ServantAPIServerAdapter(APIServerAdapter):
         if response.status != 200:
             return response
         data = json.loads(response.text)
-        data["pending_approval"] = self._pending_approval(request.match_info["run_id"])
+        run_id = request.match_info["run_id"]
+        data["pending_approval"] = self._pending_approval(run_id)
+        agent = self._servant_steer_agents.get(run_id)
+        unread = getattr(agent, "_servant_unread_steer", None) if agent is not None else None
+        if isinstance(unread, str) and unread:
+            data["unread_steer"] = unread
         return web.json_response(data)
+
+    async def _servant_steer(self, run_id, body):
+        # Hermes's native steer(): queued into the running agent between tool
+        # calls without interrupting it. Text the agent never reached comes
+        # back as unread_steer on the run status and Servant runs it next.
+        text = body.get("steer")
+        if not isinstance(text, str) or not text.strip() or len(text) > 20000:
+            return web.json_response({"error": {"code": "invalid_steer", "message": "Steer text is required"}}, status=400)
+        agent = self._active_run_agents.get(run_id)
+        if agent is None or not hasattr(agent, "steer"):
+            return web.json_response({"error": {"code": "run_not_steerable"}}, status=409)
+        if not agent.steer(text):
+            return web.json_response({"error": {"code": "invalid_steer"}}, status=400)
+        self._servant_steer_agents[run_id] = agent
+        while len(self._servant_steer_agents) > 256:
+            self._servant_steer_agents.pop(next(iter(self._servant_steer_agents)))
+        stream = self._run_streams.get(run_id)
+        if stream is not None:
+            stream.put_nowait({"event": "steer.accepted", "run_id": run_id, "steer_id": body.get("steer_id")})
+        return web.json_response({"object": "hermes.run.steer", "run_id": run_id, "accepted": True})
 
     async def _handle_run_approval(self, request):
         # Preserve native authentication AND run ownership checks, including
@@ -165,6 +193,8 @@ class ServantAPIServerAdapter(APIServerAdapter):
             body = await request.json()
         except (ValueError, TypeError):
             body = None
+        if isinstance(body, dict) and "steer" in body and not self.restricted_member:
+            return await self._servant_steer(request.match_info["run_id"], body)
         if not isinstance(body, dict) or body.get("choice") not in {"once", "deny"} or not isinstance(body.get("approval_id"), str):
             return web.json_response({"error": {"code": "invalid_approval", "message": "An exact approval_id and once or deny are required"}}, status=400)
         if body.get("all") or body.get("resolve_all"):
@@ -211,6 +241,7 @@ class ServantAPIServerAdapter(APIServerAdapter):
         data = json.loads(response.text)
         data.setdefault("features", {})["servant_durable_media_runs"] = True
         data["features"]["servant_exact_approvals"] = True
+        data["features"]["servant_steer"] = not self.restricted_member
         data["features"]["servant_member_isolation"] = self.restricted_member
         data["servant"] = {"bridgeVersion": 1}
         if self.restricted_member:
@@ -259,6 +290,8 @@ class ServantAPIServerAdapter(APIServerAdapter):
             if context is not None and context[0] == kwargs.get("session_id"):
                 run_kwargs["conversation_history"] = copy.deepcopy(context[1])
             result = original(*run_args, **run_kwargs)
+            if isinstance(result, dict) and isinstance(result.get("pending_steer"), str):
+                agent._servant_unread_steer = result["pending_steer"]
             if isinstance(result, dict) and isinstance(result.get("final_response"), str):
                 result = dict(result)
                 if self.restricted_member:

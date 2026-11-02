@@ -4,6 +4,9 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { createMediaDeltaFilter } from './media.mjs';
 
 const agentError = message => Object.assign(new Error(message), { code: 'agent_error' });
+// What the agent reads mid-task. Files can't ride along, so only text steers.
+export const steerText = steer => String(steer.text || '').trim();
+
 export async function hermesRequest(up, method, pathname, body, extra = {}) {
   return fetch(new URL(pathname, up.url), { method,
     headers: { Authorization: `Bearer ${up.key}`, 'Content-Type': 'application/json', ...extra.headers },
@@ -43,7 +46,15 @@ export async function supportsDurableRuns(up) {
   }
 }
 
-export async function runDurableHermes({ up, sessionId, input, sessionKey, runId, onAccepted, onEvent, checkpoint, controls, pollMs = 500 }) {
+// Bridges from before steering keep queueing; messages just wait their turn.
+export async function supportsSteer(up) {
+  try {
+    const response = await hermesRequest(up, 'GET', '/v1/capabilities', undefined, { signal: AbortSignal.timeout(5000) });
+    return response.ok && (await response.json())?.features?.servant_steer === true;
+  } catch { return false; }
+}
+
+export async function runDurableHermes({ up, sessionId, input, sessionKey, runId, onAccepted, onEvent, checkpoint, controls, steered = () => {}, canSteer = false, pollMs = 500 }) {
   if (!runId) {
     const response = await hermesRequest(up, 'POST', '/v1/runs', {
       session_id: sessionId, input: [{ role: 'user', content: input }],
@@ -62,7 +73,7 @@ export async function runDurableHermes({ up, sessionId, input, sessionKey, runId
   const route = `/v1/runs/${encodeURIComponent(runId)}`;
   const streamAbort = new AbortController();
   const filter = createMediaDeltaFilter();
-  let terminal, final = '', eventError;
+  let terminal, final = '', eventError, unread = '';
   const seenApprovals = new Set([controls().approval?.id].filter(Boolean));
   const receive = async (name, payload) => {
     if (terminal) return;
@@ -94,6 +105,7 @@ export async function runDurableHermes({ up, sessionId, input, sessionKey, runId
     });
   })().catch(() => { /* Status is authoritative if the event connection drops. */ });
   let stopped = false, answeredApproval;
+  const delivered = new Map(); // turn id -> exact text Hermes accepted
   try {
     while (!terminal) {
       try {
@@ -109,10 +121,20 @@ export async function runDurableHermes({ up, sessionId, input, sessionKey, runId
           onEvent('approval.responded', { approvalId: control.approval.id, choice: control.choice });
         }
       }
+      // Steers ride the bridge-owned approval route ({ steer }), so stock
+      // Hermes never receives them; without the capability they stay queued.
+      for (const steer of canSteer && !control.stop ? control.steers || [] : []) {
+        if (delivered.has(steer.id)) continue;
+        const text = steerText(steer);
+        const sent = await hermesRequest(up, 'POST', `${route}/approval`, { steer: text, steer_id: steer.id }, { signal: AbortSignal.timeout(15000) });
+        if (sent.ok) { delivered.set(steer.id, text); steered(steer.id); }
+        else if (sent.status === 409) break; // run is finishing: leave it queued for next
+      }
       const response = await hermesRequest(up, 'GET', route, undefined, { signal: AbortSignal.timeout(15000) });
       if (response.status === 404) throw Object.assign(agentError('The agent no longer has this run'), { code: 'run_lost' });
       if (!response.ok) throw new Error('Agent status temporarily unavailable');
       const status = await response.json();
+      if (typeof status.unread_steer === 'string') unread = status.unread_steer;
       if (status.status === 'waiting_for_approval' && status.pending_approval) await receive('approval.request', status.pending_approval);
       if (status.status === 'completed') await receive('run.completed', status);
       else if (status.status === 'cancelled') terminal = 'cancelled';
@@ -130,8 +152,18 @@ export async function runDurableHermes({ up, sessionId, input, sessionKey, runId
       }
       if (!terminal) await sleep(pollMs);
     }
+    // Events can report completion before the status poll sees unread steers.
+    if (delivered.size && !unread) {
+      try {
+        const response = await hermesRequest(up, 'GET', route, undefined, { signal: AbortSignal.timeout(15000) });
+        const status = response.ok ? await response.json() : {};
+        if (typeof status.unread_steer === 'string') unread = status.unread_steer;
+      } catch { /* unknown: treat delivered steers as read */ }
+    }
     if (terminal === 'failed') throw agentError('The agent failed');
-    return { answer: final, status: terminal };
+    // Hermes hands back any steer it never read. Those messages run next.
+    const unreadSteers = [...delivered].filter(([, text]) => unread && unread.includes(text)).map(([id]) => id);
+    return { answer: final, status: terminal, unreadSteers };
   } finally {
     streamAbort.abort();
     await events;

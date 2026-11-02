@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import crypto from 'node:crypto';
 import { sourceDeviceKind } from './source-device.mjs';
 
+export const MAX_QUEUED = 5;
 const activeStates = ['queued', 'running', 'waiting_for_approval', 'stopping'];
 const active = status => activeStates.includes(status);
 const fault = (status, code, message) => Object.assign(new Error(message), { status, code });
@@ -24,8 +25,8 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
       request_id TEXT, request_hash TEXT, message_id TEXT, UNIQUE(chat_id,request_id)
     );
-    CREATE UNIQUE INDEX IF NOT EXISTS private_turn_active ON private_turns(chat_id)
-      WHERE status IN ('queued','running','waiting_for_approval','stopping');
+    CREATE UNIQUE INDEX IF NOT EXISTS private_turn_running ON private_turns(chat_id)
+      WHERE status IN ('running','waiting_for_approval','stopping');
     CREATE TABLE IF NOT EXISTS private_turn_events (
       seq INTEGER PRIMARY KEY AUTOINCREMENT, turn_id TEXT NOT NULL REFERENCES private_turns(id) ON DELETE CASCADE,
       event TEXT NOT NULL, payload TEXT NOT NULL
@@ -42,6 +43,12 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
     for (const column of ['request_id', 'request_hash', 'message_id', 'source_device_kind']) {
       if (!columns.has(column)) db.exec(`ALTER TABLE private_turns ADD COLUMN ${column} TEXT`);
     }
+    // Steering: a queued message can be folded into the running turn.
+    if (!columns.has('steer_requested')) db.exec('ALTER TABLE private_turns ADD COLUMN steer_requested INTEGER NOT NULL DEFAULT 0');
+    if (!columns.has('steered_into')) db.exec('ALTER TABLE private_turns ADD COLUMN steered_into TEXT');
+    // Earlier journals allowed one queued-or-running turn per chat. Messages now
+    // queue behind a running turn, so only running turns stay unique per chat.
+    db.exec('DROP INDEX IF EXISTS private_turn_active');
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS private_turn_request ON private_turns(chat_id,request_id)');
@@ -49,6 +56,7 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
   const view = t => t && ({ id: t.id, chatId: t.chat_id, status: t.status,
     accepted: !!t.accepted, text: t.text, assistantText: t.assistant_text, messageId: t.message_id,
     canStop: active(t.status) && (t.status === 'queued' || !!t.run_id),
+    steerRequested: !!t.steer_requested, steeredInto: t.steered_into || null,
     approval: t.approval ? JSON.parse(t.approval) : null,
     createdAt: t.created_at, updatedAt: t.updated_at });
   function tx(fn) {
@@ -110,8 +118,8 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
           return view(prior);
         }
       }
-      if (db.prepare("SELECT id FROM private_turns WHERE chat_id=? AND status IN ('queued','running','waiting_for_approval','stopping')").get(chat.id)) {
-        throw fault(409, 'turn_active', 'The agent is still working in this chat');
+      if (db.prepare("SELECT COUNT(*) AS n FROM private_turns WHERE chat_id=? AND status='queued'").get(chat.id).n >= MAX_QUEUED) {
+        throw fault(409, 'queue_full', `Up to ${MAX_QUEUED} messages can wait. Steer or remove one first`);
       }
       const id = `turn_${crypto.randomBytes(12).toString('base64url')}`;
       db.prepare(`INSERT INTO private_turns(id,chat_id,user_id,role,device_id,session_id,text,payload,status,created_at,updated_at,request_id,request_hash,source_device_kind)
@@ -137,6 +145,50 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
       return view(row(id));
     });
   }
+  // One tap: fold a waiting message into the reply that's running now. The
+  // worker running that reply delivers it; if the reply finishes first, the
+  // message simply runs next as its own turn, so nothing is lost.
+  function requestSteer(id) {
+    return tx(() => {
+      const t = row(id);
+      if (!t) throw fault(404, 'not_found', 'No such turn');
+      if (t.status !== 'queued' || t.run_id) throw fault(409, 'steer_unavailable', 'That message is no longer waiting');
+      if ((JSON.parse(t.payload).attachments || []).length || !t.text.trim()) throw fault(409, 'steer_files', 'Messages with files run next, after this reply');
+      if (!db.prepare("SELECT id FROM private_turns WHERE chat_id=? AND status IN ('running','waiting_for_approval')").get(t.chat_id)) {
+        throw fault(409, 'nothing_to_steer', 'The agent already finished. Your message will run next');
+      }
+      db.prepare('UPDATE private_turns SET steer_requested=1,updated_at=? WHERE id=?').run(clock(), id);
+      event(id, 'turn', { turn: view(row(id)) });
+      return view(row(id));
+    });
+  }
+  function pendingSteers(activeId) {
+    const a = row(activeId);
+    if (!a) return [];
+    return db.prepare("SELECT id,text,payload FROM private_turns WHERE chat_id=? AND status='queued' AND steer_requested=1 AND run_id IS NULL ORDER BY seq")
+      .all(a.chat_id).map(t => ({ id: t.id, text: t.text, hasAttachments: (JSON.parse(t.payload).attachments || []).length > 0 }));
+  }
+  function markSteered(id, activeId) {
+    return tx(() => {
+      const t = row(id);
+      if (!t || t.status !== 'queued' || !t.steer_requested) return null;
+      db.prepare("UPDATE private_turns SET status='steered',accepted=1,steered_into=?,payload='{}',updated_at=? WHERE id=?").run(activeId, clock(), id);
+      event(id, 'turn', { turn: view(row(id)) }); event(id, 'done', { status: 'steered' });
+      event(activeId, 'turn', { turn: view(row(activeId)) });
+      return view(row(id));
+    });
+  }
+  // The agent finished before reading a steer: run that message next, keeping
+  // its place at the front of the queue. Its chat message already exists.
+  function requeueSteer(id) {
+    return tx(() => {
+      const t = row(id);
+      if (!t || t.status !== 'steered') return null;
+      db.prepare("UPDATE private_turns SET status='queued',steer_requested=0,steered_into=NULL,updated_at=? WHERE id=?").run(clock(), id);
+      event(id, 'turn', { turn: view(row(id)) });
+      return view(row(id));
+    });
+  }
   function requestApproval(id, approvalId, choice) {
     if (!['once', 'deny'].includes(choice)) throw fault(400, 'invalid_choice', 'Choose Allow once or Deny');
     return tx(() => {
@@ -152,7 +204,10 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
   function processNext() {
     if (tasks.size >= concurrency) return Promise.resolve(false);
     const t = tx(() => {
-      const next = db.prepare("SELECT * FROM private_turns WHERE status='queued' ORDER BY seq LIMIT 1").get();
+      // Oldest waiting message in a chat that isn't already running a turn.
+      const next = db.prepare(`SELECT * FROM private_turns q WHERE q.status='queued' AND NOT EXISTS (
+        SELECT 1 FROM private_turns r WHERE r.chat_id=q.chat_id AND r.status IN ('running','waiting_for_approval','stopping'))
+        ORDER BY q.seq LIMIT 1`).get();
       if (!next) return;
       db.prepare('UPDATE private_turns SET status=?,updated_at=? WHERE id=?').run(next.stop_requested ? 'stopping' : next.approval ? 'waiting_for_approval' : 'running', clock(), next.id);
       event(next.id, 'turn', { turn: view(row(next.id)) });
@@ -167,9 +222,11 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
           db.prepare('UPDATE private_turns SET run_id=?,updated_at=? WHERE id=?').run(runId, clock(), t.id);
           event(t.id, 'turn', { turn: view(row(t.id)) });
         }),
-        controls: () => { const current = row(t.id); return { stop: !!current.stop_requested, choice: current.approval_choice, approval: current.approval && JSON.parse(current.approval) }; },
+        controls: () => { const current = row(t.id); return { stop: !!current.stop_requested, choice: current.approval_choice, approval: current.approval && JSON.parse(current.approval), steers: current.stop_requested ? [] : pendingSteers(t.id) }; },
+        steered: id => markSteered(id, t.id),
         controlError: message => emit(t.id, 'error', { message }),
       });
+      for (const id of result?.unreadSteers || []) requeueSteer(id);
       finish(t.id, result?.status || 'completed', undefined, result?.notification);
       return true;
     }).catch(error => {
@@ -200,7 +257,7 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
     `msg_${crypto.createHash('sha256').update(`${t.chat_id}:user:${t.id}`).digest('hex').slice(0, 32)}`,
     t.source_device_kind,
   ]));
-  return { enqueue, replay, processNext, recoverInterrupted, requestStop, requestApproval, drainOutbox,
+  return { enqueue, replay, processNext, recoverInterrupted, requestStop, requestApproval, requestSteer, markSteered, requeueSteer, drainOutbox,
     messageSources: chatId => sourceMap(db.prepare('SELECT id,chat_id,source_device_kind FROM private_turns WHERE chat_id=?').all(chatId)),
     turnMessageSources: id => sourceMap(db.prepare('SELECT id,chat_id,source_device_kind FROM private_turns WHERE id=?').all(id)),
     get: id => view(row(id)),

@@ -27,8 +27,12 @@ test('persisted request IDs replay one turn, reject different input and serializ
     const turn = api.enqueue(input());
     assert.equal(api.enqueue(input()).id, turn.id);
     assert.throws(() => api.enqueue({ ...input(), text: 'Different' }), { code: 'request_conflict' });
-    assert.throws(() => api.enqueue({ ...input(), requestId: 'request_456' }), { code: 'turn_active' });
     const running = worker.processNext(); await started.promise;
+    // A second message while the first runs waits; it never starts alongside.
+    const second = api.enqueue({ ...input(), requestId: 'request_456', text: 'Then this' });
+    assert.equal(second.status, 'queued');
+    assert.equal(await worker.processNext(), false);
+    assert.equal(api.get(second.id).status, 'queued');
     assert.equal(api.get(turn.id).assistantText, 'Saved partial');
     assert.equal(api.get(turn.id).accepted, true);
     assert.equal(api.owns(turn.id, 'chat', 'stranger'), false);
@@ -38,8 +42,11 @@ test('persisted request IDs replay one turn, reject different input and serializ
     assert.ok(api.events(turn.id, cursor).some(e => e.event === 'done'));
     assert.equal(api.enqueue(input()).id, turn.id);
     assert.equal(calls, 1);
+    finish.resolve(); await worker.processNext();
+    assert.equal(api.get(second.id).status, 'completed');
+    assert.equal(calls, 2);
     const notifications = []; api.drainOutbox(e => notifications.push(e)); api.drainOutbox(e => notifications.push(e));
-    assert.deepEqual(notifications, [{ eventId: 'one' }]);
+    assert.deepEqual(notifications, [{ eventId: 'one' }, { eventId: 'one' }]);
   } finally { finish.resolve(); await worker.whenIdle(); api.close(); worker.close(); }
 });
 
@@ -121,4 +128,79 @@ test('stable delivery keys close the crash window between media persistence and 
     assert.equal(cache.history('chat').length, 1);
     assert.notEqual(cache.accept('chat', 'assistant', 'Reply', [], 'turn_1').id, first.id);
   } finally { cache.close(); }
+});
+
+test('queue holds at most five waiting messages per chat', async t => {
+  const file = fixture(t), finish = deferred(), started = deferred();
+  const worker = createAgentTurns({ file, execute: async () => { started.resolve(); await finish.promise; return {}; } });
+  try {
+    worker.enqueue(input()); const run = worker.processNext(); await started.promise;
+    for (let i = 0; i < 5; i++) worker.enqueue({ ...input(), requestId: `request_q${i}`, text: `wait ${i}` });
+    assert.throws(() => worker.enqueue({ ...input(), requestId: 'request_q9', text: 'too many' }), { code: 'queue_full' });
+    finish.resolve(); await run;
+  } finally { finish.resolve(); await worker.whenIdle(); worker.close(); }
+});
+
+test('steer folds a waiting message into the running turn exactly once', async t => {
+  const file = fixture(t), started = deferred(), finish = deferred();
+  const seen = [];
+  const worker = createAgentTurns({ file, execute: async (_t, hooks) => {
+    started.resolve();
+    // The run loop polls controls; deliver each steer once, like hermes-runs.
+    while (true) {
+      const { steers } = hooks.controls();
+      for (const s of steers) { if (!seen.includes(s.id)) { seen.push(s.id); hooks.steered(s.id); } }
+      if (await Promise.race([finish.promise.then(() => true), new Promise(r => setTimeout(() => r(false), 5))])) break;
+    }
+    return {};
+  } });
+  try {
+    const first = worker.enqueue(input()); const run = worker.processNext(); await started.promise;
+    const waiting = worker.enqueue({ ...input(), requestId: 'request_s1', text: 'Actually use the blue one' });
+    assert.equal(worker.requestSteer(waiting.id).steerRequested, true);
+    for (let i = 0; i < 50 && worker.get(waiting.id).status !== 'steered'; i++) await new Promise(r => setTimeout(r, 5));
+    assert.equal(worker.get(waiting.id).status, 'steered');
+    assert.equal(worker.get(waiting.id).steeredInto, first.id);
+    assert.deepEqual(seen, [waiting.id]);
+    assert.throws(() => worker.requestSteer(waiting.id), { code: 'steer_unavailable' });
+    finish.resolve(); await run;
+    // Steered messages never run again as their own turn.
+    assert.equal(await worker.processNext(), false);
+  } finally { finish.resolve(); await worker.whenIdle(); worker.close(); }
+});
+
+test('a steer the agent never read runs next, and nothing to steer leaves it queued', async t => {
+  const file = fixture(t), started = deferred(), finish = deferred();
+  let runs = 0;
+  const worker = createAgentTurns({ file, execute: async (turn, hooks) => {
+    runs++;
+    if (runs > 1) return { status: 'completed' };
+    started.resolve(); await finish.promise;
+    const [s] = hooks.controls().steers; hooks.steered(s.id);
+    return { status: 'completed', unreadSteers: [s.id] };
+  } });
+  try {
+    worker.enqueue(input()); const run = worker.processNext(); await started.promise;
+    const waiting = worker.enqueue({ ...input(), requestId: 'request_u1', text: 'Also check the tests' });
+    worker.requestSteer(waiting.id);
+    finish.resolve(); await run;
+    assert.equal(worker.get(waiting.id).status, 'queued');
+    assert.equal(worker.get(waiting.id).steerRequested, false);
+    await worker.processNext();
+    assert.equal(worker.get(waiting.id).status, 'completed');
+    assert.equal(runs, 2);
+    const late = worker.enqueue({ ...input(), requestId: 'request_u2', text: 'Late' });
+    assert.throws(() => worker.requestSteer(late.id), { code: 'nothing_to_steer' });
+  } finally { finish.resolve(); await worker.whenIdle(); worker.close(); }
+});
+
+test('messages with files cannot steer; they wait their turn', async t => {
+  const file = fixture(t), started = deferred(), finish = deferred();
+  const worker = createAgentTurns({ file, execute: async () => { started.resolve(); await finish.promise; return {}; } });
+  try {
+    worker.enqueue(input()); const run = worker.processNext(); await started.promise;
+    const withFile = worker.enqueue({ ...input(), requestId: 'request_f1', text: 'See this', attachments: [{ name: 'a.png', mime: 'image/png', data: Buffer.from('x') }] });
+    assert.throws(() => worker.requestSteer(withFile.id), { code: 'steer_files' });
+    finish.resolve(); await run;
+  } finally { finish.resolve(); await worker.whenIdle(); worker.close(); }
 });

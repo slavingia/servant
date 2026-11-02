@@ -51,6 +51,7 @@ class FakeAgent:
         self.provider = "test"
         self.session_prompt_tokens = self.session_completion_tokens = self.session_total_tokens = 0
         self.interrupted = threading.Event()
+        self.steer_event = threading.Event()
         self._memory_manager = None
         self.tools, self.valid_tool_names = [], set()
         self._memory_store = None
@@ -64,6 +65,15 @@ class FakeAgent:
 
     def interrupt(self, *args, **kwargs):
         self.interrupted.set()
+
+    def steer(self, text):
+        # Same contract as Hermes AIAgent.steer: accepted text is stashed for
+        # the next tool result; leftovers come back as result["pending_steer"].
+        if not text or not text.strip():
+            return False
+        self.steered = (getattr(self, "steered", "") + "\n" + text.strip()).strip()
+        self.steer_event.set()
+        return True
 
     def shutdown_memory_provider(self, *args, **kwargs):
         pass
@@ -201,6 +211,32 @@ class HermesContractTests(unittest.IsolatedAsyncioTestCase):
         data = await self.wait_status(run_id)
         self.assertEqual(data["status"], "cancelled", data)
         self.assertTrue(self.agents[0].interrupted.is_set())
+
+    async def test_steer_reaches_running_agent_and_unread_text_is_reported(self):
+        release = threading.Event()
+        def slow(agent, call):
+            agent.steer_event.wait(5)
+            release.wait(5)
+            # The agent finished without reaching a tool boundary: Hermes hands
+            # the steer back as pending_steer.
+            return {"final_response": "done", "messages": [], "pending_steer": agent.steered}
+        self.behavior = slow
+        caps = await (await self.client.get("/v1/capabilities")).json()
+        self.assertIs(caps["features"]["servant_steer"], True)
+        run_id = await self.start()
+        await self.wait_status(run_id, ("running",))
+        endpoint = f"/v1/runs/{run_id}/approval"
+        empty = await self.client.post(endpoint, json={"steer": "  "})
+        self.assertEqual(empty.status, 400)
+        sent = await self.client.post(endpoint, json={"steer": "Use the blue one", "steer_id": "turn_x"})
+        self.assertEqual(sent.status, 200, await sent.text())
+        self.assertEqual(self.agents[0].steered, "Use the blue one")
+        release.set()
+        data = await self.wait_status(run_id)
+        self.assertEqual(data["status"], "completed", data)
+        self.assertEqual(data["unread_steer"], "Use the blue one")
+        late = await self.client.post(endpoint, json={"steer": "Too late"})
+        self.assertEqual(late.status, 409)
 
     async def test_failed_run_and_inactive_approval_are_explicit(self):
         self.behavior = lambda agent, call: {"failed": True, "error": "fixture failure"}

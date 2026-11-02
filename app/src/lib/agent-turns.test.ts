@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activeAgentTurn, parseAgentTurn } from './agent-turns.ts';
+import { activeAgentTurn, canSteer, parseAgentTurn, splitTurns, type AgentTurn } from './agent-turns.ts';
 import { createAgentEventDecoder, type StreamEvent } from './agent-events.ts';
 
 const turn = { id: 'turn_1', chatId: 'chat_1', status: 'waiting_for_approval', accepted: true, text: 'Prepare notes', assistantText: 'Ready', canStop: true, createdAt: 10, updatedAt: 20 };
@@ -21,4 +21,35 @@ test('unknown turn states cannot enable controls; stopped turns are terminal', (
   assert.equal(activeAgentTurn(parseAgentTurn(turn)), true);
   assert.equal(activeAgentTurn(parseAgentTurn({ ...turn, status: 'cancelled' })), false);
   assert.equal(parseAgentTurn({ ...turn, canStop: 'yes' })?.canStop, false);
+});
+
+const queuedTurn = (id: string, status: AgentTurn["status"], createdAt: number, extra: Partial<AgentTurn> = {}): AgentTurn =>
+  ({ id, chatId: "chat_1", status, accepted: status !== "queued", text: `msg ${id}`, assistantText: "", canStop: true, createdAt, updatedAt: createdAt, ...extra });
+
+test("the running reply is current and queued messages wait oldest first", () => {
+  const { current, waiting } = splitTurns([queuedTurn("c", "queued", 3), queuedTurn("b", "queued", 2), queuedTurn("a", "running", 1)]);
+  assert.equal(current?.id, "a");
+  assert.deepEqual(waiting.map(t => t.id), ["b", "c"]);
+});
+
+test("with nothing running, the latest finished turn is current and steered turns are hidden", () => {
+  const { current, waiting } = splitTurns([queuedTurn("b", "steered", 2), queuedTurn("a", "completed", 1)]);
+  assert.equal(current?.id, "a");
+  assert.deepEqual(waiting, []);
+});
+
+test("steer needs a running reply, text, and only one tap", () => {
+  const running = queuedTurn("a", "running", 1);
+  assert.equal(canSteer(queuedTurn("b", "queued", 2), running), true);
+  assert.equal(canSteer(queuedTurn("b", "queued", 2), queuedTurn("a", "stopping", 1)), false);
+  assert.equal(canSteer(queuedTurn("b", "queued", 2), null), false);
+  assert.equal(canSteer(queuedTurn("b", "queued", 2, { steerRequested: true }), running), false);
+  assert.equal(canSteer(queuedTurn("b", "queued", 2, { text: "  " }), running), false);
+  assert.equal(canSteer(queuedTurn("b", "queued", 2), queuedTurn("a", "waiting_for_approval", 1)), true);
+});
+
+test("steered status and steerRequested parse from the server", () => {
+  const parsed = parseAgentTurn({ ...queuedTurn("b", "steered", 2), steerRequested: true });
+  assert.equal(parsed?.status, "steered");
+  assert.equal(parsed?.steerRequested, true);
 });

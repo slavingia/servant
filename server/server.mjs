@@ -28,7 +28,7 @@ import { createDeviceLink, previewDeviceLink, approveDeviceLink, denyDeviceLink,
 import { privateMessageView } from "./source-device.mjs";
 import { createChatMediaStore } from "./chat-media.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
-import { supportsDurableRuns, runDurableHermes } from "./hermes-runs.mjs";
+import { supportsDurableRuns, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
 import { verifyMemberUpstream } from "./member-policy.mjs";
 import { validateUploads, normalizeMediaContent, hermesInput, mediaPage, createMediaDeltaFilter, MAX_UPLOAD_BODY, TEXT_PART_CHARS } from "./media.mjs";
 
@@ -709,6 +709,12 @@ async function handle(req, res, cfg) {
       ownTurn(parts[4]);
       return send(res, 200, { turn: agentTurns.requestStop(parts[4]) });
     }
+    if (method === "POST" && parts[5] === "steer" && parts.length === 6) {
+      await readAuthorizedBody(req);
+      ownTurn(parts[4]);
+      if (agentRole(chat.role, cfg) !== "owner") return fail(res, 403, "forbidden", "Steering needs the full agent");
+      return send(res, 200, { turn: agentTurns.requestSteer(parts[4]) });
+    }
     if (method === "POST" && parts[5] === "approval" && parts.length === 6) {
       const body = await readAuthorizedBody(req);
       const actor = ownTurn(parts[4]);
@@ -841,8 +847,16 @@ async function executePrivateTurn(turn, hooks, cfg) {
   let result;
   if (durable) {
     if (turn.run_id && !turn.accepted) onAccepted();
+    const canSteer = full && await supportsSteer(up);
+    const steered = steerId => {
+      // The steer is now part of this conversation: show it as a sent message.
+      const queued = agentTurns.get(steerId);
+      if (!queued) return;
+      chatMediaStore().accept(turn.chat_id, "user", queued.text, [], steerId);
+      hooks.steered?.(steerId);
+    };
     result = await runDurableHermes({ up, sessionId: turn.session_id, input, sessionKey: sessionKey(user), runId: turn.run_id,
-      onAccepted, onEvent, checkpoint: hooks.checkpoint, controls: hooks.controls });
+      onAccepted, onEvent, checkpoint: hooks.checkpoint, controls: hooks.controls, steered, canSteer });
     // Run output is resolved by the bridge, while history contains its original
     // MEDIA source. Bind the cache record to that source for later galleries.
     if (assistantMessage) {
@@ -858,7 +872,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
     result = { status: "completed" };
   }
   mutateState(state => { const current = state.chats[turn.chat_id]; if (current && !current.deletedAt) current.updatedAt = now(); });
-  return { status: result.status, notification: assistantMessage && (assistantMessage.text || assistantMessage.attachments.length) ? {
+  return { status: result.status, unreadSteers: result.unreadSteers, notification: assistantMessage && (assistantMessage.text || assistantMessage.attachments.length) ? {
     kind: "agent", eventId: turn.id, chatId: turn.chat_id, userId: turn.user_id,
     text: assistantMessage.text || (assistantMessage.attachments.some(a => a.mime.startsWith("video/")) ? "Sent a video" : "Sent an image"),
   } : undefined };
