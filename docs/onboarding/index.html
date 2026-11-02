@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Get started with Servant</title>
+<meta name="description" content="What Servant does, how to use it, and a deep dive for your role">
+<style>
+  :root {
+    --navy: #0A2240; --blue: #0071BC; --blue-dark: #005EA2; --ink: #1B1B1B; --muted: #5C6670;
+    --line: #DFE1E2; --surface: #F4F6F8; --white: #fff; --code: #0F1B2D; --gold: #FFBE2E;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body { margin: 0; font: 17px/1.55 var(--font); color: var(--ink); background: var(--white); text-wrap: pretty; }
+  a { color: var(--blue-dark); }
+  a:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; border-radius: 6px; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+  .skip { position: absolute; left: -999px; top: 8px; background: var(--white); padding: 8px 12px; z-index: 9; }
+  .skip:focus { left: 8px; }
+
+  .band { background: var(--navy); color: var(--white); position: sticky; top: 0; z-index: 5; }
+  .band .wrap { display: flex; align-items: center; justify-content: space-between; height: 56px; gap: 16px; }
+  .mark { font-weight: 700; font-size: 18px; color: var(--white); text-decoration: none; white-space: nowrap; }
+  .band nav { display: flex; gap: 20px; overflow-x: auto; scrollbar-width: none; }
+  .band nav a { color: var(--white); text-decoration: none; font-weight: 600; font-size: 15px; white-space: nowrap; }
+  .band nav a:hover { text-decoration: underline; }
+
+  header.intro { background: var(--navy); color: var(--white); padding: 48px 0 56px; }
+  header.intro h1 { font-size: clamp(34px, 5vw, 52px); line-height: 1.08; margin: 0 0 16px; letter-spacing: -.5px; max-width: 16em; }
+  header.intro p { font-size: 20px; color: #D9E1EA; margin: 0 0 28px; max-width: 36em; }
+  .roles { display: flex; flex-wrap: wrap; gap: 12px; }
+  .roles a { display: inline-flex; align-items: center; min-height: 48px; padding: 0 20px; border-radius: 8px; background: var(--blue); color: var(--white); font-weight: 600; text-decoration: none; }
+  .roles a:hover { background: #1A85CC; }
+  header.intro .note { margin: 24px 0 0; font-size: 15px; color: #B8C4D2; }
+
+  [id] { scroll-margin-top: 72px; }
+  section { padding: 64px 0; border-top: 1px solid var(--line); }
+  section.alt { background: var(--surface); }
+  h2 { font-size: 32px; line-height: 1.15; margin: 0 0 12px; letter-spacing: -.3px; }
+  h3 { font-size: 22px; line-height: 1.25; margin: 40px 0 10px; }
+  h4 { font-size: 18px; margin: 28px 0 8px; }
+  .lede { color: var(--muted); font-size: 19px; max-width: 40em; margin: 0 0 32px; }
+  p, li { max-width: 46em; }
+  ol.steps, ul.plain { padding-left: 22px; }
+  ol.steps li, ul.plain li { margin: 6px 0; }
+
+  .phone { margin: 0; border-radius: 34px; padding: 7px; background: #111; box-shadow: 0 18px 36px rgba(10,34,64,.22); }
+  .phone img { display: block; width: 100%; height: auto; border-radius: 28px; background: var(--surface); }
+  .shots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; align-items: start; margin-top: 8px; }
+  .shots.four { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; }
+  figure { margin: 0; }
+  figcaption { margin-top: 12px; font-size: 15px; color: #3D4551; }
+  figcaption strong { display: block; color: var(--ink); font-size: 16px; }
+  .browser { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--white); box-shadow: 0 10px 28px rgba(10,34,64,.12); }
+  .browser img { display: block; width: 100%; height: auto; }
+  .wide { margin: 20px 0 8px; }
+  .pair > * { min-width: 0; }
+  .pair { display: grid; grid-template-columns: 1.6fr 1fr; gap: 32px; align-items: start; }
+  .pair.even { grid-template-columns: 1fr 1fr; }
+
+  pre { background: var(--code); color: #E6EDF6; border-radius: 10px; padding: 16px 18px; overflow-x: auto; font: 14px/1.6 var(--mono); margin: 12px 0 4px; position: relative; max-width: 100%; }
+  pre .c { color: #8FA3BC; }
+  pre .o { color: #B7E4C7; }
+  code { font-family: var(--mono); font-size: .9em; overflow-wrap: anywhere; background: #EEF1F4; padding: 1px 5px; border-radius: 4px; }
+  pre code { background: none; padding: 0; font-size: inherit; overflow-wrap: normal; }
+  .copy { position: absolute; top: 8px; right: 8px; background: #22324A; color: #E6EDF6; border: 0; border-radius: 6px; font: 600 13px var(--font); padding: 6px 10px; cursor: pointer; min-height: 32px; }
+  .copy:hover { background: #2D4262; }
+  .ask { background: var(--white); border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; margin: 12px 0; max-width: 46em; }
+  .ask b { display: block; font-size: 13px; color: var(--muted); font-weight: 600; margin-bottom: 4px; }
+  .caution { background: #FFF5D6; border-radius: 10px; padding: 14px 18px; margin: 16px 0; max-width: 46em; font-size: 16px; }
+
+  /* Role picker */
+  .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 32px; border-bottom: 1px solid var(--line); }
+  .tabs button { all: unset; cursor: pointer; padding: 12px 16px; min-height: 24px; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px; }
+  .tabs button[aria-selected="true"] { color: var(--navy); border-bottom-color: var(--blue); }
+  .tabs button:hover { color: var(--navy); }
+  .tabs button:focus-visible { outline: 3px solid var(--gold); outline-offset: -3px; border-radius: 6px; }
+  [role="tabpanel"][hidden] { display: none; }
+  .toc { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 0 0 8px; padding: 0; list-style: none; max-width: none; }
+  .toc li { max-width: none; margin: 0; }
+  .toc a { display: block; height: 100%; padding: 14px 16px; background: var(--white); border: 1px solid var(--line); border-radius: 10px; text-decoration: none; color: var(--ink); font-weight: 600; }
+  .toc a span { display: block; color: var(--muted); font-weight: 400; font-size: 15px; margin-top: 2px; }
+  .toc a:hover { border-color: var(--blue); }
+  .deep { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 40px; }
+  .num { display: inline-block; color: var(--blue-dark); font-weight: 700; margin-right: 6px; }
+
+  footer { padding: 32px 0 48px; color: #3D4551; font-size: 15px; border-top: 1px solid var(--line); }
+
+  @media (max-width: 880px) {
+    .shots, .shots.four { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 16px; padding-bottom: 8px; }
+    .shots > figure { flex: 0 0 62%; scroll-snap-align: start; }
+    .pair, .pair.even { grid-template-columns: 1fr; }
+    .band nav { display: none; }
+    section { padding: 48px 0; }
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="band"><div class="wrap">
+  <a class="mark" href="#top">Servant</a>
+  <nav aria-label="Sections">
+    <a href="#tour">What it does</a>
+    <a href="#first">First ten minutes</a>
+    <a href="#roles">Your role</a>
+  </nav>
+</div></div>
+
+<header class="intro" id="top"><div class="wrap">
+  <h1>Get started with Servant</h1>
+  <p>Servant is where the team talks, shares work and asks the agent for help. This guide shows what it does, then goes deeper for your role.</p>
+  <div class="roles" aria-label="Jump to your role">
+    <a href="#role-developer" data-role="developer">Developer</a>
+    <a href="#role-tester" data-role="tester">Functional tester</a>
+    <a href="#role-designer" data-role="designer">UX designer</a>
+    <a href="#role-content" data-role="content">UX content strategist</a>
+    <a href="#role-researcher" data-role="researcher">UX researcher</a>
+  </div>
+  <p class="note">Every screen here is a real capture from a separate test server with made-up people and messages</p>
+</div></header>
+
+<main id="main">
+
+<section class="alt" id="tour"><div class="wrap">
+  <h2>What Servant does</h2>
+  <p class="lede">Five tabs cover everything: Home for channels, DMs for direct messages, Agent for your private chats with the agent, People, and You.</p>
+
+  <div class="shots">
+    <figure><div class="phone"><img src="shots/home.jpg" alt="Home tab listing channels: general, ux-research, design-reviews and testing, each with its latest message" loading="lazy"></div>
+      <figcaption><strong>Channels</strong>Shared rooms for a team or topic. Unread channels are bold. Search sits at the top of every tab.</figcaption></figure>
+    <figure><div class="phone"><img src="shots/channel.jpg" alt="The ux-research channel with messages from Ashley Webb and replies counted under one message" loading="lazy"></div>
+      <figcaption><strong>Messages and threads</strong>Post in a channel, then reply in a thread so the channel stays readable.</figcaption></figure>
+    <figure><div class="phone"><img src="shots/thread.jpg" alt="A thread under Ashley's message with replies from Hai Vuong and Annie Cole" loading="lazy"></div>
+      <figcaption><strong>Threads</strong>Long-press a message and choose Reply in thread. Type @agent in a thread to bring the agent in.</figcaption></figure>
+  </div>
+
+  <div class="shots" style="margin-top:40px">
+    <figure><div class="phone"><img src="shots/dm.jpg" alt="A direct message between Ashley Webb and Annie Cole about consent wording" loading="lazy"></div>
+      <figcaption><strong>Direct messages</strong>One-to-one or small group chats. Sent turns to Read when the other person has seen it.</figcaption></figure>
+    <figure><div class="phone"><img src="shots/agent.jpg" alt="Agent tab with a button to start a new chat" loading="lazy"></div>
+      <figcaption><strong>Agent</strong>Private chats with the agent. It can read repositories, run checks and draft work. You can stop it, and it asks before risky steps.</figcaption></figure>
+    <figure><div class="phone"><img src="shots/feedback.jpg" alt="Feedback screen for reporting a problem with an optional screenshot" loading="lazy"></div>
+      <figcaption><strong>Report a problem</strong>Shake your phone or take a screenshot and Servant asks if something is wrong. Your report goes straight to the agent.</figcaption></figure>
+  </div>
+
+  <div class="shots" style="margin-top:40px">
+    <figure><div class="phone"><img src="shots/people.jpg" alt="People tab listing everyone on the server with online status" loading="lazy"></div>
+      <figcaption><strong>People</strong>Everyone on your server, with Online or when they were last seen. Tap a person to message them.</figcaption></figure>
+    <figure><div class="phone"><img src="shots/invite.jpg" alt="Invite screen with a hidden QR code, a Copy invite link button and who can join" loading="lazy"></div>
+      <figcaption><strong>Invite someone</strong>Share one link or QR code. It works for a week. The QR code is hidden in this capture.</figcaption></figure>
+    <figure><div class="phone"><img src="shots/home-dark.jpg" alt="Home tab in dark appearance" loading="lazy"></div>
+      <figcaption><strong>Light and dark</strong>Servant follows your phone's appearance setting.</figcaption></figure>
+  </div>
+</div></section>
+
+<section id="first"><div class="wrap">
+  <h2>Your first ten minutes</h2>
+  <p class="lede">Everyone does these, whatever your role.</p>
+  <div class="pair">
+    <div>
+      <ol class="steps">
+        <li><strong>Install Servant.</strong> iPhone: accept the TestFlight invite. Android: accept the Firebase App Distribution email.</li>
+        <li><strong>Join your team's server.</strong> Open the invite link or scan the QR code you were sent, then type your name.</li>
+        <li><strong>Join your channels.</strong> On Home, tap Browse and join #general plus the channels for your work, such as #ux-research, #design-reviews or #testing.</li>
+        <li><strong>Say hello in #general.</strong> It's the quickest way to check everything works.</li>
+        <li><strong>Ask the agent something.</strong> Open the Agent tab, tap New chat and try one of the prompts below.</li>
+        <li><strong>Try a report.</strong> Shake your phone once. Cancel it, or tell us what confused you.</li>
+      </ol>
+      <div class="ask"><b>Try asking the agent</b>What can you help a new UX researcher with?</div>
+      <div class="ask"><b>In a channel thread</b>@agent summarise this thread in three bullets</div>
+      <div class="caution">Servant hasn't had an agency security review yet. Don't share taxpayer data, personal information or anything sensitive in it.</div>
+    </div>
+    <figure><div class="phone"><img src="shots/welcome.jpg" alt="Welcome screen with Join with invite link and Scan an invite code buttons" loading="lazy"></div>
+      <figcaption><strong>Welcome screen</strong>What you see the first time you open Servant</figcaption></figure>
+  </div>
+</div></section>
+
+<section class="alt" id="roles"><div class="wrap">
+  <h2>Go deeper for your role</h2>
+  <p class="lede">Pick your role. Servant remembers your choice on this device.</p>
+
+  <div class="tabs" role="tablist" aria-label="Roles">
+    <button role="tab" id="tab-developer" aria-controls="role-developer" aria-selected="false" tabindex="-1">Developer</button>
+    <button role="tab" id="tab-tester" aria-controls="role-tester" aria-selected="false" tabindex="-1">Functional tester</button>
+    <button role="tab" id="tab-designer" aria-controls="role-designer" aria-selected="false" tabindex="-1">UX designer</button>
+    <button role="tab" id="tab-content" aria-controls="role-content" aria-selected="false" tabindex="-1">UX content strategist</button>
+    <button role="tab" id="tab-researcher" aria-controls="role-researcher" aria-selected="true" tabindex="0">UX researcher</button>
+  </div>
+
+  <!-- DEVELOPER -->
+  <div role="tabpanel" id="role-developer" aria-labelledby="tab-developer" tabindex="0" hidden>
+    <h3>Developers</h3>
+    <p>Servant has three parts: an Expo app, a small Node server on the owner's Mac, and the Hermes agent behind it. The phone talks to the server through an encrypted relay.</p>
+<pre><code>Phone (Servant app)
+  │  app-to-Mac encryption inside HTTPS
+  ▼
+Relay or tunnel  ──▶  Server (server/, on the Mac)  ──▶  Agent (Hermes, localhost only)</code></pre>
+    <h4>Get the code running</h4>
+<pre><code>git clone https://github.com/slavingia/servant.git
+cd servant
+node --test server/                 <span class="c"># server tests, temporary databases and a fake agent</span>
+cd app &amp;&amp; npm ci
+npm test &amp;&amp; npm run typecheck &amp;&amp; npm run lint</code></pre>
+    <h4>Test on your own server, never the real one</h4>
+    <p>All manual testing happens on an isolated test server with its own data, keys and port. A different account on the real server still changes real data.</p>
+<pre><code>node scripts/test-instance.mjs init
+node scripts/test-instance.mjs start                       <span class="c"># http://127.0.0.1:8788</span>
+node scripts/test-instance.mjs invite --name 'QA Owner' --role owner
+node scripts/test-instance.mjs invite --user &lt;existing-id&gt;  <span class="c"># second device, same person</span></code></pre>
+    <h4>Read next</h4>
+    <ul class="plain">
+      <li><code>docs/testing.md</code> for the test server and what it can't do (no agent, no push)</li>
+      <li><code>docs/deployment.md</code> for staged releases, the worker and rollback</li>
+      <li><code>docs/agent-turns.md</code> for Stop, approvals and how replies survive a locked phone</li>
+      <li><code>docs/encryption.md</code> and <code>docs/ato-data-flows.md</code> for the security boundary</li>
+    </ul>
+    <div class="ask"><b>Ask the agent</b>Which files handle read receipts, and which tests cover them?</div>
+  </div>
+
+  <!-- TESTER -->
+  <div role="tabpanel" id="role-tester" aria-labelledby="tab-tester" tabindex="0" hidden>
+    <h3>Functional testers</h3>
+    <div class="pair">
+      <div>
+        <p>You get new builds automatically through TestFlight on iPhone and Firebase App Distribution on Android. Both platforms ship with the same build number, so say which number you're on when you report something.</p>
+        <h4>What to check on each new build</h4>
+        <ol class="steps">
+          <li>Join with an invite link and with a QR code</li>
+          <li>Post in a channel, reply in a thread and react to a message</li>
+          <li>Send a DM and watch Sent change to Read</li>
+          <li>Attach a photo, a video and a file. Up to four files at once</li>
+          <li>Ask @agent in a thread, then lock your phone and reopen. The reply should still arrive</li>
+          <li>Start an agent chat and tap Stop partway through</li>
+          <li>Swipe left on a DM to archive it, then find it under Archived</li>
+          <li>Turn on airplane mode, send a message, turn it off. The draft should not be lost</li>
+          <li>Repeat a few screens in dark appearance and at a large text size</li>
+        </ol>
+        <h4>Reporting a bug</h4>
+        <p>Shake the phone or take a screenshot on the screen that's wrong. Say what you did, what you expected and what happened. The screenshot and your build number go with the report.</p>
+        <div class="caution">Test with made-up content. When you need a clean account, ask for an invite to the test server rather than creating extra people on the real one.</div>
+      </div>
+      <figure><div class="phone"><img src="shots/feedback.jpg" alt="Feedback screen" loading="lazy"></div>
+        <figcaption><strong>Feedback</strong>Reports land with the agent, which reproduces and fixes what it can</figcaption></figure>
+    </div>
+  </div>
+
+  <!-- DESIGNER -->
+  <div role="tabpanel" id="role-designer" aria-labelledby="tab-designer" tabindex="0" hidden>
+    <h3>UX designers</h3>
+    <div class="pair even">
+      <div>
+        <p>Servant's visual rules live in <code>docs/design-system.md</code>. The essentials:</p>
+        <ul class="plain">
+          <li>A navy band (<code>#0A2240</code>) at the top with a white status bar</li>
+          <li>Buttons in IRS blue (<code>#0071BC</code>) with white labels, never white or light blue on navy</li>
+          <li>Tab titles left-aligned, 20pt in from the edge, with no Back button</li>
+          <li>Pushed screens have a centred title and Back at 20pt</li>
+          <li>Buttons say what they do in plain words. No icon when the word is obvious</li>
+          <li>Destructive actions are a red link (<code>#D11242</code>)</li>
+        </ul>
+        <h4>Proposing a change</h4>
+        <ol class="steps">
+          <li>Post the idea in #design-reviews with a capture of the screen as it is today</li>
+          <li>For a web prototype, use the design-prototypes repository and start from <code>components/starter.html</code></li>
+          <li>Show real captures in light and dark, at the same screen size, before and after</li>
+          <li>Tag content and research in the thread for wording and evidence</li>
+        </ol>
+        <div class="ask"><b>Ask the agent</b>Capture the People tab in light and dark at 393 by 852 and post them in this thread</div>
+      </div>
+      <div class="shots" style="grid-template-columns:1fr 1fr;gap:20px">
+        <figure><div class="phone"><img src="shots/home.jpg" alt="Home tab in light appearance" loading="lazy"></div><figcaption>Light</figcaption></figure>
+        <figure><div class="phone"><img src="shots/home-dark.jpg" alt="Home tab in dark appearance" loading="lazy"></div><figcaption>Dark</figcaption></figure>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONTENT -->
+  <div role="tabpanel" id="role-content" aria-labelledby="tab-content" tabindex="0" hidden>
+    <h3>UX content strategists</h3>
+    <div class="pair">
+      <div>
+        <p>Every word in Servant is in the screen files under <code>app/src/app/</code>, for example <code>invite.tsx</code> or <code>welcome.tsx</code>. Ask the agent to find a string and it will show you the file and line.</p>
+        <h4>House style</h4>
+        <ul class="plain">
+          <li>Plain and letter-like. Spell out one to nine</li>
+          <li>Sentence case for headings and buttons</li>
+          <li>No full stop at the end of a one-sentence line</li>
+          <li>Say "server", never "hub"</li>
+          <li>Settings rows: the label is the thing you turn on, with a one-line subtitle that fits a 375pt screen in English and Spanish</li>
+          <li>For IRS products, say "the IRS app", never "IRS2Go"</li>
+        </ul>
+        <h4>How content reviews reach you</h4>
+        <p>When an automated UX Research review finds a wording problem in a prototype, it tags you on GitHub with the finding, its priority and a link to the evidence. Reply on the issue or in #design-reviews.</p>
+        <div class="ask"><b>Ask the agent</b>List every error message in the app with its file, and flag any that don't say what to do next</div>
+      </div>
+      <figure><div class="phone"><img src="shots/new-channel.jpg" alt="New channel screen with name and topic fields" loading="lazy"></div>
+        <figcaption><strong>New channel</strong>Labels, hints and buttons are all reviewable copy</figcaption></figure>
+    </div>
+  </div>
+
+  <!-- RESEARCHER -->
+  <div role="tabpanel" id="role-researcher" aria-labelledby="tab-researcher" tabindex="0">
+    <h3>UX researchers</h3>
+    <p>You'll mostly use three places, and Servant ties them together.</p>
+    <ul class="plain">
+      <li><a href="https://github.com/Taxpayer-Services-and-Online-Accounts/research-hub">Research Hub</a> (private): past study reports and the survey research catalog</li>
+      <li><a href="https://ash-webb.github.io/research-studio/">Research Studio</a>: build and run unmoderated studies in the browser</li>
+      <li><a href="https://github.com/Taxpayer-Services-and-Online-Accounts/design-prototypes">design-prototypes</a>: prototypes, published reviews and the research insights dashboard</li>
+    </ul>
+
+    <ol class="toc" aria-label="Researcher topics">
+      <li><a href="#rx-query"><span class="num">1</span>Query the Research Hub<span>Find studies and survey evidence</span></a></li>
+      <li><a href="#rx-study"><span class="num">2</span>Build a study<span>Research Studio, start to finish</span></a></li>
+      <li><a href="#rx-data"><span class="num">3</span>Add data and dashboards<span>New releases and new pages</span></a></li>
+      <li><a href="#rx-update"><span class="num">4</span>Update a dashboard<span>Refresh, check, publish</span></a></li>
+      <li><a href="#rx-review"><span class="num">5</span>Automate reviews<span>And tag people for feedback</span></a></li>
+    </ol>
+
+    <!-- 1 -->
+    <div class="deep" id="rx-query">
+      <h3><span class="num">1</span>Query the Research Hub on GitHub</h3>
+      <p>The Hub holds two kinds of evidence. Past study reports live under <code>research/</code>, one folder per study. The survey research catalog in <code>survey-research-catalog/</code> holds approved survey aggregates and comments for six products: the IRS app, Where's My Refund, Tax Pro Account, Individual Online Account, Business Tax Account and IRS.gov.</p>
+
+      <h4>Find studies and files with the GitHub CLI</h4>
+<pre><code><span class="c"># Browse the study folders</span>
+gh api repos/Taxpayer-Services-and-Online-Accounts/research-hub/contents/research --jq '.[].name'
+<span class="o">Accessibility Program
+Business Tax Account
+Campus Roadshow Focus Groups
+Digital comms
+Direct File …</span>
+
+<span class="c"># Search the whole Hub for a phrase</span>
+gh search code "payment plan" --repo Taxpayer-Services-and-Online-Accounts/research-hub
+<span class="o">survey-research-catalog/data/products/irs_app/2026-10-08/dim_code.csv
+survey-research-catalog/data/products/iola/2026-10-09_v1.0-rc3-conditional/dim_code.csv …</span>
+
+<span class="c"># See what's being added or discussed</span>
+gh pr list -R Taxpayer-Services-and-Online-Accounts/research-hub</code></pre>
+
+      <h4>Ask the survey catalog a question</h4>
+      <p>Build the catalog once on your computer. It needs Python 3 (the README asks for 3.12) and takes about 15 seconds.</p>
+<pre><code>gh repo clone Taxpayer-Services-and-Online-Accounts/research-hub
+cd research-hub/survey-research-catalog
+python3 catalog/build_catalog.py --canonical --database research_catalog.sqlite
+python3 catalog/validate_catalog.py --database research_catalog.sqlite
+<span class="o">VALIDATION: PASS</span>
+
+<span class="c"># Start with the guarded workflows</span>
+python3 catalog/query_catalog.py --list-workflows
+<span class="o">catalog-status  evidence-freshness  rating-trends  feature-requests  technical-bugs
+segment-breakdown  period-comparison  search-comments  top-recent-themes</span></code></pre>
+      <p>Example: what were the top comment themes for the Individual Online Account in the two latest published weeks?</p>
+<pre><code>python3 catalog/query_catalog.py --database research_catalog.sqlite --top-recent-themes iola --periods 2
+<span class="o">1  Refund, return, case, and processing status            1058
+2  Help, contact, escalation, and virtual assistance         566
+3  Navigation, search, content clarity, and guided use       503
+4  Payments, balances, payment plans, and offers…            456
+   Weeks 2026-09-26 to 2026-10-09 · CONDITIONAL_PASS_RC3</span></code></pre>
+      <p>More examples:</p>
+<pre><code><span class="c"># Monthly rating trends, complete months only</span>
+python3 catalog/query_catalog.py --database research_catalog.sqlite \
+  --workflow rating-trends --product wmr --grain month --complete-only --format json
+
+<span class="c"># Bounded comment search: needs a product and a date range, returns at most 50 short excerpts</span>
+python3 catalog/query_catalog.py --database research_catalog.sqlite \
+  --search-comments "refund status" --product iola --from-date 2026-10-02 --to-date 2026-10-15</code></pre>
+      <div class="caution"><strong>Rules that keep findings honest.</strong> Use the published aggregates before comment text. Say the exact dates and release you used. A missing value means unavailable, never zero. Quote conditional release statuses as they're written. Label anything drawn from comment text as automated or exploratory. The full rules are in <code>survey-research-catalog/AGENTS.md</code>.</div>
+      <div class="ask"><b>Or ask in #ux-research</b>@agent what were the top IOLA comment themes in the two latest published weeks? Give the dates and release status</div>
+    </div>
+
+    <!-- 2 -->
+    <div class="deep" id="rx-study">
+      <h3><span class="num">2</span>Build a study in Research Studio</h3>
+      <p>Research Studio runs prototype usability tests, A/B tests, card sorts, tree tests, first-click tests, preference tests and surveys, alone or in one study. It runs in the browser with nothing to install.</p>
+      <div class="caution">It's a demo for now. Responses stay in the participant's own browser and are never sent to you. Don't use it with real participants or real research yet, and don't put personal or sensitive information into it.</div>
+
+      <h4>Build it</h4>
+      <div class="browser wide"><img src="shots/rs-builder-tree.jpg" alt="Research Studio Study builder with the tree testing example loaded: title, study ID, welcome and consent fields" loading="lazy"></div>
+      <ol class="steps">
+        <li>Open <a href="https://ash-webb.github.io/research-studio/">Research Studio</a>. It starts on Study builder.</li>
+        <li>Select <strong>+ New study</strong>, or pick a built-in example and select <strong>Load example</strong> to change it.</li>
+        <li>Fill in the title, a study ID (lowercase letters, numbers and hyphens), the welcome text and the consent statement.</li>
+        <li>Under activities, choose a method and select <strong>Add activity</strong>. Each method has its own settings.</li>
+        <li>Add questions before the activities, after each one, or at the end.</li>
+      </ol>
+      <div class="pair">
+        <div class="browser"><img src="shots/rs-builder-activity.jpg" alt="Activity editor for a tree test, showing the navigation tree with indented items and the correct destination" loading="lazy"></div>
+        <div>
+          <p>A tree test's menu is written one item per line, indented two spaces per level:</p>
+<pre><code>payments | Payments
+  make-payment | Make a payment
+  payment-history | Payment history
+records | Records
+  tax-transcripts | Tax transcripts</code></pre>
+          <p>Then set the correct destination, here <code>tax-transcripts</code>. Participants never see it.</p>
+        </div>
+      </div>
+
+      <h4>Preview it as a participant</h4>
+      <p>Select <strong>Preview locally</strong> to take it yourself in a new tab. Previews are labelled and kept out of your results. It works on a phone too.</p>
+      <div class="shots">
+        <figure><div class="phone"><img src="shots/rs-p-welcome.jpg" alt="Participant welcome screen with consent checkbox and Agree and begin study button" loading="lazy"></div><figcaption><strong>Welcome and consent</strong></figcaption></figure>
+        <figure><div class="phone"><img src="shots/rs-p-tree.jpg" alt="Tree test on a phone, inside Records, showing Tax transcripts and Tax documents" loading="lazy"></div><figcaption><strong>The tree test</strong>Inside Records</figcaption></figure>
+        <figure><div class="phone"><img src="shots/rs-p-done.jpg" alt="Study complete screen with an option to download the session" loading="lazy"></div><figcaption><strong>Done</strong>Participants can download their session</figcaption></figure>
+      </div>
+
+      <h4>Save it and publish it</h4>
+      <ol class="steps">
+        <li>Select <strong>Export study JSON</strong>. Keep the file: drafts aren't saved when you close the tab. <strong>Import JSON</strong> loads it again.</li>
+        <li>To put it on the live site, add the file to the <code>studies/</code> folder, add a line to <code>studies/index.json</code>, and push.</li>
+      </ol>
+<pre><code>gh repo clone ash-webb/research-studio &amp;&amp; cd research-studio
+cp ~/Downloads/records-tree-test.json studies/
+<span class="c"># add {"id": "records-tree-test", "title": "…", "config": "studies/records-tree-test.json"} to studies/index.json</span>
+npm test
+git add studies &amp;&amp; git commit -m "Add records tree test" &amp;&amp; git push</code></pre>
+      <p>The site republishes in a minute or two. The participant link is <code>https://ash-webb.github.io/research-studio/study.html?study=records-tree-test</code>. Only invited collaborators can push.</p>
+
+      <h4>See results</h4>
+      <div class="browser wide"><img src="shots/rs-results-method.jpg" alt="Results and insights for the tree test: one session, success one of one, direct path Records then Tax transcripts" loading="lazy"></div>
+      <p>Open <strong>Results &amp; insights</strong> and choose the study. You'll see sessions, success per activity, an analysis for each method and each participant's path. Download CSV or JSON for Excel or Power BI. While it's a demo, results only include studies taken in the same browser.</p>
+      <div class="ask"><b>Or ask the agent</b>Draft a Research Studio study JSON for a closed card sort of the IRS app's Records tab with eight cards and three groups</div>
+    </div>
+
+    <!-- 3 -->
+    <div class="deep" id="rx-data">
+      <h3><span class="num">3</span>Add new data and create a dashboard</h3>
+      <h4>Adding a new data release to the Research Hub</h4>
+      <p>Each survey export becomes a release folder in the catalog. A release isn't usable until its approvals are recorded, and the build refuses anything that doesn't match.</p>
+      <ol class="steps">
+        <li>Create <code>survey-research-catalog/data/products/&lt;product&gt;/&lt;release&gt;/</code> with the approved CSV partitions, <code>catalog_manifest.json</code> and <code>release_manifest.csv</code>. Copy an existing release for the file layout.</li>
+        <li>Record the decision in <code>metadata/decisions/</code>. If comment text will be searched, add its approval to <code>metadata/comment_text_analysis_approvals.json</code>.</li>
+        <li>Add the release to <code>catalog/canonical_source_set.json</code> and update the expected counts.</li>
+        <li>Build, validate and test. All three must pass.</li>
+        <li>Open a pull request on research-hub and ask the catalog owner to review.</li>
+      </ol>
+<pre><code>git switch -c add-&lt;product&gt;-&lt;release&gt;
+python3 catalog/build_catalog.py --canonical --database research_catalog.sqlite
+python3 catalog/validate_catalog.py --database research_catalog.sqlite
+python3 -m unittest discover -s tests -v
+gh pr create -R Taxpayer-Services-and-Online-Accounts/research-hub --fill</code></pre>
+      <div class="caution">Never commit raw exports, the generated <code>.sqlite</code> file, respondent identifiers or anything awaiting disclosure review. Pull request #483, which adds six more products, shows a complete example.</div>
+
+      <h4>Creating a new dashboard</h4>
+      <p>Dashboards live in design-prototypes, which publishes to a <strong>public</strong> website. Only published aggregates can go on them: no comment text, excerpts or respondent data. Get the owner's approval before publishing a new one.</p>
+      <ol class="steps">
+        <li>Make a folder in design-prototypes, for example <code>refund-research/</code>, and start the page from <code>components/starter.html</code>.</li>
+        <li>Write <code>tools/build-data.py</code> that calls only the guarded catalog workflows and copies an explicit list of fields into <code>data.json</code>. Copy the one in <code>research-analytics/tools/</code>.</li>
+        <li>Have the page read <code>data.json</code>. Show missing values as unavailable, keep each value's source and valid N, and don't combine products into one score.</li>
+        <li>Add a README with the purpose, data boundary and how to refresh.</li>
+        <li>Run <code>python3 scripts/build_catalog.py</code> so the page appears in the shared directory, then commit and push to main.</li>
+      </ol>
+      <div class="ask"><b>Or ask the agent</b>Make a dashboard in design-prototypes of Where's My Refund monthly ease ratings, using only governed workflows, modelled on research-analytics</div>
+    </div>
+
+    <!-- 4 -->
+    <div class="deep" id="rx-update">
+      <h3><span class="num">4</span>Update an existing dashboard</h3>
+      <div class="browser wide"><img src="shots/dash-top.jpg" alt="Research insights dashboard showing common survey measures across products" loading="lazy"></div>
+      <p>The <a href="https://taxpayer-services-and-online-accounts.github.io/design-prototypes/research-analytics/">research insights dashboard</a> is rebuilt from the catalog, never edited by hand.</p>
+<pre><code>cd design-prototypes
+git pull --ff-only
+python3 research-analytics/tools/build-data.py --catalog-root ../research-hub/survey-research-catalog
+python3 research-analytics/tools/build-data.py --catalog-root ../research-hub/survey-research-catalog --check
+<span class="o">Research analytics checked: 12 products</span>
+PLAYWRIGHT=/path/to/playwright/index.mjs node research-analytics/tools/qa.mjs
+PLAYWRIGHT=/path/to/playwright/index.mjs node research-analytics/tools/capture.mjs
+git add research-analytics &amp;&amp; git commit -m "Refresh research insights data" &amp;&amp; git push</code></pre>
+      <p>GitHub Pages republishes in a few minutes. Open the live page and check the as-of date.</p>
+      <div class="caution">The dashboard covers 12 products, but research-hub main has six until pull request #483 merges. Build the catalog from that branch (<code>git switch codex/multisurvey-onboarding-2026-10-18</code>) or the refresh stops with a <code>survey_id</code> error. The check above passed against that branch on November 1.</div>
+      <p>To change what the dashboard shows rather than refresh it, edit <code>app.js</code> and <code>style.css</code>, run the same checks, and post before and after captures in #design-reviews.</p>
+    </div>
+
+    <!-- 5 -->
+    <div class="deep" id="rx-review">
+      <h3><span class="num">5</span>Automate research reviews and tag people for feedback</h3>
+      <p>A monitor runs every three hours. It looks for new or changed prototypes in design-prototypes, reviews up to three against Research Hub evidence, and prepares a UX Research SME review for each. Every review is marked as an automated first pass, not human SME approval.</p>
+      <div class="browser wide"><img src="shots/review.jpg" alt="Published UX Research SME review page for the refund debt indicator, with findings, priorities and evidence" loading="lazy"></div>
+      <h4>Publish a review and tag owners</h4>
+      <ol class="steps">
+        <li>Ask the agent to publish it. It becomes a page in the prototype's <code>design-review/</code> folder, with each finding's evidence, limits and test questions.</li>
+        <li>Design changes are tagged to <strong>@Hai-RS</strong> and content changes to <strong>@annie-content</strong>, on the prototype's feedback issue.</li>
+        <li>Nothing that notifies someone goes out between 9pm and 8am Eastern. Tags written overnight are held and posted at 8am.</li>
+      </ol>
+      <div class="ask"><b>Ask in #ux-research</b>@agent publish the review for the refund debt prototype and tag Hai for design and Annie for content</div>
+      <h4>Doing it yourself on GitHub</h4>
+<pre><code><span class="c"># Comment on a feedback issue and tag owners</span>
+cat &gt; tag.md &lt;&lt;'EOF'
+@Hai-RS, this needs a design change:
+- rsme-01 (High): show a breakdown of the refund, the offset and the amount still coming
+
+@annie-content, this needs a content change:
+- rsme-02 (Medium): spell out "Bureau of the Fiscal Service (BFS)" in every state
+
+Review: https://taxpayer-services-and-online-accounts.github.io/design-prototypes/refund-debt-review/design-review/
+EOF
+gh issue comment 2686 -R Taxpayer-Services-and-Online-Accounts/expo-irs --body-file tag.md
+
+<span class="c"># Ask for review on a pull request</span>
+gh pr edit 483 -R Taxpayer-Services-and-Online-Accounts/research-hub --add-reviewer &lt;github-login&gt;
+
+<span class="c"># Find what's waiting on you</span>
+gh search issues --mentions @me --state open</code></pre>
+      <p>Write each finding as one line: its ID, priority, and the change. Link the review so people can see the evidence.</p>
+    </div>
+  </div>
+</div></section>
+</main>
+
+<footer><div class="wrap">
+  <p>Captures: Servant on web from the test server (made-up people), Research Studio v0.3.5, and the live design-prototypes pages, all taken on November 1, 2026. Command output is from real runs that day.</p>
+  <p>Questions or something wrong here? Shake your phone in Servant, or post in #general.</p>
+</div></footer>
+
+<script>
+(function () {
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+  function select(role, focus) {
+    tabs.forEach(function (t) {
+      var on = t.id === 'tab-' + role;
+      t.setAttribute('aria-selected', on); t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      if (on && focus) t.focus();
+    });
+    try { localStorage.setItem('servant.onboarding.role', role); } catch (e) {}
+    if (/^#role-/.test(location.hash)) history.replaceState(null, '', '#role-' + role);
+  }
+  tabs.forEach(function (t, i) {
+    t.addEventListener('click', function () { select(t.id.slice(4)); history.replaceState(null, '', '#role-' + t.id.slice(4)); });
+    t.addEventListener('keydown', function (e) {
+      var d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      if (e.key === 'Home') d = -i; if (e.key === 'End') d = tabs.length - 1 - i;
+      if (d) { e.preventDefault(); select(tabs[(i + d + tabs.length) % tabs.length].id.slice(4), true); }
+    });
+  });
+  function fromHash() {
+    var h = location.hash.slice(1), m = h.match(/^role-(\w+)$/);
+    if (m && document.getElementById('tab-' + m[1])) { select(m[1]); document.getElementById('roles').scrollIntoView(); return true; }
+    if (/^rx-/.test(h)) { select('researcher'); var el = document.getElementById(h); if (el) el.scrollIntoView(); return true; }
+    return false;
+  }
+  if (!fromHash()) { var saved = null; try { saved = localStorage.getItem('servant.onboarding.role'); } catch (e) {} if (saved && document.getElementById('tab-' + saved)) select(saved); }
+  window.addEventListener('hashchange', fromHash);
+  document.querySelectorAll('pre').forEach(function (pre) {
+    var b = document.createElement('button'); b.className = 'copy'; b.type = 'button'; b.textContent = 'Copy';
+    b.setAttribute('aria-label', 'Copy code');
+    b.addEventListener('click', function () {
+      var text = Array.prototype.filter.call(pre.querySelector('code').childNodes, function (n) { return !(n.classList && n.classList.contains('o')); })
+        .map(function (n) { return n.textContent; }).join('').replace(/\n{2,}/g, '\n\n').trim();
+      (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function () { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1500); }, function () { b.textContent = 'Select and copy'; });
+    });
+    pre.appendChild(b);
+  });
+})();
+</script>
+</body>
+</html>
