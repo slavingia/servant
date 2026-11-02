@@ -19,12 +19,13 @@ function resultIcon(glyph: string): AppIconName {
   return glyph === "#" ? "hash" : glyph === "@" ? "user" : glyph === "✦" ? "sparkles" : glyph === "↳" ? "chat" : "compose";
 }
 
-export function Omnibar() {
+// "bar" is the phone header; "sidebar" is the compact trigger in the wide layout.
+export function Omnibar({ variant = "bar" }: { variant?: "bar" | "sidebar" }) {
   const { account } = useSession();
-  return account ? <SearchBar account={account} /> : null;
+  return account ? <SearchBar account={account} variant={variant} /> : null;
 }
 
-function SearchBar({ account }: { account: Account }) {
+function SearchBar({ account, variant }: { account: Account; variant: "bar" | "sidebar" }) {
   const styles = useStyles();
   const { colors, scheme } = useTheme();
   const insets = useSafeAreaInsets();
@@ -193,7 +194,12 @@ function SearchBar({ account }: { account: Account }) {
   };
 
   return <>
-    <View style={[styles.header, { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right }]}>
+    {variant === "sidebar" ? <Pressable ref={trigger} accessibilityRole="button" accessibilityLabel="Search Servant" accessibilityHint="Find channels, people, messages, and quick actions" accessibilityState={{ expanded: visible }} onPress={open}
+      style={state => [styles.sidebarTrigger, ((state as { hovered?: boolean }).hovered || state.pressed) && styles.sidebarTriggerHovered]}>
+      <AppIcon name="search" color={colors.muted} size={16} />
+      <Text numberOfLines={1} style={styles.sidebarPlaceholder}>Search</Text>
+      <Text style={styles.sidebarShortcut}>⌘K</Text>
+    </Pressable> : <View style={[styles.header, { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right }]}>
       <View style={styles.headerRow}>
         <Pressable ref={trigger} accessibilityRole="button" accessibilityLabel="Search Servant" accessibilityHint="Find channels, people, messages, and quick actions" accessibilityState={{ expanded: visible }} onPress={open} style={({ pressed }) => [styles.trigger, pressed && styles.triggerPressed]}>
           <AppIcon name="search" color={colors.onBrand} size={18} />
@@ -201,11 +207,11 @@ function SearchBar({ account }: { account: Account }) {
           {Platform.OS === "web" && width >= 600 ? <Text style={styles.shortcut}>⌘ / Ctrl K</Text> : null}
         </Pressable>
       </View>
-    </View>
+    </View>}
     <Modal transparent visible={visible} animationType="fade" onRequestClose={close} onShow={() => input.current?.focus()}>
       {visible && mobile ? <StatusBar style={scheme === "dark" ? "light" : "dark"} /> : null}
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalRoot}>
-        <View style={[styles.overlay, mobile && styles.mobileOverlay, { paddingTop: insets.top + (mobile ? 0 : space.sm), paddingBottom: mobile ? 0 : Math.max(insets.bottom, space.sm) }]}>
+        <View style={[styles.overlay, mobile && styles.mobileOverlay, { paddingTop: insets.top + (mobile ? 0 : variant === "sidebar" ? 96 : space.sm), paddingBottom: mobile ? 0 : Math.max(insets.bottom, space.sm) }]}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close search" onPress={close} style={StyleSheet.absoluteFill} />
           <View style={[styles.panel, mobile && styles.mobilePanel]} accessibilityViewIsModal>
             <View style={styles.searchRow}>
@@ -255,6 +261,10 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   triggerPressed: { backgroundColor: "rgba(255,255,255,0.2)" },
   placeholder: { ...typography.body, color: colors.onBrand, flex: 1 },
   shortcut: { ...typography.caption, color: colors.onBrand },
+  sidebarTrigger: { minHeight: 34, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: space.xs, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, backgroundColor: colors.background },
+  sidebarTriggerHovered: { borderColor: colors.borderStrong },
+  sidebarPlaceholder: { ...typography.caption, color: colors.muted, flex: 1 },
+  sidebarShortcut: { ...typography.meta, color: colors.muted, paddingHorizontal: 5, paddingVertical: 1, borderRadius: radius.sm, backgroundColor: colors.subtle, overflow: "hidden" },
   modalRoot: { flex: 1 },
   overlay: { flex: 1, paddingHorizontal: space.sm, alignItems: "center", backgroundColor: "rgba(20,30,45,0.45)" },
   mobileOverlay: { paddingHorizontal: 0, backgroundColor: colors.background },

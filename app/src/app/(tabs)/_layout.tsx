@@ -1,4 +1,6 @@
+import { Slot } from "expo-router";
 import { NativeTabs } from "expo-router/native-tabs";
+import { useWideLayout } from "../../lib/layout";
 import { useLive } from "../../lib/live";
 import { useTheme } from "../../lib/theme";
 
@@ -7,7 +9,10 @@ const Icon = NativeTabs.Trigger.Icon;
 export default function TabsLayout() {
   const { unread } = useLive();
   const { colors } = useTheme();
+  const wide = useWideLayout();
   const badge = (n: number) => (n > 0 ? String(n > 99 ? "99+" : n) : undefined);
+  // The sidebar is the tab bar in the wide layout.
+  if (wide) return <Slot />;
   return (
     <NativeTabs
       tintColor={colors.blue}

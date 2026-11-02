@@ -10,6 +10,7 @@ import { activeMention, insertMention, mentionMatches, mentionText } from "../li
 import type { MessageReceipt } from "../lib/message-status";
 import { messageDeviceLabel } from "../lib/message-device";
 import { useSession } from "../lib/session";
+import { useWideLayout } from "../lib/layout";
 import { validateAttachmentSelection } from "../lib/media";
 import { Attachments, DraftAttachments, pickAttachments, type DraftAttachment } from "./Attachments";
 import { AppIcon } from "./AppIcon";
@@ -263,6 +264,7 @@ export function Composer({
   mentionAgent?: boolean;
 }) {
   const styles = useStyles();
+  const wide = useWideLayout();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   // The home-indicator inset only applies when the keyboard is down; above the keyboard the
@@ -349,7 +351,7 @@ export function Composer({
   };
   const off = (!text.trim() && !files.length && !dictation.listening) || busy || picking;
   return (
-    <View style={[styles.composerWrap, { paddingBottom: keyboard ? space.xs : Math.max(insets.bottom, space.xs) }]}>
+    <View style={[styles.composerWrap, wide && styles.composerWrapWide, { paddingBottom: wide ? space.md : keyboard ? space.xs : Math.max(insets.bottom, space.xs) }]}>
       {fileError || dictation.error ? <Text accessibilityRole="alert" style={styles.composerError}>{fileError || dictation.error}</Text> : null}
       {match ? (
         <ScrollView keyboardShouldPersistTaps="always" style={styles.suggestions} accessibilityLabel="Mention suggestions">
@@ -361,7 +363,7 @@ export function Composer({
           )) : <Text style={styles.noSuggestions}>No matching members in this conversation</Text>}
         </ScrollView>
       ) : null}
-      <View style={[styles.composer, focused && styles.composerFocused]}>
+      <View style={[styles.composer, wide && styles.composerWide, focused && (wide ? styles.composerWideFocused : styles.composerFocused)]}>
         {onCancel ? <Text style={styles.editingLabel}>Editing message</Text> : null}
         <TextInput
           editable={!busy || clearOnSend}
@@ -512,6 +514,10 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   noSuggestions: { ...typography.caption, paddingHorizontal: space.side, paddingVertical: space.sm, color: colors.muted },
   composer: { borderWidth: 1, borderColor: colors.borderStrong, borderRadius: radius.md, backgroundColor: colors.background, overflow: "hidden" },
   composerFocused: { borderColor: colors.blue },
+  // Desktop: a soft floating card, closer to Slack and ChatGPT than a form field.
+  composerWrapWide: { paddingHorizontal: space.side + space.xxs },
+  composerWide: { borderColor: colors.line, borderRadius: radius.lg + 4, boxShadow: "0 1px 2px rgba(16,24,40,0.04), 0 4px 16px rgba(16,24,40,0.06)" },
+  composerWideFocused: { borderColor: colors.borderStrong },
   composerToolbar: { flexDirection: "row", alignItems: "center", paddingHorizontal: space.xxs, paddingBottom: space.xxs, minHeight: 48 },
   composerHint: { ...typography.meta, color: colors.muted, flex: 1, paddingHorizontal: space.xs },
   editingLabel: { ...typography.captionStrong, color: colors.muted, paddingTop: space.xs, paddingHorizontal: space.sm },

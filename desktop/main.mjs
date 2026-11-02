@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, safeStorage, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, protocol, safeStorage, session, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -73,7 +73,10 @@ else {
 
 function createWindow() {
   window = new BrowserWindow({
-    width: 1200, height: 820, minWidth: 760, minHeight: 560, title: 'Servant', backgroundColor: '#112e51', show: false,
+    width: 1200, height: 820, minWidth: 760, minHeight: 560, title: 'Servant', show: false,
+    // The sidebar draws under the inset traffic lights, like Slack and ChatGPT.
+    titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 13 },
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#12161C' : '#FFFFFF',
     webPreferences: { preload: path.join(here, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, webviewTag: false },
   });
   window.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: 'deny' }; });

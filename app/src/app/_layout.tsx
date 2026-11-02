@@ -11,6 +11,7 @@ import { AppChrome } from "../components/AppChrome";
 import { Button } from "../components/Button";
 import { ThemeProvider, useTheme, typography } from "../lib/theme";
 import { validServerKey } from "../lib/tunnel-crypto";
+import { useWideLayout } from "../lib/layout";
 
 export default function RootLayout() {
   return (
@@ -28,6 +29,9 @@ function SessionNavigation() {
   const { ready, account, loadError, retryLoad } = useSession();
   const { colors, scheme } = useTheme();
   const pathname = usePathname();
+  const wide = useWideLayout();
+  // Sidebar destinations replace each other, so they have nothing to go back to.
+  const sidebarScreen = wide ? { headerBackVisible: false, headerLeft: () => null } : {};
   const navigationTheme = useMemo(() => ({
     ...(scheme === "dark" ? DarkTheme : DefaultTheme),
     colors: {
@@ -70,7 +74,7 @@ function SessionNavigation() {
         headerTintColor: colors.ink,
         headerTitleAlign: "left",
         headerShadowVisible: true,
-        headerTitleStyle: { fontSize: typography.bodyStrong.fontSize, fontWeight: typography.bodyStrong.fontWeight },
+        headerTitleStyle: wide ? { fontSize: 16, fontWeight: "700" } : { fontSize: typography.bodyStrong.fontSize, fontWeight: typography.bodyStrong.fontWeight },
         headerBackButtonDisplayMode: "minimal",
         contentStyle: { backgroundColor: colors.background },
         // Keep the compact conversation toolbar free of extra glass button fills.
@@ -104,17 +108,17 @@ function SessionNavigation() {
       </Stack.Protected>
       <Stack.Protected guard={paired} redirectTo="/welcome">
         <Stack.Screen name="(tabs)" options={{ headerShown: false, title: "Back", animation: "none" }} />
-        <Stack.Screen name="c/[id]" options={{ title: "" }} />
+        <Stack.Screen name="c/[id]" options={{ title: "", ...sidebarScreen }} />
         <Stack.Screen name="thread" options={{ title: "Thread" }} />
-        <Stack.Screen name="new-channel" options={{ title: "New channel" }} />
-        <Stack.Screen name="new-message" options={{ title: "New message" }} />
+        <Stack.Screen name="new-channel" options={{ title: "New channel", ...sidebarScreen }} />
+        <Stack.Screen name="new-message" options={{ title: "New message", ...sidebarScreen }} />
         <Stack.Screen name="browse" options={{ headerShown: false }} />
-        <Stack.Screen name="archived-channels" options={{ title: "Archived" }} />
+        <Stack.Screen name="archived-channels" options={{ title: "Archived", ...sidebarScreen }} />
         <Stack.Screen name="channel-info" options={{ title: "Details" }} />
-        <Stack.Screen name="chat/[id]" options={{ title: "" }} />
+        <Stack.Screen name="chat/[id]" options={{ title: "", ...sidebarScreen }} />
         <Stack.Screen name="feedback" options={{ title: "Feedback" }} />
-        <Stack.Screen name="notifications" options={{ title: "Notifications" }} />
-        <Stack.Screen name="invite" options={{ title: "Invite someone" }} />
+        <Stack.Screen name="notifications" options={{ title: "Notifications", ...sidebarScreen }} />
+        <Stack.Screen name="invite" options={{ title: "Invite someone", ...sidebarScreen }} />
       </Stack.Protected>
     </Stack>
     </AppChrome>
