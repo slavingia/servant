@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 export const APP_URL = 'servant-app://app';
+export const DOWNLOAD_PAGE = 'https://servant-desktop.web.app';
 export function isAppUrl(value) {
   try { const url = new URL(value); return url.protocol === 'servant-app:' && url.host === 'app' && !url.username && !url.password; }
   catch { return false; }
@@ -26,4 +27,13 @@ export function workspaceConfig(value, { allowLoopback = false } = {}) {
     return url.href.replace(/\/$/, '');
   };
   return { server: checkedUrl(value.server), serverKey: value.serverKey, ...(value.discovery ? { discovery: checkedUrl(value.discovery) } : {}) };
+}
+// `codesign -dv` prints the signing team; ad-hoc and unsigned builds have none.
+export function teamIdentifier(codesignOutput) {
+  const match = /^TeamIdentifier=([A-Z0-9]{10})$/m.exec(String(codesignOutput ?? ''));
+  return match ? match[1] : null;
+}
+// Squirrel.Mac rejects updates for apps without a Developer ID team.
+export function updateMode(team) {
+  return team ? 'install' : 'notify';
 }

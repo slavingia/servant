@@ -169,11 +169,13 @@ only the page and checksums for Firebase:
 ```sh
 mkdir -p desktop/dist/downloads
 cp desktop/downloads/index.html desktop/dist/downloads/index.html
-(cd desktop/dist && shasum -a 256 Servant-1.0.0-*.dmg > downloads/SHA256SUMS)
+(cd desktop/dist && shasum -a 256 Servant-1.0.0-*.dmg Servant-1.0.0-*.zip > downloads/SHA256SUMS)
 gh release create v1.0.0-preview.1 --repo slavingia/servant-desktop-releases \
   --title "Servant for Mac 1.0.0 preview" --notes-file /path/to/release-notes.md \
   --prerelease --draft desktop/dist/Servant-1.0.0-arm64.dmg \
-  desktop/dist/Servant-1.0.0-x64.dmg desktop/dist/downloads/SHA256SUMS
+  desktop/dist/Servant-1.0.0-x64.dmg desktop/dist/Servant-1.0.0-*.zip \
+  desktop/dist/Servant-1.0.0-*.zip.blockmap desktop/dist/latest-mac.yml \
+  desktop/dist/downloads/SHA256SUMS
 # Verify uploaded assets, then publish the release.
 gh release edit v1.0.0-preview.1 --repo slavingia/servant-desktop-releases --draft=false
 ```
@@ -196,5 +198,20 @@ to `SHA256SUMS`. Verify the page’s instructions and artifact status match what
 actually released. Publishing the website does not deploy the pairing server or
 update the phone apps.
 
-Automatic desktop updates are not implemented. Users can get a later release
-through **Help → Download the latest Servant** and replace the app in Applications.
+## Updates
+
+The app checks [the release repository](https://github.com/slavingia/servant-desktop-releases)
+10 seconds after launch, every 6 hours, and from **Servant → Check for Updates…**.
+It reads `latest-mac.yml` from the newest release, including pre-releases, so every
+release must upload `latest-mac.yml` and both ZIPs (with their blockmaps) alongside
+the DMGs. Bump `version` in `desktop/package.json` for each release; the updater
+compares it with the version in `latest-mac.yml`.
+
+- **Developer ID signed builds** download the update in the background, then offer
+  **Restart Now** or install the next time Servant quits.
+- **Ad-hoc preview builds** can't install in place: Squirrel.Mac only accepts an
+  update carrying the running app's Developer ID signature. They show the new
+  version and open the download page instead.
+
+Builds released before 1.0.2 have no updater; those users install one release
+manually through **Help → Download the latest Servant**.

@@ -2,7 +2,8 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, protocol, 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { APP_URL, assetPath, externalUrl, isAppUrl, workspaceConfig } from './policy.mjs';
+import { APP_URL, DOWNLOAD_PAGE, assetPath, externalUrl, isAppUrl, workspaceConfig } from './policy.mjs';
+import { createUpdates } from './updates.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = path.join(here, 'web');
@@ -18,6 +19,7 @@ const workspace = rawWorkspace ? workspaceConfig(rawWorkspace, { allowLoopback: 
 let window;
 const validSender = event => event.sender === window?.webContents && event.senderFrame === window.webContents.mainFrame && isAppUrl(event.senderFrame.url);
 const openExternal = value => { const url = externalUrl(value); if (url) void shell.openExternal(url); };
+const updates = createUpdates({ getWindow: () => window, openExternal });
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
@@ -61,12 +63,17 @@ else {
       return result;
     });
     Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { role: 'appMenu' }, { role: 'editMenu' },
+      { role: 'appMenu', submenu: [
+        { role: 'about' }, { label: 'Check for Updates…', click: () => void updates.check({ manual: true }) }, { type: 'separator' },
+        { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' },
+      ] },
+      { role: 'editMenu' },
       { label: 'View', submenu: [{ role: 'reload' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'togglefullscreen' }] },
       { role: 'windowMenu' },
-      { role: 'help', submenu: [{ label: 'Download the latest Servant', click: () => openExternal('https://servant-desktop.web.app') }] },
+      { role: 'help', submenu: [{ label: 'Download the latest Servant', click: () => openExternal(DOWNLOAD_PAGE) }] },
     ]));
     createWindow();
+    updates.start();
     app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); else window?.show(); });
   }).catch(error => { dialog.showErrorBox('Servant could not start', error.message); app.quit(); });
 }

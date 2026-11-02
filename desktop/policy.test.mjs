@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assetPath, externalUrl, isAppUrl, workspaceConfig } from './policy.mjs';
+import { assetPath, externalUrl, isAppUrl, teamIdentifier, updateMode, workspaceConfig } from './policy.mjs';
 
 test('local assets cannot escape their root or use another origin', () => {
   assert.equal(assetPath('/bundle/web', 'servant-app://app/assets/a.js'), '/bundle/web/assets/a.js');
@@ -17,4 +17,10 @@ test('workspace projection includes only public settings and production requires
   assert.throws(() => workspaceConfig({ ...value, server: 'http://127.0.0.1:8788' }));
   assert.equal(workspaceConfig({ ...value, server: 'http://127.0.0.1:8788' }, { allowLoopback: true }).server, 'http://127.0.0.1:8788');
   assert.throws(() => workspaceConfig({ ...value, server: 'http://external.test' }, { allowLoopback: true }));
+});
+test('only Developer ID builds install updates in place', () => {
+  assert.equal(teamIdentifier('Identifier=gov.irs.servant.desktop\nTeamIdentifier=AB12CD34EF\nSealed Resources version=2'), 'AB12CD34EF');
+  for (const output of ['Signature=adhoc\nTeamIdentifier=not set', 'code object is not signed at all', '', undefined]) assert.equal(teamIdentifier(output), null);
+  assert.equal(updateMode('AB12CD34EF'), 'install');
+  assert.equal(updateMode(null), 'notify');
 });
