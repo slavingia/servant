@@ -226,6 +226,34 @@ test("the join link works for many people, asks each for a name, and a fresh lin
   assert.equal((await api("POST", "/v1/pair", { body: { code: next, name: "Ivy" } })).status, 201);
 });
 
+// config.json is re-read per request; close posting for one test.
+async function withWorkHours(value, fn) {
+  const file = path.join(dataDir, "config.json");
+  const before = fs.readFileSync(file, "utf8");
+  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(before), workHours: value }));
+  try { return await fn(); } finally { fs.writeFileSync(file, before); }
+}
+
+test("work hours: agent chats and channels refuse posts and point to Teams; reading still works", async () => {
+  const token = await pair("member", "Wren");
+  const chat = (await api("POST", "/v1/chats", { token, body: {} })).json.chat;
+  const general = (await api("GET", "/v1/conversations", { token })).json.conversations.find((c) => c.name === "general");
+  const allDay = { start: "00:00", end: "24:00", days: [0, 1, 2, 3, 4, 5, 6] };
+  await withWorkHours(allDay, async () => {
+    const calls = owner.calls.length + member.calls.length;
+    const sent = await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "during work" } });
+    assert.equal(sent.status, 403);
+    assert.equal(sent.json.error.code, "work_hours");
+    assert.match(sent.json.error.message, /Use Microsoft Teams during work hours$/);
+    assert.equal(owner.calls.length + member.calls.length, calls, "the agent is never called");
+    const posted = await api("POST", `/v1/conversations/${general.id}/messages`, { token, body: { text: "during work" } });
+    assert.equal(posted.status, 403);
+    assert.equal(posted.json.error.code, "work_hours");
+    assert.equal((await api("GET", `/v1/conversations/${general.id}/messages`, { token })).status, 200, "reading is unaffected");
+  });
+  assert.equal((await api("POST", `/v1/conversations/${general.id}/messages`, { token, body: { text: "after work" } })).status, 201);
+});
+
 test("full access (default): a member's private chat uses the full agent and sees tool names", async () => {
   const token = await pair("member", "Fran");
   const created = await api("POST", "/v1/chats", { token, body: {} });

@@ -13,6 +13,7 @@
 //   node server/server.mjs release <build> <notes.md>   post a build's notes to #whats-new
 
 import http from "node:http";
+import { workHoursConfig, postingClosed, workHoursMessage } from "./work-hours.mjs";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -89,6 +90,8 @@ export function loadConfig() {
     // "full" (default): everyone's agent has full Hermes access. "limited":
     // non-owners use the restricted member bridge (docs/member-security.md).
     agentAccess: cfg.agentAccess === "limited" ? "limited" : "full",
+    // Optional "workHours": posting is off during the workday (use Teams).
+    workHours: workHoursConfig(cfg.workHours),
     // Where the server can be reached from phones. Filled in by the tunnel script.
     publicUrl: process.env.SERVANT_PUBLIC_URL || cfg.publicUrl || "",
     // Stable URL that always returns {"url": "<current publicUrl>"}.
@@ -726,6 +729,7 @@ async function handle(req, res, cfg) {
 
   if (method === "POST" && parts[3] === "messages" && parts.length === 4) {
     const body = await readAuthorizedBody(req, MAX_UPLOAD_BODY);
+    if (postingClosed(cfg.workHours)) return fail(res, 403, "work_hours", workHoursMessage(cfg.workHours));
     const text = String(body.text || "").trim();
     const attachments = validateUploads(body.attachments, { mediaOnly: true });
     if (!text && !attachments.length) return fail(res, 400, "empty", "Type a message first");
@@ -898,6 +902,7 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
     users: () => readState().users,
     onMessage: event => servicePush.enqueue(event),
     agentName: () => (fixedCfg || loadConfig()).agentName || "Agent",
+    workHours: () => (fixedCfg || loadConfig()).workHours,
     // Channels use the same agent as private chats: full access unless the
     // server is set to "agentAccess": "limited".
     askAgent: async ({ sessionId, sessionKey: key, fresh, text, restartText, attachments, onDelta }) => {

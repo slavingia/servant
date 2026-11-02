@@ -12,6 +12,7 @@ import path from "node:path";
 import { isMention } from "./push.mjs";
 import { validateUploads, mediaPage, MAX_UPLOAD_BODY, MAX_UPLOAD_TOTAL } from "./media.mjs";
 import { sourceDeviceKind, sourceDeviceFields } from "./source-device.mjs";
+import { postingClosed, workHoursMessage } from "./work-hours.mjs";
 
 export const AGENT_ID = "agent";
 const MAX_TEXT = 8000;
@@ -159,7 +160,7 @@ export function agentShouldReply(text, agentName = "", inAgentThread = false) {
  * @param {() => string} o.agentName
  * @param {(o:{sessionId:string, sessionKey:string, text:string, attachments:Array, onDelta:(t:string)=>void, onStatus:(t:string)=>void}) => Promise<string|{text:string,attachments:Array}>} o.askAgent
  */
-export function createMessaging({ file, users, agentName, askAgent, onMessage = () => {}, externalWorker = false }) {
+export function createMessaging({ file, users, agentName, askAgent, onMessage = () => {}, externalWorker = false, workHours = () => null }) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(file);
   db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON');
@@ -1205,6 +1206,8 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       if (sub === "messages" && method === "POST") {
         if (!isMember) return fail(res, 403, "not_member", "Join the channel to post"), true;
         const body = await readBody(req, MAX_UPLOAD_BODY);
+        const rule = workHours();
+        if (postingClosed(rule)) return fail(res, 403, "work_hours", workHoursMessage(rule)), true;
         const text = String(body.text || "").trim();
         const attachments = validateUploads(body.attachments);
         if (!text && !attachments.length) return fail(res, 400, "empty", "Type a message first"), true;
