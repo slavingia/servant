@@ -63,6 +63,7 @@
   .pair.even { grid-template-columns: 1fr 1fr; }
 
   pre { background: var(--code); color: #E6EDF6; border-radius: 10px; padding: 16px 18px; overflow-x: auto; font: 14px/1.6 var(--mono); margin: 12px 0 4px; position: relative; max-width: 100%; }
+  pre.draft { white-space: pre-wrap; padding-top: 48px; }
   pre .c { color: #8FA3BC; }
   pre .o { color: #B7E4C7; }
   code { font-family: var(--mono); font-size: .9em; overflow-wrap: anywhere; background: #EEF1F4; padding: 1px 5px; border-radius: 4px; }
@@ -106,6 +107,7 @@
   <nav aria-label="Sections">
     <a href="#tour">What it does</a>
     <a href="#first">First ten minutes</a>
+    <a href="#jira">Jira tickets</a>
     <a href="#roles">Your role</a>
   </nav>
 </div></div>
@@ -179,6 +181,39 @@
   </div>
 </div></section>
 
+<section id="jira"><div class="wrap">
+  <h2>Jira tickets</h2>
+  <p class="lede">The agent can't reach IRS Jira, so it drafts the ticket and you file it. Once the ticket is in Jira, the rest is automatic.</p>
+  <div class="pair">
+    <div>
+      <ol class="steps">
+        <li><strong>Ask the agent for a draft.</strong> Describe the problem in an Agent chat, or type @agent in the thread where it came up. Attach a screenshot if you have one.</li>
+        <li><strong>Paste it into Jira.</strong> Create the ticket in project TXE and copy in the summary and description. Add the screenshot yourself, because attachments don't carry over.</li>
+        <li><strong>Engineering picks it up.</strong> When the ticket is in Backlog, Selected for Development, To Do or In Progress, it appears as a GitHub issue in expo-irs within 15 minutes, labelled with its TXE number.</li>
+        <li><strong>QA gets it back.</strong> When the pull request that fixes the issue is merged, the ticket moves to Ready for QA and is assigned to the QA tester.</li>
+      </ol>
+      <div class="ask"><b>Ask the agent</b>Draft a Jira bug for project TXE from this thread: summary under 80 characters, steps to reproduce, expected and actual result, build number and device</div>
+      <div class="ask"><b>Or for a story</b>Turn the wording notes in this thread into a TXE story with acceptance criteria</div>
+    </div>
+    <div>
+      <p>A draft looks like this:</p>
+<pre class="draft"><code>Summary: Notices tab shows English date in Spanish
+
+Steps to reproduce
+1. Set the phone language to Spanish
+2. Open the IRS app and sign in
+3. Open Notices
+
+Expected: dates read "3 de noviembre de 2026"
+Actual: dates read "November 3, 2026"
+
+Build: 2026110207 · iPhone 15, iOS 26.1
+Screenshot: attached</code></pre>
+      <div class="caution">Don't put taxpayer data, account details or real names from a support case into a ticket draft. Servant hasn't had an agency security review yet.</div>
+    </div>
+  </div>
+</div></section>
+
 <section class="alt" id="roles"><div class="wrap">
   <h2>Go deeper for your role</h2>
   <p class="lede">Pick your role. Servant remembers your choice on this device.</p>
@@ -240,7 +275,7 @@ node scripts/test-instance.mjs invite --user &lt;existing-id&gt;  <span class="c
           <li>Repeat a few screens in dark appearance and at a large text size</li>
         </ol>
         <h4>Reporting a bug</h4>
-        <p>Shake the phone or take a screenshot on the screen that's wrong. Say what you did, what you expected and what happened. The screenshot and your build number go with the report.</p>
+        <p>Shake the phone or take a screenshot on the screen that's wrong. Say what you did, what you expected and what happened. The screenshot and your build number go with the report. For the IRS app, file the bug in Jira so it reaches engineering. See <a href="#jira">Jira tickets</a>.</p>
         <div class="caution">Test with made-up content. When you need a clean account, ask for an invite to the test server rather than creating extra people on the real one.</div>
       </div>
       <figure><div class="phone"><img src="shots/feedback.jpg" alt="Feedback screen" loading="lazy"></div>
