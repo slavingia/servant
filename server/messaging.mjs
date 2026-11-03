@@ -969,7 +969,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     if (method === "GET" && r === "people" && parts.length === 2) {
       expirePresence();
       const list = Object.values(users())
-        .map((u) => ({ ...person(u.id), owner: u.role === "owner" }))
+        .map((u) => ({ ...person(u.id), owner: u.role === "owner", ...(u.vibeCoder ? { vibeCoder: true } : {}) }))
         .sort((a, b) => a.name.localeCompare(b.name));
       send(res, 200, { people: list, agent: person(AGENT_ID), me: user.id });
       return true;

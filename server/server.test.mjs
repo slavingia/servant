@@ -307,6 +307,60 @@ test("full access (default): a member's private chat uses the full agent and see
   assert.equal(member.calls.length, memberCalls, "never touched the limited agent");
 });
 
+test("each agent chat is its own session: a separate Hermes session and session key per chat", async () => {
+  const token = await pair("member", "Sol Sessions");
+  const a = (await api("POST", "/v1/chats", { token, body: {} })).json.chat;
+  const b = (await api("POST", "/v1/chats", { token, body: {} })).json.chat;
+  const before = owner.calls.length;
+  await api("POST", `/v1/chats/${a.id}/messages`, { token, body: { text: "first chat" } });
+  await api("POST", `/v1/chats/${b.id}/messages`, { token, body: { text: "second chat" } });
+  const streams = owner.calls.slice(before).filter((c) => c.url.endsWith("/chat/stream"));
+  assert.equal(streams.length, 2);
+  const [sa, sb] = streams;
+  assert.notEqual(sa.url, sb.url, "different Hermes sessions");
+  assert.notEqual(sa.headers["x-hermes-session-key"], sb.headers["x-hermes-session-key"], "different session keys");
+  assert.ok(sa.headers["x-hermes-session-key"].endsWith(a.id));
+  assert.equal(sa.body.system_message, undefined, "no project, no extra instructions");
+});
+
+test("projects: technical people pick one; the chat's turns carry its instructions", async () => {
+  const token = await pair("member", "Pat Projects");
+  const listed = await api("GET", "/v1/projects", { token });
+  assert.equal(listed.status, 200);
+  assert.equal(listed.json.vibeCoder, false);
+  assert.ok(listed.json.projects.some((p) => p.id === "mac"));
+  assert.equal((await api("POST", "/v1/chats", { token, body: { project: "nope" } })).status, 400);
+  const chat = (await api("POST", "/v1/chats", { token, body: { project: "mac" } })).json.chat;
+  assert.deepEqual(chat.project, { id: "mac", name: "Mac" });
+  assert.equal(chat.mode, undefined);
+});
+
+test("vibe coders: owners mark them; their chats build a prototype and show a preview link", async () => {
+  const boss = await pair("owner", "Vi Owner");
+  const token = await pair("member", "Val Vibes");
+  const val = (await api("GET", "/v1/people", { token })).json.me;
+  // Only owners can mark people.
+  assert.equal((await api("PATCH", `/v1/people/${val}`, { token, body: { vibeCoder: true } })).status, 403);
+  const marked = await api("PATCH", `/v1/people/${val}`, { token: boss, body: { vibeCoder: true } });
+  assert.deepEqual([marked.status, marked.json.person.vibeCoder], [200, true]);
+  assert.equal((await api("GET", "/v1/people", { token: boss })).json.people.find((p) => p.id === val).vibeCoder, true);
+  assert.equal((await api("GET", "/v1/projects", { token })).json.vibeCoder, true);
+  // Their chats ignore a requested project and always vibe-code the prototypes repo.
+  const chat = (await api("POST", "/v1/chats", { token, body: { project: "mac" } })).json.chat;
+  assert.equal(chat.mode, "vibe");
+  assert.equal(chat.project.id, "design-prototypes");
+  assert.match(chat.previewUrl, /^https:\/\/taxpayer-services-and-online-accounts\.github\.io\/design-prototypes\/vibe-[a-z0-9]+\/$/);
+  const before = owner.calls.length;
+  await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "a page about refunds" } });
+  const stream = owner.calls.slice(before).find((c) => c.url.endsWith("/chat/stream"));
+  assert.match(stream.body.system_message, /vibe-coding session/);
+  assert.ok(stream.body.system_message.includes(`PREVIEW: ${chat.previewUrl}`));
+  // Unmarking stops new vibe chats; the old one keeps its mode.
+  await api("PATCH", `/v1/people/${val}`, { token: boss, body: { vibeCoder: false } });
+  assert.equal((await api("POST", "/v1/chats", { token, body: {} })).json.chat.mode, undefined);
+  assert.equal((await api("GET", `/v1/chats/${chat.id}`, { token })).json.chat.mode, "vibe");
+});
+
 test("full access (default): @agent in a channel answers with the full agent", async () => {
   const gil = await pair("member", "Gil");
   const general = (await api("GET", "/v1/conversations", { token: gil })).json.conversations.find((c) => c.name === "general");

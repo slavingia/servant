@@ -35,6 +35,18 @@ export default function Members() {
   useFocusEffect(useCallback(() => { void load(); }, [load]));
   if (!account) return null;
   const people = directory?.token === account.token ? directory.people : null;
+  const owner = account.user.role === "owner";
+  // Owners mark people who aren't programmers: their agent chats become vibe coding.
+  const toggleVibe = async (person: Person) => {
+    if (opening) return;
+    setOpening(person.id); setError(null);
+    try {
+      const { person: updated } = await api.setVibeCoder(account, person.id, !person.vibeCoder);
+      setDirectory(d => d && { ...d, people: d.people.map(p => p.id === updated.id ? { ...p, vibeCoder: updated.vibeCoder } : p) });
+    } catch (e) {
+      setError(e instanceof ServerError ? e.message : "Couldn't change that. Try again");
+    } finally { setOpening(null); }
+  };
   const message = async (person: Person) => {
     if (opening) return;
     setOpening(person.id); setError(null);
@@ -66,8 +78,15 @@ export default function Members() {
         const status = self ? "" : presenceLabel(presence[item.id] ?? { ...item, online: false }, now, connected);
         return <Pressable accessibilityRole={self ? undefined : "button"} accessibilityLabel={`${item.name}${self ? ", you" : ""}, ${item.owner ? "owner" : "member"}${status ? `, ${status}` : ""}`} accessibilityHint={self ? undefined : "Open direct message"} disabled={self || !!opening} onPress={() => void message(item)} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}>
           <Avatar name={item.name} userId={item.id} size={36} />
-          <View style={styles.copy}><Text style={styles.name}>{item.name}{self ? <Text style={styles.you}> · You</Text> : null}</Text><Text style={[styles.role, status === "Online" && styles.online]}>{item.owner ? "Workspace owner" : "Member"}{status ? ` · ${status}` : ""}</Text></View>
-          {opening === item.id ? <ActivityIndicator color={colors.blue} /> : !self ? <AppIcon name="chat" size={18} color={colors.muted} /> : null}
+          <View style={styles.copy}><Text style={styles.name}>{item.name}{self ? <Text style={styles.you}> · You</Text> : null}</Text><Text style={[styles.role, status === "Online" && styles.online]}>{item.owner ? "Workspace owner" : !owner && item.vibeCoder ? "Vibe coder" : "Member"}{status ? ` · ${status}` : ""}</Text></View>
+          {opening === item.id ? <ActivityIndicator color={colors.blue} /> : <>
+            {owner && !item.owner ? <Pressable testID={`vibe-${item.id}`} accessibilityRole="switch" accessibilityState={{ checked: !!item.vibeCoder }} accessibilityLabel={`Vibe coder: ${item.name}`}
+              accessibilityHint="Their agent chats build prototypes with a preview link" onPress={() => void toggleVibe(item)}
+              style={({ pressed }) => [styles.vibeChip, item.vibeCoder && styles.vibeChipOn, pressed && { opacity: 0.7 }]}>
+              <Text style={[styles.vibeChipText, item.vibeCoder && styles.vibeChipTextOn]}>{item.vibeCoder ? "Vibe coder ✓" : "Vibe coder"}</Text>
+            </Pressable> : null}
+            {!self ? <AppIcon name="chat" size={18} color={colors.muted} /> : null}
+          </>}
         </Pressable>;
       }}
       contentContainerStyle={styles.content}
@@ -84,6 +103,10 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   you: { ...typography.body, color: colors.muted },
   role: { ...typography.caption, marginTop: 2, color: colors.muted },
   online: { color: colors.blueDark },
+  vibeChip: { minHeight: 32, paddingHorizontal: space.sm, borderRadius: 16, borderWidth: 1, borderColor: colors.line, justifyContent: "center", marginRight: space.sm },
+  vibeChipOn: { backgroundColor: colors.blueSoft, borderColor: colors.blueSoft },
+  vibeChipText: { ...typography.meta, color: colors.muted },
+  vibeChipTextOn: { color: colors.blueDark, fontWeight: "600" },
   error: { ...typography.caption, marginHorizontal: space.side, marginVertical: space.xs, color: colors.red },
   loading: { marginTop: space.xxl },
   empty: { marginTop: space.xxl, paddingHorizontal: space.lg, alignItems: "center" },

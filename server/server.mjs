@@ -31,6 +31,7 @@ import { createChatMediaStore } from "./chat-media.mjs";
 import { createUsageStore } from "./usage.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { supportsDurableRuns, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
+import { availableProjects, chatInstructions, projectById, vibeFolder, VIBE_PROJECT } from "./projects.mjs";
 import { verifyMemberUpstream } from "./member-policy.mjs";
 import { composeForward } from "./forward.mjs";
 import { toolStatusLine } from "./agent-status.mjs";
@@ -318,12 +319,12 @@ async function hermes(up, method, pathname, body, extraHeaders = {}, signal) {
 
 // Sends one turn to Hermes and calls onEvent(name, payload) for each SSE event.
 // Resolves with the final assistant text.
-async function streamTurn(up, sessionId, text, key, onEvent, isClosed = () => false, onAccepted = () => {}, onUsage = () => {}) {
+async function streamTurn(up, sessionId, text, key, onEvent, isClosed = () => false, onAccepted = () => {}, onUsage = () => {}, instructions = "") {
   const r = await hermes(
     up,
     "POST",
     `/api/sessions/${encodeURIComponent(sessionId)}/chat/stream`,
-    { message: text },
+    { message: text, ...(instructions ? { system_message: instructions } : {}) },
     { Accept: "text/event-stream", "X-Hermes-Session-Key": key },
   );
   if (!r.ok || !r.body) throw Object.assign(new Error(`The agent didn't answer (${r.status})`), { status: 502, code: "agent_error" });
@@ -375,7 +376,9 @@ async function streamTurn(up, sessionId, text, key, onEvent, isClosed = () => fa
 }
 
 // Memory scope per person, so one member never sees another's long-term memory.
-const sessionKey = (user) => `servant:${user.id}`;
+// One key per chat, so nothing scoped to the key (approvals, memory providers)
+// carries from one agent chat into another.
+const sessionKey = (user, chatId) => `servant:${user.id}:${chatId}`;
 
 // Agent chats are shared with the rest of the server by default so people can
 // learn from each other's prompts. The person can turn sharing off per chat;
@@ -411,7 +414,9 @@ function chatLastMessage(latestTurn, mirrored) {
   return null;
 }
 function chatView(chat, viewer, users = {}) {
-  const view = { id: chat.id, title: chat.title, createdAt: chat.createdAt, updatedAt: chat.updatedAt, shared: chatShared(chat) };
+  const view = { id: chat.id, title: chat.title, createdAt: chat.createdAt, updatedAt: chat.updatedAt, shared: chatShared(chat),
+    ...(chat.project ? { project: { id: chat.project, name: projectById(chat.project)?.name || chat.project } } : {}),
+    ...(chat.mode === "vibe" ? { mode: "vibe", previewUrl: `${projectById(VIBE_PROJECT).pages}${chat.vibeFolder}/` } : {}) };
   if (viewer && chat.userId === viewer.id) view.archived = !!chat.archivedAt;
   if (viewer && chat.userId !== viewer.id) {
     const author = users[chat.userId];
@@ -636,6 +641,23 @@ async function handle(req, res, cfg) {
     if (!canReadChat(chat, state.users[current.id] || current)) return fail(res, 404, "not_found", "That attachment is unavailable");
     return send(res, 200, { data: Buffer.from(a.data).toString("base64") });
   }
+  // What an agent chat can work on. Vibe coders don't choose: they build prototypes.
+  if (method === "GET" && parts[1] === "projects" && parts.length === 2) {
+    const me = readState().users[user.id];
+    return send(res, 200, { projects: availableProjects(), vibeCoder: !!me?.vibeCoder });
+  }
+  // Owners mark people as vibe coders (not programmers).
+  if (method === "PATCH" && parts[1] === "people" && parts.length === 3 && parts[2] !== "me") {
+    const body = await readAuthorizedBody(req);
+    if (typeof body.vibeCoder !== "boolean") return fail(res, 400, "bad_request", "vibeCoder must be true or false");
+    const person = mutateAuthenticated(req, (state) => {
+      const target = state.users[parts[2]];
+      if (!target) throw requestError(404, "not_found", "No such person");
+      if (body.vibeCoder) target.vibeCoder = true; else delete target.vibeCoder;
+      return { id: target.id, name: target.name, vibeCoder: !!target.vibeCoder };
+    }, true);
+    return send(res, 200, { person });
+  }
   if (messaging && (await messaging.handle(req, res, { user, device, method, parts, url, send, fail, readBody: readAuthorizedBody, cors: CORS,
     isAuthorized: () => authenticate(req, readState())?.user.id === user.id,
   }))) return undefined;
@@ -699,6 +721,10 @@ async function handle(req, res, cfg) {
     if (!creationUp) return fail(res, 503, "agent_unavailable", "The agent isn't set up on this server yet");
     if (agentRole(creator.role, cfg) !== "owner") await verifyMemberUpstream(creationUp);
     const chatId = id("cht");
+    // Vibe coders always build prototypes; everyone else may pick a project.
+    const vibe = !!readState().users[creator.id]?.vibeCoder;
+    const project = vibe ? VIBE_PROJECT : (typeof body.project === "string" && availableProjects().some(p => p.id === body.project) ? body.project : null);
+    if (body.project && !vibe && !project) return fail(res, 400, "bad_project", "That project isn't available on this server");
     const hermesSessionId = `servant_${creator.id}_${chatId}`;
     const r = await hermes(creationUp, "POST", "/api/sessions", { id: hermesSessionId, title: `Servant · ${creator.name} · ${chatId.slice(-6)}` });
     if (!r.ok) return fail(res, 502, "agent_error", `The agent didn't start a chat (${r.status})`);
@@ -709,6 +735,8 @@ async function handle(req, res, cfg) {
       hermesSessionId,
       title: String(body.title || "New chat").slice(0, 80),
       shared: body.shared !== false,
+      ...(project ? { project } : {}),
+      ...(vibe ? { mode: "vibe", vibeFolder: vibeFolder(chatId) } : {}),
       createdAt: now(),
       updatedAt: now(),
     };
@@ -1018,7 +1046,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
       chatMediaStore().accept(turn.chat_id, "user", queued.text, [], steerId);
       hooks.steered?.(steerId);
     };
-    result = await runDurableHermes({ up, sessionId: turn.session_id, input, sessionKey: sessionKey(user), runId: turn.run_id,
+    result = await runDurableHermes({ up, sessionId: turn.session_id, input, sessionKey: sessionKey(user, turn.chat_id), instructions: chatInstructions(chat), runId: turn.run_id,
       onAccepted, onEvent, checkpoint: hooks.checkpoint, controls: hooks.controls, steered, canSteer });
     if (result.usage) recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", usage: result.usage });
     // Run output is resolved by the bridge, while history contains its original
@@ -1031,8 +1059,8 @@ async function executePrivateTurn(turn, hooks, cfg) {
       } catch { /* accepted local media remains available even if history lags */ }
     }
   } else {
-    const answer = await streamTurn(up, turn.session_id, input, sessionKey(user), onEvent, () => false, onAccepted,
-      usage => recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", usage }));
+    const answer = await streamTurn(up, turn.session_id, input, sessionKey(user, turn.chat_id), onEvent, () => false, onAccepted,
+      usage => recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", usage }), chatInstructions(chat));
     if (!assistantMessage && answer) saveAssistant(answer);
     result = { status: "completed" };
   }

@@ -24,7 +24,9 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "gov.irs.servant",
-      "blockedPermissions": ["android.permission.READ_MEDIA_IMAGES"],
+      "blockedPermissions": [
+        "android.permission.READ_MEDIA_IMAGES"
+      ],
       "googleServicesFile": "./google-services.json",
       "versionCode": 28
     },
@@ -78,9 +80,14 @@
         {
           "microphonePermission": "Servant uses the microphone so you can dictate messages.",
           "speechRecognitionPermission": "Servant turns your speech into text in the message box.",
-          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox", "com.google.android.tts", "com.samsung.android.bixby.agent"]
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox",
+            "com.google.android.tts",
+            "com.samsung.android.bixby.agent"
+          ]
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "scheme": "servant",
     "experiments": {

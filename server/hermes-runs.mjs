@@ -54,10 +54,10 @@ export async function supportsSteer(up) {
   } catch { return false; }
 }
 
-export async function runDurableHermes({ up, sessionId, input, sessionKey, runId, onAccepted, onEvent, checkpoint, controls, steered = () => {}, canSteer = false, pollMs = 500 }) {
+export async function runDurableHermes({ up, sessionId, input, sessionKey, instructions = '', runId, onAccepted, onEvent, checkpoint, controls, steered = () => {}, canSteer = false, pollMs = 500 }) {
   if (!runId) {
     const response = await hermesRequest(up, 'POST', '/v1/runs', {
-      session_id: sessionId, input: [{ role: 'user', content: input }],
+      session_id: sessionId, input: [{ role: 'user', content: input }], ...(instructions ? { instructions } : {}),
     }, { headers: { 'X-Hermes-Session-Key': sessionKey } });
     if (!response.ok) throw agentError(`Could not start agent (${response.status})`);
     const data = await response.json();

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, AppState, FlatList, Platform, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import { router, Stack, useLocalSearchParams } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import { randomUUID } from "expo-crypto";
 import { ConversationKeyboardView } from "../../components/ConversationKeyboardView";
 import { Avatar, Composer, when } from "../../components/Messaging";
@@ -17,7 +18,7 @@ import { api, sendMessage, ServerError, type Chat, type Message, type Upload } f
 import { useSession } from "../../lib/session";
 import { forwardTitle, parseForward, type ForwardCard } from "../../lib/forward";
 import { AppIcon } from "../../components/AppIcon";
-import { space, typography, useTheme, createThemedStyles } from "../../lib/theme";
+import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 
 type Row = Message & { waitingForAgent?: boolean; pending?: boolean; failed?: boolean; localId?: string; uploads?: Upload[]; forwardPreview?: ForwardCard | null };
 
@@ -85,7 +86,7 @@ function SharedChatView() {
                   {!theirs ? <Text style={styles.agentTag}>Agent</Text> : null}
                   {Number.isFinite(timestamp) ? <Text style={styles.time}>{when(timestamp)}</Text> : null}
                 </View>
-                {theirs ? <ForwardedText item={item} /> : item.text ? <MessageText text={item.text} /> : null}
+                {theirs ? <ForwardedText item={item} /> : item.text ? <ReplyText text={item.text} /> : null}
                 {item.attachments?.length ? <Attachments files={item.attachments} /> : null}
               </View>
             </View>;
@@ -105,6 +106,50 @@ function filesHeader(id: string, title: string, tint: string) {
     : { headerRight: () => <Pressable testID="open-files" accessibilityRole="button" onPress={open} style={{ minHeight: 44, minWidth: 44, justifyContent: "center", alignItems: "flex-end", paddingRight: Platform.OS === "web" ? space.side : 0 }}>
         <Text style={{ ...typography.label, color: tint }}>Files</Text>
       </Pressable> };
+}
+
+// Vibe coding: the latest prototype opens in the in-app browser.
+export function openPreview(url: string) {
+  // A fresh query string each time skips cached copies of the last publish.
+  const fresh = `${url}${url.includes("?") ? "&" : "?"}v=${Date.now()}`;
+  if (Platform.OS === "web") { window.open(fresh, "_blank", "noopener"); return; }
+  void WebBrowser.openBrowserAsync(fresh, { presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET, dismissButtonStyle: "done" }).catch(() => {});
+}
+
+function VibeBar({ id }: { id: string }) {
+  const styles = useStyles();
+  const { account } = useSession();
+  const [chat, setChat] = useState<{ previewUrl?: string; mode?: string } | null>(null);
+  useEffect(() => {
+    if (!account || !id) return;
+    let live = true;
+    api.chat(account, id).then(c => { if (live) setChat(c); }).catch(() => {});
+    return () => { live = false; };
+  }, [account, id]);
+  if (chat?.mode !== "vibe" || !chat.previewUrl) return null;
+  return <View style={styles.vibeBar}>
+    <View style={styles.turnCopy}>
+      <Text style={styles.turnLabel}>Vibe coding</Text>
+      <Text style={styles.turnDetail}>Describe what you want. Each change publishes a new preview.</Text>
+    </View>
+    <Pressable testID="open-preview" accessibilityRole="button" accessibilityLabel="Open preview" onPress={() => openPreview(chat.previewUrl!)} style={({ pressed }) => [styles.previewButton, pressed && { opacity: 0.8 }]}>
+      <Text style={styles.previewButtonText}>Preview</Text>
+    </Pressable>
+  </View>;
+}
+
+// A "PREVIEW: <url>" line in a reply becomes a button.
+function ReplyText({ text, failed }: { text: string; failed?: boolean }) {
+  const styles = useStyles();
+  const match = text.match(/(?:^|\n)PREVIEW:\s*(https:\/\/\S+)\s*$/);
+  if (!match) return <MessageText text={text} failed={failed} />;
+  const body = text.slice(0, match.index).trimEnd();
+  return <View>
+    {body ? <MessageText text={body} failed={failed} /> : null}
+    <Pressable accessibilityRole="button" accessibilityLabel="Open preview" onPress={() => openPreview(match[1]!)} style={({ pressed }) => [styles.previewButton, styles.previewInline, pressed && { opacity: 0.8 }]}>
+      <Text style={styles.previewButtonText}>Open preview</Text>
+    </Pressable>
+  </View>;
 }
 
 function ShareToggle({ id }: { id: string }) {
@@ -471,6 +516,7 @@ function ChatConversation() {
     <MediaGalleryProvider key={id} scope={{ kind: "chat", id }} items={media}>
     <View style={styles.root}>
       <Stack.Screen options={{ title: heading, ...filesHeader(String(id), heading, colors.blue) }} />
+      <VibeBar id={String(id)} />
       <ShareToggle id={String(id)} />
       <ConversationKeyboardView>
         {messages === null ? (
@@ -507,7 +553,7 @@ function ChatConversation() {
                     {Number.isFinite(timestamp) ? <Text style={styles.time}>{when(timestamp)}</Text> : null}
                     {deviceLabel ? <Text testID={`message-device-${item.id}`} accessibilityLabel={`Sent from ${deviceLabel}`} style={styles.time}>· {deviceLabel}</Text> : null}
                   </View>
-                  {mine && !working ? <ForwardedText item={item} /> : !working && item.text ? <MessageText text={item.text} failed={item.failed} /> : null}
+                  {mine && !working ? <ForwardedText item={item} /> : !working && item.text ? <ReplyText text={item.text} failed={item.failed} /> : null}
                   {!working && item.attachments?.length ? <Attachments files={item.attachments} /> : null}
                   {item.uploads?.length ? <PendingAttachments files={item.uploads} /> : null}
                   {working ? <Text accessibilityLiveRegion="polite" style={styles.typing}>{status ?? "Working on it…"}</Text> : null}
@@ -592,6 +638,10 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   list: { paddingVertical: space.sm },
   readOnlyList: { paddingTop: space.xl },
   sharedBanner: { paddingHorizontal: space.side, paddingVertical: space.xs, backgroundColor: colors.blueSoft },
+  vibeBar: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.side, paddingVertical: space.sm, backgroundColor: colors.blueSoft },
+  previewButton: { minHeight: 40, paddingHorizontal: space.md, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  previewInline: { alignSelf: "flex-start", marginTop: space.xs },
+  previewButtonText: { ...typography.captionStrong, color: colors.onPrimary },
   shareRow: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.side, paddingVertical: space.xs, backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   shareError: { ...typography.meta, color: colors.red, marginTop: space.xxs },
   message: { flexDirection: "row", paddingHorizontal: space.side, paddingVertical: space.sm, gap: 10 },

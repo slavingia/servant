@@ -22,7 +22,9 @@ export type Account = {
 };
 // shared: visible read-only to the rest of the server (default). author/readOnly: someone else's chat.
 export type ChatLastMessage = { role: "user" | "assistant"; text: string; at: number; attachments: number; pending?: boolean };
-export type Chat = { id: string; title: string; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; latestTurn?: AgentTurn | null };
+export type Project = { id: string; name: string; description?: string };
+// mode "vibe": a vibe-coding chat that builds a prototype with a preview link.
+export type Chat = { project?: { id: string; name: string }; mode?: "vibe"; previewUrl?: string; id: string; title: string; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; latestTurn?: AgentTurn | null };
 export type Message = { id: string; role: "user" | "assistant"; text: string; at?: number | string | null; attachments?: Attachment[]; pending?: boolean; interrupted?: boolean; sourceDevice?: SourceDevice };
 
 // ----- token leaderboard -----
@@ -33,7 +35,7 @@ export type Leaderboard = { period: LeaderboardPeriod; since: number; totals: { 
 // ----- channels, direct messages, threads -----
 export type Presence = { userId: string; online: boolean; lastSeenAt: number | null };
 // photo: version of their profile photo, when they have one.
-export type Person = { id: string; name: string; agent?: boolean; owner?: boolean; online?: boolean; lastSeenAt?: number | null; photo?: string | null };
+export type Person = { vibeCoder?: boolean; id: string; name: string; agent?: boolean; owner?: boolean; online?: boolean; lastSeenAt?: number | null; photo?: string | null };
 export type Attachment = { id: string; name: string; mime: string; size: number };
 export type Upload = { name: string; data: string };
 export type Post = {
@@ -309,7 +311,9 @@ export const api = {
   readChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/read`, { method: "POST", body: "{}" }).then(() => undefined),
   chat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}`).then((r) => r.json()).then((d) => d.chat as Chat),
   setChatShared: (a: Account, id: string, shared: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ shared }) }).then((r) => r.json()).then((d) => d.chat as Chat),
-  newChat: (a: Account, options: { shared?: boolean } = {}) => request(a, "/v1/chats", { method: "POST", body: JSON.stringify(options) }).then((r) => r.json()).then((d) => d.chat as Chat),
+  projects: (a: Account) => request(a, "/v1/projects").then(json<{ projects: Project[]; vibeCoder: boolean }>),
+  setVibeCoder: (a: Account, userId: string, vibeCoder: boolean) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ vibeCoder }) }).then(json<{ person: Person }>),
+  newChat: (a: Account, options: { shared?: boolean; project?: string | null } = {}) => request(a, "/v1/chats", { method: "POST", body: JSON.stringify(options) }).then((r) => r.json()).then((d) => d.chat as Chat),
   deleteChat: (a: Account, id: string) => request(a, `/v1/chats/${id}`, { method: "DELETE" }),
   archiveChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/archive`, { method: "POST", body: "{}" }),
   restoreChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/restore`, { method: "POST", body: "{}" }),
