@@ -158,6 +158,8 @@ type PostProps = {
   onDelete?: () => void;
   onReact?: (emoji: string, active: boolean) => Promise<void>;
   onAskAgent?: () => void;
+  /** Sends a suggested reply. Given only for the newest message, so old chips go away. */
+  onSuggest?: (text: string) => void;
 };
 
 const REACTIONS = [
@@ -166,7 +168,7 @@ const REACTIONS = [
   ["👀", "Looking"], ["🔥", "Fire"], ["👏", "Applause"], ["💯", "Hundred"],
 ];
 
-export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDelete, onReact, onAskAgent }: PostProps) {
+export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDelete, onReact, onAskAgent, onSuggest }: PostProps) {
   const styles = useStyles();
   const { colors } = useTheme();
   const { account } = useSession();
@@ -246,6 +248,15 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
         {post.editedAt && !post.deleted ? <Text style={styles.edited}>Edited</Text> : null}
         {post.meeting && post.user.agent && !post.deleted ? <MeetingCard meeting={post.meeting} /> : null}
         </View>
+        {onSuggest && post.user.agent && !post.deleted && post.suggestions?.length ? (
+          <View style={styles.suggestionRow} accessibilityLabel="Quick replies">
+            {post.suggestions.map(text => (
+              <Pressable key={text} accessibilityRole="button" accessibilityLabel={`Reply: ${text}`} onPress={() => onSuggest(text)} style={({ pressed }) => [styles.chip, pressed && { opacity: 0.6 }]}>
+                <Text style={styles.chipText}>{text}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
         {!post.deleted && !working && post.attachments?.length ? <Attachments files={post.attachments} /> : null}
         {available && reactions.length > 0 ? <View style={styles.reactions}>
           {reactions.map(r => {
@@ -565,7 +576,7 @@ export function ConversationRow({ c, onPress, onLongPress, longPressHint, access
         onAccessibilityAction={onAccessibilityAction}
         style={({ pressed }) => [styles.row, compact && styles.compactRow, trailing ? styles.rowWithTrailing : null, pressed && !lifted && { backgroundColor: colors.surface }]}
       >
-        {c.kind === "dm" ? <Avatar name={c.title} userId={dmPeer(c, me)} size={compact ? 26 : 40} /> : <View style={[styles.channelGlyph, compact && styles.compactChannelGlyph]}><AppIcon name={c.private ? "lock" : "hash"} size={compact ? 19 : 22} color={bold ? colors.ink : colors.muted} /></View>}
+        {c.kind === "dm" ? <Avatar name={c.title} agent={c.agentDm} userId={dmPeer(c, me)} size={compact ? 26 : 40} /> : <View style={[styles.channelGlyph, compact && styles.compactChannelGlyph]}><AppIcon name={c.private ? "lock" : "hash"} size={compact ? 19 : 22} color={bold ? colors.ink : colors.muted} /></View>}
         <View style={styles.rowCopy}>
           <View style={styles.rowTop}>
             <Text style={[styles.rowTitle, bold && styles.bold]} numberOfLines={1}>{c.title}</Text>
@@ -642,6 +653,9 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   suggestionName: { ...typography.bodyStrong, color: colors.ink },
   dictate: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", marginRight: space.xs },
   dictateOn: { backgroundColor: colors.danger },
+  suggestionRow: { flexDirection: "row", flexWrap: "wrap", gap: space.xs, marginTop: space.xs },
+  chip: { minHeight: 44, paddingHorizontal: space.md, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.blue, backgroundColor: colors.blueSoft, justifyContent: "center" },
+  chipText: { ...typography.label, color: colors.blueDark },
   agentAvatar: { width: 30, height: 30, borderRadius: 15, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   suggestionHandle: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
   noSuggestions: { ...typography.caption, paddingHorizontal: space.side, paddingVertical: space.sm, color: colors.muted },

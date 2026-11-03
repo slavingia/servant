@@ -315,6 +315,7 @@ export default function ConversationScreen() {
                   compact={compact}
                   onOpenThread={() => openThread(item)}
                   onAskAgent={() => askAgent(item)}
+                  onSuggest={joined && index === 0 ? (text) => { void send(text); } : undefined}
                   onEdit={() => setEditing(item)}
                   onDelete={() => remove(item)}
                 />

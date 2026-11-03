@@ -18,6 +18,13 @@ const MAX_PHOTO_BODY = Math.ceil(MAX_PHOTO_BYTES / 3) * 4 + 1024;
 import { sourceDeviceKind, sourceDeviceFields } from "./source-device.mjs";
 
 export const AGENT_ID = "agent";
+// A private one-to-one conversation between a person and the agent. The agent answers
+// every message here without being @mentioned, and each person has one.
+export const agentDmKey = userId => `agent:${userId}`;
+export const cleanSuggestions = list => (Array.isArray(list) ? list : []).map(x => String(x ?? "").replace(/\s+/g, " ").trim().slice(0, 60)).filter(Boolean).slice(0, 4);
+const parseSuggestions = text => { try { return cleanSuggestions(JSON.parse(text)); } catch { return []; } };
+export const WELCOME_SUGGESTIONS = ["Show me around", "Summarize a document", "Draft a message", "Plan my week"];
+const isAgentDm = conv => conv?.kind === "dm" && typeof conv.dm_key === "string" && conv.dm_key.startsWith("agent:");
 const MAX_TEXT = 8000;
 // Every build's notes go here, one post per build, so testers can see what
 // changed and talk about it in that post's thread.
@@ -186,6 +193,9 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     }
     if (!db.prepare("PRAGMA table_info(messages)").all().some(column => column.name === "activity")) {
       db.exec("ALTER TABLE messages ADD COLUMN activity TEXT");
+    }
+    if (!db.prepare('PRAGMA table_info(messages)').all().some(value => value.name === 'suggestions')) {
+      db.exec('ALTER TABLE messages ADD COLUMN suggestions TEXT');
     }
     for (const column of ['source_device_kind', 'source_device_id']) {
       if (!db.prepare('PRAGMA table_info(messages)').all().some(value => value.name === column)) {
@@ -471,6 +481,8 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     editedAt: m.edited_at,
     // Meetings attach their live card and one-tap next steps to agent posts.
     ...(m.user_id === AGENT_ID && !m.deleted_at ? safeExtras(m) : {}),
+    // One-tap replies the agent offers under its own message.
+    ...(m.user_id === AGENT_ID && !m.deleted_at && m.suggestions ? { suggestions: parseSuggestions(m.suggestions) } : {}),
   });
   function safeExtras(m) {
     try { return messageExtras(m) || {}; } catch (e) { console.error("[servant] message extras", e); return {}; }
@@ -481,6 +493,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     if (c.kind === "dm") {
       const others = memberIds.filter((u) => u !== me);
       title = (others.length ? others : [me]).map((u) => person(u).name).join(", ");
+      if (isAgentDm(c)) title = agentName();
     }
     const last = c.last_seq ? st.msg.get(c.last_seq) : null;
     const membership = st.member.get(c.id, me);
@@ -498,6 +511,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       memberCount: memberIds.length,
       members: includeMembers || c.kind === "dm" || memberIds.length <= 50 ? memberIds.map(person) : undefined,
       unread: c.unread ?? 0,
+      ...(isAgentDm(c) ? { agentDm: true } : {}),
       lastMessage: last ? msgView(last, !!st.member.get(c.id, me), me) : null,
       updatedAt: last ? last.created_at : c.created_at,
     };
@@ -516,6 +530,30 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
   }
   const ensureGeneral = (createdBy) => ensureChannel("general", "Everyone on this server", createdBy);
   const ensureReleases = () => ensureChannel(RELEASES_CHANNEL, "What changed in each build and what to test. Reply in the thread");
+
+  // Every new person starts with one unread message from the agent: a question and a few
+  // one-tap answers, in a private conversation of their own. Safe to call again.
+  function welcomeFromAgent(...args) { return transaction(() => welcomeFromAgentInTransaction(...args)); }
+  function welcomeFromAgentInTransaction(userId, { text, suggestions } = {}) {
+    if (!users()[userId]) throw httpError(404, "not_found", "No such person");
+    const key = agentDmKey(userId);
+    let conv = st.convByDm.get(key);
+    if (conv) return conv;
+    const id = newId("dm");
+    st.insertConv.run(id, "dm", null, "", 1, key, userId, now());
+    st.addMember.run(id, userId, now(), 0);
+    conv = st.conv.get(id);
+    const first = String(users()[userId].name || "").trim().split(/\s+/)[0];
+    const hello = text || `${first ? `Hi ${first}, ` : "Hi, "}I'm ${agentName()}, your assistant here. What would you like help with first?`;
+    const m = post(conv, AGENT_ID, hello.slice(0, MAX_TEXT));
+    const chips = cleanSuggestions(suggestions ?? WELCOME_SUGGESTIONS);
+    if (chips.length) {
+      db.prepare("UPDATE messages SET suggestions = ? WHERE seq = ?").run(JSON.stringify(chips), m.seq);
+      publish(conv.id, "message.updated", msgView(st.msg.get(m.seq)));
+    }
+    publish(conv.id, "conversation.updated", { id: conv.id });
+    return conv;
+  }
 
   function joinDefaults(...args) { return transaction(() => joinDefaultsInTransaction(...args)); }
   function joinDefaultsInTransaction(userId) {
@@ -616,6 +654,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     return !!head && !head.deleted_at && head.user_id !== AGENT_ID && mentionsAgent(head.text, agentName());
   }
   function wantsAgent(conv, m) {
+    if (isAgentDm(conv)) return m.user_id !== AGENT_ID;
     return m.user_id !== AGENT_ID && agentShouldReply(m.text, agentName(), inAgentThread(conv, m.thread_root));
   }
 
@@ -630,19 +669,24 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
   }
 
   async function runAgentReply(conv, trigger, job) {
-    const root = trigger.thread_root || trigger.seq;
-    const key = `${conv.id}:${root}`;
+    const direct = isAgentDm(conv);
+    // In a person's own conversation with the agent there are no threads: one running chat, replies in line.
+    const root = direct ? null : trigger.thread_root || trigger.seq;
+    const key = `${conv.id}:${direct ? "dm" : root}`;
     let thread = st.agentThread.get(key);
-    const sessionId = thread ? thread.hermes_session_id : `servant_${conv.id}_${root}`;
+    const sessionId = thread ? thread.hermes_session_id : `servant_${conv.id}_${direct ? "dm" : root}`;
     const seen = thread ? thread.last_seen_seq : 0;
     const recent = st.since
       .all(conv.id, seen, trigger.seq, trigger.thread_root ? root : null, root, root)
       .reverse()
-      .filter((m) => m.user_id !== AGENT_ID);
-    const where = conv.kind === "channel" ? `#${conv.name}` : "a direct message";
-    const transcript = recent.map((m) => `${person(m.user_id).name}: ${m.text}`).join("\n");
+      // In a private chat with the agent the first turn includes its own opening question, so the
+      // answer makes sense. Later turns already have it in the running session.
+      .filter((m) => m.user_id !== AGENT_ID || (direct && !thread));
+    const where = direct ? `a private chat with ${person(trigger.user_id).name}` : conv.kind === "channel" ? `#${conv.name}` : "a direct message";
+    const audience = direct ? "Only this person reads your reply." : "Several people can read your reply.";
+    const transcript = recent.map((m) => `${m.user_id === AGENT_ID ? "You" : person(m.user_id).name}: ${m.text}`).join("\n");
     const prompt =
-      `[Servant ${where}. Several people can read your reply. Answer the latest message, ` +
+      `[Servant ${where}. ${audience} Answer the latest message, ` +
       `clearly. Include images when useful.]\n\n${transcript}`;
     // If the agent lost this thread's session (for example after switching
     // agents), it starts over with the whole thread instead of failing.
@@ -651,7 +695,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
           .map((m) => `${m.user_id === AGENT_ID ? "You" : person(m.user_id).name}: ${m.text}`).join("\n")
       : transcript;
     const restartPrompt =
-      `[Servant ${where}. Several people can read your reply. Answer the latest message, ` +
+      `[Servant ${where}. ${audience} Answer the latest message, ` +
       `clearly. Include images when useful. This is the whole thread so far.]\n\n${fullThread}`;
     // Bound recent visual context to the same total upload budget. Prefer the
     // latest images so an old thread cannot crowd out the triggering message.
@@ -1415,7 +1459,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     },
   };
 
-  return { ...meetingHooks, handle, forwardSource, forwardInto, notificationFor, joinDefaults, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, close: () => { closeEvents(); db.close(); }, db };
+  return { ...meetingHooks, handle, forwardSource, forwardInto, notificationFor, joinDefaults, welcomeFromAgent, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, close: () => { closeEvents(); db.close(); }, db };
 }
 
 function httpError(status, code, message) {

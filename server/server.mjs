@@ -600,7 +600,7 @@ async function handle(req, res, cfg) {
     const ip = clientIp(req);
     if (!pairAllowed(ip)) return fail(res, 429, "rate_limited", "Too many tries. Wait ten minutes");
     const body = await readBody(req);
-    const { token, user } = mutateState(state => {
+    const { token, user, isNew } = mutateState(state => {
       const key = sha256(normalizeCode(body.code));
       const invite = state.invites[key];
       if (!invite || invite.usedAt || invite.revokedAt || invite.expiresAt < now()) {
@@ -611,16 +611,19 @@ async function handle(req, res, cfg) {
       if (!name) throw requestError(400, "name_required", "Enter your name");
       if (invite.reusable) invite.uses += 1;
       else invite.usedAt = now();
-      const user = (invite.userId && state.users[invite.userId]) || { id: id("usr"), name, role: invite.role, createdAt: now() };
+      const existing = invite.userId && state.users[invite.userId];
+      const user = existing || { id: id("usr"), name, role: invite.role, createdAt: now() };
       const token = crypto.randomBytes(32).toString("base64url");
       state.users[user.id] = user;
       state.devices[sha256(token)] = {
         id: id("dev"), userId: user.id, label: String(body.device || "Phone").slice(0, 80),
         createdAt: now(), lastSeenAt: now(),
       };
-      return { token, user };
+      return { token, user, isNew: !existing };
     });
     messaging?.joinDefaults(user.id);
+    // A new person's first unread: a question from the agent, with quick answers. Never blocks pairing.
+    if (isNew) { try { messaging?.welcomeFromAgent(user.id); } catch (error) { console.error("[servant] welcome", error); } }
     return send(res, 201, { token, user: { id: user.id, name: user.name, role: user.role }, server: { name: cfg.name }, hub: { name: cfg.name } });
   }
 

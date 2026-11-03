@@ -52,6 +52,8 @@ export type Post = {
   reactions?: { emoji: string; userIds: string[] }[];
   attachments?: Attachment[];
   activity?: "joined" | "left";
+  /** One-tap replies the agent offers under its message. */
+  suggestions?: string[];
   id: string;
   conversationId: string;
   user: Person;
@@ -97,6 +99,8 @@ export type Conversation = {
   memberCount: number;
   members?: Person[];
   unread: number;
+  /** The person's own private conversation with the agent. */
+  agentDm?: boolean;
   lastMessage: Post | null;
   updatedAt: number;
 };
