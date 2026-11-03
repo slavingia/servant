@@ -361,13 +361,70 @@ test("limited mode: member chat streams from the member agent and hides tool det
   });
 });
 
-test("people can't see each other's chats", async () => {
+test("agent chats are shared with the org by default: others read, only the author writes", async () => {
   const a = await pair("member", "Cy");
   const b = await pair("member", "Di");
   const chat = (await api("POST", "/v1/chats", { token: a, body: {} })).json.chat;
+  assert.equal(chat.shared, true, "shared by default");
+  const sent = await api("POST", `/v1/chats/${chat.id}/messages`, { token: a, body: { text: "draft a memo" } });
+  assert.equal(sent.status, 200);
+
+  // Not mixed into someone else's own list; listed under the org scope with the author.
+  assert.equal((await api("GET", "/v1/chats", { token: b })).json.chats.length, 0);
+  const org = (await api("GET", "/v1/chats?scope=org", { token: b })).json.orgChats;
+  const listed = org.find(c => c.id === chat.id);
+  assert.ok(listed, "shared chat listed for the org");
+  assert.equal(listed.author.name, "Cy");
+  assert.equal(listed.readOnly, true);
+
+  const read = await api("GET", `/v1/chats/${chat.id}/messages`, { token: b });
+  assert.equal(read.status, 200, read.text);
+  assert.deepEqual(read.json.messages.map(m => m.role), ["user", "assistant"]);
+  assert.equal(read.json.messages[0].text, "draft a memo");
+  assert.equal(read.json.chat.author.name, "Cy");
+
+  // Read only for everyone else.
+  assert.equal((await api("POST", `/v1/chats/${chat.id}/messages`, { token: b, body: { text: "hi" } })).status, 403);
+  assert.equal((await api("PATCH", `/v1/chats/${chat.id}`, { token: b, body: { shared: false } })).status, 403);
+  assert.equal((await api("DELETE", `/v1/chats/${chat.id}`, { token: b })).status, 403);
+  assert.equal((await api("GET", `/v1/chats/${chat.id}/turns`, { token: b })).status, 403);
+});
+
+test("people can't see chats the author made private", async () => {
+  const a = await pair("member", "Ed");
+  const b = await pair("member", "Flo");
+  const chat = (await api("POST", "/v1/chats", { token: a, body: {} })).json.chat;
+  const off = await api("PATCH", `/v1/chats/${chat.id}`, { token: a, body: { shared: false } });
+  assert.equal(off.status, 200, off.text);
+  assert.equal(off.json.chat.shared, false);
   assert.equal((await api("GET", `/v1/chats/${chat.id}/messages`, { token: b })).status, 404);
   assert.equal((await api("POST", `/v1/chats/${chat.id}/messages`, { token: b, body: { text: "hi" } })).status, 404);
-  assert.equal((await api("GET", "/v1/chats", { token: b })).json.chats.length, 0);
+  assert.ok(!(await api("GET", "/v1/chats?scope=org", { token: b })).json.orgChats.some(c => c.id === chat.id));
+  // The author's own list shows the setting, and it can be turned back on.
+  assert.equal((await api("GET", "/v1/chats", { token: a })).json.chats.find(c => c.id === chat.id).shared, false);
+  assert.equal((await api("PATCH", `/v1/chats/${chat.id}`, { token: a, body: { shared: "yes" } })).status, 400);
+  assert.equal((await api("PATCH", `/v1/chats/${chat.id}`, { token: a, body: { shared: true } })).json.chat.shared, true);
+  assert.equal((await api("GET", `/v1/chats/${chat.id}/messages`, { token: b })).status, 200);
+  // A chat can also start private.
+  const quiet = (await api("POST", "/v1/chats", { token: a, body: { shared: false } })).json.chat;
+  assert.equal(quiet.shared, false);
+  assert.equal((await api("GET", `/v1/chats/${quiet.id}/messages`, { token: b })).status, 404);
+});
+
+test("the owner (admin) can always read every chat, private ones too, but not write", async () => {
+  const a = await pair("member", "Gus");
+  const admin = await pair("owner", "Admin");
+  const chat = (await api("POST", "/v1/chats", { token: a, body: { shared: false } })).json.chat;
+  await api("POST", `/v1/chats/${chat.id}/messages`, { token: a, body: { text: "private question" } });
+  const org = (await api("GET", "/v1/chats?scope=org", { token: admin })).json.orgChats;
+  const listed = org.find(c => c.id === chat.id);
+  assert.ok(listed, "admin sees private chats");
+  assert.equal(listed.shared, false);
+  const read = await api("GET", `/v1/chats/${chat.id}/messages`, { token: admin });
+  assert.equal(read.status, 200);
+  assert.equal(read.json.messages[0].text, "private question");
+  assert.equal((await api("POST", `/v1/chats/${chat.id}/messages`, { token: admin, body: { text: "hi" } })).status, 403);
+  assert.equal((await api("PATCH", `/v1/chats/${chat.id}`, { token: admin, body: { shared: true } })).status, 403);
 });
 
 test("a second-device invite pairs as the same person", async () => {

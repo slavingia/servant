@@ -149,7 +149,7 @@ test('approval recovered from status after SSE loss is owner-bound, ID-bound and
   const run = [...f.runs.values()][0]; f.disconnectEvents(run); f.offlinePolls(2); f.approve(run, 'fixture action');
   const turn = await until(async () => { const turn = await f.latest(); return turn.status === 'waiting_for_approval' && turn; });
   const route = `/v1/chats/chat/turns/${turn.id}/approval`;
-  assert.equal((await f.api(route, 'POST', { approvalId: turn.approval.id, choice: 'once' }, 'stranger')).status, 404);
+  assert.equal((await f.api(route, 'POST', { approvalId: turn.approval.id, choice: 'once' }, 'stranger')).status, 403); // another admin can read the chat, never control it
   assert.equal((await f.api(route, 'POST', { approvalId: turn.approval.id, choice: 'always' })).status, 400);
   assert.equal((await f.api(route, 'POST', { approvalId: 'stale', choice: 'once' })).status, 409);
   f.offlineControls(2);
@@ -173,7 +173,7 @@ test('worker restart resumes one existing run, and authorized Stop really reache
   assert.equal(turn.assistantText, 'Saved partial');
   assert.equal(f.startCount(), 1);
   const route = `/v1/chats/chat/turns/${turn.id}/stop`;
-  assert.equal((await f.api(route, 'POST', {}, 'stranger')).status, 404);
+  assert.equal((await f.api(route, 'POST', {}, 'stranger')).status, 403); // another admin can read the chat, never control it
   f.offlineControls(2);
   assert.equal((await f.api(route, 'POST', {})).status, 200);
   await until(async () => (await f.latest()).status === 'cancelled');

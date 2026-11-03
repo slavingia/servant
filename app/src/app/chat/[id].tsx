@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, AppState, FlatList, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { randomUUID } from "expo-crypto";
 import { ConversationKeyboardView } from "../../components/ConversationKeyboardView";
@@ -13,17 +13,117 @@ import { AgentApprovalCard } from "../../components/AgentApprovalCard";
 import { activeAgentTurn, agentTurnLabel, canSteer, splitTurns, type AgentTurn } from "../../lib/agent-turns";
 import { bufferAgentReply } from "../../lib/agent-events";
 import { messageDeviceLabel } from "../../lib/message-device";
-import { api, sendMessage, ServerError, type Message, type Upload } from "../../lib/server";
+import { api, sendMessage, ServerError, type Chat, type Message, type Upload } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 
 type Row = Message & { pending?: boolean; failed?: boolean; localId?: string; uploads?: Upload[] };
 
 export default function ChatScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, readOnly } = useLocalSearchParams<{ id: string; readOnly?: string }>();
   const { account } = useSession();
+  const key = `${account?.serverUrl ?? ""}:${account?.token ?? ""}:${id}`;
+  // Someone else's shared chat opens read-only: no composer, turns or controls.
+  if (readOnly === "1") return <SharedChatView key={key} />;
   // A different conversation or account starts with fresh draft and send state.
-  return <ChatConversation key={`${account?.serverUrl ?? ""}:${account?.token ?? ""}:${id}`} />;
+  return <ChatConversation key={key} />;
+}
+
+function SharedChatView() {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const { id, title, author } = useLocalSearchParams<{ id: string; title?: string; author?: string }>();
+  const { account } = useSession();
+  const [messages, setMessages] = useState<Message[] | null>(null);
+  const [chat, setChat] = useState<Chat | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    if (!account || !id) return;
+    try {
+      const [history, info] = await Promise.all([api.messages(account, id), api.chat(account, id)]);
+      setMessages(history); setChat(info); setError(null);
+    } catch (e) {
+      setMessages(current => current ?? []);
+      setError(e instanceof ServerError ? e.message : "Check your connection and try again.");
+    }
+  }, [account, id]);
+  useEffect(() => {
+    const timer = setTimeout(() => { void load(); }, 0);
+    return () => clearTimeout(timer);
+  }, [load]);
+  const authorName = chat?.author?.name || author || "Someone";
+  const media = useMemo(() => mediaFromMessages(messages ?? [], authorName, "Servant"), [messages, authorName]);
+  if (!account) return null;
+  const data = [...(messages ?? [])].reverse();
+  return (
+    <MediaGalleryProvider key={id} scope={{ kind: "chat", id }} items={media}>
+    <View style={styles.root}>
+      <Stack.Screen options={{ title: chat?.title || title || "Conversation" }} />
+      <View style={styles.sharedBanner}>
+        <Text style={styles.turnLabel}>{authorName}'s conversation</Text>
+        <Text style={styles.turnDetail}>{chat?.shared === false
+          ? "Private. You can see it because you're an admin."
+          : `Shared with ${account.serverName}. Read only: give feedback in a channel or DM.`}</Text>
+      </View>
+      {messages === null ? <ActivityIndicator style={{ flex: 1 }} color={colors.blue} /> : (
+        <FlatList inverted data={data} keyExtractor={(m) => m.id} contentContainerStyle={[styles.list, styles.readOnlyList]}
+          ListFooterComponent={messages.length === 0 ? <View style={styles.empty}>
+            <Text accessibilityRole="header" style={styles.emptyTitle}>{error ? "Couldn't load this chat" : "No messages yet"}</Text>
+            {error ? <><Text accessibilityRole="alert" style={styles.emptyBody}>{error}</Text>
+              <Button label="Try again" kind="secondary" onPress={() => { setMessages(null); void load(); }} style={styles.retry} /></> : null}
+          </View> : undefined}
+          renderItem={({ item }) => {
+            const theirs = item.role === "user";
+            const timestamp = typeof item.at === "number" ? item.at : item.at ? new Date(item.at).getTime() : NaN;
+            return <View accessibilityLabel={theirs ? `${authorName}'s message` : "Agent response"} style={styles.message}>
+              <Avatar name={theirs ? authorName : "Servant"} agent={!theirs} size={34} />
+              <View style={styles.messageCopy}>
+                <View style={styles.messageMeta}>
+                  <Text style={styles.author}>{theirs ? authorName : "Servant"}</Text>
+                  {!theirs ? <Text style={styles.agentTag}>Agent</Text> : null}
+                  {Number.isFinite(timestamp) ? <Text style={styles.time}>{when(timestamp)}</Text> : null}
+                </View>
+                {item.text ? theirs ? <Text selectable style={styles.text}>{item.text}</Text> : <MessageText text={item.text} /> : null}
+                {item.attachments?.length ? <Attachments files={item.attachments} /> : null}
+              </View>
+            </View>;
+          }} />
+      )}
+    </View>
+    </MediaGalleryProvider>
+  );
+}
+
+// Your own chat: shared with the server by default; this switch turns it off.
+function ShareToggle({ id }: { id: string }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const { account } = useSession();
+  const [shared, setShared] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!account || !id) return;
+    let live = true;
+    api.chat(account, id).then(chat => { if (live) setShared(chat.shared !== false); }).catch(() => { if (live) setShared(true); });
+    return () => { live = false; };
+  }, [account, id]);
+  if (!account || shared === null) return null;
+  const change = async (next: boolean) => {
+    setShared(next); setSaving(true); setError(null);
+    try { setShared((await api.setChatShared(account, id, next)).shared !== false); }
+    catch (e) { setShared(!next); setError(e instanceof ServerError ? e.message : "Couldn't change sharing"); }
+    finally { setSaving(false); }
+  };
+  return <View style={styles.shareRow}>
+    <View style={styles.turnCopy}>
+      <Text style={styles.turnLabel}>{shared ? `Shared with ${account.serverName}` : "Private"}</Text>
+      <Text style={styles.turnDetail}>{shared ? "Others can read this chat to give feedback on your prompts." : "Only you and admins can see this chat."}</Text>
+      {error ? <Text accessibilityRole="alert" style={styles.shareError}>{error}</Text> : null}
+    </View>
+    <Switch accessibilityLabel={`Share this chat with ${account.serverName}`} value={shared} disabled={saving}
+      onValueChange={next => { void change(next); }} trackColor={{ true: colors.blue }} />
+  </View>;
 }
 
 function ChatConversation() {
@@ -334,6 +434,7 @@ function ChatConversation() {
     <MediaGalleryProvider key={id} scope={{ kind: "chat", id }} items={media}>
     <View style={styles.root}>
       <Stack.Screen options={{ title: heading }} />
+      <ShareToggle id={String(id)} />
       <ConversationKeyboardView>
         {messages === null ? (
           <ActivityIndicator style={{ flex: 1 }} color={colors.blue} />
@@ -417,6 +518,10 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   remove: { paddingHorizontal: space.xs, paddingVertical: space.xxs }, removeText: { ...typography.body, color: colors.muted },
   turnCopy: { flex: 1 }, turnLabel: { ...typography.captionStrong, color: colors.ink }, turnDetail: { ...typography.meta, color: colors.muted },
   list: { paddingVertical: space.sm },
+  readOnlyList: { paddingTop: space.xl },
+  sharedBanner: { paddingHorizontal: space.side, paddingVertical: space.xs, backgroundColor: colors.blueSoft },
+  shareRow: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.side, paddingVertical: space.xs, backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  shareError: { ...typography.meta, color: colors.red, marginTop: space.xxs },
   message: { flexDirection: "row", paddingHorizontal: space.side, paddingVertical: space.sm, gap: 10 },
   messageCopy: { flex: 1, minWidth: 0 },
   messageMeta: { flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", gap: space.xs, marginBottom: 1 },

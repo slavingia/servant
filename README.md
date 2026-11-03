@@ -28,6 +28,8 @@ Status: private while it gets good. It is meant to be open source (CC0) when it 
 
 ## Reliable agent conversations
 
+Agent chats are shared with everyone on the server by default, so people can read each other's prompts and give feedback. Each chat has a **Share** switch at the top; turn it off and only you and the owner (admin) can see it. The owner can always read every chat. Shared chats are read-only to everyone but their author: only the author can send, steer, stop, approve actions, change sharing or delete. Other people's chats appear on the Agent tab under **Shared by others** (**Everyone's conversations** for the owner).
+
 Private agent requests and incremental replies are journaled on the Mac. The independent worker owns the turn, so locking the phone, leaving a conversation or restarting the API does not cancel it. Reopening the conversation catches up from saved history. Request IDs prevent retries of the same draft from starting duplicate work.
 
 Agent chats, channels, and threads show a working indicator while the agent prepares its reply. The finished text and attachments appear together, instead of word by word. Live status, approvals, and Stop remain available while the agent works.

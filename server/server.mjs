@@ -367,8 +367,22 @@ async function streamTurn(up, sessionId, text, key, onEvent, isClosed = () => fa
 // Memory scope per person, so one member never sees another's long-term memory.
 const sessionKey = (user) => `servant:${user.id}`;
 
-function chatView(chat) {
-  return { id: chat.id, title: chat.title, createdAt: chat.createdAt, updatedAt: chat.updatedAt };
+// Agent chats are shared with the rest of the server by default so people can
+// learn from each other's prompts. The person can turn sharing off per chat;
+// the owner (admin) can always read every chat. Only the person who started a
+// chat can post in it, steer, stop, approve, rename sharing or delete it.
+const chatShared = chat => chat.shared !== false;
+function canReadChat(chat, viewer) {
+  return !!chat && !chat.deletedAt && !!viewer && (chat.userId === viewer.id || viewer.role === "owner" || chatShared(chat));
+}
+function chatView(chat, viewer, users = {}) {
+  const view = { id: chat.id, title: chat.title, createdAt: chat.createdAt, updatedAt: chat.updatedAt, shared: chatShared(chat) };
+  if (viewer && chat.userId !== viewer.id) {
+    const author = users[chat.userId];
+    view.author = { id: chat.userId, name: author?.name || "Former member" };
+    view.readOnly = true;
+  }
+  return view;
 }
 
 // ---------- routes ----------
@@ -580,7 +594,7 @@ async function handle(req, res, cfg) {
     const state = readState();
     const current = requireAuth(req, state).user;
     const chat = a && state.chats[a.chat_id];
-    if (!chat || chat.deletedAt || chat.userId !== current.id) return fail(res, 404, "not_found", "That attachment is unavailable");
+    if (!canReadChat(chat, state.users[current.id] || current)) return fail(res, 404, "not_found", "That attachment is unavailable");
     return send(res, 200, { data: Buffer.from(a.data).toString("base64") });
   }
   if (messaging && (await messaging.handle(req, res, { user, device, method, parts, url, send, fail, readBody: readAuthorizedBody, cors: CORS,
@@ -596,7 +610,15 @@ async function handle(req, res, cfg) {
   const mine = Object.values(currentState.chats).filter((c) => c.userId === user.id && !c.deletedAt);
 
   if (method === "GET" && parts.length === 2) {
-    return send(res, 200, { chats: mine.sort((a, b) => b.updatedAt - a.updatedAt).map(chat => ({ ...chatView(chat), latestTurn: agentTurns.latest(chat.id)[0] || null })) });
+    const viewer = currentState.users[user.id] || user;
+    const others = url.searchParams.get("scope") === "org"
+      ? Object.values(currentState.chats).filter(c => c.userId !== user.id && canReadChat(c, viewer))
+      : [];
+    const sorted = list => list.sort((a, b) => b.updatedAt - a.updatedAt);
+    return send(res, 200, {
+      chats: sorted(mine).map(chat => ({ ...chatView(chat, viewer), latestTurn: agentTurns.latest(chat.id)[0] || null })),
+      ...(url.searchParams.get("scope") === "org" ? { orgChats: sorted(others).map(chat => chatView(chat, viewer, currentState.users)) } : {}),
+    });
   }
 
   if (method === "POST" && parts.length === 2) {
@@ -615,6 +637,7 @@ async function handle(req, res, cfg) {
       role: creator.role,
       hermesSessionId,
       title: String(body.title || "New chat").slice(0, 80),
+      shared: body.shared !== false,
       createdAt: now(),
       updatedAt: now(),
     };
@@ -629,11 +652,40 @@ async function handle(req, res, cfg) {
       void hermes(creationUp, "DELETE", `/api/sessions/${encodeURIComponent(hermesSessionId)}`).catch(() => {});
       throw error;
     }
-    return send(res, 201, { chat: chatView(chat) });
+    return send(res, 201, { chat: chatView(chat, creator) });
   }
 
+  const viewer = currentState.users[user.id] || user;
+  const visible = currentState.chats[parts[2]];
+  if (visible && visible.userId !== user.id && canReadChat(visible, viewer)) {
+    // Someone else's shared chat (or any chat, for the owner): read only.
+    if (method !== "GET" || !["messages", "media", undefined].includes(parts[3]) || parts.length > 4) {
+      return fail(res, 403, "read_only", "Only the person who started this chat can do that");
+    }
+    const history = chatMediaStore().history(visible.id);
+    if (parts.length === 3) return send(res, 200, { chat: chatView(visible, viewer, currentState.users) });
+    if (parts[3] === "media") {
+      const author = currentState.users[visible.userId];
+      return send(res, 200, mediaPage(chatMediaStore().media(visible.id, { id: visible.userId, name: author?.name || "Former member" }, cfg.agentName || "Agent"), url.searchParams));
+    }
+    const sources = agentTurns.messageSources(visible.id);
+    return send(res, 200, { chat: chatView(visible, viewer, currentState.users), messages: history.map(message => privateMessageView(message, viewer, sources)), latestTurn: null, upstreamUnavailable: false });
+  }
   const chat = mine.find((c) => c.id === parts[2]);
   if (!chat) return fail(res, 404, "not_found", "No such chat");
+
+  if (method === "GET" && parts.length === 3) return send(res, 200, { chat: chatView(chat, user) });
+
+  if (method === "PATCH" && parts.length === 3) {
+    const body = await readAuthorizedBody(req);
+    if (typeof body.shared !== "boolean") return fail(res, 400, "bad_request", "shared must be true or false");
+    let updated;
+    mutateAuthenticated(req, (state, current) => {
+      updated = requireChat(state, current.user.id, chat.id);
+      updated.shared = body.shared;
+    });
+    return send(res, 200, { chat: chatView(updated, user) });
+  }
   // A member promoted to owner (or the reverse) keeps old chats on the old agent.
   const chatUp = cfg.upstreams[agentRole(chat.role, cfg)];
 

@@ -111,7 +111,9 @@ const events = text => text.split("\n\n").filter(block => block.startsWith("even
   const [event, data] = block.split("\n");
   return { event: event.slice(7), data: JSON.parse(data.slice(6)) };
 });
-const chat = async token => (await api("POST", "/v1/chats", token, {})).json.chat;
+// Private chats: these tests check that outsiders can't reach the media.
+// Shared chats (the default) are covered in server.test.mjs.
+const chat = async token => (await api("POST", "/v1/chats", token, { shared: false })).json.chat;
 
 test("image-only private sends acknowledge stable media and Hermes images survive history reload securely", async () => {
   const token = await pair("Image author"), outsider = await pair("Image outsider");

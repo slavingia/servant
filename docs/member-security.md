@@ -6,6 +6,10 @@ Servant's member bridge uses an **empty tool allowlist**. Members can ask questi
 
 The policy is reviewable in [`server/member-policy.json`](../server/member-policy.json), and the reproducible Hermes configuration is [`config/profiles/member.json`](../config/profiles/member.json). The named denied tools document familiar examples; the empty allowlist also blocks future tools without needing to know their names. Adding a member capability requires a code and policy change with isolation tests. Tests cross-check the hub's self-contained deployment constants against the bridge policy.
 
+## Who can read agent chats
+
+Agent chats are visible to the whole server by default (owner, November 2, 2026: "so people can get feedback on prompts"). The author can make any chat private with the switch at the top of the chat, or create one private with `{ "shared": false }`. The owner role can always read every chat, private ones included. Everyone other than the author gets read-only access: `GET /v1/chats?scope=org`, `GET /v1/chats/<id>`, `/messages`, `/media` and the chat's attachments. Sending, turns, steering, stopping, approvals, sharing changes and deletion stay with the author (403 `read_only` for readers, 404 for chats they can't see). Treat anything typed to the agent, including pasted files, as visible to the server unless the chat is private, and as visible to the owner always.
+
 ## Memory and context isolation
 
 Hermes' `X-Hermes-Session-Key` is a scope for external memory providers. It does **not** isolate the profile-wide `MEMORY.md` and `USER.md` stores. Servant disables both built-in stores and external memory for members:

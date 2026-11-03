@@ -20,6 +20,7 @@ export default function Chats() {
   const { colors } = useTheme();
   const { account, setAccount, signOut } = useSession();
   const [chats, setChats] = useState<Chat[] | null>(null);
+  const [shared, setShared] = useState<Chat[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -27,7 +28,9 @@ export default function Chats() {
   const load = useCallback(async () => {
     if (!account) return;
     try {
-      setChats(await api.chats(account, setAccount));
+      const { mine, others } = await api.orgChats(account, setAccount);
+      setChats(mine);
+      setShared(others);
       setError(null);
     } catch (e) {
       if (e instanceof ServerError && e.status === 401) {
@@ -91,7 +94,7 @@ export default function Chats() {
                 {starting ? <ActivityIndicator color={colors.blue} /> : <AppIcon name="compose" size={22} color={colors.ink} />}
               </Pressable>
             </View>
-            <Text style={styles.description}>Your private conversations with the agent.</Text>
+            <Text style={styles.description}>Your conversations with the agent. They're shared with {account.serverName} so people can learn from each other's prompts. Turn sharing off in any chat.</Text>
             {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
             {account.user.role === 'owner' && chats?.some(chat => chat.latestTurn?.status === 'waiting_for_approval') ? <View style={styles.inbox}>
               <Text accessibilityRole="header" style={styles.inboxTitle}>Needs your approval</Text>
@@ -122,11 +125,29 @@ export default function Chats() {
           >
             <View style={styles.agentIcon}><AppIcon name="sparkles" size={19} color={colors.blueDark} /></View>
             <View style={styles.rowCopy}><Text style={styles.rowTitle} numberOfLines={1}>{item.title.replace(/`/g, "")}</Text>
-              {activeAgentTurn(item.latestTurn) ? <Text style={styles.turnLabel}>{agentTurnLabel(item.latestTurn!)}</Text> : null}
+              {activeAgentTurn(item.latestTurn) ? <Text style={styles.turnLabel}>{agentTurnLabel(item.latestTurn!)}</Text>
+                : item.shared === false ? <View style={styles.privateTag}><AppIcon name="lock" size={12} color={colors.muted} /><Text style={styles.byline}>Private</Text></View> : null}
             </View>
             <Text style={styles.rowWhen}>{when(item.updatedAt)}</Text>
           </Pressable>
         )}
+        ListFooterComponent={shared.length ? <View>
+          <Text accessibilityRole="header" style={styles.sectionTitle}>{account.user.role === "owner" ? "Everyone's conversations" : "Shared by others"}</Text>
+          {shared.map(item => <Pressable key={item.id} accessibilityRole="button"
+            accessibilityLabel={`${item.title.replace(/`/g, "")}, by ${item.author?.name ?? "someone"}${item.shared === false ? ", private" : ""}`}
+            onPress={() => router.push({ pathname: "/chat/[id]", params: { id: item.id, title: item.title, readOnly: "1", author: item.author?.name ?? "" } })}
+            style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}>
+            <View style={styles.agentIcon}><AppIcon name="sparkles" size={19} color={colors.blueDark} /></View>
+            <View style={styles.rowCopy}>
+              <Text style={styles.rowTitle} numberOfLines={1}>{item.title.replace(/`/g, "")}</Text>
+              <View style={styles.privateTag}>
+                {item.shared === false ? <AppIcon name="lock" size={12} color={colors.muted} /> : null}
+                <Text style={styles.byline} numberOfLines={1}>{item.author?.name ?? "Someone"}{item.shared === false ? " · Private (visible to admins)" : ""}</Text>
+              </View>
+            </View>
+            <Text style={styles.rowWhen}>{when(item.updatedAt)}</Text>
+          </Pressable>)}
+        </View> : undefined}
         contentContainerStyle={{ paddingBottom: space.xxl }}
       />
     </View>
@@ -138,7 +159,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   inbox: { marginHorizontal: space.side, marginBottom: space.md, padding: space.md, backgroundColor: colors.blueSoft, borderRadius: radius.lg },
   inboxTitle: { ...typography.bodyStrong, color: colors.brandText, marginBottom: space.xs },
   approvalRow: { paddingVertical: space.xs, gap: space.xxs }, approvalDetail: { ...typography.caption, color: colors.ink }, review: { ...typography.captionStrong, color: colors.blue },
-  rowCopy: { flex: 1 }, turnLabel: { ...typography.meta, color: colors.blue, marginTop: space.xxs },
+  rowCopy: { flex: 1 }, byline: { ...typography.meta, color: colors.muted, marginTop: space.xxs }, privateTag: { flexDirection: "row", alignItems: "center", gap: space.xxs, marginTop: space.xxs }, turnLabel: { ...typography.meta, color: colors.blue, marginTop: space.xxs },
   header: { minHeight: 60, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.xs },
   title: { ...typography.title, color: colors.ink, flexShrink: 1 },
   compose: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
