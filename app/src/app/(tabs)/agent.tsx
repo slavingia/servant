@@ -52,8 +52,8 @@ export default function Chats() {
     api.projects(account).then(r => { if (live) setProjects({ token: account.token, list: r.projects, vibeCoder: r.vibeCoder }); }).catch(() => {});
     return () => { live = false; };
   }, [account]);
-  // Like the DM tab's All/Unread, plus Closed instead of a row at the bottom.
-  const [view, setView] = useState<"active" | "unread" | "closed">("active");
+  // Like the DM tab's All/Unread: Active (everything not closed) and Closed.
+  const [view, setView] = useState<"active" | "closed">("active");
   const [openId, setOpenId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const busy = useRef(false);
@@ -111,9 +111,8 @@ export default function Chats() {
   };
   const active = (chats ?? []).filter(chat => !chat.archived);
   const archived = (chats ?? []).filter(chat => chat.archived);
-  const rows = view === "closed" ? archived : view === "unread" ? active.filter(chat => (chat.unread ?? 0) > 0) : active;
-  const unreadCount = active.filter(chat => (chat.unread ?? 0) > 0).length;
-  const VIEWS = [{ key: "active", label: "Active" }, { key: "unread", label: "Unread" }, { key: "closed", label: "Closed" }] as const;
+  const rows = view === "closed" ? archived : active;
+  const VIEWS = [{ key: "active", label: "Active" }, { key: "closed", label: "Closed" }] as const;
 
   const start = async (project?: string | null) => {
     if (starting) return;
@@ -169,7 +168,7 @@ export default function Chats() {
                 <Text style={styles.rowTitle}>{chat.title}</Text><Text numberOfLines={2} style={styles.approvalDetail}>{chat.latestTurn?.approval?.description || 'Review this action to continue.'}</Text><Text style={styles.review}>Review action →</Text>
               </Pressable>)}
             </View> : null}
-            <View accessibilityRole="tablist" style={styles.filters}>{VIEWS.map(({ key, label }) => <Pressable key={key} accessibilityRole="tab" accessibilityLabel={key === "unread" && unreadCount ? `${label}, ${unreadCount}` : key === "closed" && archived.length ? `${label}, ${archived.length}` : label} accessibilityState={{ selected: view === key }} aria-selected={view === key} onPress={() => { closeRow(); setView(key); }} style={({ pressed }) => [styles.filter, view === key && styles.selectedFilter, pressed && { opacity: 0.7 }]}>
+            <View accessibilityRole="tablist" style={styles.filters}>{VIEWS.map(({ key, label }) => <Pressable key={key} accessibilityRole="tab" accessibilityLabel={key === "closed" && archived.length ? `${label}, ${archived.length}` : label} accessibilityState={{ selected: view === key }} aria-selected={view === key} onPress={() => { closeRow(); setView(key); }} style={({ pressed }) => [styles.filter, view === key && styles.selectedFilter, pressed && { opacity: 0.7 }]}>
               <Text style={[styles.filterText, view === key && styles.selectedFilterText]}>{label}</Text>
             </Pressable>)}</View>
           </View>
@@ -177,9 +176,9 @@ export default function Chats() {
         ListEmptyComponent={
           chats !== null && view !== "active" ? (
             <View style={styles.empty}>
-              <AppIcon name={view === "unread" ? "check" : "archive"} size={32} color={colors.muted} />
-              <Text accessibilityRole="header" style={styles.emptyTitle}>{view === "unread" ? "You're all caught up" : "No closed conversations"}</Text>
-              <Text style={styles.emptyBody}>{view === "unread" ? "New replies from the agent will appear here." : "Conversations you or the agent close will appear here."}</Text>
+              <AppIcon name="archive" size={32} color={colors.muted} />
+              <Text accessibilityRole="header" style={styles.emptyTitle}>No closed conversations</Text>
+              <Text style={styles.emptyBody}>Conversations you or the agent close will appear here.</Text>
               <Button label="Show active conversations" kind="secondary" onPress={() => setView("active")} style={styles.emptyAction} />
             </View>
           ) : chats === null ? (
