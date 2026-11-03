@@ -1,8 +1,10 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, AppState, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { AppIcon } from "../../components/AppIcon";
 import { Button } from "../../components/Button";
+import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { SwipeRow } from "../../components/SwipeChannelRow";
 import { api, ServerError, type Chat } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
@@ -24,6 +26,13 @@ export default function Chats() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const busy = useRef(false);
+  const [deleting, setDeleting] = useState<Chat | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const closeRow = useCallback(() => setOpenId(null), []);
 
   const load = useCallback(async () => {
     if (!account) return;
@@ -54,6 +63,29 @@ export default function Chats() {
 
   if (!account) return null;
 
+  const act = async (chat: Chat, remove = false) => {
+    if (busy.current) return;
+    busy.current = true;
+    setBusyId(chat.id);
+    setActionError(null);
+    try {
+      if (remove) await api.deleteChat(account, chat.id);
+      else if (chat.archived) await api.restoreChat(account, chat.id);
+      else await api.archiveChat(account, chat.id);
+      setDeleting(null);
+      closeRow();
+      await load();
+    } catch (e) {
+      setActionError(e instanceof ServerError ? e.message : "Couldn't update the conversation. Try again.");
+    } finally {
+      busy.current = false;
+      setBusyId(null);
+    }
+  };
+  const active = (chats ?? []).filter(chat => !chat.archived);
+  const archived = (chats ?? []).filter(chat => chat.archived);
+  const rows: (Chat | { id: "archived-toggle" })[] = [...active, ...(archived.length ? [{ id: "archived-toggle" as const }, ...(showArchived ? archived : [])] : [])];
+
   const start = async () => {
     if (starting) return;
     setStarting(true);
@@ -71,7 +103,7 @@ export default function Chats() {
   return (
     <View style={styles.root}>
       <FlatList
-        data={chats ?? []}
+        data={chats === null ? [] : rows}
         keyExtractor={(c) => c.id}
         refreshControl={
           <RefreshControl
@@ -96,13 +128,14 @@ export default function Chats() {
             </View>
             <Text style={styles.description}>Your conversations with the agent. They're shared with {account.serverName} so people can learn from each other's prompts. Turn sharing off in any chat.</Text>
             {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+            {actionError && !deleting ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
             {account.user.role === 'owner' && chats?.some(chat => chat.latestTurn?.status === 'waiting_for_approval') ? <View style={styles.inbox}>
               <Text accessibilityRole="header" style={styles.inboxTitle}>Needs your approval</Text>
               {chats.filter(chat => chat.latestTurn?.status === 'waiting_for_approval').map(chat => <Pressable key={chat.id} accessibilityRole="button" accessibilityLabel={`Review action in ${chat.title}`} onPress={() => router.push({ pathname: '/chat/[id]', params: { id: chat.id, title: chat.title } })} style={styles.approvalRow}>
                 <Text style={styles.rowTitle}>{chat.title}</Text><Text numberOfLines={2} style={styles.approvalDetail}>{chat.latestTurn?.approval?.description || 'Review this action to continue.'}</Text><Text style={styles.review}>Review action →</Text>
               </Pressable>)}
             </View> : null}
-            {chats?.length ? <Text accessibilityRole="header" style={styles.sectionTitle}>Recent conversations</Text> : null}
+            {active.length ? <Text accessibilityRole="header" style={styles.sectionTitle}>Recent conversations</Text> : null}
           </View>
         }
         ListEmptyComponent={
@@ -118,28 +151,47 @@ export default function Chats() {
           )
         }
         renderItem={({ item }) => {
+          if (!("title" in item)) return (
+            <Pressable accessibilityRole="button" accessibilityLabel={`Archived, ${archived.length}`} accessibilityState={{ expanded: showArchived }} onPress={() => { closeRow(); setShowArchived(v => !v); }} style={({ pressed }) => [styles.archivedToggle, pressed && { backgroundColor: colors.surface }]}>
+              <View style={styles.archivedIcon}><AppIcon name="archive" size={17} color={colors.muted} /></View>
+              <Text style={styles.archivedLabel}>Archived</Text>
+              <Text style={[styles.rowWhen, { marginRight: space.xs }]}>{archived.length}</Text>
+              <AppIcon name={showArchived ? "chevronDown" : "chevronRight"} size={16} color={colors.muted} />
+            </Pressable>
+          );
           const unread = item.unread ?? 0;
           const title = item.title.replace(/`/g, "");
-          return <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`${title}${unread ? `, ${unread} unread ${unread === 1 ? "reply" : "replies"}` : ""}${item.shared === false ? ", private" : ""}`}
-            onPress={() => {
-              // Clear the badge right away; the chat screen tells the server.
-              if (unread) setChats(list => list?.map(chat => chat.id === item.id ? { ...chat, unread: 0 } : chat) ?? list);
-              router.push({ pathname: "/chat/[id]", params: { id: item.id, title: item.title } });
-            }}
-            style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}
-          >
-            <View style={styles.agentIcon}><AppIcon name="sparkles" size={19} color={colors.blueDark} /></View>
-            <View style={styles.rowCopy}><Text style={[styles.rowTitle, styles.readTitle, unread > 0 && styles.unreadTitle]} numberOfLines={1}>{title}</Text>
-              {activeAgentTurn(item.latestTurn) ? <Text style={styles.turnLabel}>{agentTurnLabel(item.latestTurn!)}</Text>
-                : item.shared === false ? <View style={styles.privateTag}><AppIcon name="lock" size={12} color={colors.muted} /><Text style={styles.byline}>Private</Text></View> : null}
-            </View>
-            <View style={styles.rowEnd}>
-              <Text style={[styles.rowWhen, unread > 0 && styles.unreadWhen]}>{when(item.updatedAt)}</Text>
-              {unread > 0 ? <View style={styles.unreadBadge}><Text style={styles.unreadBadgeText}>{unread > 99 ? "99+" : unread}</Text></View> : null}
-            </View>
-          </Pressable>;
+          return (
+            <SwipeRow name={title} kind="conversation" archived={!!item.archived} open={openId === item.id} busy={busyId !== null} canDelete
+              onOpen={() => setOpenId(item.id)} onClose={closeRow} onArchive={() => { void act(item); }} onDelete={() => { setActionError(null); setDeleting(item); }}>
+              {(bind) => (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`${title}${unread ? `, ${unread} unread ${unread === 1 ? "reply" : "replies"}` : ""}${item.shared === false ? ", private" : ""}`}
+                  onPress={() => bind.onPress(() => {
+                    // Clear the badge right away; the chat screen tells the server.
+                    if (unread) setChats(list => list?.map(chat => chat.id === item.id ? { ...chat, unread: 0 } : chat) ?? list);
+                    router.push({ pathname: "/chat/[id]", params: { id: item.id, title: item.title } });
+                  })}
+                  onLongPress={bind.onLongPress}
+                  accessibilityActions={bind.accessibilityActions}
+                  onAccessibilityAction={bind.onAccessibilityAction}
+                  style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}
+                >
+                  <View style={styles.agentIcon}><AppIcon name="sparkles" size={19} color={colors.blueDark} /></View>
+                  <View style={styles.rowCopy}><Text style={[styles.rowTitle, styles.readTitle, unread > 0 && styles.unreadTitle]} numberOfLines={1}>{title}</Text>
+                    {activeAgentTurn(item.latestTurn) ? <Text style={styles.turnLabel}>{agentTurnLabel(item.latestTurn!)}</Text>
+                      : item.shared === false ? <View style={styles.privateTag}><AppIcon name="lock" size={12} color={colors.muted} /><Text style={styles.byline}>Private</Text></View> : null}
+                  </View>
+                  <View style={styles.rowEnd}>
+                    <Text style={[styles.rowWhen, unread > 0 && styles.unreadWhen]}>{when(item.updatedAt)}</Text>
+                    {unread > 0 ? <View style={styles.unreadBadge}><Text style={styles.unreadBadgeText}>{unread > 99 ? "99+" : unread}</Text></View> : null}
+                  </View>
+                  {bind.trailing}
+                </Pressable>
+              )}
+            </SwipeRow>
+          );
         }}
         ListFooterComponent={shared.length ? <View>
           <Text accessibilityRole="header" style={styles.sectionTitle}>{account.user.role === "owner" ? "Everyone's conversations" : "Shared by others"}</Text>
@@ -160,6 +212,10 @@ export default function Chats() {
         </View> : undefined}
         contentContainerStyle={{ paddingBottom: space.xxl }}
       />
+      <ConfirmDialog visible={!!deleting} title="Delete this conversation?"
+        description="This permanently deletes your conversation with the agent and everything in it. This can't be undone."
+        confirmLabel="Delete conversation" busy={busyId !== null} error={actionError}
+        onCancel={() => { setDeleting(null); setActionError(null); }} onConfirm={() => { if (deleting) void act(deleting, true); }} />
     </View>
   );
 }
@@ -196,6 +252,9 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   unreadWhen: { color: colors.blue },
   unreadBadge: { minWidth: 22, minHeight: 22, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
   unreadBadgeText: { ...typography.captionStrong, color: colors.onPrimary },
+  archivedToggle: { minHeight: 52, paddingHorizontal: space.side, flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  archivedIcon: { width: 36, marginRight: space.sm, alignItems: "center" },
+  archivedLabel: { ...typography.body, flex: 1, color: colors.muted },
   empty: { marginTop: space.xxl, alignItems: "center", paddingHorizontal: space.side },
   emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center", marginTop: space.md },
   emptyBody: { ...typography.body, marginTop: space.xs, color: colors.muted, textAlign: "center", maxWidth: 360 },

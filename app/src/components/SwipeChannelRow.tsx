@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, PanResponder, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { api, ServerError, type Account, type Conversation } from "../lib/server";
 import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
@@ -73,11 +73,42 @@ export function SwipeChannelRow({ c, compact = false, open, busy, canDelete, onO
   onArchive: () => void;
   onDelete: () => void;
 }) {
+  return <SwipeRow name={rowName(c)} kind={kindName(c)} archived={!!c.archived} open={open} busy={busy} canDelete={canDelete}
+    onOpen={onOpen} onClose={onClose} onArchive={onArchive} onDelete={onDelete}>
+    {({ onPress: press, onLongPress, accessibilityActions, onAccessibilityAction, trailing }) =>
+      <ConversationRow c={c} compact={compact} onPress={() => press(onPress)} onLongPress={onLongPress}
+        accessibilityActions={accessibilityActions} onAccessibilityAction={onAccessibilityAction} trailing={trailing} />}
+  </SwipeRow>;
+}
+
+type RowBindings = {
+  onPress: (go: () => void) => void;
+  onLongPress: () => void;
+  accessibilityActions: { name: string; label: string }[];
+  onAccessibilityAction: (e: { nativeEvent: { actionName: string } }) => void;
+  trailing: React.ReactNode;
+};
+
+// Swipe left to reveal Archive (or Restore) and Delete. Long press and the
+// VoiceOver actions open the same choices; on web a "⋯" button does.
+export function SwipeRow({ name, kind, archived, open, busy, canDelete, onOpen, onClose, onArchive, onDelete, children }: {
+  name: string;
+  kind: string;
+  archived: boolean;
+  open: boolean;
+  busy: boolean;
+  canDelete: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+  onArchive: () => void;
+  onDelete: () => void;
+  children: (bind: RowBindings) => React.ReactNode;
+}) {
   const styles = useStyles();
   const { colors } = useTheme();
   const [x] = useState(() => new Animated.Value(0));
   const width = canDelete ? 184 : 96;
-  const archiveLabel = c.archived ? "Restore" : "Archive";
+  const archiveLabel = archived ? "Restore" : "Archive";
   useEffect(() => {
     const animation = Animated.timing(x, { toValue: open ? -width : 0, duration: 180, useNativeDriver: true });
     animation.start();
@@ -101,20 +132,23 @@ export function SwipeChannelRow({ c, compact = false, open, busy, canDelete, onO
     },
   });
   }, [busy, onClose, onOpen, open, width, x]);
+  const bind: RowBindings = {
+    onPress: (go) => { if (!busy) { if (open) onClose(); else go(); } },
+    onLongPress: () => { if (!busy) onOpen(); },
+    accessibilityActions: [{ name: "archive", label: archiveLabel }, ...(canDelete ? [{ name: "delete", label: `Delete ${kind}` }] : [])],
+    onAccessibilityAction: (e) => { if (!busy) { if (e.nativeEvent.actionName === "archive") onArchive(); if (e.nativeEvent.actionName === "delete" && canDelete) onDelete(); } },
+    trailing: Platform.OS === "web" ? <Pressable disabled={busy} accessibilityRole="button" accessibilityLabel={`Actions for ${name}`} accessibilityState={{ expanded: open, disabled: busy }} onPress={open ? onClose : onOpen} style={styles.more}><AppIcon name="more" size={18} color={colors.muted} /></Pressable> : undefined,
+  };
   return (
     <View style={styles.root}>
       <Animated.View {...pan.panHandlers} style={{ zIndex: 1, backgroundColor: colors.background, transform: [{ translateX: x }], opacity: busy ? 0.5 : 1 }}>
-        <ConversationRow c={c} compact={compact} onPress={() => { if (!busy) { if (open) onClose(); else onPress(); } }}
-          onLongPress={() => { if (!busy) onOpen(); }}
-          accessibilityActions={[{ name: "archive", label: archiveLabel }, ...(canDelete ? [{ name: "delete", label: `Delete ${kindName(c)}` }] : [])]}
-          onAccessibilityAction={(e) => { if (!busy) { if (e.nativeEvent.actionName === "archive") onArchive(); if (e.nativeEvent.actionName === "delete" && canDelete) onDelete(); } }}
-          trailing={Platform.OS === "web" ? <Pressable disabled={busy} accessibilityRole="button" accessibilityLabel={`Actions for ${rowName(c)}`} accessibilityState={{ expanded: open, disabled: busy }} onPress={open ? onClose : onOpen} style={styles.more}><AppIcon name="more" size={18} color={colors.muted} /></Pressable> : undefined} />
+        {children(bind)}
       </Animated.View>
       <View style={[styles.actions, { width }]} {...(Platform.OS === "web" ? { "aria-hidden": !open } : { accessibilityElementsHidden: !open, importantForAccessibility: open ? "auto" as const : "no-hide-descendants" as const })} pointerEvents={open && !busy ? "auto" : "none"}>
-        <Pressable disabled={!open || busy} accessibilityRole="button" accessibilityLabel={`${archiveLabel} ${rowName(c)}`} onPress={onArchive} style={[styles.action, styles.archive]}>
+        <Pressable disabled={!open || busy} accessibilityRole="button" accessibilityLabel={`${archiveLabel} ${name}`} onPress={onArchive} style={[styles.action, styles.archive]}>
           <Text style={styles.label}>{archiveLabel}</Text>
         </Pressable>
-        {canDelete ? <Pressable disabled={!open || busy} accessibilityRole="button" accessibilityLabel={`Delete ${rowName(c)}`} onPress={onDelete} style={[styles.action, styles.delete]}>
+        {canDelete ? <Pressable disabled={!open || busy} accessibilityRole="button" accessibilityLabel={`Delete ${name}`} onPress={onDelete} style={[styles.action, styles.delete]}>
           <Text style={styles.label}>Delete</Text>
         </Pressable> : null}
       </View>

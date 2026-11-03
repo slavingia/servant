@@ -387,6 +387,7 @@ function canReadChat(chat, viewer) {
 }
 function chatView(chat, viewer, users = {}) {
   const view = { id: chat.id, title: chat.title, createdAt: chat.createdAt, updatedAt: chat.updatedAt, shared: chatShared(chat) };
+  if (viewer && chat.userId === viewer.id) view.archived = !!chat.archivedAt;
   if (viewer && chat.userId !== viewer.id) {
     const author = users[chat.userId];
     view.author = { id: chat.userId, name: author?.name || "Former member" };
@@ -721,6 +722,17 @@ async function handle(req, res, cfg) {
   // A member promoted to owner (or the reverse) keeps old chats on the old agent.
   const chatUp = cfg.upstreams[agentRole(chat.role, cfg)];
 
+  // Archive is a tidy-up only: the chat keeps running, and sending a new
+  // message brings it back to the list.
+  if (method === "POST" && (parts[3] === "archive" || parts[3] === "restore") && parts.length === 4) {
+    const updated = mutateAuthenticated(req, (state, current) => {
+      const active = requireChat(state, current.user.id, chat.id);
+      if (parts[3] === "archive") active.archivedAt = now(); else delete active.archivedAt;
+      return { ...active };
+    });
+    return send(res, 200, { chat: chatView(updated, user) });
+  }
+
   if (method === "DELETE" && parts.length === 3) {
     mutateAuthenticated(req, (state, current) => { requireChat(state, current.user.id, chat.id).deletedAt = now(); });
     chatMediaStore().deleteChat(chat.id);
@@ -836,6 +848,7 @@ async function handle(req, res, cfg) {
       const queued = agentTurns.enqueue({ chat: active, user: current.user, device: current.device, text, attachments, requestId: body.requestId });
       if (active.title === "New chat") active.title = (text || attachments[0].name).replace(/\s+/g, " ").slice(0, 60);
       active.updatedAt = now();
+      delete active.archivedAt;
       return queued;
     });
     if (privateTimer) void agentTurns.processNext();

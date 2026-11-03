@@ -254,6 +254,27 @@ test("work hours: agent chats and channels refuse posts and point to Teams; read
   assert.equal((await api("POST", `/v1/conversations/${general.id}/messages`, { token, body: { text: "after work" } })).status, 201);
 });
 
+test("agent chats: swipe to archive, restore, and a new message un-archives; only the owner can", async () => {
+  const token = await pair("member", "Arlo");
+  const other = await pair("member", "Bea");
+  const chat = (await api("POST", "/v1/chats", { token, body: {} })).json.chat;
+  assert.equal(chat.archived, false);
+  assert.equal((await api("POST", `/v1/chats/${chat.id}/archive`, { token: other })).status, 403, "someone else's shared chat is read only");
+  const archived = await api("POST", `/v1/chats/${chat.id}/archive`, { token });
+  assert.equal(archived.status, 200);
+  assert.equal(archived.json.chat.archived, true);
+  assert.equal((await api("GET", "/v1/chats", { token })).json.chats.find((c) => c.id === chat.id).archived, true, "still listed, marked archived");
+  const seenByOther = (await api("GET", "/v1/chats?scope=org", { token: other })).json.orgChats.find((c) => c.id === chat.id);
+  assert.ok(seenByOther, "still shared with the org");
+  assert.equal(seenByOther.archived, undefined, "archive is personal: others never see it");
+  assert.equal((await api("POST", `/v1/chats/${chat.id}/restore`, { token })).json.chat.archived, false);
+  await api("POST", `/v1/chats/${chat.id}/archive`, { token });
+  assert.equal((await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "back again" } })).status, 200);
+  assert.equal((await api("GET", "/v1/chats", { token })).json.chats.find((c) => c.id === chat.id).archived, false, "writing in it brings it back");
+  assert.equal((await api("DELETE", `/v1/chats/${chat.id}`, { token })).status, 200);
+  assert.equal((await api("GET", "/v1/chats", { token })).json.chats.some((c) => c.id === chat.id), false);
+});
+
 test("full access (default): a member's private chat uses the full agent and sees tool names", async () => {
   const token = await pair("member", "Fran");
   const created = await api("POST", "/v1/chats", { token, body: {} });
