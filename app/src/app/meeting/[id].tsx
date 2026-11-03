@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { CallVideo } from "../../components/CallVideo";
 import { useSession } from "../../lib/session";
 import { callsSupported, createCall, type CallState } from "../../lib/meeting-call";
@@ -11,14 +11,18 @@ const DARK = "#0B1220";
 
 /** The full-screen call. The agent records it; leaving keeps the meeting going for others. */
 export default function MeetingScreen() {
+  // A full-screen modal can report zero safe-area insets, which put the status line under the clock
+  // and the island. A provider of its own measures the modal itself.
+  return <SafeAreaProvider><Meeting /></SafeAreaProvider>;
+}
+
+function Meeting() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { account } = useSession();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const [state, setState] = useState<CallState>({ status: "starting", error: null, local: null, remotes: [], muted: false, cameraOff: false });
   const [ending, setEnding] = useState(false);
-  // The self view sits just above the controls, which wrap to two rows on phones.
-  const [controlsHeight, setControlsHeight] = useState(120);
   const call = useRef<ReturnType<typeof createCall> | null>(null);
 
   useEffect(() => {
@@ -68,17 +72,21 @@ export default function MeetingScreen() {
         ))}
       </ScrollView>
       {state.local && !done ? (
-        <View style={[styles.self, { bottom: controlsHeight + insets.bottom + space.md + space.sm }]} accessibilityLabel={state.cameraOff ? "Your camera is off" : "Your camera"}>
-          {state.cameraOff ? <View style={styles.noVideo}><Text style={styles.selfOff}>Camera off</Text></View>
-            : <CallVideo stream={state.local} mirror muted style={StyleSheet.absoluteFill} />}
+        <View style={styles.selfRow}>
+          <View style={styles.self} accessibilityLabel={state.cameraOff ? "Your camera is off" : "Your camera"}>
+            {state.cameraOff ? <View style={styles.noVideo}><Text style={styles.selfOff}>Camera off</Text></View>
+              : <CallVideo stream={state.local} mirror muted style={StyleSheet.absoluteFill} />}
+          </View>
         </View>
       ) : null}
-      <View style={styles.controls} onLayout={e => setControlsHeight(e.nativeEvent.layout.height)}>
+      <View style={styles.controls}>
         {done ? <Control label="Back to the conversation" onPress={close} wide /> : <>
-          <Control label={state.muted ? "Unmute" : "Mute"} active={state.muted} onPress={() => call.current?.toggleMute()} />
-          {hasCamera ? <Control label={state.cameraOff ? "Camera on" : "Camera off"} active={state.cameraOff} onPress={() => call.current?.toggleCamera()} /> : null}
-          <Control label="Leave" onPress={leave} />
-          <Control label={ending ? "Ending…" : "End for all"} danger disabled={ending} onPress={end} />
+          <View style={styles.controlRow}>
+            <Control label={state.muted ? "Unmute" : "Mute"} active={state.muted} onPress={() => call.current?.toggleMute()} />
+            {hasCamera ? <Control label={state.cameraOff ? "Camera on" : "Camera off"} active={state.cameraOff} onPress={() => call.current?.toggleCamera()} /> : null}
+            <Control label="Leave" onPress={leave} />
+          </View>
+          <Control label={ending ? "Ending…" : "End for all"} danger disabled={ending} onPress={end} wide />
         </>}
       </View>
     </View>
@@ -105,11 +113,13 @@ const styles = StyleSheet.create({
   noVideo: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center", backgroundColor: "#1B2433" },
   initial: { fontSize: 44, fontWeight: "700", color: "#FFFFFF" },
   name: { position: "absolute", left: space.xs, bottom: space.xs, ...typography.label, color: "#FFFFFF", backgroundColor: "rgba(0,0,0,0.45)", paddingHorizontal: space.xs, paddingVertical: 2, borderRadius: radius.sm, overflow: "hidden" },
-  self: { position: "absolute", right: 28, width: 160, height: 120, borderRadius: radius.md, overflow: "hidden", backgroundColor: "#1B2433", borderWidth: 1, borderColor: "rgba(255,255,255,0.25)" },
+  selfRow: { alignItems: "flex-end", paddingHorizontal: 20, paddingBottom: space.sm },
+  self: { width: 160, height: 120, borderRadius: radius.md, overflow: "hidden", backgroundColor: "#1B2433", borderWidth: 1, borderColor: "rgba(255,255,255,0.25)" },
   selfOff: { ...typography.caption, color: "#C9D3E0" },
-  controls: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: space.xs, paddingHorizontal: 20, paddingTop: space.md },
-  control: { minHeight: 48, minWidth: 76, paddingHorizontal: space.md, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", backgroundColor: "#243045" },
-  controlWide: { minWidth: 240 },
+  controls: { gap: space.xs, paddingHorizontal: 20, paddingTop: space.xs },
+  controlRow: { flexDirection: "row", gap: space.xs },
+  control: { flex: 1, minHeight: 48, paddingHorizontal: space.md, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", backgroundColor: "#243045" },
+  controlWide: { alignSelf: "stretch" },
   controlActive: { backgroundColor: "#FFFFFF" },
   controlDanger: { backgroundColor: "#D11242" },
   controlText: { ...typography.bodyStrong, color: "#FFFFFF" },
