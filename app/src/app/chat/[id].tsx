@@ -163,21 +163,27 @@ export function openPreview(url: string) {
 }
 
 // Wide windows (browser, Mac) show the preview beside the chat; phones open it full screen.
-function PreviewPane({ url, version, onClose }: { url: string; version: number; onClose: () => void }) {
+// Native builds shipped before react-native-webview existed lack the module, so fall back to the full-screen sheet.
+let NativeWebView: any = null;
+if (Platform.OS !== "web") { try { NativeWebView = require("react-native-webview").WebView; } catch { NativeWebView = null; } }
+export const canSplitPreview = Platform.OS === "web" || !!NativeWebView;
+
+function PreviewPane({ url, version, stacked, onClose }: { url: string; version: number; stacked: boolean; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const src = `${url}${url.includes("?") ? "&" : "?"}v=${version}`;
-  return <View testID="preview-pane" style={styles.previewPane}>
+  return <View testID="preview-pane" style={[styles.previewPane, stacked && styles.previewPaneStacked]}>
     <View style={styles.previewBar}>
       <Text accessibilityRole="header" style={[styles.turnLabel, styles.turnCopy]}>Preview</Text>
-      <Pressable accessibilityRole="button" accessibilityLabel="Open preview in a new tab" onPress={() => openPreview(url)} hitSlop={8} style={styles.previewBarLink}>
-        <Text style={styles.headerLinkText}>Open</Text>
+      <Pressable accessibilityRole="button" accessibilityLabel={Platform.OS === "web" ? "Open preview in a new tab" : "Open preview full screen"} onPress={() => openPreview(url)} hitSlop={8} style={styles.previewBarLink}>
+        <Text style={styles.headerLinkText}>{Platform.OS === "web" ? "Open" : "Full screen"}</Text>
       </Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel="Close preview" onPress={onClose} hitSlop={8} style={styles.previewBarLink}>
         <AppIcon name="close" size={16} color={colors.muted} />
       </Pressable>
     </View>
-    {createElement("iframe", { key: src, src, title: "Preview", style: { flex: 1, width: "100%", height: "100%", border: 0, backgroundColor: "#FFFFFF" }, sandbox: "allow-scripts allow-same-origin allow-forms allow-popups" })}
+    {Platform.OS !== "web" ? <NativeWebView key={src} source={{ uri: src }} style={{ flex: 1, backgroundColor: "#FFFFFF" }} startInLoadingState setSupportMultipleWindows={false} />
+    : createElement("iframe", { key: src, src, title: "Preview", style: { flex: 1, width: "100%", height: "100%", border: 0, backgroundColor: "#FFFFFF" }, sandbox: "allow-scripts allow-same-origin allow-forms allow-popups" })}
   </View>;
 }
 
@@ -256,7 +262,9 @@ function ChatConversation() {
   const [shared, setShared] = useState<boolean | null>(null);
   const [sharing, setSharing] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const wide = useWideLayout();
+  const { width: winWidth } = useWindowDimensions();
+  // Portrait phones stack the preview above the chat; folds, tablets, landscape and wide windows put it beside.
+  const stacked = winWidth < 600;
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewVersion, setPreviewVersion] = useState(0);
   // Links, pushes and the sidebar may open a chat without its title: read it from the server.
@@ -612,12 +620,12 @@ function ChatConversation() {
     .map(t => ({ id: `queued_${t.id}`, role: "user", text: t.text || "Attachment", at: t.createdAt, queuedTurn: t }));
   const showPreview = () => {
     if (!previewUrl) return;
-    if (!wide) { openPreview(previewUrl); return; }
+    if (!canSplitPreview) { openPreview(previewUrl); return; }
     if (!previewOpen) setPreviewVersion(Date.now());
     setPreviewOpen(!previewOpen);
   };
   const headerLinks: HeaderLink[] = [
-    ...(previewUrl ? [{ label: "Preview", testID: "open-preview", accessibilityLabel: wide && previewOpen ? "Hide preview" : "Open preview", onPress: showPreview }] : []),
+    ...(previewUrl ? [{ label: "Preview", testID: "open-preview", accessibilityLabel: previewOpen ? "Hide preview" : "Open preview", onPress: showPreview }] : []),
     ...(shared !== null ? [{ label: "Share", testID: "open-share", accessibilityLabel: shared ? `Sharing: on with ${account.serverName}` : "Sharing: off", onPress: () => setSharing(true) }] : []),
   ];
   const data = [...(messages ?? []), ...(firstRow ? [firstRow] : []), ...(workingRow ? [workingRow] : []), ...queuedRows].reverse();
@@ -628,8 +636,8 @@ function ChatConversation() {
       <Stack.Screen options={{ title: heading, headerTitle: titleButton(showTitle, setShowTitle, headerLinks.length), ...filesHeader(String(id), heading, colors.blue, headerLinks) }} />
       {showTitle ? <FullTitle title={heading} onClose={() => setShowTitle(false)} /> : null}
       {sharing && shared !== null ? <ShareSheet id={String(id)} shared={shared} onChange={setShared} onClose={() => setSharing(false)} /> : null}
-      <View style={styles.split}>
-      <View style={styles.chatColumn}>
+      <View style={[styles.split, stacked && previewOpen && styles.splitStacked]}>
+      <View style={[styles.chatColumn, stacked && previewOpen && styles.chatColumnStacked]}>
       <ConversationKeyboardView>
         {messages === null ? (
           <ActivityIndicator style={{ flex: 1 }} color={colors.blue} />
@@ -710,7 +718,7 @@ function ChatConversation() {
         {messages !== null && !loadError ? <Composer autoFocus={compose === "1"} placeholder={pendingForward ? "Ask about this message, or just send" : "Message the agent"} onSend={send} allowFileAttachments={false} allowDocuments canSendEmpty={!!pendingForward} /> : null}
       </ConversationKeyboardView>
       </View>
-      {wide && previewOpen && previewUrl ? <PreviewPane url={previewUrl} version={previewVersion} onClose={() => setPreviewOpen(false)} /> : null}
+      {previewOpen && previewUrl && canSplitPreview ? <PreviewPane url={previewUrl} version={previewVersion} stacked={stacked} onClose={() => setPreviewOpen(false)} /> : null}
       </View>
     </View>
     </MediaGalleryProvider>
@@ -815,6 +823,9 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   previewButtonText: { ...typography.captionStrong, color: colors.onPrimary },
   shareRow: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingBottom: space.sm },
   split: { flex: 1, flexDirection: "row" },
+  splitStacked: { flexDirection: "column-reverse" },
+  chatColumnStacked: { flex: 1.1 },
+  previewPaneStacked: { minWidth: 0, borderLeftWidth: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   chatColumn: { flex: 1, minWidth: 0 },
   previewPane: { flex: 1, minWidth: 320, borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colors.line, backgroundColor: colors.surface },
   previewBar: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingLeft: space.side, paddingRight: space.xs, minHeight: 44, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
