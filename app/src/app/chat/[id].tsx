@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createElement, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, AppState, FlatList, Modal, Platform, Pressable, StyleSheet, Switch, Text, useWindowDimensions, View } from "react-native";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
@@ -108,19 +108,19 @@ function SharedChatView() {
 }
 
 // Long titles get cut off in the header: tap the title to read all of it.
-function titleButton(open: boolean, setOpen: (next: boolean) => void) {
-  const render = ({ children }: { children: string }) => <HeaderTitle title={children} open={open} onPress={() => setOpen(!open)} />;
+function titleButton(open: boolean, setOpen: (next: boolean) => void, links = 0) {
+  const render = ({ children }: { children: string }) => <HeaderTitle title={children} open={open} links={links} onPress={() => setOpen(!open)} />;
   render.displayName = "ChatHeaderTitle";
   return render;
 }
 
-function HeaderTitle({ title, open, onPress }: { title: string; open: boolean; onPress: () => void }) {
+function HeaderTitle({ title, open, links, onPress }: { title: string; open: boolean; links: number; onPress: () => void }) {
   const { colors } = useTheme();
   const { width } = useWindowDimensions();
   const wide = useWideLayout();
   const size = wide ? { fontSize: 16, fontWeight: "700" as const } : { fontSize: typography.bodyStrong.fontSize, fontWeight: typography.bodyStrong.fontWeight };
-  // Leave room for Back and Files on a phone.
-  const maxWidth = wide ? undefined : Math.max(120, width - 150);
+  // Leave room for Back and the header links on a phone.
+  const maxWidth = wide ? undefined : Math.max(120, width - 150 - links * 44);
   return <Pressable testID="chat-title" accessibilityRole="button" accessibilityLabel={title}
     accessibilityHint={open ? "Hides the full title" : "Shows the full title"} accessibilityState={{ expanded: open }}
     onPress={onPress} hitSlop={8} style={{ maxWidth, flexShrink: 1, minHeight: 44, justifyContent: "center" }}>
@@ -140,13 +140,18 @@ function FullTitle({ title, onClose }: { title: string; onClose: () => void }) {
 
 // Your own chat: shared with the server by default; this switch turns it off.
 // Files: every photo, video and file in this agent chat.
-function filesHeader(id: string, title: string, tint: string) {
+// Preview and Share sit here too, so the conversation keeps the whole screen.
+type HeaderLink = { label: string; testID: string; accessibilityLabel?: string; onPress: () => void };
+function filesHeader(id: string, title: string, tint: string, extra: HeaderLink[] = []) {
   const open = () => router.push({ pathname: "/files", params: { kind: "chat", id, title } });
+  const links: HeaderLink[] = [...extra, { label: "Files", testID: "open-files", onPress: open }];
   return Platform.OS === "ios"
-    ? { unstable_headerRightItems: () => [{ type: "button" as const, label: "Files", tintColor: tint, labelStyle: { color: tint, fontSize: typography.label.fontSize, fontWeight: "600" as const }, hidesSharedBackground: true, onPress: open }] }
-    : { headerRight: () => <Pressable testID="open-files" accessibilityRole="button" onPress={open} style={{ minHeight: 44, minWidth: 44, justifyContent: "center", alignItems: "flex-end", paddingRight: Platform.OS === "web" ? space.side : 0 }}>
-        <Text style={{ ...typography.label, color: tint }}>Files</Text>
-      </Pressable> };
+    ? { unstable_headerRightItems: () => links.map(link => ({ type: "button" as const, label: link.label, accessibilityLabel: link.accessibilityLabel, tintColor: tint, labelStyle: { color: tint, fontSize: typography.label.fontSize, fontWeight: "600" as const }, hidesSharedBackground: true, onPress: link.onPress })) }
+    : { headerRight: () => <View style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingRight: Platform.OS === "web" ? space.side : 0 }}>
+        {links.map(link => <Pressable key={link.testID} testID={link.testID} accessibilityRole="button" accessibilityLabel={link.accessibilityLabel ?? link.label} onPress={link.onPress} hitSlop={{ left: 8, right: 8 }} style={{ minHeight: 44, justifyContent: "center" }}>
+          <Text style={{ ...typography.label, color: tint }}>{link.label}</Text>
+        </Pressable>)}
+      </View> };
 }
 
 // Vibe coding: the latest prototype opens in the in-app browser.
@@ -157,25 +162,22 @@ export function openPreview(url: string) {
   void WebBrowser.openBrowserAsync(fresh, { presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET, dismissButtonStyle: "done" }).catch(() => {});
 }
 
-function VibeBar({ id }: { id: string }) {
+// Wide windows (browser, Mac) show the preview beside the chat; phones open it full screen.
+function PreviewPane({ url, version, onClose }: { url: string; version: number; onClose: () => void }) {
   const styles = useStyles();
-  const { account } = useSession();
-  const [chat, setChat] = useState<{ previewUrl?: string; mode?: string } | null>(null);
-  useEffect(() => {
-    if (!account || !id) return;
-    let live = true;
-    api.chat(account, id).then(c => { if (live) setChat(c); }).catch(() => {});
-    return () => { live = false; };
-  }, [account, id]);
-  if (chat?.mode !== "vibe" || !chat.previewUrl) return null;
-  return <View style={styles.vibeBar}>
-    <View style={styles.turnCopy}>
-      <Text style={styles.turnLabel}>Vibe coding</Text>
-      <Text style={styles.turnDetail}>Describe what you want. Each change publishes a new preview.</Text>
+  const { colors } = useTheme();
+  const src = `${url}${url.includes("?") ? "&" : "?"}v=${version}`;
+  return <View testID="preview-pane" style={styles.previewPane}>
+    <View style={styles.previewBar}>
+      <Text accessibilityRole="header" style={[styles.turnLabel, styles.turnCopy]}>Preview</Text>
+      <Pressable accessibilityRole="button" accessibilityLabel="Open preview in a new tab" onPress={() => openPreview(url)} hitSlop={8} style={styles.previewBarLink}>
+        <Text style={styles.headerLinkText}>Open</Text>
+      </Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="Close preview" onPress={onClose} hitSlop={8} style={styles.previewBarLink}>
+        <AppIcon name="close" size={16} color={colors.muted} />
+      </Pressable>
     </View>
-    <Pressable testID="open-preview" accessibilityRole="button" accessibilityLabel="Open preview" onPress={() => openPreview(chat.previewUrl!)} style={({ pressed }) => [styles.previewButton, pressed && { opacity: 0.8 }]}>
-      <Text style={styles.previewButtonText}>Preview</Text>
-    </Pressable>
+    {createElement("iframe", { key: src, src, title: "Preview", style: { flex: 1, width: "100%", height: "100%", border: 0, backgroundColor: "#FFFFFF" }, sandbox: "allow-scripts allow-same-origin allow-forms allow-popups" })}
   </View>;
 }
 
@@ -193,35 +195,36 @@ function ReplyText({ text, failed }: { text: string; failed?: boolean }) {
   </View>;
 }
 
-function ShareToggle({ id }: { id: string }) {
+// Header "Share": your own chat is shared with the server by default; this switch turns it off.
+function ShareSheet({ id, shared, onChange, onClose }: { id: string; shared: boolean; onChange: (shared: boolean) => void; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const { account } = useSession();
-  const [shared, setShared] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!account || !id) return;
-    let live = true;
-    api.chat(account, id).then(chat => { if (live) setShared(chat.shared !== false); }).catch(() => { if (live) setShared(true); });
-    return () => { live = false; };
-  }, [account, id]);
-  if (!account || shared === null) return null;
+  if (!account) return null;
   const change = async (next: boolean) => {
-    setShared(next); setSaving(true); setError(null);
-    try { setShared((await api.setChatShared(account, id, next)).shared !== false); }
-    catch (e) { setShared(!next); setError(e instanceof ServerError ? e.message : "Couldn't change sharing"); }
+    onChange(next); setSaving(true); setError(null);
+    try { onChange((await api.setChatShared(account, id, next)).shared !== false); }
+    catch (e) { onChange(!next); setError(e instanceof ServerError ? e.message : "Couldn't change sharing"); }
     finally { setSaving(false); }
   };
-  return <View style={styles.shareRow}>
-    <View style={styles.turnCopy}>
-      <Text style={styles.turnLabel}>{shared ? `Shared with ${account.serverName}` : "Private"}</Text>
-      <Text style={styles.turnDetail}>{shared ? "Others can read this chat to give feedback on your prompts." : "Only you and admins can see this chat."}</Text>
-      {error ? <Text accessibilityRole="alert" style={styles.shareError}>{error}</Text> : null}
-    </View>
-    <Switch accessibilityLabel={`Share this chat with ${account.serverName}`} value={shared} disabled={saving}
-      onValueChange={next => { void change(next); }} trackColor={{ true: colors.blue, false: colors.borderStrong }} thumbColor="#FFFFFF" {...(Platform.OS === "web" ? { activeThumbColor: "#FFFFFF" } : {})} />
-  </View>;
+  return <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+    <Pressable accessibilityLabel="Close" style={styles.menuOverlay} onPress={onClose}>
+      <Pressable testID="share-sheet" accessibilityViewIsModal style={styles.menuCard} onPress={() => {}}>
+        <View style={styles.shareRow}>
+          <View style={styles.turnCopy}>
+            <Text style={styles.turnLabel}>Share with {account.serverName}</Text>
+            <Text style={styles.turnDetail}>{shared ? "Others can read this chat to give feedback on your prompts." : "Only you and admins can see this chat."}</Text>
+          </View>
+          <Switch accessibilityLabel={`Share this chat with ${account.serverName}`} value={shared} disabled={saving}
+            onValueChange={next => { void change(next); }} trackColor={{ true: colors.blue, false: colors.borderStrong }} thumbColor="#FFFFFF" {...(Platform.OS === "web" ? { activeThumbColor: "#FFFFFF" } : {})} />
+        </View>
+        {error ? <Text accessibilityRole="alert" style={styles.shareError}>{error}</Text> : null}
+        <Pressable accessibilityRole="button" onPress={onClose} style={styles.menuAction}><Text style={styles.menuActionText}>Done</Text></Pressable>
+      </Pressable>
+    </Pressable>
+  </Modal>;
 }
 
 function ChatConversation() {
@@ -250,6 +253,12 @@ function ChatConversation() {
   // The full agent takes any file, so a ZIP of a prototype can be hosted.
   const [showTitle, setShowTitle] = useState(false);
   const [forwarding, setForwarding] = useState<ForwardTarget | null>(null);
+  const [shared, setShared] = useState<boolean | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const wide = useWideLayout();
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewVersion, setPreviewVersion] = useState(0);
   // Links, pushes and the sidebar may open a chat without its title: read it from the server.
   useEffect(() => {
     if (!account || !id) return;
@@ -257,6 +266,8 @@ function ChatConversation() {
     api.chat(account, id).then(c => {
       if (!live) return;
       if (c.title && c.title !== "New chat") setHeading(h => h === "New chat" ? c.title : h);
+      setShared(c.shared !== false);
+      setPreviewUrl(c.mode === "vibe" && c.previewUrl ? c.previewUrl : null);
     }).catch(() => {});
     return () => { live = false; };
   }, [account, id]);
@@ -599,15 +610,26 @@ function ChatConversation() {
   // Messages sent meanwhile sit below it, each with its own one-tap Steer.
   const queuedRows: Row[] = queuedBelow(waiting, [unstarted, turn])
     .map(t => ({ id: `queued_${t.id}`, role: "user", text: t.text || "Attachment", at: t.createdAt, queuedTurn: t }));
+  const showPreview = () => {
+    if (!previewUrl) return;
+    if (!wide) { openPreview(previewUrl); return; }
+    if (!previewOpen) setPreviewVersion(Date.now());
+    setPreviewOpen(!previewOpen);
+  };
+  const headerLinks: HeaderLink[] = [
+    ...(previewUrl ? [{ label: "Preview", testID: "open-preview", accessibilityLabel: wide && previewOpen ? "Hide preview" : "Open preview", onPress: showPreview }] : []),
+    ...(shared !== null ? [{ label: "Share", testID: "open-share", accessibilityLabel: shared ? `Sharing: on with ${account.serverName}` : "Sharing: off", onPress: () => setSharing(true) }] : []),
+  ];
   const data = [...(messages ?? []), ...(firstRow ? [firstRow] : []), ...(workingRow ? [workingRow] : []), ...queuedRows].reverse();
 
   return (
     <MediaGalleryProvider key={id} scope={{ kind: "chat", id }} items={media}>
     <View style={styles.root}>
-      <Stack.Screen options={{ title: heading, headerTitle: titleButton(showTitle, setShowTitle), ...filesHeader(String(id), heading, colors.blue) }} />
+      <Stack.Screen options={{ title: heading, headerTitle: titleButton(showTitle, setShowTitle, headerLinks.length), ...filesHeader(String(id), heading, colors.blue, headerLinks) }} />
       {showTitle ? <FullTitle title={heading} onClose={() => setShowTitle(false)} /> : null}
-      <VibeBar id={String(id)} />
-      <ShareToggle id={String(id)} />
+      {sharing && shared !== null ? <ShareSheet id={String(id)} shared={shared} onChange={setShared} onClose={() => setSharing(false)} /> : null}
+      <View style={styles.split}>
+      <View style={styles.chatColumn}>
       <ConversationKeyboardView>
         {messages === null ? (
           <ActivityIndicator style={{ flex: 1 }} color={colors.blue} />
@@ -687,6 +709,9 @@ function ChatConversation() {
         </View> : null}
         {messages !== null && !loadError ? <Composer autoFocus={compose === "1"} placeholder={pendingForward ? "Ask about this message, or just send" : "Message the agent"} onSend={send} allowFileAttachments={false} allowDocuments canSendEmpty={!!pendingForward} /> : null}
       </ConversationKeyboardView>
+      </View>
+      {wide && previewOpen && previewUrl ? <PreviewPane url={previewUrl} version={previewVersion} onClose={() => setPreviewOpen(false)} /> : null}
+      </View>
     </View>
     </MediaGalleryProvider>
   );
@@ -783,11 +808,16 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   fullTitle: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.side, paddingVertical: space.sm, backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   fullTitleText: { ...typography.bodyStrong, flex: 1, color: colors.ink },
   sharedBanner: { paddingHorizontal: space.side, paddingVertical: space.xs, backgroundColor: colors.blueSoft },
-  vibeBar: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.side, paddingVertical: space.sm, backgroundColor: colors.blueSoft },
   previewButton: { minHeight: 40, paddingHorizontal: space.md, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   previewInline: { alignSelf: "flex-start", marginTop: space.xs },
   previewButtonText: { ...typography.captionStrong, color: colors.onPrimary },
-  shareRow: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.side, paddingVertical: space.xs, backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  shareRow: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingBottom: space.sm },
+  split: { flex: 1, flexDirection: "row" },
+  chatColumn: { flex: 1, minWidth: 0 },
+  previewPane: { flex: 1, minWidth: 320, borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colors.line, backgroundColor: colors.surface },
+  previewBar: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingLeft: space.side, paddingRight: space.xs, minHeight: 44, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  previewBarLink: { minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center" },
+  headerLinkText: { ...typography.label, color: colors.blue },
   shareError: { ...typography.meta, color: colors.red, marginTop: space.xxs },
   message: { flexDirection: "row", paddingHorizontal: space.side, paddingVertical: space.sm, gap: 10 },
   messageCopy: { flex: 1, minWidth: 0 },
