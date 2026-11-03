@@ -142,9 +142,9 @@ function FullTitle({ title, onClose }: { title: string; onClose: () => void }) {
 // Files: every photo, video and file in this agent chat.
 // Preview and Share sit here too, so the conversation keeps the whole screen.
 type HeaderLink = { label: string; testID: string; accessibilityLabel?: string; onPress: () => void };
-function filesHeader(id: string, title: string, tint: string, extra: HeaderLink[] = []) {
+function filesHeader(id: string, title: string, tint: string, extra: HeaderLink[] = [], withFiles = true) {
   const open = () => router.push({ pathname: "/files", params: { kind: "chat", id, title } });
-  const links: HeaderLink[] = [...extra, { label: "Files", testID: "open-files", onPress: open }];
+  const links: HeaderLink[] = [...extra, ...(withFiles ? [{ label: "Files", testID: "open-files", onPress: open }] : [])];
   return Platform.OS === "ios"
     ? { unstable_headerRightItems: () => links.map(link => ({ type: "button" as const, label: link.label, accessibilityLabel: link.accessibilityLabel, tintColor: tint, labelStyle: { color: tint, fontSize: typography.label.fontSize, fontWeight: "600" as const }, hidesSharedBackground: true, onPress: link.onPress })) }
     : { headerRight: () => <View style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingRight: Platform.OS === "web" ? space.side : 0 }}>
@@ -201,8 +201,8 @@ function ReplyText({ text, failed }: { text: string; failed?: boolean }) {
   </View>;
 }
 
-// Header "Share": your own chat is shared with the server by default; this switch turns it off.
-function ShareSheet({ id, shared, onChange, onClose }: { id: string; shared: boolean; onChange: (shared: boolean) => void; onClose: () => void }) {
+// Header "•••": chat options. Your own chat is shared with the server by default; the switch turns it off. Files lives here too.
+function OptionsSheet({ id, title, shared, onChange, onClose }: { id: string; title: string; shared: boolean | null; onChange: (shared: boolean) => void; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const { account } = useSession();
@@ -217,16 +217,17 @@ function ShareSheet({ id, shared, onChange, onClose }: { id: string; shared: boo
   };
   return <Modal visible transparent animationType="fade" onRequestClose={onClose}>
     <Pressable accessibilityLabel="Close" style={styles.menuOverlay} onPress={onClose}>
-      <Pressable testID="share-sheet" accessibilityViewIsModal style={styles.menuCard} onPress={() => {}}>
-        <View style={styles.shareRow}>
+      <Pressable testID="chat-options" accessibilityViewIsModal style={styles.menuCard} onPress={() => {}}>
+        {shared !== null ? <View style={styles.shareRow}>
           <View style={styles.turnCopy}>
             <Text style={styles.turnLabel}>Share with {account.serverName}</Text>
             <Text style={styles.turnDetail}>{shared ? "Others can read this chat to give feedback on your prompts." : "Only you and admins can see this chat."}</Text>
           </View>
           <Switch accessibilityLabel={`Share this chat with ${account.serverName}`} value={shared} disabled={saving}
             onValueChange={next => { void change(next); }} trackColor={{ true: colors.blue, false: colors.borderStrong }} thumbColor="#FFFFFF" {...(Platform.OS === "web" ? { activeThumbColor: "#FFFFFF" } : {})} />
-        </View>
+        </View> : null}
         {error ? <Text accessibilityRole="alert" style={styles.shareError}>{error}</Text> : null}
+        <Pressable testID="open-files" accessibilityRole="button" onPress={() => { onClose(); router.push({ pathname: "/files", params: { kind: "chat", id, title } }); }} style={styles.menuAction}><Text style={styles.menuActionText}>Files</Text></Pressable>
         <Pressable accessibilityRole="button" onPress={onClose} style={styles.menuAction}><Text style={styles.menuActionText}>Done</Text></Pressable>
       </Pressable>
     </Pressable>
@@ -626,16 +627,16 @@ function ChatConversation() {
   };
   const headerLinks: HeaderLink[] = [
     ...(previewUrl ? [{ label: "Preview", testID: "open-preview", accessibilityLabel: previewOpen ? "Hide preview" : "Open preview", onPress: showPreview }] : []),
-    ...(shared !== null ? [{ label: "Share", testID: "open-share", accessibilityLabel: shared ? `Sharing: on with ${account.serverName}` : "Sharing: off", onPress: () => setSharing(true) }] : []),
+    { label: "•••", testID: "open-options", accessibilityLabel: "Chat options", onPress: () => setSharing(true) },
   ];
   const data = [...(messages ?? []), ...(firstRow ? [firstRow] : []), ...(workingRow ? [workingRow] : []), ...queuedRows].reverse();
 
   return (
     <MediaGalleryProvider key={id} scope={{ kind: "chat", id }} items={media}>
     <View style={styles.root}>
-      <Stack.Screen options={{ title: heading, headerTitle: titleButton(showTitle, setShowTitle, headerLinks.length), ...filesHeader(String(id), heading, colors.blue, headerLinks) }} />
+      <Stack.Screen options={{ title: heading, headerTitle: titleButton(showTitle, setShowTitle, headerLinks.length), ...filesHeader(String(id), heading, colors.blue, headerLinks, false) }} />
       {showTitle ? <FullTitle title={heading} onClose={() => setShowTitle(false)} /> : null}
-      {sharing && shared !== null ? <ShareSheet id={String(id)} shared={shared} onChange={setShared} onClose={() => setSharing(false)} /> : null}
+      {sharing ? <OptionsSheet id={String(id)} title={heading} shared={shared} onChange={setShared} onClose={() => setSharing(false)} /> : null}
       <View style={[styles.split, stacked && previewOpen && styles.splitStacked]}>
       <View style={[styles.chatColumn, stacked && previewOpen && styles.chatColumnStacked]}>
       <ConversationKeyboardView>
