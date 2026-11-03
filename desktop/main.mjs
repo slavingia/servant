@@ -4,9 +4,12 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { APP_URL, DOWNLOAD_PAGE, allowedPermission, assetPath, externalUrl, inviteLink, isAppUrl, workspaceConfig } from './policy.mjs';
 import { createUpdates } from './updates.mjs';
+import { createWebUpdates } from './ota.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const webRoot = path.join(here, 'web');
+const bundledRoot = path.join(here, 'web');
+// The interface can be replaced by a signed update from the server (see ota.mjs).
+let webRoot = bundledRoot;
 app.setName('Servant');
 // QA always uses a distinct profile and a separately configured test workspace.
 if (!app.isPackaged && process.env.SERVANT_DESKTOP_TEST_PROFILE) {
@@ -20,6 +23,10 @@ let window;
 const validSender = event => event.sender === window?.webContents && event.senderFrame === window.webContents.mainFrame && isAppUrl(event.senderFrame.url);
 const openExternal = value => { const url = externalUrl(value); if (url) void shell.openExternal(url); };
 const updates = createUpdates({ getWindow: () => window, openExternal });
+const certificateFile = path.join(here, 'ota-certificate.pem');
+// Interface updates run in the installed app, and in a test profile; never from a source checkout.
+const webUpdatesEnabled = fs.existsSync(certificateFile) && (app.isPackaged || !!process.env.SERVANT_DESKTOP_TEST_PROFILE);
+let webUpdates = null;
 // An invite link opened before the window can take it (for example the one
 // deploy/mac/install.sh opens) waits here until the app asks for it.
 let pendingInvite = null;
@@ -83,7 +90,7 @@ else {
     });
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { role: 'appMenu', submenu: [
-        { role: 'about' }, { label: 'Check for Updates…', click: () => void updates.check({ manual: true }) }, { type: 'separator' },
+        { role: 'about' }, { label: 'Check for Updates…', click: () => void checkEverything() }, { type: 'separator' },
         { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' },
       ] },
       { role: 'editMenu' },
@@ -91,8 +98,19 @@ else {
       { role: 'windowMenu' },
       { role: 'help', submenu: [{ label: 'Download the latest Servant', click: () => openExternal(DOWNLOAD_PAGE) }] },
     ]));
+    if (webUpdatesEnabled) {
+      webUpdates = createWebUpdates({
+        dir: path.join(app.getPath('userData'), 'ota-web'),
+        certificate: fs.readFileSync(certificateFile, 'utf8'),
+        serverUrl: signedInServer,
+        log: console,
+      });
+      const chosen = webUpdates.chooseRoot();
+      if (chosen) { webRoot = chosen.root; console.log('Running interface update', chosen.id); }
+    }
     createWindow();
     updates.start();
+    startWebUpdates();
     app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); else window?.show(); });
   }).catch(error => { dialog.showErrorBox('Servant could not start', error.message); app.quit(); });
 }
@@ -111,4 +129,50 @@ function createWindow() {
   window.on('ready-to-show', () => window?.show());
   window.on('closed', () => { window = null; });
   void window.loadURL(APP_URL + '/');
+}
+
+// The server the person is signed in to, read from the saved account (or the
+// workspace built into the app). Only its address is used.
+function signedInServer() {
+  try {
+    const file = path.join(app.getPath('userData'), 'account.enc');
+    if (fs.existsSync(file) && safeStorage.isEncryptionAvailable()) {
+      const account = JSON.parse(safeStorage.decryptString(fs.readFileSync(file)));
+      if (typeof account?.serverUrl === 'string') return account.serverUrl;
+    }
+  } catch { /* fall through to the bundled workspace */ }
+  return workspace?.server;
+}
+
+const askRestart = async () => {
+  if (process.env.SERVANT_DESKTOP_TEST_PROFILE) return; // test profiles apply it on the next launch
+  const options = { type: 'info', buttons: ['Restart Now', 'Later'], defaultId: 0, cancelId: 1, message: 'A Servant update is ready', detail: 'Restart to use it. Otherwise it starts the next time you open Servant.' };
+  const { response } = window ? await dialog.showMessageBox(window, options) : await dialog.showMessageBox(options);
+  if (response === 0) { app.relaunch(); app.quit(); }
+};
+
+// Background check: quiet unless an update is ready to use.
+function startWebUpdates() {
+  if (!webUpdates) return;
+  // The bundle proves itself by staying loaded; two failed launches send it back.
+  setTimeout(() => webUpdates.markGood(), 20_000);
+  const run = async () => {
+    const result = await webUpdates.check().catch(error => ({ status: 'unavailable', error: error.message }));
+    if (result.status === 'ready' || result.status === 'rolledBack') await askRestart();
+    else if (result.error) console.warn('Interface update:', result.error);
+  };
+  setTimeout(() => void run(), 12_000);
+  setInterval(() => void run(), 6 * 60 * 60 * 1000);
+}
+
+// Check for Updates…: the interface first (from your server), then the app itself.
+async function checkEverything() {
+  if (webUpdates) {
+    const result = await webUpdates.check().catch(error => ({ status: 'unavailable', error: error.message }));
+    if (result.status === 'ready' || result.status === 'rolledBack') { await askRestart(); return; }
+    if (result.status === 'unavailable' && result.error && !/Sign in|doesn't offer/.test(result.error)) {
+      await dialog.showMessageBox(window ?? undefined, { type: 'warning', message: "Couldn't check your server for updates", detail: result.error });
+    }
+  }
+  await updates.check({ manual: true });
 }

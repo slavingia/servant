@@ -1,13 +1,22 @@
 # Over-the-air app updates from your Mac
 
-The Servant server on your Mac can send JavaScript and asset updates straight to phones. There is no app store review, no TestFlight build and no Expo account or cloud service. Phones fetch updates from your Mac over the same tunnel or relay as everything else.
+The Servant server on your Mac sends updates straight to every Servant app: iPhone, Android and the Mac app's interface. There is no app store review, no TestFlight build and no Expo account or cloud service. Apps fetch updates from your Mac over the same tunnel or relay as everything else.
 
 ```text
-your Mac:   servant ota publish          expo export → <data>/ota (signed when served)
-phone:      opens Servant → GET <server>/ota/manifest → downloads changed files → runs them on the next launch
+your Mac:   servant ota publish     → one command exports iOS, Android and the Mac interface into <data>/ota
+iPhone/Android:  /ota/manifest      (Expo Updates protocol, signed)  → runs on next launch
+Mac app:         /ota/web/manifest  (signed file list)               → runs after the next restart
 ```
 
-## What an update can and can't change
+| Platform | What updates | What still needs a new download |
+| --- | --- | --- |
+| iPhone, iPad | JavaScript, images, fonts | Native modules, permissions, icon, Expo SDK |
+| Android | JavaScript, images, fonts | Native modules, permissions, icon, Expo SDK |
+| Mac app | The whole interface (the web app) | The Electron shell: menus, sign-in storage, `servant://` links, Electron itself |
+
+There is no hosted browser version of Servant, so there is nothing else to update.
+
+## What an update can and can't change (phones)
 
 - **Can:** screens, copy, logic, fixes, images and fonts that ship in the JavaScript bundle.
 - **Can't:** anything native, such as a new Expo module, a permission, an app icon or a new SDK version. Those need a new build, and the build's version changes, which starts a new *runtime version* (below).
@@ -21,16 +30,28 @@ A phone only takes an update made for its own runtime version. The runtime versi
 3. **A build that contains expo-updates and that address.** Updates only reach builds made after this was added, and only builds given the address: `SERVANT_OTA_URL=https://<host>/ota/manifest scripts/testflight.sh <n>` (same for `scripts/firebase.sh` and the Play bundle). Without `SERVANT_OTA_URL`, updates are off in that build. Older builds ignore updates.
 4. **The server.** Nothing to configure. `/ota/manifest` and `/ota/assets/<hash>` are part of the API and use `<data>/ota`.
 
+## The Mac app
+
+The Mac app is a small native shell around the same web app. The shell changes rarely; the interface changes often, so the interface updates over the air and the shell is a normal download.
+
+- **Where from:** the server the person is signed in to, `<server>/ota/web/manifest?runtime=mac-shell-1`. The Mac checks 12 seconds after launch, every six hours, and from **Servant → Check for Updates…**. If an update is ready it asks to restart; otherwise it starts on the next open.
+- **Signed:** the manifest is signed with the same key as the phones. The certificate is copied into the app at build time (`desktop/build.mjs`). Each file is checked against its signed SHA-256 before anything is used, and a half-downloaded update is never installed.
+- **Trial launches:** a new interface gets two launches to prove itself. If it fails to load twice, the app deletes it and goes back to the built-in interface by itself, which is the Mac equivalent of the phones' fallback. After 20 seconds of running, it counts as good.
+- **Shell API:** `desktop/ota.mjs` has `SHELL_API`, the contract between the shell and the web app (the preload bridge, storage, protocol handler). Bump it whenever that contract changes. Interfaces are published under `mac-shell-<n>`, so an older shell never receives an interface that expects more than it has. `servant ota publish` reads the number from that file.
+- **Needs a new download once:** Macs on 1.0.5 or earlier have no interface updating. Ship the next Mac release (1.0.6) and they update from then on.
+- **Rollback:** `servant ota rollback --runtime mac-shell-1`. The app drops its downloaded interface and returns to the built-in one after the next check and restart.
+- **Where it lives:** `~/Library/Application Support/Servant/ota-web/`. Deleting that folder returns the app to the built-in interface.
+
 ## Publish
 
 ```sh
-servant ota publish --note "Fix call errors"     # both platforms
-servant ota publish --platform ios               # one platform
+servant ota publish --note "Fix call errors"     # iPhone, Android and the Mac interface
+servant ota publish --platform ios               # one of: ios, android, web (the Mac interface)
 servant ota status                               # what is published
 servant ota rollback --runtime '1.0.0(28)'       # send phones back to the version inside their app
 ```
 
-`servant ota publish` runs `expo export` in the checkout that installed the server (the `SERVANT_REPO` in `~/.local/share/servant/servant.env`), so check out the commit you want first. Without the `servant` command: `node scripts/ota-publish.mjs`.
+`servant ota publish` runs `expo export` for each platform in the checkout that installed the server (the `SERVANT_REPO` in `~/.local/share/servant/servant.env`), so check out the commit you want first. Without the `servant` command: `node scripts/ota-publish.mjs`.
 
 Each publish keeps the last eight updates per runtime version and removes files nothing refers to. Files are named by their SHA-256, so repeat publishes upload only what changed.
 
@@ -59,4 +80,5 @@ Each publish keeps the last eight updates per runtime version and removes files 
 | "This update isn't signed by your server" | The build trusts a different certificate than the key that signed. Publish with the key that matches `app/certs/certificate.pem`. |
 | `503 This server has no update signing key` | No key at `~/.config/servant/ota-keys/private-key.pem`. Set `SERVANT_OTA_KEY_FILE` if it lives elsewhere. |
 | No Check for updates row | A development build, a web build, a build made before this feature, or a build made without `SERVANT_OTA_URL`. |
+| Mac app never finds updates | The Mac is on 1.0.5 or earlier (no interface updating), or not signed in, or its server has nothing published for `mac-shell-1`. Check for Updates… says which. |
 | Phones stop finding updates after a restart | The address in the build changed (quick tunnel). Use a fixed address. |

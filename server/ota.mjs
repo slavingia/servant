@@ -98,6 +98,48 @@ export function publishUpdate({ dir, exportDir, runtimeVersions, expoClient = {}
   return [...records.values()].map(r => ({ id: r.id, runtimeVersion: r.runtimeVersion, platforms: Object.keys(r.platforms) }));
 }
 
+export const WEB_RUNTIME_PREFIX = "mac-shell-";
+const WEB_PATH = /^[A-Za-z0-9_\-\[][A-Za-z0-9_\-. @+()%\[\]]*(\/[A-Za-z0-9_\-\[][A-Za-z0-9_\-. @+()%\[\]]*)*$/;
+const MAX_WEB_FILES = 5000;
+const MAX_WEB_BYTES = 300 * 1024 * 1024;
+
+/**
+ * Add the Mac app's web bundle (an `expo export --platform web` directory).
+ * `shellApi` is the version of the Mac app's native shell contract; only shells
+ * with the same number take the bundle, like a runtime version on phones.
+ */
+export function publishWeb({ dir, webDir, shellApi, note = "", now = Date.now() }) {
+  if (!Number.isInteger(shellApi) || shellApi < 1) throw new Error("shellApi must be a positive integer");
+  if (!fs.existsSync(path.join(webDir, "index.html"))) throw new Error("The web export has no index.html");
+  fs.mkdirSync(filesDir(dir), { recursive: true, mode: 0o700 });
+  const files = [];
+  let bytes = 0;
+  const walk = rel => {
+    for (const entry of fs.readdirSync(path.join(webDir, rel), { withFileTypes: true })) {
+      const next = rel ? `${rel}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) { walk(next); continue; }
+      if (!entry.isFile()) continue;
+      if (!WEB_PATH.test(next)) throw new Error(`Unsafe file name in the web export: ${next}`);
+      const buf = fs.readFileSync(path.join(webDir, next));
+      bytes += buf.length;
+      if (files.length >= MAX_WEB_FILES || bytes > MAX_WEB_BYTES) throw new Error("The web export is too large");
+      const hash = sha256b64url(buf);
+      const target = path.join(filesDir(dir), hash);
+      if (!fs.existsSync(target)) { fs.writeFileSync(`${target}.tmp`, buf, { mode: 0o600 }); fs.renameSync(`${target}.tmp`, target); }
+      const contentType = mimeFor(path.extname(next));
+      fs.writeFileSync(`${target}.mime`, contentType, { mode: 0o600 });
+      files.push({ path: next, hash, size: buf.length, contentType });
+    }
+  };
+  walk("");
+  files.sort((a, b) => a.path.localeCompare(b.path));
+  const runtimeVersion = `${WEB_RUNTIME_PREFIX}${shellApi}`;
+  const entry = { id: crypto.randomUUID(), type: "update", runtimeVersion, createdAt: new Date(now).toISOString(), note: String(note).slice(0, 300), platforms: { web: { runtimeVersion, files } } };
+  writeEntry(dir, entry);
+  prune(dir);
+  return { id: entry.id, runtimeVersion, files: files.length, bytes };
+}
+
 function writeEntry(dir, entry) {
   const target = entryDir(dir, entry.id);
   fs.mkdirSync(`${target}.tmp`, { recursive: true, mode: 0o700 });
@@ -122,7 +164,7 @@ function prune(dir) {
   for (const u of listUpdates(dir)) if (!keep.has(u.id)) fs.rmSync(entryDir(dir, u.id), { recursive: true, force: true });
   // Remove files no remaining update refers to.
   const used = new Set();
-  for (const u of listUpdates(dir)) for (const p of Object.values(u.platforms || {})) for (const a of [p.launchAsset, ...p.assets]) used.add(a.hash);
+  for (const u of listUpdates(dir)) for (const p of Object.values(u.platforms || {})) for (const a of p.files ? p.files : [p.launchAsset, ...p.assets]) used.add(a.hash);
   let files = [];
   try { files = fs.readdirSync(filesDir(dir)); } catch { /* none */ }
   for (const f of files) if (!used.has(f.replace(/\.(mime|tmp)$/, ""))) fs.rmSync(path.join(filesDir(dir), f), { force: true });
@@ -207,6 +249,24 @@ export function createOta({ dir, keyFile = defaultKeyFile, log = console }) {
     return multipart(res, [part("manifest", manifestFor(entry, platform, base)), { name: "extensions", body: extensions, signature: null }]);
   }
 
+  // The Mac app's web bundle. A small signed JSON document lists every file and its hash.
+  function web(req, res, url) {
+    const runtime = String(url.searchParams.get("runtime") || "");
+    if (!runtime.startsWith(WEB_RUNTIME_PREFIX) || runtime.length > 40) return json(res, 400, { error: "runtime must look like mac-shell-1" });
+    if (!privateKey()) {
+      log.error?.("[servant] ota: no signing key for the Mac app's web bundle at", typeof keyFile === "function" ? keyFile() : keyFile);
+      return json(res, 503, { error: "This server has no update signing key" });
+    }
+    const entry = latestFor(dir, runtime);
+    let body;
+    if (!entry) body = { type: "none", runtimeVersion: runtime };
+    else if (entry.type === "rollback") body = { type: "rollback", id: entry.id, runtimeVersion: runtime, createdAt: entry.createdAt };
+    else body = { type: "update", id: entry.id, runtimeVersion: runtime, createdAt: entry.createdAt, files: entry.platforms.web.files };
+    const text = JSON.stringify(body);
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "private, max-age=0", "x-servant-signature": sign(text) });
+    res.end(text);
+  }
+
   function asset(req, res, hash) {
     if (!HASH.test(hash)) return json(res, 404, { error: "No such file" });
     const file = path.join(filesDir(dir), hash);
@@ -222,10 +282,11 @@ export function createOta({ dir, keyFile = defaultKeyFile, log = console }) {
   /** Returns true when the request was an /ota route. */
   function handle(req, res) {
     const url = new URL(req.url, "http://server");
-    if (url.pathname !== "/ota/manifest" && !url.pathname.startsWith("/ota/assets/")) return false;
+    if (url.pathname !== "/ota/manifest" && url.pathname !== "/ota/web/manifest" && !url.pathname.startsWith("/ota/assets/")) return false;
     if (req.method !== "GET" && req.method !== "HEAD") { json(res, 405, { error: "Use GET" }); return true; }
     try {
       if (url.pathname === "/ota/manifest") manifest(req, res);
+      else if (url.pathname === "/ota/web/manifest") web(req, res, url);
       else asset(req, res, url.pathname.slice("/ota/assets/".length));
     } catch (error) {
       log.error?.("[servant] ota", error.message);

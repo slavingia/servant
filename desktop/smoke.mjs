@@ -104,7 +104,7 @@ try {
   // its assets or Electron binaries. Production workspace.json is never touched.
   const testApp = path.join(scratch, 'app');
   fs.mkdirSync(testApp, { mode: 0o700 });
-  for (const name of ['main.mjs', 'preload.cjs', 'policy.mjs', 'updates.mjs']) fs.copyFileSync(path.join(here, name), path.join(testApp, name));
+  for (const name of ['main.mjs', 'preload.cjs', 'policy.mjs', 'updates.mjs', 'ota.mjs', 'ota-certificate.pem']) fs.copyFileSync(path.join(here, name), path.join(testApp, name));
   fs.writeFileSync(path.join(testApp, 'package.json'), JSON.stringify({ name: 'servant-desktop-smoke', version: '1.0.0', type: 'module', main: 'main.mjs' }));
   fs.writeFileSync(path.join(testApp, 'workspace.json'), JSON.stringify({ server: instance.url, serverKey }));
   fs.symlinkSync(path.join(here, 'web'), path.join(testApp, 'web'), 'dir');

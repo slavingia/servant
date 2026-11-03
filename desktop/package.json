@@ -13,6 +13,7 @@
     "start": "electron .",
     "test": "node --test *.test.mjs",
     "test:smoke": "node smoke.mjs",
+    "test:ota": "node ota-e2e.mjs",
     "pack": "npm run prepare:web && electron-builder --mac --dir",
     "dist": "npm run prepare:web && electron-builder --mac dmg zip --arm64 --x64 --publish never",
     "dist:preview": "npm run prepare:web && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg zip --arm64 --x64 --publish never -c.mac.identity=- -c.mac.notarize=false -c.mac.entitlements=entitlements.preview.plist -c.mac.entitlementsInherit=entitlements.preview.plist"
@@ -33,6 +34,8 @@
       "preload.cjs",
       "policy.mjs",
       "updates.mjs",
+      "ota.mjs",
+      "ota-certificate.pem",
       "web/**/*",
       "workspace.json",
       "package.json"

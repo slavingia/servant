@@ -16,7 +16,7 @@ export function otaMessage(status: OtaStatus, detail?: string): string {
     case "checking": return "Checking…";
     case "downloading": return "Downloading…";
     case "current": return "Up to date";
-    case "ready": return "Restart to finish";
+    case "ready": return "Ready";
     case "failed": return detail || "Couldn't check";
     default: return "";
   }

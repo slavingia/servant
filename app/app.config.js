@@ -6,8 +6,15 @@
 module.exports = ({ config }) => {
   const url = (process.env.SERVANT_OTA_URL || "").trim();
   if (!url) return config;
-  if (!/^https:\/\/[^\s/]+\/ota\/manifest$/.test(url) && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/ota\/manifest$/.test(url)) {
-    throw new Error("SERVANT_OTA_URL must be https://<host>/ota/manifest (http only for localhost)");
+  if (!/^https:\/\/[^\s/]+\/ota\/manifest$/.test(url) && !/^http:\/\/(127\.0\.0\.1|localhost|10\.0\.2\.2)(:\d+)?\/ota\/manifest$/.test(url)) {
+    throw new Error("SERVANT_OTA_URL must be https://<host>/ota/manifest (http only for localhost or the Android emulator's 10.0.2.2)");
   }
-  return { ...config, updates: { ...config.updates, enabled: true, url } };
+  const next = { ...config, updates: { ...config.updates, enabled: true, url } };
+  // Android blocks plain http. Allow it only for a build pointed at a local test server.
+  if (url.startsWith("http://")) {
+    next.plugins = (config.plugins || []).map(plugin => Array.isArray(plugin) && plugin[0] === "expo-build-properties"
+      ? [plugin[0], { ...plugin[1], android: { ...plugin[1]?.android, usesCleartextTraffic: true } }]
+      : plugin);
+  }
+  return next;
 };

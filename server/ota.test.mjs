@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import http from "node:http";
-import { createOta, listUpdates, mimeFor, publishRollback, publishUpdate } from "./ota.mjs";
+import { createOta, listUpdates, mimeFor, publishRollback, publishUpdate, publishWeb } from "./ota.mjs";
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "servant-ota-"));
 const { privateKey, publicKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -170,4 +170,57 @@ test("mime types", () => {
   assert.equal(mimeFor(".png"), "image/png");
   assert.equal(mimeFor("ttf"), "font/ttf");
   assert.equal(mimeFor("weird"), "application/octet-stream");
+});
+
+function fakeWeb() {
+  const dir = tmp();
+  fs.mkdirSync(path.join(dir, "_expo", "static", "js"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "index.html"), "<html>servant</html>");
+  fs.writeFileSync(path.join(dir, "_expo", "static", "js", "entry-abc123.js"), "console.log('web')");
+  return dir;
+}
+
+test("the Mac app's web bundle is published, signed and served by hash", async () => {
+  const data = tmp(); const keyFile = path.join(tmp(), "key.pem");
+  fs.writeFileSync(keyFile, privateKey.export({ type: "pkcs8", format: "pem" }));
+  const r = publishWeb({ dir: data, webDir: fakeWeb(), shellApi: 1 });
+  assert.equal(r.runtimeVersion, "mac-shell-1");
+  const s = await serve(data, keyFile);
+  try {
+    const res = await fetch(`${s.base}/ota/web/manifest?runtime=mac-shell-1`);
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    assert.ok(crypto.verify("sha256", Buffer.from(text), publicKey, Buffer.from(res.headers.get("x-servant-signature"), "base64")));
+    const m = JSON.parse(text);
+    assert.equal(m.type, "update");
+    assert.deepEqual(m.files.map(f => f.path), ["_expo/static/js/entry-abc123.js", "index.html"]);
+    const file = m.files.find(f => f.path === "index.html");
+    const body = Buffer.from(await (await fetch(`${s.base}/ota/assets/${file.hash}`)).arrayBuffer());
+    assert.equal(crypto.createHash("sha256").update(body).digest("base64url"), file.hash);
+    assert.equal(body.toString(), "<html>servant</html>");
+    // Nothing for a shell it wasn't published for, a bad runtime is refused, and phones never see web updates.
+    assert.equal(JSON.parse(await (await fetch(`${s.base}/ota/web/manifest?runtime=mac-shell-2`)).text()).type, "none");
+    assert.equal((await fetch(`${s.base}/ota/web/manifest?runtime=1.0.0(28)`)).status, 400);
+    assert.deepEqual(JSON.parse((await parts(await fetch(`${s.base}/ota/manifest`, { headers: manifestHeaders("mac-shell-1") })))[0].body), { type: "noUpdateAvailable" });
+    // Rollback is signed too.
+    publishRollback({ dir: data, runtimeVersion: "mac-shell-1", now: Date.now() + 1000 });
+    const rb = await fetch(`${s.base}/ota/web/manifest?runtime=mac-shell-1`);
+    assert.equal(JSON.parse(await rb.text()).type, "rollback");
+  } finally { await s.close(); }
+});
+
+test("a web export with an unsafe file name or no index.html is refused", () => {
+  const bad = tmp(); fs.writeFileSync(path.join(bad, "index.html"), "x"); fs.writeFileSync(path.join(bad, "a;b.js"), "x");
+  assert.throws(() => publishWeb({ dir: tmp(), webDir: bad, shellApi: 1 }), /Unsafe file name/);
+  assert.throws(() => publishWeb({ dir: tmp(), webDir: tmp(), shellApi: 1 }), /no index.html/);
+  assert.throws(() => publishWeb({ dir: tmp(), webDir: fakeWeb(), shellApi: 0 }), /shellApi/);
+});
+
+test("publishing the web bundle keeps the phone updates and their files", () => {
+  const data = tmp();
+  publishUpdate({ dir: data, exportDir: fakeExport(), runtimeVersions: { ios: "1", android: "1" } });
+  publishWeb({ dir: data, webDir: fakeWeb(), shellApi: 1 });
+  assert.equal(listUpdates(data).length, 2);
+  assert.ok(listUpdates(data).some(u => u.platforms.ios) && listUpdates(data).some(u => u.platforms.web));
+  for (const u of listUpdates(data)) for (const p of Object.values(u.platforms)) for (const f of p.files ?? [p.launchAsset, ...p.assets]) assert.ok(fs.existsSync(path.join(data, "files", f.hash)), "file kept");
 });

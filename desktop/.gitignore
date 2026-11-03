@@ -1,3 +1,4 @@
 web/
 workspace.json
 .firebase/
+ota-certificate.pem
