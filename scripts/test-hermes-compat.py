@@ -301,6 +301,21 @@ class HermesContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(first["approval_id"], events)
         self.assertIn(second["approval_id"], events)
 
+    async def test_bare_owner_image_paths_render_inline(self):
+        image = Path(PROFILE.name) / "bare-screenshot.png"
+        image.write_bytes(PNG)
+        reply = (f"Side by side:\n{image}\n\nAlso [this one]({image}). Missing: /no/such/file.png. "
+                 f"Code stays: `{image}`")
+        self.behavior = lambda agent, call: {"final_response": reply, "messages": []}
+        run_id = await self.start()
+        data = await self.wait_status(run_id)
+        self.assertEqual(data["status"], "completed", data)
+        output = data["output"]
+        self.assertEqual(output.count(f"![bare-screenshot.png]({DATA_URL})"), 2, output)
+        self.assertNotIn("[this one]", output)
+        self.assertIn("/no/such/file.png", output)
+        self.assertIn(f"`{image}`", output)
+
     async def test_member_media_directives_never_read_host_files(self):
         self.adapter.restricted_member = True
         image = Path(PROFILE.name) / "private-owner-image.png"
@@ -312,6 +327,11 @@ class HermesContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "completed", result)
         self.assertNotIn("data:image", result["output"])
         self.assertNotIn(str(image), result["output"])
+        # A bare path stays plain text for members; the file is never read.
+        agent.behavior = lambda agent, call: {"final_response": f"See {image}"}
+        with patch("hermes_bridge.make_member_agent", return_value=agent):
+            result = await self.wait_status(await self.start())
+        self.assertEqual(result["output"], f"See {image}")
         data = await (await self.client.get("/v1/capabilities")).json()
         self.assertIs(data["features"]["servant_member_isolation"], True)
         self.assertEqual(data["servant"]["memberPolicy"]["allowedTools"], [])

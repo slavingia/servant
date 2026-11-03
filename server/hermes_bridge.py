@@ -7,19 +7,64 @@ No vendor source or live profile is modified.
 """
 from __future__ import annotations
 
+import base64
 import copy
 import inspect
 import json
+import re
 import uuid
 from contextvars import ContextVar
 from pathlib import Path
 
 from aiohttp import web
 from gateway.platforms.api_server import APIServerAdapter, _resolve_media_to_data_urls
-from gateway.platforms.base import MEDIA_TAG_CLEANUP_RE
+from gateway.platforms.base import MEDIA_TAG_CLEANUP_RE, validate_media_delivery_path
 
 _run_context = ContextVar("servant_run_context", default=None)
 POLICY = json.loads(Path(__file__).with_name("member-policy.json").read_text())
+
+
+# Agents usually name a screenshot by its bare path ("Saved to /Users/me/x.png")
+# rather than a MEDIA: directive. Mirror Hermes' extract_local_files matcher
+# (absolute or ~/ path, no spaces, not inside a URL or code) for images only.
+# server/media.mjs BARE_IMAGE_PATH must match the same paths.
+_PATH = r"(?:~/|/)(?:[\w.\-]+/)*[\w.\-]+\.(?:png|jpe?g|gif|webp)\b"
+# A markdown link or image around the path is replaced whole, so the result
+# never nests markup inside a link.
+BARE_IMAGE_PATH_RE = re.compile(r"!?\[[^\]\n]*\]\(<?(" + _PATH + r")>?\)|(?<![/:\w.])(" + _PATH + r")", re.IGNORECASE)
+_IMAGE_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
+_IMAGE_MAX_BYTES = 5 * 1024 * 1024  # Servant's per-file media limit
+
+
+def resolve_bare_image_paths(text):
+    """Inline existing local images named by bare path as markdown data URLs.
+
+    Uses Hermes' own delivery denylist; paths in code, missing files, oversized
+    files and non-images are left as written.
+    """
+    if not text or not BARE_IMAGE_PATH_RE.search(text):
+        return text
+    code = [m.span() for m in re.finditer(r"```[^\n]*\n.*?```", text, re.DOTALL)]
+    code += [m.span() for m in re.finditer(r"`[^`\n]+`", text)]
+
+    def inline(match):
+        if any(start <= match.start() < end for start, end in code):
+            return match.group(0)
+        safe = validate_media_delivery_path(match.group(1) or match.group(2))
+        if not safe:
+            return match.group(0)
+        path = Path(safe)
+        mime = _IMAGE_MIME.get(path.suffix.lower())
+        try:
+            if not mime or not path.is_file() or path.stat().st_size > _IMAGE_MAX_BYTES:
+                return match.group(0)
+            data = base64.b64encode(path.read_bytes()).decode()
+        except OSError:
+            return match.group(0)
+        name = path.name.replace("]", "").replace("[", "")
+        return f"![{name}](data:{mime};base64,{data})"
+
+    return BARE_IMAGE_PATH_RE.sub(inline, text)
 
 
 def verify_contract():
@@ -300,7 +345,7 @@ class ServantAPIServerAdapter(APIServerAdapter):
                     result["final_response"] = MEDIA_TAG_CLEANUP_RE.sub(
                         "[Local files are unavailable to the member agent]", result["final_response"])
                 else:
-                    result["final_response"] = _resolve_media_to_data_urls(result["final_response"])
+                    result["final_response"] = resolve_bare_image_paths(_resolve_media_to_data_urls(result["final_response"]))
             return result
 
         agent.run_conversation = run_conversation
