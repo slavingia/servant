@@ -4,7 +4,7 @@ import { useFocusEffect } from "expo-router";
 import { Avatar } from "../components/Messaging";
 import { api, ServerError, type Leaderboard, type LeaderboardPeriod } from "../lib/server";
 import { useSession } from "../lib/session";
-import { formatTokens, sharePercent } from "../lib/token-format";
+import { estimateCost, formatCost, formatTokens, sharePercent } from "../lib/token-format";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
 
 const periods: { key: LeaderboardPeriod; label: string; caption: string }[] = [
@@ -48,17 +48,17 @@ export default function LeaderboardScreen() {
 
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
     {!board ? <ActivityIndicator accessibilityLabel="Loading shame board" style={{ marginTop: space.xl }} color={colors.blue} /> : <>
-      <View accessible accessibilityLabel={`${formatTokens(board.totals.total)} tokens used on ${account.serverName} in ${current.caption}, across ${board.totals.turns} agent replies`} style={styles.total}>
+      <View accessible accessibilityLabel={`${formatTokens(board.totals.total)} tokens used on ${account.serverName} in ${current.caption}, across ${board.totals.turns} agent replies, about ${formatCost(estimateCost(board.totals.input, board.totals.output))} estimated`} style={styles.total}>
         <Text style={styles.totalLabel}>{account.serverName} · {current.caption}</Text>
         <Text style={styles.totalValue}>{formatTokens(board.totals.total)}</Text>
-        <Text style={styles.totalDetail}>tokens · {board.totals.turns.toLocaleString("en-US")} agent {board.totals.turns === 1 ? "reply" : "replies"}</Text>
+        <Text style={styles.totalDetail}>tokens · about {formatCost(estimateCost(board.totals.input, board.totals.output))} estimated · {board.totals.turns.toLocaleString("en-US")} agent {board.totals.turns === 1 ? "reply" : "replies"}</Text>
         {board.totals.total ? <View style={styles.split}>
           <Text style={styles.splitText}>In {formatTokens(board.totals.input)}</Text>
           <Text style={styles.splitText}>Out {formatTokens(board.totals.output)}</Text>
         </View> : null}
       </View>
 
-      {mine ? <Text style={styles.you}>You're #{mine.rank} with {formatTokens(mine.total)} tokens ({sharePercent(mine.total, board.totals.total)} of the total).</Text> : null}
+      {mine ? <Text style={styles.you}>You're #{mine.rank} with {formatTokens(mine.total)} tokens, about {formatCost(estimateCost(mine.input, mine.output))} estimated ({sharePercent(mine.total, board.totals.total)} of the total).</Text> : null}
 
       <Text accessibilityRole="header" style={styles.section}>By person</Text>
       {board.people.length === 0 ? <Text style={styles.empty}>No agent use in {current.caption} yet. Ask the agent something and it shows up here.</Text> : null}
@@ -66,14 +66,14 @@ export default function LeaderboardScreen() {
         {board.people.map(row => {
           const me = row.user.id === account.user.id;
           return <View key={row.user.id} accessible
-            accessibilityLabel={`Number ${row.rank}, ${me ? "you" : row.user.name}, ${formatTokens(row.total)} tokens, ${sharePercent(row.total, board.totals.total)} of the total, ${row.turns} replies`}
+            accessibilityLabel={`Number ${row.rank}, ${me ? "you" : row.user.name}, ${formatTokens(row.total)} tokens, about ${formatCost(estimateCost(row.input, row.output))} estimated, ${sharePercent(row.total, board.totals.total)} of the total, ${row.turns} replies`}
             style={[styles.row, me && styles.rowMe]}>
             <Text style={[styles.rank, row.rank <= 3 && styles.rankTop]}>{row.rank}</Text>
             <Avatar name={row.user.name} userId={row.user.id} size={32} tapToMessage />
             <View style={styles.rowCopy}>
               <View style={styles.rowHead}>
                 <Text numberOfLines={1} style={styles.name}>{row.user.name}{me ? " (you)" : ""}</Text>
-                <Text style={styles.value}>{formatTokens(row.total)}</Text>
+                <Text style={styles.value}>{formatTokens(row.total)} · ~{formatCost(estimateCost(row.input, row.output))}</Text>
               </View>
               <View style={styles.track}><View style={[styles.bar, { width: `${board.totals.total ? Math.max(2, (row.total / board.totals.total) * 100) : 0}%` }]} /></View>
               <Text style={styles.meta}>{sharePercent(row.total, board.totals.total)} · {row.turns} {row.turns === 1 ? "reply" : "replies"}{row.channel ? ` · ${formatTokens(row.channel)} in channels` : ""}</Text>
@@ -81,7 +81,7 @@ export default function LeaderboardScreen() {
           </View>;
         })}
       </View>
-      <Text style={styles.footnote}>Tokens the agent reported for each reply, credited to the person who asked: their agent chats plus @s replies in channels.{board.people.length ? " Bars show each person's share of the total." : ""} Prompts are not shown here.</Text>
+      <Text style={styles.footnote}>Tokens the agent reported for each reply, credited to the person who asked: their agent chats plus @s replies in channels.{board.people.length ? " Bars show each person's share of the total." : ""} Dollar figures are estimates at list prices ($3 per million tokens in, $15 per million out), not a bill. Prompts are not shown here.</Text>
     </>}
   </ScrollView>;
 }

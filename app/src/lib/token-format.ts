@@ -15,3 +15,18 @@ export function sharePercent(part: number, total: number): string {
   const pct = (part / total) * 100;
   return pct < 1 ? "<1%" : `${Math.round(pct)}%`;
 }
+
+// Rough dollar estimate from the reported counts, at list prices for a
+// Sonnet-class model ($3 per million in, $15 per million out). Cache discounts
+// and the real contract rate are not known here, so always label it estimated.
+export const USD_PER_M_INPUT = 3;
+export const USD_PER_M_OUTPUT = 15;
+export function estimateCost(input: number, output: number): number {
+  return (Math.max(0, Number(input) || 0) * USD_PER_M_INPUT + Math.max(0, Number(output) || 0) * USD_PER_M_OUTPUT) / 1_000_000;
+}
+export function formatCost(usd: number): string {
+  if (!usd) return "$0";
+  if (usd < 0.01) return "<$0.01";
+  if (usd < 100) return `$${usd.toFixed(2)}`;
+  return `$${Math.round(usd).toLocaleString("en-US")}`;
+}
