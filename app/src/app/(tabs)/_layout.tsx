@@ -1,5 +1,7 @@
 import { Slot } from "expo-router";
 import { NativeTabs } from "expo-router/native-tabs";
+import { Platform } from "react-native";
+import { WebTabs } from "../../components/WebTabBar";
 import { useWideLayout } from "../../lib/layout";
 import { useLive } from "../../lib/live";
 import { useTheme } from "../../lib/theme";
@@ -13,6 +15,8 @@ export default function TabsLayout() {
   const badge = (n: number) => (n > 0 ? String(n > 99 ? "99+" : n) : undefined);
   // The sidebar is the tab bar in the wide layout.
   if (wide) return <Slot />;
+  // On web the native tab bar renders as a pill at the top; use a real bottom bar instead.
+  if (Platform.OS === "web") return <WebTabs />;
   return (
     <NativeTabs
       tintColor={colors.blue}
