@@ -530,7 +530,7 @@ function ChatConversation() {
           {queuedBelow.map(item => <View key={item.id} style={styles.queued}>
             <View style={styles.turnCopy}>
               <Text numberOfLines={2} style={styles.queuedText}>{item.text || "Attachment"}</Text>
-              <Text style={styles.turnDetail}>{item.steerRequested ? "Adding this to the current reply…" : "Sends when the agent is done"}</Text>
+              <Text style={styles.turnDetail}>{item.steerRequested ? "Adding this to the current reply…" : "Sends when the agent is free"}</Text>
             </View>
             {canSteer(item, turn) ? <Button label="Steer" kind="secondary" compact busy={steering === item.id}
               onPress={() => { void steer(item); }} /> : null}
