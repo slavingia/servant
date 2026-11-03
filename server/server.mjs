@@ -34,7 +34,7 @@ import { createUsageStore } from "./usage.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { withCloseInstructions } from "./close-marker.mjs";
 import { supportsDurableRuns, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
-import { MAX_FOLDERS, cleanName, cleanNotes, createFolderFiles, folderInstructions, folderView, newFolder, validFolderId } from "./folders.mjs";
+import { MAX_FOLDERS, MAX_MEMBERS, accessibleFolders, cleanName, cleanNotes, createFolderFiles, folderAccess, folderInstructions, folderSharedWith, folderView, locateFolder, newFolder, validFolderId } from "./folders.mjs";
 import { availableProjects, chatInstructions, projectById, vibeFolder, VIBE_PROJECT } from "./projects.mjs";
 import { verifyMemberUpstream } from "./member-policy.mjs";
 import { composeForward } from "./forward.mjs";
@@ -447,7 +447,7 @@ async function forwardChatMessage(req, res, { chat, author, user, device, messag
 }
 
 function canReadChat(chat, viewer) {
-  return !!chat && !chat.deletedAt && !!viewer && (chat.userId === viewer.id || viewer.role === "owner" || chatShared(chat));
+  return !!chat && !chat.deletedAt && !!viewer && (chat.userId === viewer.id || viewer.role === "owner" || chatShared(chat) || folderSharedWith(readState().users, chat, viewer.id));
 }
 // A chat shows in lists only once someone has sent something in it. Tapping
 // New chat and backing out leaves nothing behind in the list.
@@ -485,7 +485,7 @@ function chatView(chat, viewer, users = {}) {
   const view = { id: chat.id, title: chat.title, createdAt: chat.createdAt, updatedAt: chat.updatedAt, shared: chatShared(chat),
     // The full agent takes any file (ZIPs, PDFs, prototypes); others take media.
     ...(agentRole(chat.role, loadConfig()) === "owner" ? { files: true } : {}),
-    ...(chat.folderId ? { folderId: chat.folderId } : {}),
+    ...(chat.folderId ? { folderId: chat.folderId, ...(chat.folderShared ? { folderShared: true } : {}) } : {}),
     ...(chat.project ? { project: { id: chat.project, name: projectById(chat.project)?.name || chat.project } } : {}),
     ...(chat.mode === "vibe" ? { mode: "vibe", previewUrl: `${projectById(VIBE_PROJECT).pages}${chat.vibeFolder}/` } : {}) };
   if (viewer && chat.userId === viewer.id) {
@@ -517,7 +517,8 @@ let folderFileStore;
 const folderFiles = () => folderFileStore ??= createFolderFiles(path.join(DATA_DIR, "folder-files"));
 // Project instructions plus the chat's folder (notes and files), sent with every turn.
 function chatContext(chat) {
-  const folder = chat.folderId ? readState().users[chat.userId]?.folders?.[chat.folderId] : null;
+  // Whoever started the chat must still be in the folder; otherwise it carries no folder context.
+  const folder = chat.folderId ? folderAccess(readState().users, chat.userId, chat.folderId)?.folder ?? null : null;
   const full = agentRole(chat.role, loadConfig()) === "owner";
   return [chatInstructions(chat), folderInstructions(folder, folderFiles(), { full })].filter(Boolean).join("\n\n");
 }
@@ -750,14 +751,24 @@ async function handle(req, res, cfg) {
     const me = readState().users[user.id];
     return send(res, 200, { projects: availableProjects(), vibeCoder: !!me?.vibeCoder });
   }
-  // Folders: your own groups of agent chats, with shared notes and files.
+  // Folders: groups of agent chats with shared notes and files. The person who makes
+  // one owns it and can add people. Everyone in it shares the notes and files, but
+  // each person only sees their own chats unless they share one with the folder.
   if (parts[1] === "folders") {
-    const mineFolders = () => readState().users[user.id]?.folders || {};
-    const folderChats = () => Object.values(readState().chats).filter(c => c.userId === user.id);
-    const getFolder = fid => { if (!validFolderId(fid) || !mineFolders()[fid]) throw requestError(404, "not_found", "No such folder"); return mineFolders()[fid]; };
+    const users = () => readState().users;
+    const allChats = () => Object.values(readState().chats);
+    const access = fid => { const a = folderAccess(users(), user.id, fid); if (!a) throw requestError(404, "not_found", "No such folder"); return a; };
+    const view = a => folderView(a, user.id, allChats(), users());
+    // Inside a mutation: the folder, if this person is in it (and is the owner, when asked).
+    const within = (state, auth, fid, ownerOnly = false) => {
+      const a = folderAccess(state.users, auth.user.id, fid);
+      if (!a) throw requestError(404, "not_found", "No such folder");
+      if (ownerOnly && a.role !== "owner") throw requestError(403, "forbidden", "Only the person who made this folder can do that");
+      return a.folder;
+    };
     if (method === "GET" && parts.length === 2) {
-      const chats = folderChats();
-      return send(res, 200, { folders: Object.values(mineFolders()).sort((a, b) => b.updatedAt - a.updatedAt).map(f => folderView(f, chats)) });
+      const chats = allChats();
+      return send(res, 200, { folders: accessibleFolders(users(), user.id).sort((a, b) => b.folder.updatedAt - a.folder.updatedAt).map(a => folderView(a, user.id, chats, users())) });
     }
     if (method === "POST" && parts.length === 2) {
       const body = await readAuthorizedBody(req);
@@ -768,58 +779,90 @@ async function handle(req, res, cfg) {
         if (Object.keys(u.folders).length >= MAX_FOLDERS) throw requestError(409, "limit", `You can have up to ${MAX_FOLDERS} folders`);
         u.folders[folder.id] = folder;
       });
-      return send(res, 200, { folder: folderView(folder, []) });
+      return send(res, 200, { folder: view(access(folder.id)) });
     }
     if (parts.length >= 3) {
-      getFolder(parts[2]);
-      if (method === "GET" && parts.length === 3) return send(res, 200, { folder: folderView(mineFolders()[parts[2]], folderChats()) });
+      const here = access(parts[2]);
+      if (method === "GET" && parts.length === 3) {
+        // Teammates' chats appear only when their author shared them with the folder.
+        const sharedChats = allChats().filter(c => c.folderId === parts[2] && c.userId !== user.id && !c.deletedAt && c.folderShared)
+          .sort((a, b) => b.updatedAt - a.updatedAt).map(c => chatView(c, users()[user.id] || user, users()));
+        return send(res, 200, { folder: view(here), sharedChats });
+      }
       if (method === "PATCH" && parts.length === 3) {
         const body = await readAuthorizedBody(req);
-        const updated = mutateAuthenticated(req, (state, auth) => {
-          const f = state.users[auth.user.id]?.folders?.[parts[2]];
-          if (!f) throw requestError(404, "not_found", "No such folder");
+        mutateAuthenticated(req, (state, auth) => {
+          const f = within(state, auth, parts[2], body.name !== undefined);
           if (body.name !== undefined) f.name = cleanName(body.name);
           if (body.notes !== undefined) f.notes = cleanNotes(body.notes);
           f.updatedAt = now();
-          return { ...f };
         });
-        return send(res, 200, { folder: folderView(updated, folderChats()) });
+        return send(res, 200, { folder: view(access(parts[2])) });
       }
       if (method === "DELETE" && parts.length === 3) {
         mutateAuthenticated(req, (state, auth) => {
-          const u = state.users[auth.user.id];
-          if (!u?.folders?.[parts[2]]) throw requestError(404, "not_found", "No such folder");
-          delete u.folders[parts[2]];
-          // The chats stay; they just leave the folder.
-          for (const c of Object.values(state.chats)) if (c.userId === auth.user.id && c.folderId === parts[2]) delete c.folderId;
+          within(state, auth, parts[2], true);
+          delete state.users[auth.user.id].folders[parts[2]];
+          // Everyone's chats stay; they just leave the folder.
+          for (const c of Object.values(state.chats)) if (c.folderId === parts[2]) { delete c.folderId; delete c.folderShared; }
         });
         folderFiles().removeFolder(parts[2]);
         return send(res, 200, { ok: true });
       }
+      if (method === "POST" && parts[3] === "members" && parts.length === 4) {
+        const body = await readAuthorizedBody(req);
+        mutateAuthenticated(req, (state, auth) => {
+          const f = within(state, auth, parts[2], true);
+          const target = state.users[body.userId];
+          if (!target || target.revokedAt) throw requestError(404, "not_found", "No such person");
+          if (target.id === auth.user.id) throw requestError(400, "bad_request", "You already own this folder");
+          f.members ??= [];
+          if (f.members.includes(target.id)) return;
+          if (f.members.length >= MAX_MEMBERS) throw requestError(409, "limit", `A folder holds up to ${MAX_MEMBERS} people`);
+          f.members.push(target.id);
+          f.updatedAt = now();
+        });
+        return send(res, 200, { folder: view(access(parts[2])) });
+      }
+      // The owner removes anyone; anyone else can only remove themselves (leave).
+      if (method === "DELETE" && parts[3] === "members" && parts.length === 5) {
+        const targetId = parts[4] === "me" ? user.id : parts[4];
+        mutateAuthenticated(req, (state, auth) => {
+          const f = within(state, auth, parts[2]);
+          const isOwner = state.users[auth.user.id]?.folders?.[parts[2]] === f;
+          if (!isOwner && targetId !== auth.user.id) throw requestError(403, "forbidden", "Only the person who made this folder can remove others");
+          if (targetId === auth.user.id && isOwner) throw requestError(400, "bad_request", "You made this folder. Delete it instead of leaving");
+          f.members = (f.members || []).filter(id => id !== targetId);
+          f.updatedAt = now();
+          // Their chats stay theirs but leave the folder and stop being shared with it.
+          for (const c of Object.values(state.chats)) if (c.userId === targetId && c.folderId === parts[2]) { delete c.folderId; delete c.folderShared; }
+        });
+        const left = targetId === user.id;
+        return send(res, 200, left ? { ok: true } : { folder: view(access(parts[2])) });
+      }
       if (method === "POST" && parts[3] === "files" && parts.length === 4) {
         const body = await readAuthorizedBody(req, MAX_UPLOAD_BODY);
         const bytes = typeof body.data === "string" ? Buffer.from(body.data, "base64") : Buffer.alloc(0);
-        const current = mineFolders()[parts[2]];
-        const file = folderFiles().add(current, body.name, bytes);
+        const file = folderFiles().add(here.folder, body.name, bytes);
         try {
           mutateAuthenticated(req, (state, auth) => {
-            const f = state.users[auth.user.id]?.folders?.[parts[2]];
-            if (!f) throw requestError(404, "not_found", "No such folder");
+            const f = within(state, auth, parts[2]);
             f.files = [...(f.files || []), file];
             f.updatedAt = now();
           });
         } catch (e) { folderFiles().remove(parts[2], file); throw e; }
-        return send(res, 200, { folder: folderView(mineFolders()[parts[2]], folderChats()) });
+        return send(res, 200, { folder: view(access(parts[2])) });
       }
       if (method === "DELETE" && parts[3] === "files" && parts.length === 5) {
-        const file = (getFolder(parts[2]).files || []).find(f => f.id === parts[4]);
+        const file = (here.folder.files || []).find(f => f.id === parts[4]);
         if (!file) return fail(res, 404, "not_found", "No such file");
         mutateAuthenticated(req, (state, auth) => {
-          const f = state.users[auth.user.id]?.folders?.[parts[2]];
-          if (f) { f.files = (f.files || []).filter(x => x.id !== parts[4]); f.updatedAt = now(); }
+          const f = within(state, auth, parts[2]);
+          f.files = (f.files || []).filter(x => x.id !== parts[4]);
+          f.updatedAt = now();
         });
         folderFiles().remove(parts[2], file);
-        return send(res, 200, { folder: folderView(mineFolders()[parts[2]], folderChats()) });
+        return send(res, 200, { folder: view(access(parts[2])) });
       }
     }
     return fail(res, 404, "not_found", "Not found");
@@ -872,7 +915,7 @@ async function handle(req, res, cfg) {
   if (method === "GET" && parts.length === 2) {
     const viewer = currentState.users[user.id] || user;
     const others = url.searchParams.get("scope") === "org"
-      ? Object.values(currentState.chats).filter(c => c.userId !== user.id && canReadChat(c, viewer))
+      ? Object.values(currentState.chats).filter(c => c.userId !== user.id && canReadChat(c, viewer) && (viewer.role === "owner" || chatShared(c)))
       : [];
     // A chat's time is its last activity. The chat record only moves when a
     // message is sent or a turn ends, so a reply that streams for an hour
@@ -912,7 +955,9 @@ async function handle(req, res, cfg) {
     const vibe = !!readState().users[creator.id]?.vibeCoder || body.mode === "vibe";
     const project = vibe ? VIBE_PROJECT : (typeof body.project === "string" && availableProjects().some(p => p.id === body.project) ? body.project : null);
     if (body.project && !vibe && !project) return fail(res, 400, "bad_project", "That project isn't available on this server");
-    if (body.folderId != null && (!validFolderId(body.folderId) || !readState().users[creator.id]?.folders?.[body.folderId])) return fail(res, 404, "not_found", "No such folder");
+    if (body.folderId != null && !folderAccess(readState().users, creator.id, body.folderId)) return fail(res, 404, "not_found", "No such folder");
+    const folderHit = body.folderId ? folderAccess(readState().users, creator.id, body.folderId) : null;
+    const teamFolder = !!folderHit && (folderHit.role === "member" || (folderHit.folder.members || []).length > 0);
     const hermesSessionId = `servant_${creator.id}_${chatId}`;
     const r = await hermes(creationUp, "POST", "/api/sessions", { id: hermesSessionId, title: `Servant · ${creator.name} · ${chatId.slice(-6)}` });
     if (!r.ok) return fail(res, 502, "agent_error", `The agent didn't start a chat (${r.status})`);
@@ -922,7 +967,8 @@ async function handle(req, res, cfg) {
       role: creator.role,
       hermesSessionId,
       title: String(body.title || "New chat").slice(0, 80),
-      shared: body.shared !== false,
+      // A chat in a folder with other people starts private to its author; sharing is their choice.
+      shared: teamFolder ? body.shared === true : body.shared !== false,
       ...(body.folderId ? { folderId: body.folderId } : {}),
       ...(project ? { project } : {}),
       ...(vibe ? { mode: "vibe", vibeFolder: vibeFolder(chatId) } : {}),
@@ -971,8 +1017,10 @@ async function handle(req, res, cfg) {
   if (method === "PATCH" && parts.length === 3) {
     const body = await readAuthorizedBody(req);
     const hasFolder = Object.hasOwn(body, "folderId");
-    if (typeof body.shared !== "boolean" && !hasFolder) return fail(res, 400, "bad_request", "shared must be true or false");
+    const hasFolderShared = Object.hasOwn(body, "folderShared");
+    if (typeof body.shared !== "boolean" && !hasFolder && !hasFolderShared) return fail(res, 400, "bad_request", "shared must be true or false");
     if (typeof body.shared !== "boolean" && body.shared !== undefined) return fail(res, 400, "bad_request", "shared must be true or false");
+    if (hasFolderShared && typeof body.folderShared !== "boolean") return fail(res, 400, "bad_request", "folderShared must be true or false");
     if (hasFolder && body.folderId !== null && !validFolderId(body.folderId)) return fail(res, 400, "bad_request", "folderId must be a folder or null");
     if (body.shared && chat.privateForward) return fail(res, 409, "forward_private", "This chat includes a message from a private conversation, so it stays private");
     let updated;
@@ -980,9 +1028,17 @@ async function handle(req, res, cfg) {
       updated = requireChat(state, current.user.id, chat.id);
       if (typeof body.shared === "boolean") updated.shared = body.shared;
       if (hasFolder) {
-        if (body.folderId === null) delete updated.folderId;
-        else if (state.users[current.user.id]?.folders?.[body.folderId]) updated.folderId = body.folderId;
-        else throw requestError(404, "not_found", "No such folder");
+        if (body.folderId === null) { delete updated.folderId; delete updated.folderShared; }
+        else if (folderAccess(state.users, current.user.id, body.folderId)) {
+          // Moving to a different folder starts private again.
+          if (updated.folderId !== body.folderId) delete updated.folderShared;
+          updated.folderId = body.folderId;
+        } else throw requestError(404, "not_found", "No such folder");
+      }
+      if (hasFolderShared) {
+        if (body.folderShared && !updated.folderId) throw requestError(400, "bad_request", "Put this chat in a folder first");
+        if (body.folderShared && updated.privateForward) throw requestError(409, "forward_private", "This chat includes a message from a private conversation, so it stays private");
+        if (body.folderShared) updated.folderShared = true; else delete updated.folderShared;
       }
     });
     return send(res, 200, { chat: chatView(updated, user) });
@@ -1131,7 +1187,7 @@ async function handle(req, res, cfg) {
       if (!messaging) return fail(res, 404, "not_found", "That message is unavailable");
       const source = messaging.forwardSource(body.forward, user.id);
       // A DM or private channel must not leak into a chat the server can read.
-      if (source.private && chatShared(readState().chats[chat.id] || chat)) return fail(res, 409, "forward_private", "Messages from private conversations go into a private chat");
+      if (source.private && (chatShared(readState().chats[chat.id] || chat) || (readState().chats[chat.id] || chat).folderShared)) return fail(res, 409, "forward_private", "Messages from private conversations go into a private chat");
       privateForward = source.private;
       ({ text, attachments } = composeForward({ text, attachments }, source));
     }
@@ -1145,7 +1201,7 @@ async function handle(req, res, cfg) {
     await syncChatHistory();
     const turn = mutateAuthenticated(req, (state, current) => {
       const active = requireChat(state, current.user.id, chat.id);
-      if (privateForward && chatShared(active)) throw requestError(409, "forward_private", "Messages from private conversations go into a private chat");
+      if (privateForward && (chatShared(active) || active.folderShared)) throw requestError(409, "forward_private", "Messages from private conversations go into a private chat");
       const queued = agentTurns.enqueue({ chat: active, user: current.user, device: current.device, text, attachments, requestId: body.requestId });
       if (privateForward) active.privateForward = true;
       if (active.title === "New chat") active.title = (ownText || (body.forward != null ? `About: ${text.split("\n")[1]?.replace(/^> /, "") || "a message"}` : "") || text || attachments[0].name).replace(/\s+/g, " ").slice(0, 60);

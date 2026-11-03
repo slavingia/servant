@@ -196,10 +196,11 @@ export default function Chats() {
                 </Pressable>
               </View>
               {folders.length === 0 ? <Text style={styles.folderEmpty}>Group chats about one product and give them shared notes and files.</Text> : null}
-              {folders.map(folder => <Pressable key={folder.id} accessibilityRole="button" accessibilityLabel={`${folder.name}, ${folder.chatCount} ${folder.chatCount === 1 ? "chat" : "chats"}`}
+              {folders.map(folder => <Pressable key={folder.id} accessibilityRole="button" accessibilityLabel={`${folder.name}${folder.members.length > 0 || folder.role === "member" ? ", shared" : ""}, ${folder.chatCount} ${folder.chatCount === 1 ? "chat" : "chats"}`}
                 onPress={() => router.push({ pathname: "/folder", params: { id: folder.id } })} style={({ pressed }) => [styles.folderRow, pressed && { backgroundColor: colors.surface }]}>
                 <View style={styles.agentIcon}><AppIcon name="folder" size={19} color={colors.blueDark} /></View>
                 <Text style={styles.rowTitle} numberOfLines={1}>{folder.name}</Text>
+                {folder.members.length > 0 || folder.role === "member" ? <AppIcon name="people" size={16} color={colors.muted} /> : null}
                 <Text style={styles.rowWhen}>{folder.chatCount}</Text>
                 <AppIcon name="chevronRight" size={16} color={colors.muted} />
               </Pressable>)}

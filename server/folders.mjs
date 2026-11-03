@@ -32,10 +32,47 @@ export function newFolder(name, notes = "", now = Date.now()) {
   return { id: `fld_${crypto.randomBytes(9).toString("base64url")}`, name: cleanName(name), notes: cleanNotes(notes), files: [], createdAt: now, updatedAt: now };
 }
 
-export function folderView(folder, chats = []) {
-  const mine = chats.filter(c => c.folderId === folder.id && !c.deletedAt);
+export const MAX_MEMBERS = 30;
+
+/** The folder with this id, wherever it lives (on its owner's record), and who owns it. */
+export function locateFolder(users, folderId) {
+  for (const owner of Object.values(users || {})) {
+    const folder = owner.folders?.[folderId];
+    if (folder) return { owner, folder };
+  }
+  return null;
+}
+/** What this person may do with a folder: "owner", "member", or null for no access. */
+export function folderAccess(users, userId, folderId) {
+  if (!validFolderId(folderId)) return null;
+  const hit = locateFolder(users, folderId);
+  if (!hit) return null;
+  if (hit.owner.id === userId) return { ...hit, role: "owner" };
+  return (hit.folder.members || []).includes(userId) ? { ...hit, role: "member" } : null;
+}
+export function accessibleFolders(users, userId) {
+  const out = [];
+  for (const owner of Object.values(users || {})) {
+    for (const folder of Object.values(owner.folders || {})) {
+      if (owner.id === userId) out.push({ owner, folder, role: "owner" });
+      else if ((folder.members || []).includes(userId)) out.push({ owner, folder, role: "member" });
+    }
+  }
+  return out;
+}
+/** Can this person read a chat because its author shared it with the folder they are both in? */
+export function folderSharedWith(users, chat, viewerId) {
+  return !!chat?.folderShared && !!chat.folderId && !!folderAccess(users, viewerId, chat.folderId);
+}
+
+export function folderView({ owner, folder, role }, viewerId, chats = [], users = {}) {
+  const inFolder = chats.filter(c => c.folderId === folder.id && !c.deletedAt);
+  const person = id => ({ id, name: users[id]?.name || "Former member" });
   return { id: folder.id, name: folder.name, notes: folder.notes || "", files: (folder.files || []).map(({ id, name, size }) => ({ id, name, size })),
-    chatCount: mine.length, createdAt: folder.createdAt, updatedAt: folder.updatedAt };
+    role, owner: person(owner.id), members: (folder.members || []).filter(id => users[id]).map(person),
+    chatCount: inFolder.filter(c => c.userId === viewerId).length,
+    sharedCount: inFolder.filter(c => c.userId !== viewerId && c.folderShared).length,
+    createdAt: folder.createdAt, updatedAt: folder.updatedAt };
 }
 
 export function createFolderFiles(directory) {
@@ -63,7 +100,7 @@ export function createFolderFiles(directory) {
 /** What the agent is told about a chat's folder, sent with every turn. */
 export function folderInstructions(folder, files, { full }) {
   if (!folder) return "";
-  const lines = [`This chat belongs to the folder "${folder.name}". The person keeps the chats in this folder together because they are about the same product, so treat the context below as shared background for all of them.`];
+  const lines = [`This chat belongs to the folder "${folder.name}". The person keeps the chats in this folder together because they are about the same product, so treat the context below as shared background for all of them.${folder.members?.length ? " Several people work in this folder on the same task; the notes and files below are shared by all of them, while each person has their own private chats." : ""}`];
   if (folder.notes?.trim()) lines.push(`Folder notes from the person:\n${folder.notes.trim()}`);
   const list = folder.files || [];
   if (list.length && full) {

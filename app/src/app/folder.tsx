@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, FlatList, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { router, Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
 import { AppIcon } from "../components/AppIcon";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { api, ServerError, type Chat, type Folder } from "../lib/server";
+import { Avatar } from "../components/Messaging";
+import { api, ServerError, type Chat, type Folder, type Person } from "../lib/server";
 import { useSession } from "../lib/session";
 import { shortTime as when } from "../lib/time-label";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
@@ -22,6 +23,10 @@ export default function FolderScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [folder, setFolder] = useState<Folder | null>(null);
   const [chats, setChats] = useState<Chat[]>([]);
+  const [teamChats, setTeamChats] = useState<Chat[]>([]);
+  const [adding, setAdding] = useState(false);
+  const [people, setPeople] = useState<Person[] | null>(null);
+  const [confirmLeave, setConfirmLeave] = useState(false);
   const [notes, setNotes] = useState("");
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -32,8 +37,10 @@ export default function FolderScreen() {
   const load = useCallback(async () => {
     if (!account || !id) return;
     try {
-      const [f, all] = await Promise.all([api.folder(account, String(id)), api.orgChats(account, setAccount)]);
+      const [detail, all] = await Promise.all([api.folder(account, String(id)), api.orgChats(account, setAccount)]);
+      const f = detail.folder;
       setFolder(f);
+      setTeamChats(detail.sharedChats);
       setChats(all.mine.filter(c => c.folderId === f.id));
       // Don't overwrite what's being typed after the first load.
       if (!loaded.current) { setNotes(f.notes); setName(f.name); loaded.current = true; }
@@ -81,6 +88,18 @@ export default function FolderScreen() {
     const chat = await api.newChat(account, { folderId: folder.id });
     router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, compose: "1" } });
   }, "Couldn't start a chat");
+  const openAdd = () => {
+    setAdding(true); setPeople(null);
+    api.people(account).then(d => setPeople(d.people.filter(p => p.id !== d.me)), () => setPeople([]));
+  };
+  const addPerson = (person: Person) => void run(async () => { if (folder) { setFolder(await api.addFolderMember(account, folder.id, person.id)); setAdding(false); } }, "Couldn't add that person");
+  const removePerson = (userId: string) => void run(async () => { if (folder) { const r = await api.removeFolderMember(account, folder.id, userId); if (r.folder) setFolder(r.folder); } }, "Couldn't remove that person");
+  const leave = () => void run(async () => {
+    if (!folder) return;
+    await api.removeFolderMember(account, folder.id, "me");
+    setConfirmLeave(false);
+    router.back();
+  }, "Couldn't leave the folder");
   const remove = () => void run(async () => {
     if (!folder) return;
     await api.deleteFolder(account, folder.id);
@@ -92,6 +111,8 @@ export default function FolderScreen() {
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : <ActivityIndicator style={{ marginTop: space.xxl }} color={colors.blue} />}
   </View>;
 
+  const isOwner = folder.role === "owner";
+  const shared = folder.members.length > 0 || !isOwner;
   return (
     <View style={styles.root}>
       <Stack.Screen options={{ title: folder.name }} />
@@ -103,11 +124,32 @@ export default function FolderScreen() {
         ListHeaderComponent={<View>
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           <Text style={styles.label}>Name</Text>
-          <TextInput accessibilityLabel="Folder name" value={name} onChangeText={setName} onBlur={saveName} maxLength={60} placeholderTextColor={colors.muted} style={styles.input} />
+          <TextInput accessibilityLabel="Folder name" editable={isOwner} value={name} onChangeText={setName} onBlur={saveName} maxLength={60} placeholderTextColor={colors.muted} style={[styles.input, !isOwner && styles.readonly]} />
           <Text style={styles.label}>Notes for every chat in this folder</Text>
           <TextInput accessibilityLabel="Folder notes" value={notes} onChangeText={setNotes} onBlur={saveNotes} multiline maxLength={8000} textAlignVertical="top"
             placeholder="Who it's for, what it does, how it should sound" placeholderTextColor={colors.muted} style={[styles.input, styles.notes]} />
-          <Text style={styles.help}>The agent reads these notes at the start of every reply in this folder.</Text>
+          <Text style={styles.help}>{shared ? "The agent reads these notes in every reply, for everyone in this folder." : "The agent reads these notes at the start of every reply in this folder."}</Text>
+
+          <View style={styles.sectionRow}>
+            <Text accessibilityRole="header" style={styles.section}>People</Text>
+            {isOwner ? <Pressable accessibilityRole="button" accessibilityLabel="Add people to this folder" disabled={busy} onPress={openAdd} hitSlop={8} style={styles.sectionAction}>
+              <Text style={styles.link}>Add people</Text>
+            </Pressable> : null}
+          </View>
+          <View style={styles.personRow}>
+            <Avatar name={folder.owner.name} size={32} userId={folder.owner.id} />
+            <Text style={styles.personName} numberOfLines={1}>{folder.owner.name}</Text>
+            <Text style={styles.personRole}>Owner</Text>
+          </View>
+          {folder.members.map(m => <View key={m.id} style={styles.personRow}>
+            <Avatar name={m.name} size={32} userId={m.id} />
+            <Text style={styles.personName} numberOfLines={1}>{m.name}</Text>
+            {isOwner ? <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${m.name} from this folder`} disabled={busy} hitSlop={8} style={styles.remove} onPress={() => removePerson(m.id)}>
+              <AppIcon name="close" size={16} color={colors.muted} />
+            </Pressable> : <Text style={styles.personRole}>Member</Text>}
+          </View>)}
+          {!shared ? <Text style={styles.empty}>Only you. Add people so they use the same notes and files. They only see their own chats unless they share one.</Text>
+            : <Text style={styles.empty}>Everyone here shares the notes and files. You each see only your own chats, unless someone shares one with the folder.</Text>}
 
           <View style={styles.sectionRow}>
             <Text accessibilityRole="header" style={styles.section}>Files</Text>
@@ -143,12 +185,49 @@ export default function FolderScreen() {
           <Text style={styles.chatTitle} numberOfLines={1}>{item.title.replace(/`/g, "")}</Text>
           <Text style={styles.when}>{when(item.updatedAt)}</Text>
         </Pressable>}
-        ListFooterComponent={<View style={styles.footer}>
-          <Button label="Delete folder" kind="danger" onPress={() => setConfirmDelete(true)} />
+        ListFooterComponent={<View>
+          {teamChats.length ? <View>
+            <View style={styles.sectionRow}><Text accessibilityRole="header" style={styles.section}>Shared with this folder</Text></View>
+            {teamChats.map(c => <Pressable key={c.id} accessibilityRole="button" accessibilityLabel={`${c.title.replace(/`/g, "")}, shared by ${c.author?.name ?? "a teammate"}`}
+              onPress={() => router.push({ pathname: "/chat/[id]", params: { id: c.id, title: c.title, readOnly: "1", author: c.author?.name ?? "" } })}
+              style={({ pressed }) => [styles.chatRow, pressed && { backgroundColor: colors.surface }]}>
+              <Avatar name={c.author?.name ?? "Someone"} size={36} userId={c.author?.id} />
+              <View style={styles.fileCopy}>
+                <Text style={styles.chatTitle} numberOfLines={1}>{c.title.replace(/`/g, "")}</Text>
+                <Text style={styles.fileMeta} numberOfLines={1}>{c.author?.name ?? "A teammate"}</Text>
+              </View>
+              <Text style={styles.when}>{when(c.updatedAt)}</Text>
+            </Pressable>)}
+          </View> : null}
+          <View style={styles.footer}>
+            {isOwner ? <Button label="Delete folder" kind="danger" onPress={() => setConfirmDelete(true)} /> : <Button label="Leave folder" kind="danger" onPress={() => setConfirmLeave(true)} />}
+          </View>
         </View>}
       />
+      <Modal visible={adding} transparent animationType="fade" onRequestClose={() => setAdding(false)}>
+        <Pressable accessibilityLabel="Close" style={styles.scrim} onPress={() => setAdding(false)}>
+          <Pressable accessibilityViewIsModal style={styles.card} onPress={() => {}}>
+            <Text accessibilityRole="header" style={styles.cardTitle}>Add people</Text>
+            {people === null ? <ActivityIndicator color={colors.blue} style={{ margin: space.lg }} /> : (() => {
+              const inFolder = new Set([folder.owner.id, ...folder.members.map(m => m.id)]);
+              const choices = people.filter(p => !inFolder.has(p.id) && !p.agent);
+              return choices.length === 0 ? <Text style={styles.empty}>Everyone on this server is already here.</Text>
+                : <ScrollView style={{ maxHeight: 320 }}>{choices.map(p => <Pressable key={p.id} accessibilityRole="button" accessibilityLabel={`Add ${p.name}`} disabled={busy} onPress={() => addPerson(p)}
+                  style={({ pressed }) => [styles.personRow, pressed && { backgroundColor: colors.surface }]}>
+                  <Avatar name={p.name} size={32} userId={p.id} />
+                  <Text style={styles.personName} numberOfLines={1}>{p.name}</Text>
+                </Pressable>)}</ScrollView>;
+            })()}
+            <Button label="Done" kind="secondary" onPress={() => setAdding(false)} style={{ marginTop: space.sm, marginHorizontal: space.side }} />
+          </Pressable>
+        </Pressable>
+      </Modal>
+      <ConfirmDialog visible={confirmLeave} title="Leave this folder?" destructive
+        description="You stop seeing its notes and files. Your chats stay, they just leave the folder."
+        confirmLabel="Leave folder" busy={busy} error={error}
+        onCancel={() => setConfirmLeave(false)} onConfirm={leave} />
       <ConfirmDialog visible={confirmDelete} title="Delete this folder?"
-        description="The notes and files are deleted. Your chats stay, they just leave the folder."
+        description={folder.members.length ? "The notes and files are deleted for everyone in it. Everyone's chats stay, they just leave the folder." : "The notes and files are deleted. Your chats stay, they just leave the folder."}
         confirmLabel="Delete folder" busy={busy} error={error}
         onCancel={() => setConfirmDelete(false)} onConfirm={remove} />
     </View>
@@ -176,5 +255,12 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   chatIcon: { width: 36, height: 36, borderRadius: radius.sm, backgroundColor: colors.blueSoft, alignItems: "center", justifyContent: "center" },
   chatTitle: { ...typography.body, flex: 1, color: colors.ink },
   when: { ...typography.caption, color: colors.muted },
+  readonly: { color: colors.muted, backgroundColor: colors.surface },
+  personRow: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: space.sm, paddingLeft: space.side, paddingRight: space.xs },
+  personName: { ...typography.body, flex: 1, minWidth: 0, color: colors.ink },
+  personRole: { ...typography.caption, color: colors.muted, paddingRight: space.sm },
+  scrim: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: space.side, backgroundColor: "rgba(17,46,81,0.42)" },
+  card: { width: "100%", maxWidth: 420, backgroundColor: colors.background, borderRadius: radius.lg, paddingVertical: space.side },
+  cardTitle: { ...typography.heading, color: colors.ink, paddingHorizontal: space.side, marginBottom: space.xs },
   footer: { marginTop: space.xl, alignItems: "center" },
 }));

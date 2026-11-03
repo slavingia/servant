@@ -73,9 +73,9 @@ function SharedChatView() {
       {showTitle ? <FullTitle title={chat?.title || title || "Conversation"} onClose={() => setShowTitle(false)} /> : null}
       <View style={styles.sharedBanner}>
         <Text style={styles.turnLabel}>{authorName}'s conversation</Text>
-        <Text style={styles.turnDetail}>{chat?.shared === false
-          ? "Private. You can see it because you're an admin."
-          : `Shared with ${account.serverName}. Read only: give feedback in a channel or DM.`}</Text>
+        <Text style={styles.turnDetail}>{chat?.shared === true ? `Shared with ${account.serverName}. Read only: give feedback in a channel or DM.`
+          : chat?.folderShared ? "Shared with your folder. Read only."
+            : "Private. You can see it because you're an admin."}</Text>
       </View>
       {messages === null ? <ActivityIndicator style={{ flex: 1 }} color={colors.blue} /> : (
         <FlatList inverted data={data} keyExtractor={(m) => m.id} contentContainerStyle={[styles.list, styles.readOnlyList]}
@@ -202,7 +202,7 @@ function ReplyText({ text, failed }: { text: string; failed?: boolean }) {
 }
 
 // Header "•••": chat options. Your own chat is shared with the server by default; the switch turns it off. Files lives here too.
-function OptionsSheet({ id, title, shared, folderId, onFolder, onChange, onClose }: { id: string; title: string; shared: boolean | null; folderId: string | null; onFolder: (folderId: string | null) => void; onChange: (shared: boolean) => void; onClose: () => void }) {
+function OptionsSheet({ id, title, shared, folderId, folderShared, onFolder, onFolderShared, onChange, onClose }: { id: string; title: string; shared: boolean | null; folderId: string | null; folderShared: boolean; onFolder: (folderId: string | null) => void; onFolderShared: (shared: boolean) => void; onChange: (shared: boolean) => void; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const { account } = useSession();
@@ -214,11 +214,18 @@ function OptionsSheet({ id, title, shared, folderId, onFolder, onChange, onClose
   if (!account) return null;
   const move = async (next: string | null) => {
     setSaving(true); setError(null);
-    try { await api.moveChat(account, id, next); onFolder(next); setChoosing(false); }
+    try { await api.moveChat(account, id, next); onFolder(next); if (next !== folderId) onFolderShared(false); setChoosing(false); }
     catch (e) { setError(e instanceof ServerError ? e.message : "Couldn't move the chat"); }
     finally { setSaving(false); }
   };
   const current = folders?.find(f => f.id === folderId);
+  const teamFolder = !!current && (current.members.length > 0 || current.role === "member");
+  const shareWithFolder = async (next: boolean) => {
+    onFolderShared(next); setSaving(true); setError(null);
+    try { onFolderShared((await api.shareChatWithFolder(account, id, next)).folderShared === true); }
+    catch (e) { onFolderShared(!next); setError(e instanceof ServerError ? e.message : "Couldn't change sharing"); }
+    finally { setSaving(false); }
+  };
   const change = async (next: boolean) => {
     onChange(next); setSaving(true); setError(null);
     try { onChange((await api.setChatShared(account, id, next)).shared !== false); }
@@ -242,6 +249,14 @@ function OptionsSheet({ id, title, shared, folderId, onFolder, onChange, onClose
             <Text style={styles.menuActionText}>Folder</Text>
             <Text style={styles.turnDetail} numberOfLines={1}>{current?.name ?? "None"}</Text>
           </Pressable>
+          {teamFolder && !choosing ? <View style={styles.shareRow}>
+            <View style={styles.turnCopy}>
+              <Text style={styles.turnLabel}>Share with {current!.name}</Text>
+              <Text style={styles.turnDetail}>{folderShared ? "People in this folder can read this chat." : "Only you can see this chat. The folder's notes and files still apply."}</Text>
+            </View>
+            <Switch accessibilityLabel={`Share this chat with the ${current!.name} folder`} value={folderShared} disabled={saving}
+              onValueChange={next => { void shareWithFolder(next); }} trackColor={{ true: colors.blue, false: colors.borderStrong }} thumbColor="#FFFFFF" {...(Platform.OS === "web" ? { activeThumbColor: "#FFFFFF" } : {})} />
+          </View> : null}
           {choosing ? <View>
             {[{ id: null as string | null, name: "No folder" }, ...folders].map(f => <Pressable key={f.id ?? "none"} accessibilityRole="button" accessibilityState={{ selected: f.id === folderId }} disabled={saving} onPress={() => void move(f.id)} style={styles.folderChoice}>
               <Text style={[styles.menuActionText, f.id === folderId && { fontWeight: "700" }]} numberOfLines={1}>{f.name}</Text>
@@ -285,6 +300,7 @@ function ChatConversation() {
   const [shared, setShared] = useState<boolean | null>(null);
   const [sharing, setSharing] = useState(false);
   const [folderId, setFolderId] = useState<string | null>(null);
+  const [folderShared, setFolderShared] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const { width: winWidth } = useWindowDimensions();
   // Portrait phones stack the preview above the chat; folds, tablets, landscape and wide windows put it beside.
@@ -300,6 +316,7 @@ function ChatConversation() {
       if (c.title && c.title !== "New chat") setHeading(h => h === "New chat" ? c.title : h);
       setShared(c.shared !== false);
       setFolderId(c.folderId ?? null);
+      setFolderShared(c.folderShared === true);
       setPreviewUrl(c.mode === "vibe" && c.previewUrl ? c.previewUrl : null);
     }).catch(() => {});
     return () => { live = false; };
@@ -660,7 +677,7 @@ function ChatConversation() {
     <View style={styles.root}>
       <Stack.Screen options={{ title: heading, headerTitle: titleButton(showTitle, setShowTitle, headerLinks.length), ...filesHeader(String(id), heading, colors.blue, headerLinks, false) }} />
       {showTitle ? <FullTitle title={heading} onClose={() => setShowTitle(false)} /> : null}
-      {sharing ? <OptionsSheet id={String(id)} title={heading} shared={shared} folderId={folderId} onFolder={setFolderId} onChange={setShared} onClose={() => setSharing(false)} /> : null}
+      {sharing ? <OptionsSheet id={String(id)} title={heading} shared={shared} folderId={folderId} folderShared={folderShared} onFolder={setFolderId} onFolderShared={setFolderShared} onChange={setShared} onClose={() => setSharing(false)} /> : null}
       <View style={[styles.split, stacked && previewOpen && styles.splitStacked]}>
       <View style={[styles.chatColumn, stacked && previewOpen && styles.chatColumnStacked]}>
       <ConversationKeyboardView>

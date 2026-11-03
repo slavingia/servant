@@ -24,8 +24,9 @@ export type Account = {
 export type ChatLastMessage = { role: "user" | "assistant"; text: string; at: number; attachments: number; pending?: boolean };
 export type Project = { id: string; name: string; description?: string };
 // mode "vibe": a vibe-coding chat that builds a prototype with a preview link.
-export type Folder = { id: string; name: string; notes: string; files: { id: string; name: string; size: number }[]; chatCount: number; createdAt: number; updatedAt: number };
-export type Chat = { folderId?: string; project?: { id: string; name: string }; mode?: "vibe"; previewUrl?: string; files?: boolean; id: string; title: string; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; closed?: ChatClosed; latestTurn?: AgentTurn | null };
+// role: "owner" made the folder and manages people; "member" was added. chatCount is your own chats; sharedCount is teammates' chats they shared with the folder.
+export type Folder = { role: "owner" | "member"; owner: { id: string; name: string }; members: { id: string; name: string }[]; sharedCount: number; id: string; name: string; notes: string; files: { id: string; name: string; size: number }[]; chatCount: number; createdAt: number; updatedAt: number };
+export type Chat = { folderId?: string; folderShared?: boolean; project?: { id: string; name: string }; mode?: "vibe"; previewUrl?: string; files?: boolean; id: string; title: string; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; closed?: ChatClosed; latestTurn?: AgentTurn | null };
 // Agent chats close like issues: by you, by the agent when it's done, or by
 // the closer after a quiet day. A new message reopens it.
 export type ChatClosed = { by: "you" | "agent" | "closer"; reason: string | null; at: number };
@@ -346,12 +347,15 @@ export const api = {
   setVibeCoder: (a: Account, userId: string, vibeCoder: boolean) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ vibeCoder }) }).then(json<{ person: Person }>),
   // Folders: your own groups of agent chats, with notes and files every chat in them sees.
   folders: (a: Account) => request(a, "/v1/folders").then(json<{ folders: Folder[] }>).then(d => d.folders),
-  folder: (a: Account, id: string) => request(a, `/v1/folders/${encodeURIComponent(id)}`).then(json<{ folder: Folder }>).then(d => d.folder),
+  folder: (a: Account, id: string) => request(a, `/v1/folders/${encodeURIComponent(id)}`).then(json<{ folder: Folder; sharedChats: Chat[] }>),
   createFolder: (a: Account, name: string, notes = "") => request(a, "/v1/folders", { method: "POST", body: JSON.stringify({ name, notes }) }).then(json<{ folder: Folder }>).then(d => d.folder),
   updateFolder: (a: Account, id: string, change: { name?: string; notes?: string }) => request(a, `/v1/folders/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(change) }).then(json<{ folder: Folder }>).then(d => d.folder),
   deleteFolder: (a: Account, id: string) => request(a, `/v1/folders/${encodeURIComponent(id)}`, { method: "DELETE" }),
   addFolderFile: (a: Account, id: string, name: string, data: string) => request(a, `/v1/folders/${encodeURIComponent(id)}/files`, { method: "POST", body: JSON.stringify({ name, data }) }).then(json<{ folder: Folder }>).then(d => d.folder),
   removeFolderFile: (a: Account, id: string, fileId: string) => request(a, `/v1/folders/${encodeURIComponent(id)}/files/${encodeURIComponent(fileId)}`, { method: "DELETE" }).then(json<{ folder: Folder }>).then(d => d.folder),
+  addFolderMember: (a: Account, id: string, userId: string) => request(a, `/v1/folders/${encodeURIComponent(id)}/members`, { method: "POST", body: JSON.stringify({ userId }) }).then(json<{ folder: Folder }>).then(d => d.folder),
+  removeFolderMember: (a: Account, id: string, userId: string) => request(a, `/v1/folders/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`, { method: "DELETE" }).then(json<{ folder?: Folder }>),
+  shareChatWithFolder: (a: Account, id: string, folderShared: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ folderShared }) }).then((r) => r.json()).then((d) => d.chat as Chat),
   moveChat: (a: Account, id: string, folderId: string | null) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ folderId }) }).then((r) => r.json()).then((d) => d.chat as Chat),
   newChat: (a: Account, options: { shared?: boolean; project?: string | null; mode?: "vibe"; folderId?: string } = {}) => request(a, "/v1/chats", { method: "POST", body: JSON.stringify(options) }).then((r) => r.json()).then((d) => d.chat as Chat),
   deleteChat: (a: Account, id: string) => request(a, `/v1/chats/${id}`, { method: "DELETE" }),
