@@ -21,7 +21,7 @@ export type Account = {
   user: { id: string; name: string; role: Role };
 };
 // shared: visible read-only to the rest of the server (default). author/readOnly: someone else's chat.
-export type Chat = { id: string; title: string; createdAt: number; updatedAt: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; latestTurn?: AgentTurn | null };
+export type Chat = { id: string; title: string; createdAt: number; updatedAt: number; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; latestTurn?: AgentTurn | null };
 export type Message = { id: string; role: "user" | "assistant"; text: string; at?: number | string | null; attachments?: Attachment[]; pending?: boolean; interrupted?: boolean; sourceDevice?: SourceDevice };
 
 // ----- token leaderboard -----
@@ -299,6 +299,8 @@ export const api = {
   // Your chats plus other people's shared ones (all of them, for the owner).
   orgChats: (a: Account, m?: (a: Account) => void) => request(a, "/v1/chats?scope=org", {}, m).then((r) => r.json()).then((d) => ({ mine: d.chats as Chat[], others: (d.orgChats ?? []) as Chat[] })),
   leaderboard: (a: Account, period: LeaderboardPeriod) => request(a, `/v1/leaderboard?period=${period}`).then((r) => r.json()) as Promise<Leaderboard>,
+  // The author has seen every finished reply in this agent conversation.
+  readChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/read`, { method: "POST", body: "{}" }).then(() => undefined),
   chat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}`).then((r) => r.json()).then((d) => d.chat as Chat),
   setChatShared: (a: Account, id: string, shared: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ shared }) }).then((r) => r.json()).then((d) => d.chat as Chat),
   newChat: (a: Account) => request(a, "/v1/chats", { method: "POST", body: "{}" }).then((r) => r.json()).then((d) => d.chat as Chat),

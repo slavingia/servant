@@ -145,6 +145,36 @@ test('phone disconnect + API restart retain accepted input, partial text, media 
   assert.equal(list.chats[0].latestTurn.status, 'completed');
 });
 
+test('agent replies the author has not seen are unread until the chat is opened', { timeout: 15000 }, async t => {
+  const f = await fixture(t);
+  const unread = async (user = 'owner') => (await (await f.api('/v1/chats', 'GET', undefined, user)).json()).chats.find(c => c.id === 'chat')?.unread;
+  assert.equal(await unread(), 0);
+  for (const [i, question] of ['First', 'Second'].entries()) {
+    const response = await f.api('/v1/chats/chat/messages', 'POST', { text: question, requestId: `request_unread_${i}` });
+    await until(async () => (await f.latest())?.accepted && f.runs.size === i + 1);
+    f.finish([...f.runs.values()][i], `Answer ${i + 1}`);
+    await response.text();
+    await until(async () => (await f.latest()).status === 'completed');
+  }
+  // Two finished replies, nobody has opened the chat since.
+  assert.equal(await unread(), 2);
+  // A running turn isn't unread yet.
+  const third = await f.api('/v1/chats/chat/messages', 'POST', { text: 'Third', requestId: 'request_unread_2' });
+  await until(async () => f.runs.size === 3 && (await f.latest())?.accepted);
+  await third.body.cancel();
+  assert.equal(await unread(), 2);
+  // Someone else can't clear the author's unread count.
+  assert.equal((await f.api('/v1/chats/chat/read', 'POST', {}, 'stranger')).status, 403);
+  assert.equal(await unread(), 2);
+  // Opening the chat reads everything; the count survives an API restart.
+  assert.deepEqual(await (await f.api('/v1/chats/chat/read', 'POST', {})).json(), { unread: 0 });
+  await f.restartApi();
+  assert.equal(await unread(), 0);
+  f.finish([...f.runs.values()][2], 'Answer 3');
+  await until(async () => (await f.latest()).status === 'completed');
+  assert.equal(await unread(), 1);
+});
+
 test('approval recovered from status after SSE loss is owner-bound, ID-bound and never grants blanket permission', { timeout: 15000 }, async t => {
   const f = await fixture(t);
   const response = await f.api('/v1/chats/chat/messages', 'POST', { text: 'Action', requestId: 'request_action' }); await response.body.cancel();

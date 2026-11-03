@@ -148,6 +148,15 @@ function ChatConversation() {
   const currentLoad = useRef<object | null>(null);
   const mounted = useRef(true);
   const lastTurnUpdate = useRef(0);
+  // Everything on screen has been seen: clear this conversation's unread count
+  // whenever the visible replies change while the app is in front.
+  const lastReadReply = useRef<string | null>(null);
+  const newestReply = messages?.findLast(m => m.role === "assistant" && !m.pending && !m.localId)?.id ?? null;
+  useEffect(() => {
+    if (!account || !id || !newestReply || newestReply === lastReadReply.current || AppState.currentState !== "active") return;
+    lastReadReply.current = newestReply;
+    api.readChat(account, id).catch(() => { lastReadReply.current = null; });
+  }, [account, id, newestReply]);
   const delivery = useRef<{ text: string; uploads: Upload[]; id: string } | null>(null);
 
   const load = useCallback(() => {

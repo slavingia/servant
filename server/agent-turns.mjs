@@ -52,6 +52,29 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS private_turn_request ON private_turns(chat_id,request_id)');
+  // Unread agent replies, per conversation owner (not per phone). The first run
+  // marks every reply that already exists as read so an upgrade doesn't light
+  // up old conversations; replies finished after that start unread.
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS private_reply_reads (
+      turn_id TEXT PRIMARY KEY REFERENCES private_turns(id) ON DELETE CASCADE,
+      read_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS private_turn_migrations (name TEXT PRIMARY KEY);
+    CREATE INDEX IF NOT EXISTS private_reply_owner ON private_turns(user_id,chat_id,status);`);
+    if (db.prepare("INSERT OR IGNORE INTO private_turn_migrations VALUES ('reply_reads_v1')").run().changes) {
+      db.prepare("INSERT OR IGNORE INTO private_reply_reads SELECT id, ? FROM private_turns WHERE status='completed'").run(clock());
+    }
+    db.exec('COMMIT');
+  } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
+  const unreadWhere = "t.status='completed' AND t.message_id IS NOT NULL AND r.turn_id IS NULL";
+  const unreadByChat = userId => Object.fromEntries(db.prepare(`SELECT t.chat_id AS chat, COUNT(*) AS n
+    FROM private_turns t LEFT JOIN private_reply_reads r ON r.turn_id=t.id
+    WHERE t.user_id=? AND ${unreadWhere} GROUP BY t.chat_id`).all(userId).map(x => [x.chat, x.n]));
+  // Opening a conversation reads every finished reply in it.
+  const markChatRead = (chatId, userId) => db.prepare(`INSERT OR IGNORE INTO private_reply_reads
+    SELECT t.id, ? FROM private_turns t WHERE t.chat_id=? AND t.user_id=? AND t.status='completed'`).run(clock(), chatId, userId).changes;
   const row = id => db.prepare('SELECT * FROM private_turns WHERE id=?').get(id);
   const view = t => t && ({ id: t.id, chatId: t.chat_id, status: t.status,
     accepted: !!t.accepted, text: t.text, assistantText: t.assistant_text, messageId: t.message_id,
@@ -257,7 +280,7 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
     `msg_${crypto.createHash('sha256').update(`${t.chat_id}:user:${t.id}`).digest('hex').slice(0, 32)}`,
     t.source_device_kind,
   ]));
-  return { enqueue, replay, processNext, recoverInterrupted, requestStop, requestApproval, requestSteer, markSteered, requeueSteer, drainOutbox,
+  return { unreadByChat, markChatRead, enqueue, replay, processNext, recoverInterrupted, requestStop, requestApproval, requestSteer, markSteered, requeueSteer, drainOutbox,
     messageSources: chatId => sourceMap(db.prepare('SELECT id,chat_id,source_device_kind FROM private_turns WHERE chat_id=?').all(chatId)),
     turnMessageSources: id => sourceMap(db.prepare('SELECT id,chat_id,source_device_kind FROM private_turns WHERE id=?').all(id)),
     get: id => view(row(id)),

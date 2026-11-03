@@ -648,7 +648,7 @@ async function handle(req, res, cfg) {
       : [];
     const sorted = list => list.sort((a, b) => b.updatedAt - a.updatedAt);
     return send(res, 200, {
-      chats: sorted(mine).map(chat => ({ ...chatView(chat, viewer), latestTurn: agentTurns.latest(chat.id)[0] || null })),
+      chats: (unread => sorted(mine).map(chat => ({ ...chatView(chat, viewer), unread: unread[chat.id] || 0, latestTurn: agentTurns.latest(chat.id)[0] || null })))(agentTurns.unreadByChat(user.id)),
       ...(url.searchParams.get("scope") === "org" ? { orgChats: sorted(others).map(chat => chatView(chat, viewer, currentState.users)) } : {}),
     });
   }
@@ -756,6 +756,13 @@ async function handle(req, res, cfg) {
     if (!Array.isArray(messages)) throw requestError(502, "agent_error", "The agent returned invalid message history");
     return chatMediaStore().sync(chat.id, messages, generation);
   };
+
+  // The author has seen every finished reply (others reading a shared chat never get here).
+  if (method === "POST" && parts[3] === "read" && parts.length === 4) {
+    requireChat(readState(), requireAuth(req).user.id, chat.id);
+    agentTurns.markChatRead(chat.id, user.id);
+    return send(res, 200, { unread: 0 });
+  }
 
   if (method === "GET" && parts[3] === "messages" && parts.length === 4) {
     const messages = await syncChatHistory(true);

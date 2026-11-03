@@ -117,20 +117,30 @@ export default function Chats() {
             </View>
           )
         }
-        renderItem={({ item }) => (
-          <Pressable
+        renderItem={({ item }) => {
+          const unread = item.unread ?? 0;
+          const title = item.title.replace(/`/g, "");
+          return <Pressable
             accessibilityRole="button"
-            onPress={() => router.push({ pathname: "/chat/[id]", params: { id: item.id, title: item.title } })}
+            accessibilityLabel={`${title}${unread ? `, ${unread} unread ${unread === 1 ? "reply" : "replies"}` : ""}${item.shared === false ? ", private" : ""}`}
+            onPress={() => {
+              // Clear the badge right away; the chat screen tells the server.
+              if (unread) setChats(list => list?.map(chat => chat.id === item.id ? { ...chat, unread: 0 } : chat) ?? list);
+              router.push({ pathname: "/chat/[id]", params: { id: item.id, title: item.title } });
+            }}
             style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}
           >
             <View style={styles.agentIcon}><AppIcon name="sparkles" size={19} color={colors.blueDark} /></View>
-            <View style={styles.rowCopy}><Text style={styles.rowTitle} numberOfLines={1}>{item.title.replace(/`/g, "")}</Text>
+            <View style={styles.rowCopy}><Text style={[styles.rowTitle, styles.readTitle, unread > 0 && styles.unreadTitle]} numberOfLines={1}>{title}</Text>
               {activeAgentTurn(item.latestTurn) ? <Text style={styles.turnLabel}>{agentTurnLabel(item.latestTurn!)}</Text>
                 : item.shared === false ? <View style={styles.privateTag}><AppIcon name="lock" size={12} color={colors.muted} /><Text style={styles.byline}>Private</Text></View> : null}
             </View>
-            <Text style={styles.rowWhen}>{when(item.updatedAt)}</Text>
-          </Pressable>
-        )}
+            <View style={styles.rowEnd}>
+              <Text style={[styles.rowWhen, unread > 0 && styles.unreadWhen]}>{when(item.updatedAt)}</Text>
+              {unread > 0 ? <View style={styles.unreadBadge}><Text style={styles.unreadBadgeText}>{unread > 99 ? "99+" : unread}</Text></View> : null}
+            </View>
+          </Pressable>;
+        }}
         ListFooterComponent={shared.length ? <View>
           <Text accessibilityRole="header" style={styles.sectionTitle}>{account.user.role === "owner" ? "Everyone's conversations" : "Shared by others"}</Text>
           {shared.map(item => <Pressable key={item.id} accessibilityRole="button"
@@ -179,6 +189,13 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   agentIcon: { width: 36, height: 36, marginRight: space.sm, alignItems: "center", justifyContent: "center", backgroundColor: colors.blueSoft, borderRadius: radius.sm },
   rowTitle: { ...typography.bodyStrong, flex: 1, color: colors.ink, marginRight: space.sm },
   rowWhen: { ...typography.caption, color: colors.muted },
+  rowEnd: { alignItems: "flex-end", justifyContent: "center", gap: space.xxs, minHeight: 48 },
+  // Telegram-style: only conversations with unread replies are bold.
+  readTitle: { fontWeight: "400" },
+  unreadTitle: { fontWeight: "700" },
+  unreadWhen: { color: colors.blue },
+  unreadBadge: { minWidth: 22, minHeight: 22, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
+  unreadBadgeText: { ...typography.captionStrong, color: colors.onPrimary },
   empty: { marginTop: space.xxl, alignItems: "center", paddingHorizontal: space.side },
   emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center", marginTop: space.md },
   emptyBody: { ...typography.body, marginTop: space.xs, color: colors.muted, textAlign: "center", maxWidth: 360 },

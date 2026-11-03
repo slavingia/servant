@@ -204,3 +204,27 @@ test('messages with files cannot steer; they wait their turn', async t => {
     finish.resolve(); await run;
   } finally { finish.resolve(); await worker.whenIdle(); worker.close(); }
 });
+
+test('upgrading never lights up replies people already had; new replies start unread', async t => {
+  const file = fixture(t);
+  const worker = createAgentTurns({ file, execute: async (_t, { emit }) => { emit('message', { id: `answer_${_t.id}`, text: 'Done' }); return {}; } });
+  try {
+    worker.enqueue(input()); await worker.processNext();
+    assert.deepEqual(worker.unreadByChat('owner'), { chat: 1 });
+  } finally { await worker.whenIdle(); worker.close(); }
+  // Simulate a journal from before unread tracking existed.
+  const db = new DatabaseSync(file);
+  db.exec('DROP TABLE private_reply_reads; DROP TABLE private_turn_migrations;');
+  db.close();
+  const upgraded = createAgentTurns({ file, execute: async (_t, { emit }) => { emit('message', { id: `answer_${_t.id}`, text: 'Done' }); return {}; } });
+  try {
+    assert.deepEqual(upgraded.unreadByChat('owner'), {}, 'existing replies count as read');
+    upgraded.enqueue({ ...input(), requestId: 'request_after', text: 'Again' }); await upgraded.processNext();
+    upgraded.enqueue({ ...input('other'), requestId: 'request_other' }); await upgraded.processNext();
+    assert.deepEqual(upgraded.unreadByChat('owner'), { chat: 1, other: 1 });
+    assert.deepEqual(upgraded.unreadByChat('stranger'), {});
+    assert.equal(upgraded.markChatRead('chat', 'stranger'), 0, 'only the author reads their replies');
+    assert.equal(upgraded.markChatRead('chat', 'owner'), 1);
+    assert.deepEqual(upgraded.unreadByChat('owner'), { other: 1 });
+  } finally { await upgraded.whenIdle(); upgraded.close(); }
+});
