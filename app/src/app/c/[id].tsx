@@ -328,7 +328,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   peer: { flexDirection: "row", flexWrap: "wrap", gap: space.xs, alignItems: "center" },
   peerName: { ...typography.captionStrong, color: colors.ink },
   headerAction: { minHeight: 44, minWidth: 44, justifyContent: "center" },
-  headerActions: { flexDirection: "row", alignItems: "center", gap: space.md, paddingRight: space.sm },
+  // The web header adds no inset on the right; match the back arrow's.
+  headerActions: { flexDirection: "row", alignItems: "center", gap: space.md, paddingRight: Platform.OS === "web" ? space.side : 0 },
   headerLink: { ...typography.label, color: colors.blue },
   error: { ...typography.caption, paddingHorizontal: space.side, paddingVertical: space.sm, color: colors.red, backgroundColor: colors.redSoft },
   intro: { paddingHorizontal: space.side, paddingTop: space.md, paddingBottom: space.sm },

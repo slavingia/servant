@@ -102,7 +102,7 @@ function filesHeader(id: string, title: string, tint: string) {
   const open = () => router.push({ pathname: "/files", params: { kind: "chat", id, title } });
   return Platform.OS === "ios"
     ? { unstable_headerRightItems: () => [{ type: "button" as const, label: "Files", tintColor: tint, labelStyle: { color: tint, fontWeight: "600" as const }, hidesSharedBackground: true, onPress: open }] }
-    : { headerRight: () => <Pressable testID="open-files" accessibilityRole="button" onPress={open} style={{ minHeight: 44, minWidth: 44, justifyContent: "center", paddingRight: 8 }}>
+    : { headerRight: () => <Pressable testID="open-files" accessibilityRole="button" onPress={open} style={{ minHeight: 44, minWidth: 44, justifyContent: "center", alignItems: "flex-end", paddingRight: Platform.OS === "web" ? space.side : 0 }}>
         <Text style={{ ...typography.label, color: tint }}>Files</Text>
       </Pressable> };
 }
