@@ -52,7 +52,8 @@ export default function Chats() {
     api.projects(account).then(r => { if (live) setProjects({ token: account.token, list: r.projects, vibeCoder: r.vibeCoder }); }).catch(() => {});
     return () => { live = false; };
   }, [account]);
-  const [showArchived, setShowArchived] = useState(false);
+  // Like the DM tab's All/Unread, plus Closed instead of a row at the bottom.
+  const [view, setView] = useState<"active" | "unread" | "closed">("active");
   const [openId, setOpenId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const busy = useRef(false);
@@ -110,7 +111,9 @@ export default function Chats() {
   };
   const active = (chats ?? []).filter(chat => !chat.archived);
   const archived = (chats ?? []).filter(chat => chat.archived);
-  const rows: (Chat | { id: "archived-toggle" })[] = [...active, ...(archived.length ? [{ id: "archived-toggle" as const }, ...(showArchived ? archived : [])] : [])];
+  const rows = view === "closed" ? archived : view === "unread" ? active.filter(chat => (chat.unread ?? 0) > 0) : active;
+  const unreadCount = active.filter(chat => (chat.unread ?? 0) > 0).length;
+  const VIEWS = [{ key: "active", label: "Active" }, { key: "unread", label: "Unread" }, { key: "closed", label: "Closed" }] as const;
 
   const start = async (project?: string | null) => {
     if (starting) return;
@@ -135,6 +138,7 @@ export default function Chats() {
       <FlatList
         data={chats === null ? [] : rows}
         keyExtractor={(c) => c.id}
+        extraData={{ openId, busyId, view }}
         refreshControl={
           <RefreshControl
             tintColor={colors.blue}
@@ -165,11 +169,20 @@ export default function Chats() {
                 <Text style={styles.rowTitle}>{chat.title}</Text><Text numberOfLines={2} style={styles.approvalDetail}>{chat.latestTurn?.approval?.description || 'Review this action to continue.'}</Text><Text style={styles.review}>Review action →</Text>
               </Pressable>)}
             </View> : null}
-            {active.length ? <Text accessibilityRole="header" style={styles.sectionTitle}>Recent conversations</Text> : null}
+            <View accessibilityRole="tablist" style={styles.filters}>{VIEWS.map(({ key, label }) => <Pressable key={key} accessibilityRole="tab" accessibilityLabel={key === "unread" && unreadCount ? `${label}, ${unreadCount}` : key === "closed" && archived.length ? `${label}, ${archived.length}` : label} accessibilityState={{ selected: view === key }} aria-selected={view === key} onPress={() => { closeRow(); setView(key); }} style={({ pressed }) => [styles.filter, view === key && styles.selectedFilter, pressed && { opacity: 0.7 }]}>
+              <Text style={[styles.filterText, view === key && styles.selectedFilterText]}>{label}</Text>
+            </Pressable>)}</View>
           </View>
         }
         ListEmptyComponent={
-          chats === null ? (
+          chats !== null && view !== "active" ? (
+            <View style={styles.empty}>
+              <AppIcon name={view === "unread" ? "check" : "archive"} size={32} color={colors.muted} />
+              <Text accessibilityRole="header" style={styles.emptyTitle}>{view === "unread" ? "You're all caught up" : "No closed conversations"}</Text>
+              <Text style={styles.emptyBody}>{view === "unread" ? "New replies from the agent will appear here." : "Conversations you or the agent close will appear here."}</Text>
+              <Button label="Show active conversations" kind="secondary" onPress={() => setView("active")} style={styles.emptyAction} />
+            </View>
+          ) : chats === null ? (
             error ? <Button label="Try again" kind="link" busy={refreshing} onPress={() => { setRefreshing(true); void load().finally(() => setRefreshing(false)); }} style={styles.retry} /> : <ActivityIndicator accessibilityLabel="Loading agent conversations" style={{ marginTop: space.xl }} color={colors.blue} />
           ) : (
             <View style={styles.empty}>
@@ -181,14 +194,6 @@ export default function Chats() {
           )
         }
         renderItem={({ item }) => {
-          if (!("title" in item)) return (
-            <Pressable accessibilityRole="button" accessibilityLabel={`Closed, ${archived.length}`} accessibilityState={{ expanded: showArchived }} onPress={() => { closeRow(); setShowArchived(v => !v); }} style={({ pressed }) => [styles.archivedToggle, pressed && { backgroundColor: colors.surface }]}>
-              <View style={styles.archivedIcon}><AppIcon name="archive" size={17} color={colors.muted} /></View>
-              <Text style={styles.archivedLabel}>Closed</Text>
-              <Text style={[styles.rowWhen, { marginRight: space.xs }]}>{archived.length}</Text>
-              <AppIcon name={showArchived ? "chevronDown" : "chevronRight"} size={16} color={colors.muted} />
-            </Pressable>
-          );
           const unread = item.unread ?? 0;
           const title = item.title.replace(/`/g, "");
           return (
@@ -228,7 +233,7 @@ export default function Chats() {
             </SwipeRow>
           );
         }}
-        ListFooterComponent={shared.length ? <View>
+        ListFooterComponent={shared.length && view === "active" ? <View>
           <Text accessibilityRole="header" style={styles.sectionTitle}>{account.user.role === "owner" ? "Everyone's conversations" : "Shared by others"}</Text>
           {shared.map(item => <Pressable key={item.id} accessibilityRole="button"
             accessibilityLabel={`${item.title.replace(/`/g, "")}, by ${item.author?.name ?? "someone"}${item.shared === false ? ", private" : ""}${lastLine(item, item.author?.name ?? "Someone", "Agent") ? `. ${lastLine(item, item.author?.name ?? "Someone", "Agent")}` : ""}`}
@@ -288,9 +293,12 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   unreadWhen: { color: colors.blue },
   unreadBadge: { minWidth: 22, minHeight: 22, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
   unreadBadgeText: { ...typography.captionStrong, color: colors.onPrimary },
-  archivedToggle: { minHeight: 52, paddingHorizontal: space.side, flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
-  archivedIcon: { width: 36, marginRight: space.sm, alignItems: "center" },
-  archivedLabel: { ...typography.body, flex: 1, color: colors.muted },
+  // Same filter row as the DM tab.
+  filters: { flexDirection: "row", gap: space.xs, paddingHorizontal: space.side, paddingBottom: space.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  filter: { minHeight: 44, paddingHorizontal: space.md, paddingVertical: space.sm, justifyContent: "center", borderRadius: radius.md },
+  selectedFilter: { backgroundColor: colors.blueSoft },
+  filterText: { ...typography.bodyStrong, color: colors.muted },
+  selectedFilterText: { color: colors.blueDark },
   empty: { marginTop: space.xxl, alignItems: "center", paddingHorizontal: space.side },
   emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center", marginTop: space.md },
   emptyBody: { ...typography.body, marginTop: space.xs, color: colors.muted, textAlign: "center", maxWidth: 360 },
