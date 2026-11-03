@@ -3,6 +3,7 @@ import { ActivityIndicator, Image, Platform, Pressable, ScrollView, StyleSheet, 
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { File } from "expo-file-system";
+import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import type { Attachment, Upload } from "../lib/server";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 import { formatFileSize, isPreviewImage, isPreviewVideo, jpegPhotoUpload, MAX_FILE_BYTES, MAX_UPLOAD_BYTES, MAX_VIDEO_BYTES, uploadImageUri, uploadMediaMime, validateAttachmentSelection } from "../lib/media";
@@ -11,11 +12,12 @@ import { DraftVideoPreview, VideoPreview } from "./VideoMedia";
 import { AppIcon } from "./AppIcon";
 
 export type DraftAttachment = Upload & { uri: string; size: number; mime: string };
+class TooLarge extends Error {}
 async function readFile(uri: string, size?: number, blob?: Blob, limit = MAX_FILE_BYTES, remaining = MAX_UPLOAD_BYTES) {
-  const tooLarge = () => new Error(limit === MAX_VIDEO_BYTES ? "Choose videos under 25 MB each" : "Choose photos and files under 5 MB each");
+  const tooLarge = () => new TooLarge(limit === MAX_VIDEO_BYTES ? "Choose videos under 25 MB each" : "Choose photos and files under 5 MB each");
   const check = (bytes: number) => {
     if (bytes > limit) throw tooLarge();
-    if (bytes > remaining) throw new Error("Attachments must be under 30 MB total");
+    if (bytes > remaining) throw new TooLarge("Attachments must be under 30 MB total");
   };
   if (size) check(size);
   if (Platform.OS !== "web") {
@@ -33,6 +35,28 @@ async function readFile(uri: string, size?: number, blob?: Blob, limit = MAX_FIL
   });
   return { data, size: file.size };
 }
+
+// Screenshots and camera photos are often over 5 MB (and the agent's model
+// refuses images over 5 MB), so shrink big photos instead of refusing them.
+const SHRINK_STEPS = [[2560, 0.85], [2048, 0.8], [1600, 0.75], [1200, 0.7]] as const;
+async function shrinkPhoto(uri: string, name: string | null | undefined, width?: number, height?: number, maxBytes = MAX_FILE_BYTES): Promise<DraftAttachment> {
+  try {
+    if (!width || !height) {
+      const ref = await ImageManipulator.manipulate(uri).renderAsync();
+      width = ref.width; height = ref.height;
+    }
+    for (const [edge, compress] of SHRINK_STEPS) {
+      const context = ImageManipulator.manipulate(uri);
+      if (Math.max(width, height) > edge) context.resize(width >= height ? { width: edge } : { height: edge });
+      const image = await (await context.renderAsync()).saveAsync({ format: SaveFormat.JPEG, compress, base64: true });
+      const data = image.base64?.replace(/^data:[^,]*,/, "");
+      if (!data) continue;
+      try { return jpegPhotoUpload(name, data, maxBytes); } catch { /* still too big: try the next step */ }
+    }
+  } catch { /* fall through to the message below */ }
+  throw new Error("Couldn't make this photo small enough to send. Try a smaller one.");
+}
+const shrinkable = (error: unknown) => error instanceof TooLarge || (error instanceof Error && /under 5 MB/.test(error.message));
 
 export async function pickAttachments(mediaLibrary: boolean, existing: readonly DraftAttachment[] = [], { limit = 4, imagesOnly = false }: { limit?: 1 | 2 | 3 | 4; imagesOnly?: boolean } = {}): Promise<DraftAttachment[]> {
   const count = limit - existing.length;
@@ -63,9 +87,16 @@ export async function pickAttachments(mediaLibrary: boolean, existing: readonly 
         continue;
       }
       const supported = /^image\/(png|jpeg|gif|webp)$/i.test(asset.mimeType ?? "") || (!asset.mimeType && /\.(png|jpe?g|gif|webp)$/i.test(asset.fileName ?? asset.uri));
-      if (!supported && asset.base64) { add(jpegPhotoUpload(asset.fileName, asset.base64, MAX_FILE_BYTES)); continue; }
+      const shrink = () => shrinkPhoto(asset.uri, asset.fileName, asset.width, asset.height, Math.min(MAX_FILE_BYTES, remaining));
+      if (!supported && asset.base64) {
+        try { add(jpegPhotoUpload(asset.fileName, asset.base64, MAX_FILE_BYTES)); }
+        catch (error) { if (!shrinkable(error)) throw error; add(await shrink()); }
+        continue;
+      }
       if (!supported) throw new Error("Couldn't prepare this photo. Choose a JPEG or PNG image.");
-      const content = await readFile(asset.uri, asset.fileSize, asset.file, MAX_FILE_BYTES, remaining);
+      let content: { data: string; size: number };
+      try { content = await readFile(asset.uri, asset.fileSize, asset.file, MAX_FILE_BYTES, remaining); }
+      catch (error) { if (!shrinkable(error)) throw error; add(await shrink()); continue; }
       const mime = uploadMediaMime(content.data);
       if (!mime || !/^image\/(png|jpeg|gif|webp)$/.test(mime)) {
         if (asset.base64) { add(jpegPhotoUpload(asset.fileName, asset.base64, MAX_FILE_BYTES)); continue; }
@@ -80,7 +111,14 @@ export async function pickAttachments(mediaLibrary: boolean, existing: readonly 
   if (result.assets.length > count) throw new Error(limitMessage);
   for (const asset of result.assets) {
     const mayBeVideo = asset.mimeType?.startsWith("video/") || /\.(mp4|mov|webm)$/i.test(asset.name);
-    const content = await readFile(asset.uri, asset.size, asset.file, mayBeVideo ? MAX_VIDEO_BYTES : MAX_FILE_BYTES, remaining);
+    const mayBePhoto = asset.mimeType?.startsWith("image/") || /\.(png|jpe?g|gif|webp|heic|heif)$/i.test(asset.name);
+    let content: { data: string; size: number };
+    try { content = await readFile(asset.uri, asset.size, asset.file, mayBeVideo ? MAX_VIDEO_BYTES : MAX_FILE_BYTES, remaining); }
+    catch (error) {
+      if (!mayBePhoto || !shrinkable(error)) throw error;
+      add(await shrinkPhoto(asset.uri, asset.name, undefined, undefined, Math.min(MAX_FILE_BYTES, remaining)));
+      continue;
+    }
     add({ name: asset.name, uri: asset.uri, mime: uploadMediaMime(content.data) || "application/octet-stream", ...content });
   }
   return files;
