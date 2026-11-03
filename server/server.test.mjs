@@ -258,6 +258,7 @@ test("agent chats: swipe to archive, restore, and a new message un-archives; onl
   const token = await pair("member", "Arlo");
   const other = await pair("member", "Bea");
   const chat = (await api("POST", "/v1/chats", { token, body: {} })).json.chat;
+  await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "start" } });
   assert.equal(chat.archived, false);
   assert.equal((await api("POST", `/v1/chats/${chat.id}/archive`, { token: other })).status, 403, "someone else's shared chat is read only");
   const archived = await api("POST", `/v1/chats/${chat.id}/archive`, { token });
@@ -398,6 +399,20 @@ test("agent list times come from the latest turn, so a reply still streaming sta
   assert.equal(list[0].updatedAt, later);
 });
 
+test("a new agent chat stays out of every list until something is sent in it", async () => {
+  const token = await pair("member", "Fay");
+  const other = await pair("owner", "Gus");
+  const chat = (await api("POST", "/v1/chats", { token, body: {} })).json.chat;
+  const inMine = async () => (await api("GET", "/v1/chats?scope=org", { token })).json.chats.some(c => c.id === chat.id);
+  const inOrg = async () => (await api("GET", "/v1/chats?scope=org", { token: other })).json.orgChats.some(c => c.id === chat.id);
+  assert.equal(await inMine(), false, "empty chat hidden from its author");
+  assert.equal(await inOrg(), false, "empty chat hidden from the org");
+  assert.equal((await api("GET", `/v1/chats/${chat.id}`, { token })).status, 200, "still opens directly");
+  await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "hello" } });
+  assert.equal(await inMine(), true);
+  assert.equal(await inOrg(), true);
+});
+
 test("agent chats are shared with the org by default: others read, only the author writes", async () => {
   const a = await pair("member", "Cy");
   const b = await pair("member", "Di");
@@ -431,6 +446,7 @@ test("people can't see chats the author made private", async () => {
   const a = await pair("member", "Ed");
   const b = await pair("member", "Flo");
   const chat = (await api("POST", "/v1/chats", { token: a, body: {} })).json.chat;
+  await api("POST", `/v1/chats/${chat.id}/messages`, { token: a, body: { text: "start" } });
   const off = await api("PATCH", `/v1/chats/${chat.id}`, { token: a, body: { shared: false } });
   assert.equal(off.status, 200, off.text);
   assert.equal(off.json.chat.shared, false);
@@ -452,6 +468,7 @@ test("chats from before sharing existed stay private", async () => {
   const a = await pair("member", "Hal");
   const b = await pair("member", "Ivy");
   const chat = (await api("POST", "/v1/chats", { token: a, body: {} })).json.chat;
+  await api("POST", `/v1/chats/${chat.id}/messages`, { token: a, body: { text: "start" } });
   // Simulate a chat saved by an older release: no "shared" field at all.
   mod.mutateStateForTest(state => { delete state.chats[chat.id].shared; });
   assert.equal((await api("GET", `/v1/chats/${chat.id}/messages`, { token: b })).status, 404);

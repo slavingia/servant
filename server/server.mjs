@@ -385,6 +385,11 @@ const chatShared = chat => chat.shared === true;
 function canReadChat(chat, viewer) {
   return !!chat && !chat.deletedAt && !!viewer && (chat.userId === viewer.id || viewer.role === "owner" || chatShared(chat));
 }
+// A chat shows in lists only once someone has sent something in it. Tapping
+// New chat and backing out leaves nothing behind in the list.
+function chatStarted(chat, latestTurn) {
+  return !!chat.startedAt || chat.title !== "New chat" || !!latestTurn;
+}
 function chatView(chat, viewer, users = {}) {
   const view = { id: chat.id, title: chat.title, createdAt: chat.createdAt, updatedAt: chat.updatedAt, shared: chatShared(chat) };
   if (viewer && chat.userId === viewer.id) view.archived = !!chat.archivedAt;
@@ -656,9 +661,10 @@ async function handle(req, res, cfg) {
     };
     const sorted = list => list.sort((a, b) => b.updatedAt - a.updatedAt);
     const unread = agentTurns.unreadByChat(user.id);
+    const started = chat => chatStarted(chat, agentTurns.latest(chat.id)[0]);
     return send(res, 200, {
-      chats: sorted(mine.map(chat => ({ ...withActivity(chat, chatView(chat, viewer)), unread: unread[chat.id] || 0 }))),
-      ...(url.searchParams.get("scope") === "org" ? { orgChats: sorted(others.map(chat => {
+      chats: sorted(mine.filter(started).map(chat => ({ ...withActivity(chat, chatView(chat, viewer)), unread: unread[chat.id] || 0 }))),
+      ...(url.searchParams.get("scope") === "org" ? { orgChats: sorted(others.filter(started).map(chat => {
         const { latestTurn, ...view } = withActivity(chat, chatView(chat, viewer, currentState.users));
         return view;
       })) } : {}),
@@ -858,6 +864,7 @@ async function handle(req, res, cfg) {
       const active = requireChat(state, current.user.id, chat.id);
       const queued = agentTurns.enqueue({ chat: active, user: current.user, device: current.device, text, attachments, requestId: body.requestId });
       if (active.title === "New chat") active.title = (text || attachments[0].name).replace(/\s+/g, " ").slice(0, 60);
+      active.startedAt ??= now();
       active.updatedAt = now();
       delete active.archivedAt;
       return queued;
