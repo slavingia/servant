@@ -89,7 +89,7 @@ export default function FolderScreen() {
     router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, compose: "1" } });
   }, "Couldn't start a chat");
   const openAdd = () => {
-    setAdding(true); setPeople(null);
+    setError(null); setAdding(true); setPeople(null);
     api.people(account).then(d => setPeople(d.people.filter(p => p.id !== d.me)), () => setPeople([]));
   };
   const addPerson = (person: Person) => void run(async () => { if (folder) { setFolder(await api.addFolderMember(account, folder.id, person.id)); setAdding(false); } }, "Couldn't add that person");
