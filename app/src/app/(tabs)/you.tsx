@@ -10,6 +10,7 @@ import { Avatar } from "../../components/Messaging";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { AppIcon } from "../../components/AppIcon";
 import Constants from "expo-constants";
+import { otaMessage, useOtaCheck } from "../../lib/ota";
 import { useSession } from "../../lib/session";
 import { feedbackGestureHint } from "../../lib/feedback-trigger";
 import { createThemedStyles, useTheme, radius, space, typography } from "../../lib/theme";
@@ -35,6 +36,7 @@ export default function Settings() {
   const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
   useScrollToTop(scrollRef);
   const { account, signOut } = useSession();
+  const ota = useOtaCheck();
   const { colors } = useTheme();
   const styles = useStyles();
   const [release, setRelease] = useState<Release | null>(null);
@@ -144,6 +146,7 @@ export default function Settings() {
       <Text accessibilityRole="header" style={styles.section}>Help & updates</Text>
       <View style={styles.group}>
         <Row label="Send feedback" onPress={() => router.push("/feedback")} />
+        {ota.supported ? <Row label={ota.status === "ready" ? "Restart to update" : "Check for updates"} value={otaMessage(ota.status, ota.detail)} onPress={ota.status === "ready" ? ota.restart : ota.check} /> : null}
       </View>
       {feedbackHint ? <Text style={styles.hint}>{feedbackHint}</Text> : null}
       {release ? (

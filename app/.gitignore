@@ -40,3 +40,6 @@ yarn-error.*
 /ios
 /android
 .claude/
+
+# The public code-signing certificate is not a secret and must be in every build.
+!certs/certificate.pem

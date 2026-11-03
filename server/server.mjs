@@ -19,6 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createMessaging } from "./messaging.mjs";
+import { createOta } from "./ota.mjs";
 import { createMeetings, NOTES_PROMPT as MEETING_NOTES_PROMPT } from "./meetings.mjs";
 import os from "node:os";
 import { createFeedback, feedbackPrompt, feedbackResult } from "./feedback.mjs";
@@ -513,6 +514,8 @@ let documentStore;
 const documents = () => documentStore ??= createDocumentStore(path.join(DATA_DIR, "chat-files"));
 let usageDb;
 let meetings = null;
+let otaServer;
+const ota = () => otaServer ??= createOta({ dir: path.join(DATA_DIR, "ota") });
 const usageStore = () => usageDb ??= createUsageStore(path.join(DATA_DIR, "usage.db"));
 const recordUsage = entry => { try { usageStore().record(entry); } catch (error) { console.error("[servant] usage", error.message); } };
 
@@ -529,6 +532,9 @@ async function handle(req, res, cfg) {
   if (method === "GET" && url.pathname === "/health") {
     return send(res, 200, { ok: true, name: cfg.name });
   }
+
+  // Over-the-air app updates: public, signed, app code only (see ota.mjs).
+  if (url.pathname.startsWith("/ota/") && ota().handle(req, res)) return undefined;
 
   // Lets the app check a server address before pairing (and re-discover it later).
   if (method === "GET" && (url.pathname === "/v1/server" || url.pathname === "/v1/hub")) {
@@ -1476,6 +1482,20 @@ if (isMain) {
     console.log(`Link:        ${pairLink(code, cfg, { local })}`);
     console.log(`${named ? "Single use" : "Anyone with it can join"}. Expires ${new Date(expiresAt).toDateString()}.`);
     if (local) console.log("Works only on this computer. In the Servant Mac app, choose Paste an invite link and paste it.");
+  } else if (cmd === "ota") {
+    const { listUpdates, publishRollback } = await import("./ota.mjs");
+    const dir = path.join(DATA_DIR, "ota");
+    const sub = process.argv[3] || "status";
+    if (sub === "status") {
+      const all = listUpdates(dir);
+      if (!all.length) console.log("No updates published. Run: servant ota publish");
+      for (const u of all) console.log(`${u.createdAt}  ${u.id}  runtime ${u.runtimeVersion}  ${u.type === "rollback" ? "rollback to the version in the app" : Object.keys(u.platforms).join("+")}${u.note ? `  ${u.note}` : ""}`);
+    } else if (sub === "rollback") {
+      const runtime = arg("runtime", "");
+      if (!runtime) { console.error("Usage: servant ota rollback --runtime <runtime version>   (see: servant ota status)"); process.exit(2); }
+      const r = publishRollback({ dir, runtimeVersion: runtime });
+      console.log(`Phones on runtime ${runtime} go back to the version built into their app (${r.id}).`);
+    } else { console.error("Usage: servant ota status | publish | rollback --runtime <v>"); process.exit(2); }
   } else if (cmd === "release") {
     const [build, file] = process.argv.slice(3);
     if (!build || !file) {

@@ -98,11 +98,26 @@
           "cameraPermission": "Servant uses the camera for invite codes and meeting video.",
           "microphonePermission": "Servant uses the microphone for dictation and meetings."
         }
-      ]
+      ],
+      "expo-updates"
     ],
     "scheme": "servant",
     "experiments": {
       "typedRoutes": false
+    },
+    "runtimeVersion": {
+      "policy": "nativeVersion"
+    },
+    "updates": {
+      "url": "https://servant.invalid/ota/manifest",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0,
+      "codeSigningCertificate": "./certs/certificate.pem",
+      "codeSigningMetadata": {
+        "keyid": "main",
+        "alg": "rsa-v1_5-sha256"
+      },
+      "enabled": false
     }
   }
 }

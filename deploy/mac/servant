@@ -5,6 +5,8 @@
 #   servant invite --name "X" [--role owner]   one-time named invite
 #   (add --local for a link that only works on this Mac)
 #   servant devices | revoke <id>
+#   servant ota publish [--note "…"]       send an app update to phones over the air
+#   servant ota status | rollback --runtime V
 #   servant status | rollback              API release selection
 #   servant logs                           follow every Servant log
 set -euo pipefail
@@ -17,9 +19,16 @@ active() {
 cmd="${1:-status}"; shift || true
 case "$cmd" in
   status|rollback) exec "$NODE" "$SERVANT_RUNTIME_DIR/bootstrap/deploy.mjs" "$cmd" "$@" ;;
+  ota)
+    if [[ "${1:-status}" == publish ]]; then
+      [[ -n "${SERVANT_REPO:-}" && -f "$SERVANT_REPO/scripts/ota-publish.mjs" ]] || { echo "servant ota publish needs the Servant checkout. Run deploy/mac/install.sh from it again" >&2; exit 1; }
+      shift; exec "$NODE" "$SERVANT_REPO/scripts/ota-publish.mjs" --data "$SERVANT_DATA_DIR" "$@"
+    fi
+    cd "$SERVANT_RUNTIME_DIR/releases/$(active)"
+    exec "$NODE" server.mjs ota "$@" ;;
   logs) exec tail -n 50 -F "$SERVANT_RUNTIME_DIR"/logs/*.log ;;
   invite|devices|revoke|release)
     cd "$SERVANT_RUNTIME_DIR/releases/$(active)"
     exec "$NODE" server.mjs "$cmd" "$@" ;;
-  *) sed -n 2,9p "$0"; exit 2 ;;
+  *) sed -n 2,11p "$0"; exit 2 ;;
 esac

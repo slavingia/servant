@@ -191,7 +191,7 @@ fi
 # ---------- admin command ----------
 ENV_FILE="$RUNTIME/servant.env"
 printf '%s\n' "# Managed by deploy/mac/install.sh" "NODE='$NODE_BIN'" "SERVANT_RUNTIME_DIR='$RUNTIME'" \
-  "SERVANT_DATA_DIR='$DATA'" "SERVANT_PORT='$PORT'" "SERVANT_LABEL='$LABEL'" > "$ENV_FILE"
+  "SERVANT_DATA_DIR='$DATA'" "SERVANT_PORT='$PORT'" "SERVANT_LABEL='$LABEL'" "SERVANT_REPO='$REPO'" > "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 BIN_DIR=/opt/homebrew/bin
 [[ -w "$BIN_DIR" ]] || BIN_DIR=/usr/local/bin
