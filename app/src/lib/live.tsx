@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { AppState, Platform } from "react-native";
 import { api, listen, relocate, ServerError, type Conversation, type LiveEvent, type Presence } from "./server";
 import { useSession } from "./session";
+import { usePhotos } from "./photos";
 
 type Live = {
   conversations: Conversation[] | null;
@@ -21,6 +22,9 @@ const Ctx = createContext<Live | null>(null);
 
 export function LiveProvider({ children }: { children: ReactNode }) {
   const { account, setAccount, signOut } = useSession();
+  const learnPhotosNow = usePhotos()?.learn;
+  const learnRef = useRef(learnPhotosNow);
+  useEffect(() => { learnRef.current = learnPhotosNow; }, [learnPhotosNow]);
   const [conversations, setConversations] = useState<Conversation[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
@@ -122,6 +126,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       presenceSnapshot = updates;
       try {
         const { people } = await api.people(account);
+        learnRef.current?.(people);
         if (stopped || presenceSnapshot !== updates) return;
         const snapshot = Object.fromEntries(people.map(person => [person.id, {
           userId: person.id, online: person.online === true, lastSeenAt: person.lastSeenAt ?? null,
@@ -148,6 +153,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                 for (const fn of subs.current) fn(e);
                 return;
               }
+              if (e.event === "person.updated") learnRef.current?.([e.data]);
               if (e.event === "presence.updated") {
                 presenceSnapshot?.set(e.data.userId, e.data);
                 setPresenceState(current => ({ identity, people: {

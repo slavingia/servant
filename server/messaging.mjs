@@ -10,7 +10,11 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { isMention } from "./push.mjs";
-import { validateUploads, mediaPage, MAX_UPLOAD_BODY, MAX_UPLOAD_TOTAL } from "./media.mjs";
+import { validateUploads, mediaPage, rasterMime, MAX_UPLOAD_BODY, MAX_UPLOAD_TOTAL } from "./media.mjs";
+
+// The app sends a 512px square JPEG (well under this).
+const MAX_PHOTO_BYTES = 1024 * 1024;
+const MAX_PHOTO_BODY = Math.ceil(MAX_PHOTO_BYTES / 3) * 4 + 1024;
 import { sourceDeviceKind, sourceDeviceFields } from "./source-device.mjs";
 import { postingClosed, workHoursMessage } from "./work-hours.mjs";
 
@@ -69,6 +73,12 @@ CREATE TABLE IF NOT EXISTS message_reads (
 CREATE TABLE IF NOT EXISTS people_presence (
   user_id TEXT PRIMARY KEY,
   last_seen_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS profile_photos (
+  user_id TEXT PRIMARY KEY,
+  mime TEXT NOT NULL,
+  data BLOB NOT NULL,
+  updated_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS presence_sessions (
   user_id TEXT NOT NULL,
@@ -242,6 +252,10 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     addRead: q("INSERT OR IGNORE INTO message_reads (message_seq, conversation_id, user_id, read_at) VALUES (?, ?, ?, ?)"),
     read: q("SELECT read_at FROM message_reads WHERE message_seq = ? AND user_id = ?"),
     lastSeen: q("SELECT last_seen_at FROM people_presence WHERE user_id = ?"),
+    photoVersion: q("SELECT updated_at FROM profile_photos WHERE user_id = ?"),
+    photo: q("SELECT mime, data, updated_at FROM profile_photos WHERE user_id = ?"),
+    setPhoto: q("INSERT INTO profile_photos VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET mime = excluded.mime, data = excluded.data, updated_at = excluded.updated_at"),
+    removePhoto: q("DELETE FROM profile_photos WHERE user_id = ?"),
     activePresence: q("SELECT 1 FROM presence_sessions WHERE user_id = ? AND expires_at > ? LIMIT 1"),
     touchPresence: q("INSERT INTO people_presence VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET last_seen_at = MAX(last_seen_at, excluded.last_seen_at)"),
     touchSession: q("INSERT INTO presence_sessions VALUES (?, ?, ?) ON CONFLICT(user_id, session_id) DO UPDATE SET expires_at = excluded.expires_at"),
@@ -357,6 +371,10 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       const { userId: subject } = JSON.parse(row.payload);
       return users()[subject] ? presence(subject) : null;
     }
+    if (row.event === 'person.updated') {
+      const { userId: subject } = JSON.parse(row.payload);
+      return users()[subject] ? person(subject) : null;
+    }
     // Invalidation contains only an already-known ID and must survive leave/delete.
     if (row.event === 'conversation.updated') return { id: row.conversation_id };
     const conv = st.conv.get(row.conversation_id);
@@ -391,7 +409,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       const payload = event.startsWith('message.') ? { messageId: data.id }
         : event === 'typing' ? { userId: data.user.id, threadRoot: data.threadRoot }
         : event === 'messages.read' ? { userId: data.userId, messageIds: data.messageIds, readAt: data.readAt }
-        : event === 'presence.updated' ? { userId: data.userId } : {};
+        : event === 'presence.updated' || event === 'person.updated' ? { userId: data.userId } : {};
       const at = now();
       const id = Number(eventInsert.run(conversationId, event, JSON.stringify(payload), JSON.stringify(ids), at).lastInsertRowid);
       db.prepare('DELETE FROM live_events WHERE id <= ?').run(id - EVENT_HISTORY);
@@ -428,7 +446,9 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     if (uid === AGENT_ID) return { id: AGENT_ID, name: agentName(), agent: true };
     const u = users()[uid];
     const { lastSeenAt, online } = presence(uid);
-    return u ? { id: u.id, name: u.name, lastSeenAt, online } : { id: uid, name: "Former member" };
+    // photo is a version; the app fetches the image once per version.
+    const photo = u && st.photoVersion.get(uid)?.updated_at;
+    return u ? { id: u.id, name: u.name, lastSeenAt, online, ...(photo ? { photo: String(photo) } : {}) } : { id: uid, name: "Former member" };
   };
   const msgView = (m, includeReads = true, viewerId) => ({
     id: String(m.seq),
@@ -917,6 +937,33 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     if (method === "GET" && r === "releases" && parts[2] === "latest" && parts.length === 3) {
       send(res, 200, { release: latestRelease() });
       return true;
+    }
+
+    // Profile photos: everyone on the server sees them; only you change yours.
+    if (r === "people" && parts[3] === "photo" && parts.length === 4) {
+      if (!isAuthorized() || !users()[user.id]) return fail(res, 401, "unauthorized", "This device is no longer paired"), true;
+      if (parts[2] === "me" && (method === "PUT" || method === "DELETE")) {
+        let version = null;
+        if (method === "PUT") {
+          const body = await readBody(req, MAX_PHOTO_BODY);
+          const data = typeof body.data === "string" && /^[A-Za-z0-9+/]+={0,2}$/.test(body.data) ? Buffer.from(body.data, "base64") : null;
+          const mime = data && rasterMime(data);
+          if (!data || !["image/jpeg", "image/png", "image/webp"].includes(mime)) return fail(res, 400, "bad_photo", "Choose a JPEG or PNG photo"), true;
+          if (data.length > MAX_PHOTO_BYTES) return fail(res, 413, "photo_too_large", "That photo is too large"), true;
+          version = Math.max(now(), (st.photoVersion.get(user.id)?.updated_at ?? 0) + 1);
+          st.setPhoto.run(user.id, mime, data, version);
+        } else st.removePhoto.run(user.id);
+        publish('', 'person.updated', { userId: user.id }, Object.keys(users()));
+        send(res, 200, { person: person(user.id) });
+        return true;
+      }
+      if (method === "GET") {
+        const row = users()[parts[2]] && st.photo.get(parts[2]);
+        if (!row) return fail(res, 404, "not_found", "No photo"), true;
+        res.setHeader("Cache-Control", "no-store");
+        send(res, 200, { mime: row.mime, data: Buffer.from(row.data).toString("base64"), version: String(row.updated_at) });
+        return true;
+      }
     }
 
     if (method === "GET" && r === "people" && parts.length === 2) {

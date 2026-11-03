@@ -1,5 +1,5 @@
 import { useLayoutEffect, useEffect, useRef, useState, type ComponentRef, type ReactNode } from "react";
-import { ActivityIndicator, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type PressableProps } from "react-native";
+import { ActivityIndicator, Image, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type PressableProps } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -10,6 +10,7 @@ import { activeMention, insertMention, mentionMatches, mentionText } from "../li
 import type { MessageReceipt } from "../lib/message-status";
 import { messageDeviceLabel } from "../lib/message-device";
 import { useSession } from "../lib/session";
+import { usePhotos } from "../lib/photos";
 import { useWideLayout } from "../lib/layout";
 import { validateAttachmentSelection } from "../lib/media";
 import { Attachments, DraftAttachments, pickAttachments, type DraftAttachment } from "./Attachments";
@@ -24,9 +25,11 @@ export function when(ms: number) {
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-export function Avatar({ name, agent, size = 34 }: { name: string; agent?: boolean; size?: number }) {
+export function Avatar({ name, agent, size = 34, userId }: { name: string; agent?: boolean; size?: number; userId?: string }) {
   const styles = useStyles();
   const { colors, avatarTones } = useTheme();
+  const photo = usePhotos()?.uri(agent ? undefined : userId);
+  if (photo) return <Image accessibilityElementsHidden importantForAccessibility="no" source={{ uri: photo }} style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: colors.subtle }} />;
   const initials = name
     .split(/\s+/)
     .filter(Boolean)
@@ -43,6 +46,12 @@ export function Avatar({ name, agent, size = 34 }: { name: string; agent?: boole
       <Text style={[styles.avatarText, { fontSize: size * 0.4, color: agent ? colors.onBrand : tone.foreground }]}>{agent ? "AI" : initials || "?"}</Text>
     </View>
   );
+}
+
+// A one-to-one DM shows the other person's photo; group DMs keep initials.
+export function dmPeer(c: Conversation, me: string | undefined) {
+  const others = (c.members ?? []).filter(p => !p.agent && p.id !== me);
+  return others.length === 1 ? others[0]!.id : undefined;
 }
 
 export function MessageDate({ at }: { at: number }) {
@@ -157,7 +166,7 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
   return (
     <>
     <Pressable onLongPress={actions} delayLongPress={400} accessible={false} style={[styles.post, compact && styles.postCompact, menu && { backgroundColor: colors.surface }]}>
-      <View style={styles.gutter}>{compact ? null : <Avatar name={post.user.name} agent={post.user.agent} />}</View>
+      <View style={styles.gutter}>{compact ? null : <Avatar name={post.user.name} agent={post.user.agent} userId={post.user.id} />}</View>
       <View style={styles.postContent}>
         <View accessible accessibilityLabel={label} accessibilityHint={available ? "Touch and hold to copy, select text, react or open message actions" : undefined} accessibilityActions={available ? [{ name: "activate", label: "Copy, react or open message actions" }] : undefined} onAccessibilityAction={actions}>
         {!compact || deviceLabel ? (
@@ -373,7 +382,7 @@ export function Composer({
         <ScrollView keyboardShouldPersistTaps="always" style={styles.suggestions} accessibilityLabel="Mention suggestions">
           {suggestions.length ? suggestions.map(person => (
             <Pressable key={person.id} testID={`mention-${person.id}`} accessibilityRole="button" accessibilityLabel={`Mention ${person.name}`} onPress={() => choose(person)} style={({ pressed }) => [styles.suggestion, pressed && { backgroundColor: colors.surface }]}>
-              {person.agent ? <View style={styles.agentAvatar}><AppIcon name="sparkles" size={17} color={colors.onPrimary} /></View> : <Avatar name={person.name} size={30} />}
+              {person.agent ? <View style={styles.agentAvatar}><AppIcon name="sparkles" size={17} color={colors.onPrimary} /></View> : <Avatar name={person.name} userId={person.id} size={30} />}
               <View style={{ flex: 1, marginLeft: space.sm }}><Text style={styles.suggestionName}>{person.agent ? "Agent" : person.name}</Text><Text style={styles.suggestionHandle}>{mentionText(person.name)}</Text></View>
             </Pressable>
           )) : <Text style={styles.noSuggestions}>No matching members in this conversation</Text>}
@@ -453,6 +462,7 @@ export function Composer({
 export function ConversationRow({ c, onPress, onLongPress, longPressHint, accessibilityActions, onAccessibilityAction, trailing, compact = false, lifted = false }: { c: Conversation; onPress: () => void; trailing?: ReactNode; compact?: boolean; longPressHint?: string; lifted?: boolean } & Pick<PressableProps, "onLongPress" | "accessibilityActions" | "onAccessibilityAction">) {
   const styles = useStyles();
   const { colors } = useTheme();
+  const me = useSession().account?.user.id;
   const last = c.lastMessage;
   const preview = last ? (last.deleted ? "Message deleted" : `${!last.activity && (c.kind === "channel" || (c.members?.length ?? 0) > 2) ? `${last.user.name}: ` : ""}${last.pending && last.user.agent ? "Working…" : last.text || (last.attachments?.length ? `${last.attachments.length} attachment${last.attachments.length === 1 ? "" : "s"}` : "Working…")}`) : c.topic || "No messages yet";
   const bold = c.unread > 0 && !c.archived;
@@ -469,7 +479,7 @@ export function ConversationRow({ c, onPress, onLongPress, longPressHint, access
         onAccessibilityAction={onAccessibilityAction}
         style={({ pressed }) => [styles.row, compact && styles.compactRow, trailing ? styles.rowWithTrailing : null, pressed && !lifted && { backgroundColor: colors.surface }]}
       >
-        {c.kind === "dm" ? <Avatar name={c.title} size={compact ? 26 : 40} /> : <View style={[styles.channelGlyph, compact && styles.compactChannelGlyph]}><AppIcon name={c.private ? "lock" : "hash"} size={compact ? 19 : 22} color={bold ? colors.ink : colors.muted} /></View>}
+        {c.kind === "dm" ? <Avatar name={c.title} userId={dmPeer(c, me)} size={compact ? 26 : 40} /> : <View style={[styles.channelGlyph, compact && styles.compactChannelGlyph]}><AppIcon name={c.private ? "lock" : "hash"} size={compact ? 19 : 22} color={bold ? colors.ink : colors.muted} /></View>}
         <View style={styles.rowCopy}>
           <View style={styles.rowTop}>
             <Text style={[styles.rowTitle, bold && styles.bold]} numberOfLines={1}>{c.title}</Text>

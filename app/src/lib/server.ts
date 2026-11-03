@@ -32,7 +32,8 @@ export type Leaderboard = { period: LeaderboardPeriod; since: number; totals: { 
 
 // ----- channels, direct messages, threads -----
 export type Presence = { userId: string; online: boolean; lastSeenAt: number | null };
-export type Person = { id: string; name: string; agent?: boolean; owner?: boolean; online?: boolean; lastSeenAt?: number | null };
+// photo: version of their profile photo, when they have one.
+export type Person = { id: string; name: string; agent?: boolean; owner?: boolean; online?: boolean; lastSeenAt?: number | null; photo?: string | null };
 export type Attachment = { id: string; name: string; mime: string; size: number };
 export type Upload = { name: string; data: string };
 export type Post = {
@@ -89,6 +90,7 @@ export type LiveEvent =
   | { event: "conversation.updated" | "conversation.read"; data: { id: string } }
   | { event: "messages.read"; data: { conversationId: string; userId: string; messageIds: string[]; readAt: number } }
   | { event: "presence.updated"; data: Presence }
+  | { event: "person.updated"; data: Person }
   | { event: "typing"; data: { conversationId: string; threadRoot: string | null; user: Person } }
   | { event: "ready"; data: { cursor?: string; reset?: boolean } }
   | { event: "checkpoint"; data: { cursor: string } };
@@ -319,6 +321,9 @@ export const api = {
   joinLink: (a: Account, fresh = false) =>
     request(a, "/v1/invites", { method: "POST", body: JSON.stringify({ fresh }) }).then(json<{ code: string; link: string; expiresAt: number }>),
   people: (a: Account) => request(a, "/v1/people").then(json<{ people: Person[]; agent: Person; me: string }>),
+  photo: (a: Account, userId: string) => request(a, `/v1/people/${encodeURIComponent(userId)}/photo`).then(json<{ mime: string; data: string; version: string }>),
+  setPhoto: (a: Account, data: string) => request(a, "/v1/people/me/photo", { method: "PUT", body: JSON.stringify({ data }) }).then(json<{ person: Person }>),
+  removePhoto: (a: Account) => request(a, "/v1/people/me/photo", { method: "DELETE" }).then(json<{ person: Person }>),
   conversations: (a: Account, m?: (a: Account) => void) =>
     request(a, "/v1/conversations?includeArchived=1", {}, m).then(json<{ conversations: Conversation[] }>).then((d) => d.conversations),
   conversation: (a: Account, id: string) => request(a, `/v1/conversations/${id}`).then(json<{ conversation: Conversation; joined: boolean }>),

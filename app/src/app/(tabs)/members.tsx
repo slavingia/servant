@@ -65,7 +65,7 @@ export default function Members() {
         const self = item.id === account.user.id;
         const status = self ? "" : presenceLabel(presence[item.id] ?? { ...item, online: false }, now, connected);
         return <Pressable accessibilityRole={self ? undefined : "button"} accessibilityLabel={`${item.name}${self ? ", you" : ""}, ${item.owner ? "owner" : "member"}${status ? `, ${status}` : ""}`} accessibilityHint={self ? undefined : "Open direct message"} disabled={self || !!opening} onPress={() => void message(item)} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}>
-          <Avatar name={item.name} size={36} />
+          <Avatar name={item.name} userId={item.id} size={36} />
           <View style={styles.copy}><Text style={styles.name}>{item.name}{self ? <Text style={styles.you}> · You</Text> : null}</Text><Text style={[styles.role, status === "Online" && styles.online]}>{item.owner ? "Workspace owner" : "Member"}{status ? ` · ${status}` : ""}</Text></View>
           {opening === item.id ? <ActivityIndicator color={colors.blue} /> : !self ? <AppIcon name="chat" size={18} color={colors.muted} /> : null}
         </Pressable>;

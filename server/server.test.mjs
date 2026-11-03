@@ -619,6 +619,42 @@ const waitFor = async (fn, ms = 3000) => {
   throw new Error("timed out");
 };
 
+test("profile photos: you set or remove yours, everyone on the server sees it live", async () => {
+  const pia = await pair("member", "Pia Photo");
+  const quinn = await pair("member", "Quinn Viewer");
+  const me = async (token) => (await api("GET", "/v1/people", { token })).json;
+  const piaId = (await me(pia)).me;
+  const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(200, 7)]).toString("base64");
+  const live = await events(quinn);
+  await waitFor(() => live.got.some((e) => e.event === "ready"));
+  // No photo yet: initials.
+  assert.equal((await me(quinn)).people.find((p) => p.id === piaId).photo, undefined);
+  assert.equal((await api("GET", `/v1/people/${piaId}/photo`, { token: quinn })).status, 404);
+  // Pia sets one; Quinn gets a person.updated with the new version and can fetch it.
+  const set = await api("PUT", "/v1/people/me/photo", { token: pia, body: { data: jpeg } });
+  assert.equal(set.status, 200, set.text);
+  const version = set.json.person.photo;
+  assert.ok(version);
+  const update = await waitFor(() => live.got.find((e) => e.event === "person.updated" && e.data.id === piaId));
+  assert.equal(update.data.photo, version);
+  assert.equal((await me(quinn)).people.find((p) => p.id === piaId).photo, version);
+  const photo = await api("GET", `/v1/people/${piaId}/photo`, { token: quinn });
+  assert.deepEqual([photo.status, photo.json.mime, photo.json.data, photo.json.version], [200, "image/jpeg", jpeg, version]);
+  // A new photo gets a new version, so cached copies are replaced.
+  const again = await api("PUT", "/v1/people/me/photo", { token: pia, body: { data: jpeg } });
+  assert.notEqual(again.json.person.photo, version);
+  // Only images; not too big; nobody can change someone else's.
+  assert.equal((await api("PUT", "/v1/people/me/photo", { token: pia, body: { data: Buffer.from("<svg/>").toString("base64") } })).status, 400);
+  assert.equal((await api("PUT", "/v1/people/me/photo", { token: pia, body: { data: Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(1100 * 1024)]).toString("base64") } })).status, 413);
+  assert.equal((await api("PUT", `/v1/people/${piaId}/photo`, { token: quinn, body: { data: jpeg } })).status, 404);
+  assert.equal((await api("GET", `/v1/people/${piaId}/photo`)).status, 401);
+  // Removing goes back to initials for everyone.
+  assert.equal((await api("DELETE", "/v1/people/me/photo", { token: pia })).json.person.photo, undefined);
+  await waitFor(() => live.got.some((e) => e.event === "person.updated" && e.data.id === piaId && !e.data.photo));
+  assert.equal((await api("GET", `/v1/people/${piaId}/photo`, { token: quinn })).status, 404);
+  live.close();
+});
+
 test("everyone lands in #general and can make channels, DMs and threads", async () => {
   const ana = await pair("member", "Ana Ruiz");
   const ben = await pair("member", "Ben Okafor");

@@ -153,7 +153,7 @@ export default function ChannelInfo() {
       {adding
         ? notIn.map((p) => (
             <Pressable key={p.id} accessibilityRole="button" accessibilityLabel={`Add ${p.name}`} accessibilityState={{ disabled: !!addingId, busy: addingId === p.id }} disabled={!!addingId} onPress={() => add(p)} style={({ pressed }) => [styles.person, pressed && { backgroundColor: colors.surface }]}>
-              <Avatar name={p.name} size={32} />
+              <Avatar name={p.name} userId={p.id} size={32} />
               <Text style={styles.personName}>{p.name}</Text>
               {addingId === p.id ? <ActivityIndicator color={colors.blue} /> : <Text style={styles.link}>Add</Text>}
             </Pressable>
@@ -168,7 +168,7 @@ export default function ChannelInfo() {
               onPress={() => void message(p)}
               style={({ pressed }) => [styles.person, pressed && { backgroundColor: colors.surface }]}
             >
-              <Avatar name={p.name} size={32} />
+              <Avatar name={p.name} userId={p.id} size={32} />
               <Text style={styles.personName}>
                 {p.name}
                 {p.id === account.user.id ? " (you)" : ""}

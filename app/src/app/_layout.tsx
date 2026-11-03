@@ -6,6 +6,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { SessionProvider, useSession } from "../lib/session";
 import { NotificationsProvider } from "../lib/notifications";
 import { LiveProvider } from "../lib/live";
+import { PhotoProvider } from "../lib/photos";
 import { FeedbackPrompt } from "../components/FeedbackPrompt";
 import { AppChrome } from "../components/AppChrome";
 import { Button } from "../components/Button";
@@ -63,6 +64,7 @@ function SessionNavigation() {
   }
   return (
     <NavigationThemeProvider value={navigationTheme}>
+    <PhotoProvider>
     <LiveProvider>
     <NotificationsProvider>
     <FeedbackPrompt>
@@ -126,6 +128,7 @@ function SessionNavigation() {
     </FeedbackPrompt>
     </NotificationsProvider>
     </LiveProvider>
+    </PhotoProvider>
     </NavigationThemeProvider>
   );
 }

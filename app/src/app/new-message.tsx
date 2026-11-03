@@ -85,7 +85,7 @@ export default function NewMessage() {
               onPress={() => toggle(item.id)}
               style={({ pressed }) => [styles.row, on && styles.rowSelected, disabled && !on && styles.rowDisabled, pressed && { backgroundColor: colors.surface }]}
             >
-              <Avatar name={item.name} size={36} />
+              <Avatar name={item.name} userId={item.id} size={36} />
               <Text style={styles.name}>{item.name}</Text>
               <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[styles.check, on && styles.checkOn]}>{on ? <AppIcon name="check" size={16} color={colors.onPrimary} /> : null}</View>
             </Pressable>

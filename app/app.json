@@ -67,7 +67,7 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Servant lets you choose photos and videos to attach to messages.",
+          "photosPermission": "Servant lets you choose photos and videos to attach to messages, and a profile photo.",
           "cameraPermission": "Servant uses the camera to read invite codes.",
           "microphonePermission": "Servant uses the microphone so you can dictate messages."
         }

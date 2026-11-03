@@ -78,7 +78,7 @@ function SharedChatView() {
             const theirs = item.role === "user";
             const timestamp = typeof item.at === "number" ? item.at : item.at ? new Date(item.at).getTime() : NaN;
             return <View accessibilityLabel={theirs ? `${authorName}'s message` : "Agent response"} style={styles.message}>
-              <Avatar name={theirs ? authorName : "Agent"} agent={!theirs} size={34} />
+              <Avatar name={theirs ? authorName : "Agent"} agent={!theirs} userId={theirs ? chat?.author?.id : undefined} size={34} />
               <View style={styles.messageCopy}>
                 <View style={styles.messageMeta}>
                   <Text style={styles.author}>{theirs ? authorName : "Agent"}</Text>
@@ -482,7 +482,7 @@ function ChatConversation() {
               const timestamp = typeof item.at === "number" ? item.at : item.at ? new Date(item.at).getTime() : NaN;
               const deviceLabel = messageDeviceLabel(account.user.role, item);
               return <View accessibilityLabel={mine ? `Your message${deviceLabel ? `, sent from ${deviceLabel}` : ""}` : "Agent response"} style={[styles.message, item.failed && styles.failed]}>
-                <Avatar name={mine ? account.user.name : "Agent"} agent={!mine} size={34} />
+                <Avatar name={mine ? account.user.name : "Agent"} agent={!mine} userId={mine ? account.user.id : undefined} size={34} />
                 <View style={styles.messageCopy}>
                   <View style={styles.messageMeta}>
                     <Text style={styles.author}>{mine ? account.user.name : "Agent"}</Text>

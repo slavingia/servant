@@ -9,7 +9,7 @@ import { useChannelSort } from "../lib/channel-sort-store";
 import { useSession } from "../lib/session";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 import { AppIcon, type AppIconName } from "./AppIcon";
-import { Avatar } from "./Messaging";
+import { Avatar, dmPeer } from "./Messaging";
 import { Omnibar } from "./Omnibar";
 
 export const SIDEBAR_WIDTH = 264;
@@ -86,7 +86,7 @@ export function Sidebar() {
       <Pressable accessibilityRole="button" accessibilityLabel={`${account.user.name}, your profile and settings`} onPress={() => go(pathname, "/you")}
         style={state => [styles.footer, (hovered(state) || pathname === "/you") && styles.hovered]}>
         <View>
-          <Avatar name={account.user.name} size={30} />
+          <Avatar name={account.user.name} userId={account.user.id} size={30} />
           <View style={[styles.status, { backgroundColor: connected ? colors.green : colors.borderStrong }]} />
         </View>
         <View style={styles.footerCopy}>
@@ -142,7 +142,7 @@ function ConversationItem({ c, selected, onPress }: { c: Conversation; selected:
       style={state => [styles.item, hovered(state) && styles.hovered, selected && styles.selected]}>
       <View style={styles.itemIcon}>
         {c.kind === "dm" ? <View>
-          <Avatar name={c.title} size={18} />
+          <Avatar name={c.title} userId={dmPeer(c, account?.user.id)} size={18} />
           {peer ? <View style={[styles.dmStatus, { backgroundColor: colors.green }]} /> : null}
         </View> : <AppIcon name={c.private ? "lock" : "hash"} size={15} color={selected || bold ? colors.ink : colors.muted} />}
       </View>

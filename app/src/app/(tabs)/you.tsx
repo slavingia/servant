@@ -1,7 +1,10 @@
 import { useCallback, useState } from "react";
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import * as ImagePicker from "expo-image-picker";
+import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { router, useFocusEffect } from "expo-router";
-import { api, type Release } from "../../lib/server";
+import { api, ServerError, type Release } from "../../lib/server";
+import { usePhotos } from "../../lib/photos";
 import { PageTitle } from "../../components/Band";
 import { Avatar } from "../../components/Messaging";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -36,6 +39,10 @@ export default function Settings() {
   const [confirming, setConfirming] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const photos = usePhotos();
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoMenu, setPhotoMenu] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
   useFocusEffect(
     useCallback(() => {
       if (account) api.latestRelease(account).then(setRelease).catch(() => undefined);
@@ -43,6 +50,40 @@ export default function Settings() {
   );
   if (!account) return null;
   const owner = account.user.role === "owner";
+
+  const hasPhoto = !!photos?.versions[account.user.id];
+  // Square, 512px JPEG: small enough for everyone's phone to load quickly.
+  const choosePhoto = async () => {
+    if (photoBusy) return;
+    setPhotoMenu(false);
+    setPhotoError(null);
+    const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, aspect: [1, 1], quality: 1 });
+    if (picked.canceled || !picked.assets[0]) return;
+    setPhotoBusy(true);
+    try {
+      const asset = picked.assets[0];
+      const side = Math.min(asset.width, asset.height);
+      const context = ImageManipulator.manipulate(asset.uri);
+      if (asset.width !== asset.height) context.crop({ originX: (asset.width - side) / 2, originY: (asset.height - side) / 2, width: side, height: side });
+      context.resize({ width: 512, height: 512 });
+      const image = await (await context.renderAsync()).saveAsync({ format: SaveFormat.JPEG, compress: 0.8, base64: true });
+      if (!image.base64) throw new Error("no data");
+      const { person } = await api.setPhoto(account, image.base64.replace(/^data:[^,]*,/, ""));
+      photos?.learn([person]);
+    } catch (e) {
+      setPhotoError(e instanceof ServerError ? e.message : "Couldn't use that photo. Try another one.");
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+  const removePhoto = async () => {
+    setPhotoMenu(false);
+    setPhotoError(null);
+    setPhotoBusy(true);
+    try { photos?.learn([(await api.removePhoto(account)).person]); }
+    catch (e) { setPhotoError(e instanceof ServerError ? e.message : "Couldn't remove your photo. Try again."); }
+    finally { setPhotoBusy(false); }
+  };
 
   const leave = async () => {
     if (leaving) return;
@@ -62,13 +103,27 @@ export default function Settings() {
     <View style={styles.root}>
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
       <PageTitle>You</PageTitle>
-      <View style={styles.profile}>
-        <Avatar name={account.user.name} size={48} />
+      <Pressable testID="profile-photo" accessibilityRole="button" accessibilityLabel={hasPhoto ? "Change your profile photo" : "Add a profile photo"} accessibilityHint="Everyone on this server sees it"
+        accessibilityState={{ busy: photoBusy, expanded: hasPhoto ? photoMenu : undefined }} disabled={photoBusy}
+        onPress={() => { if (hasPhoto) setPhotoMenu(open => !open); else void choosePhoto(); }}
+        style={({ pressed }) => [styles.profile, pressed && { opacity: 0.7 }]}>
+        <View>
+          <Avatar name={account.user.name} userId={account.user.id} size={56} />
+          <View style={styles.photoBadge}>{photoBusy ? <ActivityIndicator size="small" color={colors.onPrimary} /> : <AppIcon name={hasPhoto ? "compose" : "plus"} size={12} color={colors.onPrimary} strokeWidth={2.4} />}</View>
+        </View>
         <View style={styles.profileCopy}>
           <Text style={styles.profileName}>{account.user.name}</Text>
           <Text style={styles.profileRole}>{account.serverName} · {owner ? "Workspace owner" : "Member"}</Text>
+          <Text style={styles.photoLink}>{photoBusy ? "Saving photo…" : hasPhoto ? "Change photo" : "Add a photo"}</Text>
         </View>
-      </View>
+      </Pressable>
+      {photoMenu && hasPhoto ? <View style={[styles.group, styles.photoMenu]}>
+        <Row label="Choose from library" onPress={() => void choosePhoto()} />
+        <Pressable accessibilityRole="button" onPress={() => void removePhoto()} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}>
+          <Text style={[styles.rowLabel, { color: colors.red }]}>Remove photo</Text>
+        </Pressable>
+      </View> : null}
+      {photoError ? <Text accessibilityRole="alert" style={styles.photoError}>{photoError}</Text> : null}
       <Text accessibilityRole="header" style={styles.section}>Preferences</Text>
       <View style={styles.group}>
         <Row label="Notifications" onPress={() => router.push("/notifications")} />
@@ -122,6 +177,10 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   profileCopy: { flex: 1, minWidth: 0 },
   profileName: { ...typography.heading, color: colors.ink },
   profileRole: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
+  photoLink: { ...typography.captionStrong, color: colors.blue, marginTop: space.xxs },
+  photoBadge: { position: "absolute", right: -2, bottom: -2, width: 22, height: 22, borderRadius: 11, backgroundColor: colors.primary, borderWidth: 2, borderColor: colors.surface, alignItems: "center", justifyContent: "center" },
+  photoMenu: { marginTop: -space.sm },
+  photoError: { ...typography.caption, color: colors.red, marginHorizontal: space.side, marginTop: -space.xs, marginBottom: space.md },
   section: { ...typography.label, marginHorizontal: space.side, marginTop: space.sm, marginBottom: space.xs, color: colors.muted },
   group: { backgroundColor: colors.background, marginHorizontal: space.side, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, overflow: "hidden", marginBottom: space.md },
   row: { minHeight: 48, paddingHorizontal: space.md, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", gap: space.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
