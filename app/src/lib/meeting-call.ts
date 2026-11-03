@@ -63,19 +63,20 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
     }
   }
 
-  async function watch(m: Meeting, publisherId: string, name: string) {
+  // Video comes from the server's list: the watch connection always offers a
+  // video slot, so a browser reports a video track even when nobody sends one.
+  async function watch(m: Meeting, publisherId: string, name: string, hasVideo: boolean) {
     if (closed || !participantId || watching.has(publisherId)) return;
     const { RTCPeerConnection } = rtc();
     const peer = new RTCPeerConnection(iceConfig(m));
     watching.set(publisherId, peer);
     peer.addTransceiver("audio", { direction: "recvonly" });
     peer.addTransceiver("video", { direction: "recvonly" });
-    const remote: Remote = { participantId: publisherId, name, stream: null, hasVideo: false };
+    const remote: Remote = { participantId: publisherId, name, stream: null, hasVideo };
     peer.addEventListener("track", (e: any) => {
       const stream = e.streams?.[0] ?? remote.stream ?? null;
       if (stream) remote.stream = stream;
       else if (Platform.OS === "web") { remote.stream ??= new (globalThis as any).MediaStream(); remote.stream.addTrack(e.track); }
-      if (e.track?.kind === "video") remote.hasVideo = true;
       if (!state.remotes.includes(remote)) state.remotes.push(remote);
       emit();
     });
@@ -102,7 +103,11 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
       const m = await api.meeting(account, meetingId);
       if (m.status !== "live") { state.status = "ended"; emit(); await stop(false); return; }
       const others = m.participants.filter(p => !p.you && p.id !== participantId && p.publishing);
-      for (const p of others) void watch(m, p.id, p.user.name);
+      for (const p of others) {
+        const known = state.remotes.find(r => r.participantId === p.id);
+        if (known) known.hasVideo = p.hasVideo;
+        else void watch(m, p.id, p.user.name, p.hasVideo);
+      }
       for (const id of [...watching.keys()]) if (!others.some(p => p.id === id)) unwatch(id);
       emit();
     } catch { /* keep the call going through a missed poll */ }
