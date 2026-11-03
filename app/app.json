@@ -99,6 +99,7 @@
           "microphonePermission": "Servant uses the microphone for dictation and meetings."
         }
       ],
+      "./plugins/with-simulator-call-audio",
       "expo-updates"
     ],
     "scheme": "servant",
