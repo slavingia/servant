@@ -45,3 +45,42 @@ test('event parser handles split CRLF, UTF-8 and data-only structured run events
   await readHermesEvents(stream, (name, payload) => events.push([name, payload.delta]));
   assert.deepEqual(events, [['message.delta', 'café']]);
 });
+
+test('a resumed run without live events shows progress from status and finishes', async t => {
+  let polls = 0;
+  const upstream = http.createServer(async (req, res) => {
+    for await (const _ of req) { /* consume body */ }
+    // Older bridges drop the event stream once its first subscriber leaves.
+    if (req.url.endsWith('/events')) return res.writeHead(404, { 'Content-Type': 'application/json' }).end('{}');
+    polls++;
+    const body = polls < 3 ? { status: 'running', last_event: polls === 1 ? 'tool.started' : 'tool.completed' }
+      : { status: 'completed', output: 'All done' };
+    res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(body));
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { upstream.closeAllConnections(); await new Promise(resolve => upstream.close(resolve)); });
+  const events = [];
+  const result = await runDurableHermes({
+    up: { url: `http://127.0.0.1:${upstream.address().port}`, key: 'fixture-key' }, runId: 'resumed',
+    controls: () => ({}), onAccepted: () => assert.fail('must never resubmit'), onEvent: (name, payload) => events.push([name, payload]),
+    checkpoint: () => assert.fail('must retain existing run'), pollMs: 1,
+  });
+  assert.equal(result.status, 'completed');
+  assert.equal(result.answer, 'All done');
+  assert.deepEqual(events.map(([name]) => name), ['tool.started', 'tool.completed', 'assistant.completed']);
+});
+
+test('Stop on a run the bridge no longer holds ends the turn instead of hanging', async t => {
+  const upstream = http.createServer(async (req, res) => {
+    for await (const _ of req) { /* consume body */ }
+    if (req.url.endsWith('/stop') || req.url.endsWith('/events')) return res.writeHead(404, { 'Content-Type': 'application/json' }).end('{}');
+    res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ status: 'running' }));
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { upstream.closeAllConnections(); await new Promise(resolve => upstream.close(resolve)); });
+  const result = await runDurableHermes({
+    up: { url: `http://127.0.0.1:${upstream.address().port}`, key: 'fixture-key' }, runId: 'orphan',
+    controls: () => ({ stop: true }), onAccepted: () => {}, onEvent: () => {}, checkpoint: () => {}, pollMs: 1,
+  });
+  assert.equal(result.status, 'cancelled');
+});

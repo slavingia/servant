@@ -104,12 +104,23 @@ export async function runDurableHermes({ up, sessionId, input, sessionKey, instr
   // This subscription belongs to the Mac worker, never the phone/API process.
   // If it is unavailable after a worker restart, poll the existing run; do not
   // resubmit the prompt or replay tool effects.
-  const events = (async () => {
-    const response = await hermesRequest(up, 'GET', `${route}/events`, undefined, { signal: streamAbort.signal });
-    if (response.ok && response.body) await readHermesEvents(response.body, async (name, payload) => {
-      try { await receive(name, payload); } catch (error) { eventError = error; throw error; }
-    });
-  })().catch(() => { /* Status is authoritative if the event connection drops. */ });
+  // After a worker restart the bridge may refuse a second subscriber (older
+  // bridges) or the connection may drop: keep retrying while polling status,
+  // and show progress from the polled status so the chat never looks frozen.
+  let streaming = false, subscribing = false, lastPolledEvent = null, nextSubscribe = Date.now() + 10000;
+  const subscribe = async () => {
+    subscribing = true;
+    try {
+      const response = await hermesRequest(up, 'GET', `${route}/events`, undefined, { signal: streamAbort.signal });
+      if (!response.ok || !response.body) return;
+      streaming = true;
+      await readHermesEvents(response.body, async (name, payload) => {
+        try { await receive(name, payload); } catch (error) { eventError = error; throw error; }
+      });
+    } catch { /* Status is authoritative if the event connection drops. */ }
+    finally { streaming = false; subscribing = false; }
+  };
+  let events = subscribe();
   let stopped = false, answeredApproval;
   const delivered = new Map(); // turn id -> exact text Hermes accepted
   try {
@@ -119,6 +130,9 @@ export async function runDurableHermes({ up, sessionId, input, sessionKey, instr
       if (control.stop && !stopped) {
         const response = await hermesRequest(up, 'POST', `${route}/stop`, undefined, { signal: AbortSignal.timeout(15000) });
         if (response.ok || response.status === 409) stopped = true;
+        // The bridge no longer holds this run's agent, so it can't be
+        // interrupted. Stop waiting for it: the person asked to stop.
+        else if (response.status === 404) { terminal = 'cancelled'; break; }
       }
       if (!control.stop && !controls().stop && control.choice && control.approval && answeredApproval !== control.approval.id) {
         const response = await hermesRequest(up, 'POST', `${route}/approval`, { approval_id: control.approval.id, choice: control.choice }, { signal: AbortSignal.timeout(15000) });
@@ -141,6 +155,15 @@ export async function runDurableHermes({ up, sessionId, input, sessionKey, instr
       if (!response.ok) throw new Error('Agent status temporarily unavailable');
       const status = await response.json();
       if (typeof status.unread_steer === 'string') unread = status.unread_steer;
+      if (!streaming && !terminal) {
+        // No live events: progress comes from the polled status instead.
+        if (status.last_event && status.last_event !== lastPolledEvent) {
+          lastPolledEvent = status.last_event;
+          if (status.last_event === 'tool.started') onEvent('tool.started', { tool_name: status.last_tool || '' });
+          else if (status.last_event === 'tool.completed' || status.last_event === 'reasoning.available') onEvent('tool.completed', {});
+        }
+        if (!subscribing && Date.now() >= nextSubscribe) { nextSubscribe = Date.now() + 10000; events = subscribe(); }
+      }
       if (status.status === 'waiting_for_approval' && status.pending_approval) await receive('approval.request', status.pending_approval);
       if (status.status === 'completed') {
         if (!usage && status.usage && typeof status.usage === 'object') usage = status.usage;
