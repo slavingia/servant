@@ -1,31 +1,90 @@
-import { memo } from 'react';
-import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { inlineMessage, messageBlocks } from '../lib/message-format';
+import { memo, type ReactNode } from 'react';
+import { Linking, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { inlineMessage, messageBlocks, type Inline } from '../lib/message-format';
 import { radius, space, typography, createThemedStyles } from '../lib/theme';
+
+type Styles = ReturnType<typeof useStyles>;
+
+function open(url: string) {
+  void Linking.openURL(url).catch(() => {});
+}
+
+function Inlines({ text, styles }: { text: string; styles: Styles }): ReactNode {
+  return inlineMessage(text).map((part: Inline, i) => {
+    const style = [
+      part.strong && styles.strong, part.em && styles.em, part.strike && styles.strike,
+      part.code && styles.inlineCode, part.url && styles.link,
+    ];
+    return part.url
+      ? <Text key={i} style={style} accessibilityRole="link" onPress={() => open(part.url!)}>{part.text}</Text>
+      : <Text key={i} style={style}>{part.text}</Text>;
+  });
+}
 
 export const MessageText = memo(function MessageText({ text, failed = false }: { text: string; failed?: boolean }) {
   const styles = useStyles();
+  const body = [styles.body, failed && styles.failed];
   return <View style={styles.blocks}>{messageBlocks(text).map((block, index) => {
-    if (block.kind === 'code') return <View key={index} style={styles.codeBlock}>
-      {block.language ? <Text style={styles.language}>{block.language}</Text> : null}
-      <ScrollView horizontal showsHorizontalScrollIndicator><Text selectable style={styles.code}>{block.text || ' '}</Text></ScrollView>
-    </View>;
-    const content = <Text selectable accessibilityRole={block.kind === 'heading' ? 'header' : undefined} style={[styles.body, block.kind === 'heading' && styles.heading, failed && styles.failed]}>
-      {inlineMessage(block.text).map((part, i) => <Text key={i} style={part.kind === 'strong' ? styles.strong : part.kind === 'em' ? styles.em : part.kind === 'code' ? styles.inlineCode : undefined}>{part.text}</Text>)}
-    </Text>;
-    if (block.kind === 'list') return <View key={index} style={styles.list}><Text style={styles.marker}>{block.marker}</Text><View style={styles.copy}>{content}</View></View>;
-    if (block.kind === 'quote') return <View key={index} style={styles.quote}>{content}</View>;
-    return <View key={index}>{content}</View>;
+    switch (block.kind) {
+      case 'code':
+        return <View key={index} style={styles.codeBlock}>
+          {block.language ? <Text style={styles.language}>{block.language}</Text> : null}
+          <ScrollView horizontal showsHorizontalScrollIndicator><Text selectable style={styles.code}>{block.text || ' '}</Text></ScrollView>
+        </View>;
+      case 'rule':
+        return <View key={index} style={styles.rule} accessibilityElementsHidden importantForAccessibility="no" />;
+      case 'table': {
+        // Up to three columns fit the bubble and wrap; wider tables scroll sideways.
+        const fits = block.header.length <= 3;
+        const table = <View style={styles.table} accessibilityRole="summary">
+            {[block.header, ...block.rows].map((row, r) => <View key={r} style={[styles.row, r === 0 && styles.headRow, r > 0 && r % 2 === 0 && styles.stripe]}>
+              {row.map((cell, c) => <View key={c} style={[fits ? styles.fitCell : styles.cell, c > 0 && styles.cellDivider]}>
+                <Text selectable style={[body, r === 0 && styles.strong, { textAlign: block.align[c] ?? 'left' }]}><Inlines text={cell} styles={styles} /></Text>
+              </View>)}
+            </View>)}
+          </View>;
+        return fits ? <View key={index}>{table}</View>
+          : <ScrollView key={index} horizontal showsHorizontalScrollIndicator style={styles.tableScroll}>{table}</ScrollView>;
+      }
+      case 'list': {
+        const marker = block.checked === undefined
+          ? <Text style={[styles.marker, /\d/.test(block.marker) && styles.number]}>{block.marker}</Text>
+          : <Text accessibilityLabel={block.checked ? 'Done' : 'Not done'} style={[styles.marker, styles.box, block.checked && styles.boxDone]}>{block.checked ? '☑' : '☐'}</Text>;
+        return <View key={index} style={[styles.list, { paddingLeft: block.depth * 18 }]}>
+          {marker}
+          <View style={styles.copy}><Text selectable style={[body, block.checked && styles.done]}><Inlines text={block.text} styles={styles} /></Text></View>
+        </View>;
+      }
+      case 'heading':
+        return <View key={index} style={index > 0 && styles.headingGap}>
+          <Text selectable accessibilityRole="header" style={[body, block.level <= 1 ? styles.h1 : block.level === 2 ? styles.h2 : styles.h3]}><Inlines text={block.text} styles={styles} /></Text>
+        </View>;
+      case 'quote':
+        return <View key={index} style={styles.quote}><Text selectable style={[body, styles.quoteText]}><Inlines text={block.text} styles={styles} /></Text></View>;
+      default:
+        return <View key={index}><Text selectable style={body}><Inlines text={block.text} styles={styles} /></Text></View>;
+    }
   })}</View>;
 });
 
 const mono = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' });
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   blocks: { gap: space.xs }, body: { ...typography.body, color: colors.ink },
-  heading: { ...typography.bodyStrong }, strong: { fontWeight: '700' }, em: { fontStyle: 'italic' },
+  h1: { fontSize: 19, lineHeight: 26, fontWeight: '700' }, h2: { fontSize: 17, lineHeight: 24, fontWeight: '700' }, h3: { ...typography.bodyStrong },
+  headingGap: { marginTop: space.xxs },
+  strong: { fontWeight: '700' }, em: { fontStyle: 'italic' }, strike: { textDecorationLine: 'line-through' },
+  link: { color: colors.blue, textDecorationLine: 'underline' },
   inlineCode: { fontFamily: mono, backgroundColor: colors.subtle, fontSize: 14 },
   codeBlock: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm, padding: space.sm, gap: space.xs },
   language: { ...typography.meta, color: colors.muted }, code: { fontFamily: mono, fontSize: 13, lineHeight: 20, color: colors.ink },
-  list: { flexDirection: 'row', gap: space.xs }, marker: { ...typography.body, color: colors.muted, minWidth: 16 }, copy: { flex: 1, minWidth: 0 },
-  quote: { borderLeftWidth: 3, borderLeftColor: colors.borderStrong, paddingLeft: space.sm }, failed: { color: colors.red },
+  list: { flexDirection: 'row', gap: space.xs }, marker: { ...typography.body, color: colors.muted, minWidth: 16 }, number: { fontVariant: ['tabular-nums'] },
+  box: { fontSize: 17 }, boxDone: { color: colors.green }, done: { color: colors.muted },
+  copy: { flex: 1, minWidth: 0 },
+  quote: { borderLeftWidth: 3, borderLeftColor: colors.borderStrong, paddingLeft: space.sm }, quoteText: { color: colors.muted },
+  rule: { height: StyleSheet.hairlineWidth, backgroundColor: colors.borderStrong, marginVertical: space.xs },
+  tableScroll: { flexGrow: 0 },
+  table: { borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm, overflow: 'hidden' },
+  row: { flexDirection: 'row' }, headRow: { backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.line }, stripe: { backgroundColor: colors.surface },
+  cell: { width: 150, paddingHorizontal: space.sm, paddingVertical: space.xs }, fitCell: { flex: 1, minWidth: 0, paddingHorizontal: space.sm, paddingVertical: space.xs }, cellDivider: { borderLeftWidth: 1, borderLeftColor: colors.line },
+  failed: { color: colors.red },
 }));
