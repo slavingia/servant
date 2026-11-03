@@ -822,8 +822,8 @@ test("notification settings and push registration are scoped to the authenticate
   assert.equal(registration.status, 200);
   assert.equal(registration.json.registered, true);
   assert.equal(registration.json.preferences.mode, "mentions");
-  const prefs = await api("PATCH", "/v1/notifications", { token, body: { mode: "none", previews: false } });
-  assert.equal(prefs.status, 200);assert.equal(prefs.json.preferences.previews, false);
+  const prefs = await api("PATCH", "/v1/notifications", { token, body: { mode: "none", contentPreviews: false } });
+  assert.equal(prefs.status, 200);assert.equal(prefs.json.preferences.contentPreviews, false);assert.equal(prefs.json.preferences.previews, false);
   assert.equal((await api("POST", "/v1/notifications/presence", { token, body: { active: true, conversation: "ch_test" } })).status, 200);
   assert.equal((await api("POST", "/v1/signout", { token })).status, 200);
   assert.equal((await api("GET", "/v1/notifications", { token })).status, 401);

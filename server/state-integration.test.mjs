@@ -186,7 +186,7 @@ test('finishing an agent stream preserves deletion and preferences written by th
   assert.equal(response.status, 200);
   const streamed = response.text();
   await until(() => f.turns.length, 'active upstream agent stream');
-  const preferences = { mode: 'all', previews: false };
+  const preferences = { mode: 'all', contentPreviews: false, previews: false };
   assert.equal((await f.api(1, '/v1/notifications', { method: 'PATCH', body: preferences })).status, 200);
   assert.equal((await f.api(1, `/v1/chats/${chatId}`, { method: 'DELETE' })).status, 200);
   const deleted = f.store.read().chats[chatId];

@@ -23,7 +23,7 @@ test('Slack-style default recipients and privacy settings', () => {
   assert.ok(wantsNotification({ ...info, mentioned: false, kind: 'agent' }, defaults));
   assert.equal(wantsNotification(info, { ...defaults, pausedUntil: Date.now() + 60000 }), false);
   assert.equal(wantsNotification(info, { ...defaults, mode: 'none' }), false);
-  const n = notificationPayload(info, { ...user, notifications: { previews: false } }, 'd_1');
+  const n = notificationPayload(info, { ...user, notifications: { contentPreviews: false } }, 'd_1');
   assert.equal(n.title, 'Servant'); assert.equal(n.body, 'You have a new message');
   assert.equal(n.data.userId, user.id); assert.equal(n.data.deviceId, 'd_1');
   assert.equal(apnsPayload(n).aps['thread-id'], 'ch_test');
@@ -158,19 +158,45 @@ test('graceful shutdown records a failed send retry before closing', async () =>
 });
 
 
-test('legacy preview preferences and transport inputs cannot leak message text to push providers', () => {
-  const privateInfo = { ...info, title: 'Private sender and channel', body: 'Sensitive taxpayer message' };
-  const legacyUser = { ...user, notifications: { previews: true } };
-  const notification = notificationPayload(privateInfo, legacyUser, 'd_1');
-  assert.equal(notification.title, 'Servant');
-  assert.equal(notification.body, 'You have a new message');
-  const direct = { ...notification, title: privateInfo.title, body: privateInfo.body, data: { ...notification.data, preview: privateInfo.body } };
-  for (const payload of [apnsPayload(direct), fcmMessage('fake', direct)]) {
-    const serialized = JSON.stringify(payload);
-    assert.equal(serialized.includes(privateInfo.title), false);
-    assert.equal(serialized.includes(privateInfo.body), false);
-    assert.ok(serialized.includes('ch_test'), 'opaque destination is retained for notification taps');
+test('alerts show sender and message by default, for channels, DMs and agent replies', () => {
+  const channel = notificationPayload(info, user, 'd_1');
+  assert.equal(channel.title, 'Bob in #test'); assert.equal(channel.body, 'Hello Alice');
+  const dm = notificationPayload({ kind: 'dm', conversationId: 'dm_x', title: 'Bob Jones', body: 'Lunch?' }, user, 'd_1');
+  assert.equal(dm.title, 'Bob Jones'); assert.equal(dm.body, 'Lunch?');
+  const agent = notificationPayload({ kind: 'agent', chatId: 'cht_x', title: 'Agent · Refund status', body: '## Done\n\n**Two** files changed, see `a.js`' }, user, 'd_1');
+  assert.equal(agent.title, 'Agent · Refund status'); assert.equal(agent.body, 'Done Two files changed, see a.js');
+  for (const payload of [apnsPayload(dm), fcmMessage('fake', dm)]) {
+    const s = JSON.stringify(payload);
+    assert.ok(s.includes('Bob Jones') && s.includes('Lunch?'));
   }
-  updatePreferences(legacyUser, { previews: true });
-  assert.equal(legacyUser.notifications.previews, false);
+  assert.equal(apnsPayload(dm).aps.alert.title, 'Bob Jones');
+  assert.equal(fcmMessage('fake', dm).message.notification.body, 'Lunch?');
+  const long = notificationPayload({ ...info, body: 'x'.repeat(1000) }, user, 'd_1');
+  assert.equal(long.body.length, 240); assert.ok(long.body.endsWith('…'));
+  // Empty text (e.g. a bare attachment with no label) falls back to the generic line.
+  assert.equal(notificationPayload({ ...info, body: '' }, user, 'd_1').body, 'You have a new message');
+});
+
+test('the switch turns content off; old builds sending previews:false cannot', () => {
+  const u = { ...user, notifications: { previews: false } };
+  assert.equal(notificationPayload(info, u, 'd_1').body, 'Hello Alice', 'legacy forced-false flag is ignored');
+  updatePreferences(u, { previews: false, mode: 'all' });
+  assert.equal(u.notifications.contentPreviews, true);
+  updatePreferences(u, { contentPreviews: false });
+  assert.equal(u.notifications.previews, false);
+  const off = notificationPayload(info, u, 'd_1');
+  assert.equal(off.title, 'Servant'); assert.equal(off.body, 'You have a new message');
+  assert.throws(() => updatePreferences(u, { contentPreviews: 'yes' }));
+});
+
+test('transport passes only title, body and opaque routing fields', () => {
+  const n = notificationPayload(info, user, 'd_1');
+  const direct = { ...n, data: { ...n.data, preview: 'Sensitive extra field', token: 'secret-ish' } };
+  for (const payload of [apnsPayload(direct), fcmMessage('fake', direct)]) {
+    const s = JSON.stringify(payload);
+    assert.equal(s.includes('Sensitive extra field'), false);
+    assert.equal(s.includes('secret-ish'), false);
+    assert.ok(s.includes('ch_test'), 'opaque destination is retained for notification taps');
+  }
+  assert.equal(apnsPayload({ ...n, title: '', body: null }).aps.alert.body, 'You have a new message');
 });

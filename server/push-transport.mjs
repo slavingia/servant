@@ -6,7 +6,9 @@ import http2 from 'node:http2';
 
 const b64 = (x) => Buffer.from(JSON.stringify(x)).toString('base64url');
 // Keep this allowlist at the provider boundary as well as in the queue. A new
-// application field must never accidentally become a plaintext push preview.
+// application field must never accidentally become a plaintext push preview;
+// only the visible title and body (already shaped by notificationPayload) pass.
+const clip = (v, max, fallback) => typeof v === 'string' && v.trim() ? (v.length > max ? v.slice(0, max - 1) + '…' : v) : fallback;
 function privateNotification(n) {
   const data = {};
   for (const key of ['userId', 'deviceId', 'conversationId', 'chatId', 'threadRoot', 'messageId']) {
@@ -14,20 +16,21 @@ function privateNotification(n) {
     if (typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(value)) data[key] = value;
   }
   return { data, group: data.conversationId || data.chatId || 'messages',
+    title: clip(n.title, 80, 'Servant'), body: clip(n.body, 240, 'You have a new message'),
     badge: Number.isSafeInteger(n.badge) && n.badge > 0 ? Math.min(n.badge, 9999) : 1 };
 }
 export function fcmMessage(token, notification) {
   const n = privateNotification(notification);
   return { message: {
     token,
-    notification: { title: 'Servant', body: 'You have a new message' },
+    notification: { title: n.title, body: n.body },
     data: { body: JSON.stringify(n.data), channelId: 'messages', threadIdentifier: n.group },
     android: { priority: 'HIGH', ttl: '3600s', notification: { channel_id: 'messages', tag: n.group, sound: 'default', notification_count: n.badge } },
   } };
 }
 export function apnsPayload(notification) {
   const n = privateNotification(notification);
-  return { aps: { alert: { title: 'Servant', body: 'You have a new message' }, sound: 'default', badge: n.badge, 'thread-id': n.group }, ...n.data };
+  return { aps: { alert: { title: n.title, body: n.body }, sound: 'default', badge: n.badge, 'thread-id': n.group }, ...n.data };
 }
 export function createPushTransport(config, fetcher = fetch) {
   let google = null;

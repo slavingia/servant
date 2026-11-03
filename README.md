@@ -36,7 +36,7 @@ Agent chats, channels, and threads show a working indicator while the agent prep
 
 The repository-owned Hermes bridge adds real **Stop** and owner **Allow once / Deny** controls while preserving image output. Pending requests appear in the Agent tab and their conversation. Approvals are bound to the exact request, apply once, and use Hermes's action-approval mechanism; this is not a blanket approval layer for every possible tool. A worker restart reconnects to an identified upstream run. An ambiguous start is marked interrupted and is never automatically submitted again. See [agent turns](docs/agent-turns.md) and [supported Hermes versions](docs/supported-hermes-versions.md).
 
-Agent replies render headings, lists, bold text, quotations and code. Native notifications show generic alerts with no names or message text; the app fetches the content over its encrypted connection when opened. Native encrypted lock-screen previews are not implemented.
+Agent replies render headings, lists, bold text, quotations and code. Native notifications show who sent the message and what they said (channels, DMs and agent chats); You → Notifications → Show sender and message turns that off. See docs/notifications.md for what Apple and Google can see.
 
 ### Working with the agent: images and approvals
 

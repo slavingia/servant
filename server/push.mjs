@@ -1,8 +1,27 @@
 import { DatabaseSync } from 'node:sqlite';
 
-export const defaults = { mode: 'mentions', previews: false, pausedUntil: 0 };
-// Older clients may still store previews=true. Content never enters a provider payload.
-export const preferences = (user) => ({ ...defaults, ...user?.notifications, previews: false });
+// Owner, 11/2: alerts show who sent the message and what they said, for
+// channels, DMs and agent chats. `contentPreviews` (default on) is the switch;
+// the legacy `previews` flag was forced false for months, so it is ignored and
+// mirrored from contentPreviews for older app builds.
+export const defaults = { mode: 'mentions', previews: true, contentPreviews: true, pausedUntil: 0 };
+export const preferences = (user) => {
+  const p = { ...defaults, ...user?.notifications };
+  p.contentPreviews = user?.notifications?.contentPreviews !== false;
+  p.previews = p.contentPreviews;
+  return p;
+};
+export const TITLE_MAX = 80, BODY_MAX = 240;
+// Plain text for a lock screen: no markdown markers, one line, length-capped.
+export function previewText(text, max) {
+  const s = String(text || '')
+    .replace(/```[a-z]*\n?/gi, '').replace(/`([^`]*)`/g, '$1')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/gm, '').replace(/(\*\*|__|~~)(.+?)\1/g, '$2')
+    .replace(/(^|\W)[*_]([^*_\n]+)[*_](?=\W|$)/g, '$1$2')
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim();
+  return s.length > max ? s.slice(0, max - 1).trimEnd() + '…' : s;
+}
 export function isMention(text, user) {
   const names = [user.id, user.name, user.name?.replace(/\s+/g, '-'), user.name?.split(/\s+/)[0], 'channel', 'here'].filter(Boolean);
   return names.some(name => new RegExp(`(^|[^\\w@])@${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[^\\w-])`, 'i').test(text));
@@ -12,9 +31,11 @@ export function wantsNotification(info, settings, now = Date.now()) {
   return !!(settings.mode === 'all' || info.kind === 'dm' || info.kind === 'agent' || info.mentioned || info.participant);
 }
 export function notificationPayload(info, user, deviceId) {
+  const rich = preferences(user).contentPreviews;
+  const title = rich && previewText(info.title, TITLE_MAX), body = rich && previewText(info.body, BODY_MAX);
   return {
-    title: 'Servant',
-    body: 'You have a new message',
+    title: title || 'Servant',
+    body: body || 'You have a new message',
     group: info.conversationId || info.chatId,
     badge: info.badge || 1,
     data: { userId: user.id, deviceId, ...(info.conversationId ? { conversationId: info.conversationId } : { chatId: info.chatId }),
@@ -144,10 +165,12 @@ export function updatePreferences(user, body, now = Date.now()) {
     if (!['all', 'mentions', 'none'].includes(body.mode)) throw Object.assign(new Error('Choose all, mentions, or none'), { status: 400, code: 'bad_preference' });
     p.mode = body.mode;
   }
-  if (body.previews !== undefined) {
-    if (typeof body.previews !== 'boolean') throw Object.assign(new Error('Invalid preview preference'), { status: 400, code: 'bad_preference' });
-    p.previews = false;
+  if (body.contentPreviews !== undefined) {
+    if (typeof body.contentPreviews !== 'boolean') throw Object.assign(new Error('Invalid preview preference'), { status: 400, code: 'bad_preference' });
+    p.contentPreviews = body.contentPreviews;
   }
+  // Older builds always send previews:false; only the new switch changes it.
+  p.previews = p.contentPreviews;
   if (body.pausedUntil !== undefined) {
     if (!Number.isFinite(body.pausedUntil) || body.pausedUntil < 0 || body.pausedUntil > now + 7 * 86400000) throw Object.assign(new Error('Pause for up to seven days'), { status: 400, code: 'bad_preference' });
     p.pausedUntil = body.pausedUntil;

@@ -20,13 +20,20 @@ Store a private JSON file at `~/.config/servant/push.json`, or set `SERVANT_PUSH
 
 Use directory mode 0700 and file mode 0600. Never commit credentials. The FCM service account needs `cloudmessaging.messages.create` on the Firebase project. The APNs key is restricted to production notifications for `gov.irs.servant`; release provisioning must include the production `aps-environment` entitlement. The release script uses the `Servant Push App Store` provisioning profile.
 
-Device tokens live in private server state. Jobs are persisted in `server/data/push.db` for up to one hour and re-check membership, preferences, archive status, device revocation, and message visibility before sending. Transient delivery failures retry with backoff; invalid tokens are removed without deleting a newly rotated token. Signing out removes the device registration. Ordinary channel jobs store message references. Legacy private-agent jobs may still contain reply text in this private on-Mac database; queue storage is not encrypted at rest. The provider payload never includes that text.
+Device tokens live in private server state. Jobs are persisted in `server/data/push.db` for up to one hour and re-check membership, preferences, archive status, device revocation, and message visibility before sending. Transient delivery failures retry with backoff; invalid tokens are removed without deleting a newly rotated token. Signing out removes the device registration. Ordinary channel jobs store message references. Legacy private-agent jobs may still contain reply text in this private on-Mac database; queue storage is not encrypted at rest. Agent replies are also stored as plain text in the job queue (previously only some legacy jobs were).
 
-All notifications now say **Servant — You have a new message**. Message text, sender names, channel names, attachment names, and agent replies are never sent in the alert. This applies even when an older app has saved `previews: true`. The server's queue and provider serializers both enforce generic alerts; provider serialization allowlists only opaque routing references needed to open the right conversation after validating the current user and device.
+Alerts show who sent the message and what they said (owner's decision, 11/2):
 
-Apple or Google still receives the device push token, badge count, conversation grouping and opaque user/device/conversation/message IDs. Notification timing can reveal activity. This is content-minimizing push delivery, not encrypted notification previews. Tapping the alert retrieves the actual conversation through the existing pinned encrypted app-to-server connection.
+- Channel: **Jordan Lee in #general** / the message
+- Direct message: **Jordan Lee** / the message
+- Agent chat: **Agent · <chat title>** / the reply
+- Build notes: **Build N is out** / the notes
 
-Encrypted previews are **not implemented**. They require device-specific encryption keys plus native iOS Notification Service Extension and Android receive/decrypt handling, including a deliberate key-access policy while the phone is locked. Sending ciphertext as a normal alert would not produce a useful preview. The generic notification path protects content now without pretending that native decryption exists.
+Text is flattened to one line (markdown markers removed), titles are capped at 80 characters and bodies at 240. A message with no text but an attachment says "Sent an attachment" (agent: "Sent an image" / "Sent a video").
+
+You → Notifications → **Show sender and message** (on by default) turns this off per person; then alerts say **Servant — You have a new message**. The preference is `contentPreviews`. The old `previews` flag was forced to false for every account before this change, so the server ignores incoming `previews` values and mirrors `contentPreviews` into it for older app builds; an old build therefore cannot switch content off.
+
+**Privacy trade-off:** with previews on, Apple (APNs) or Google (FCM) receives the sender name, channel or chat title, and up to 240 characters of the message in plain text, and the text appears on the lock screen. That is outside the app's encrypted connection. Provider serialization still allowlists fields: only the title, body and opaque routing references (user/device/conversation/message IDs) leave the server. Encrypted previews (Notification Service Extension + Android decrypt) remain unimplemented and would remove the provider exposure.
 
 The server must be running and connected for delivery. Existing APNs/FCM credentials are still required; no shared relay credential service or keyless Apple enrollment was added. The optional [stable relay](relay-transport.md) carries app traffic only. Production iOS delivery needs a signed device build; simulator injection alone does not verify APNs delivery. Previously sent previews cannot be withdrawn retroactively.
 
