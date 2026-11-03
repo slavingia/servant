@@ -214,7 +214,7 @@ function ShareToggle({ id }: { id: string }) {
       {error ? <Text accessibilityRole="alert" style={styles.shareError}>{error}</Text> : null}
     </View>
     <Switch accessibilityLabel={`Share this chat with ${account.serverName}`} value={shared} disabled={saving}
-      onValueChange={next => { void change(next); }} trackColor={{ true: colors.blue }} />
+      onValueChange={next => { void change(next); }} trackColor={{ true: colors.blue, false: colors.borderStrong }} thumbColor="#FFFFFF" {...(Platform.OS === "web" ? { activeThumbColor: "#FFFFFF" } : {})} />
   </View>;
 }
 

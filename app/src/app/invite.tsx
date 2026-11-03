@@ -128,7 +128,7 @@ export default function Invite() {
 
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
-  body: { padding: space.side, paddingBottom: space.xxl },
+  body: { padding: space.side, paddingBottom: space.xxl, width: "100%", maxWidth: 680, alignSelf: "center" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: space.side, backgroundColor: colors.background },
   heading: { ...typography.heading, color: colors.ink },
   lead: { ...typography.caption, marginTop: space.xs, color: colors.muted },

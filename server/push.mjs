@@ -17,8 +17,11 @@ export function previewText(text, max) {
   const s = String(text || '')
     .replace(/```[a-z]*\n?/gi, '').replace(/`([^`]*)`/g, '$1')
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/gm, '').replace(/(\*\*|__|~~)(.+?)\1/g, '$2')
+    // List items become "a · b · c" instead of one run-on sentence.
+    .replace(/\n+\s{0,3}(?:[-*+]|\d+\.)\s+/g, '\u0000LI').replace(/^\s{0,3}(?:[-*+]|\d+\.)\s+/, '')
+    .replace(/^\s{0,3}(#{1,6}|>)\s+/gm, '').replace(/(\*\*|__|~~)(.+?)\1/g, '$2')
     .replace(/(^|\W)[*_]([^*_\n]+)[*_](?=\W|$)/g, '$1$2')
+    .replace(/\u0000LI/g, (_, i, all) => /[:.!?]\s*$/.test(all.slice(0, i)) && !all.slice(0, i).includes('\u0000LI') ? ' ' : ' · ')
     .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim();
   return s.length > max ? s.slice(0, max - 1).trimEnd() + '…' : s;
 }

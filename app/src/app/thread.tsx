@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from "react-native";
-import { Stack, useIsFocused, useLocalSearchParams } from "expo-router";
+import { router, Stack, useIsFocused, useLocalSearchParams } from "expo-router";
+import { Button } from "../components/Button";
 import { ConversationKeyboardView } from "../components/ConversationKeyboardView";
 import { Composer, MessageDate, PostRow } from "../components/Messaging";
 import { MediaGalleryProvider } from "../components/MediaGallery";
@@ -215,10 +216,17 @@ export default function ThreadScreen() {
   return (
     <MediaGalleryProvider key={`${conv}:${unavailable}`} scope={{ kind: "conversation", id: conv }} items={media}>
     <View style={styles.root}>
-      <Stack.Screen options={{ title: "Thread" }} />
+      <Stack.Screen options={{ title: title ? `Thread · ${title}` : "Thread" }} />
       <ConversationKeyboardView>
-        {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-        {replies === null ? (
+        {head === null && replies !== null && replies.length === 0 && error ? (
+          // The thread itself is gone or out of reach: say so and offer a way out.
+          <View style={styles.gone}>
+            <Text accessibilityRole="header" style={styles.goneTitle}>{error}</Text>
+            <Text style={styles.goneBody}>It may have been deleted, or you may no longer be in this conversation.</Text>
+            <Button label={title ? `Back to ${title}` : "Back"} kind="secondary" onPress={() => router.canGoBack() ? router.back() : router.replace({ pathname: "/c/[id]", params: { id: conv } })} style={{ marginTop: space.lg, alignSelf: "center", minWidth: 200 }} />
+          </View>
+        ) : error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+        {head === null && replies !== null && replies.length === 0 && error ? null : replies === null ? (
           <ActivityIndicator style={{ flex: 1 }} color={colors.blue} />
         ) : (
           <FlatList
@@ -270,6 +278,9 @@ export default function ThreadScreen() {
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   error: { ...typography.caption, paddingHorizontal: space.side, paddingVertical: space.sm, color: colors.red, backgroundColor: colors.redSoft },
+  gone: { flex: 1, alignItems: "center", justifyContent: "center", padding: space.lg },
+  goneTitle: { ...typography.bodyStrong, color: colors.ink, textAlign: "center" },
+  goneBody: { ...typography.body, color: colors.muted, textAlign: "center", marginTop: space.xs, maxWidth: 360 },
   head: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line, paddingBottom: space.sm, marginBottom: space.xxs, backgroundColor: colors.background },
   where: { ...typography.captionStrong, marginHorizontal: space.side, marginTop: space.sm, color: colors.muted },
   count: { ...typography.captionStrong, marginHorizontal: space.side, marginTop: space.sm, color: colors.muted },

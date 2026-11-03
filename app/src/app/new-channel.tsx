@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { Platform, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { Button } from "../components/Button";
 import { AppIcon } from "../components/AppIcon";
@@ -16,6 +16,7 @@ export default function NewChannel() {
   const { account } = useSession();
   const { refresh } = useLive();
   const [name, setName] = useState("");
+  const [nameFocused, setNameFocused] = useState(false);
   const [topic, setTopic] = useState("");
   const [priv, setPriv] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -37,7 +38,7 @@ export default function NewChannel() {
     <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
       <Text style={styles.intro}>Channels bring the right people together around a topic.</Text>
       <Text style={styles.label}>Channel name</Text>
-      <View style={styles.nameBox}>
+      <View style={[styles.nameBox, nameFocused && styles.nameBoxFocused]}>
         <AppIcon name={priv ? "lock" : "hash"} size={18} color={colors.muted} />
         <TextInput
           accessibilityLabel="Channel name"
@@ -48,6 +49,8 @@ export default function NewChannel() {
           autoCapitalize="none"
           autoCorrect={false}
           autoFocus
+          onFocus={() => setNameFocused(true)}
+          onBlur={() => setNameFocused(false)}
           style={styles.nameInput}
         />
       </View>
@@ -61,7 +64,7 @@ export default function NewChannel() {
           <Text style={styles.switchLabel}>Private channel</Text>
           <Text style={styles.help}>{priv ? "Only invited people can find and join it." : "Anyone in the workspace can find and join it."}</Text>
         </View>
-        <Switch accessibilityLabel="Private channel" value={priv} onValueChange={setPriv} trackColor={{ true: colors.primary }} />
+        <Switch accessibilityLabel="Private channel" value={priv} onValueChange={setPriv} trackColor={{ true: colors.primary, false: colors.borderStrong }} thumbColor="#FFFFFF" {...(Platform.OS === "web" ? { activeThumbColor: "#FFFFFF" } : {})} />
       </View>
 
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
@@ -72,12 +75,14 @@ export default function NewChannel() {
 
 const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
-  content: { padding: space.side, paddingBottom: space.xxl },
+  content: { padding: space.side, paddingBottom: space.xxl, width: "100%", maxWidth: 680, alignSelf: "center" },
   intro: { ...typography.caption, color: colors.muted, marginBottom: space.xs },
   label: { ...typography.label, marginTop: space.md, marginBottom: space.xs, color: colors.ink },
   optional: { ...typography.caption, color: colors.muted },
   nameBox: { ...controls.input, paddingVertical: 0, flexDirection: "row", alignItems: "center", gap: space.xs },
-  nameInput: { ...typography.body, flex: 1, minWidth: 0, minHeight: 44, paddingVertical: space.sm, color: colors.ink },
+  nameBoxFocused: { borderColor: colors.blue, boxShadow: `0 0 0 1px ${colors.blue}` },
+  // The box draws the focus ring, so the inner field draws none.
+  nameInput: { ...typography.body, flex: 1, minWidth: 0, minHeight: 44, paddingVertical: space.sm, color: colors.ink, ...(Platform.OS === "web" ? { outlineStyle: "none" } as object : {}) },
   input: { ...controls.input, ...controls.inputMultiline, minHeight: 88 },
   help: { ...typography.caption, marginTop: space.xs, color: colors.muted },
   switchRow: { marginTop: space.lg, paddingVertical: space.md, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.line, flexDirection: "row", alignItems: "center" },

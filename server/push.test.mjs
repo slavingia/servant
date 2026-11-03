@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createPushService, defaults, isMention, notificationPayload, wantsNotification, updatePushRegistration, updatePreferences } from './push.mjs';
+import { createPushService, defaults, isMention, notificationPayload, previewText, wantsNotification, updatePushRegistration, updatePreferences } from './push.mjs';
 import { createMessaging } from './messaging.mjs';
 import { fcmMessage, apnsPayload } from './push-transport.mjs';
 
@@ -199,4 +199,10 @@ test('transport passes only title, body and opaque routing fields', () => {
     assert.ok(s.includes('ch_test'), 'opaque destination is retained for notification taps');
   }
   assert.equal(apnsPayload({ ...n, title: '', body: null }).aps.alert.body, 'You have a new message');
+});
+
+test('previews join list items instead of running them together', () => {
+  assert.equal(previewText("Here's a plan:\n\n1. **Check** the page\n2. Compare timing\n3. Send it", 140), "Here's a plan: Check the page · Compare timing · Send it");
+  assert.equal(previewText('- one\n- two', 140), 'one · two');
+  assert.equal(previewText('Plain text\nline two', 140), 'Plain text line two');
 });

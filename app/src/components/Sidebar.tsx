@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View, type PressableStateCallbackType } from "react-native";
-import { router, usePathname, type Href } from "expo-router";
+import { router, useGlobalSearchParams, usePathname, type Href } from "expo-router";
 import { type Conversation } from "../lib/server";
 import { isDesktop } from "../lib/desktop";
 import { useLive } from "../lib/live";
@@ -45,6 +45,10 @@ export function Sidebar() {
   const { conversations, unread, connected } = useLive();
   const { sort, pending } = useChannelSort();
   const pathname = usePathname();
+  // Thread, details and files belong to a channel or DM; keep it highlighted.
+  const params = useGlobalSearchParams<{ id?: string; conv?: string; kind?: string }>();
+  const parentId = pathname === "/thread" ? params.conv : pathname === "/channel-info" || (pathname === "/files" && params.kind === "conversation") ? params.id : undefined;
+  const isOpen = (c: Conversation) => pathname === `/c/${c.id}` || parentId === c.id;
   const [channelsOpen, setChannelsOpen] = useState(true);
   const [dmsOpen, setDmsOpen] = useState(true);
   if (!account) return null;
@@ -68,23 +72,23 @@ export function Sidebar() {
       <View style={styles.search}><Omnibar variant="sidebar" /></View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         <NavItem icon="home" label="Home" selected={pathname === "/channels" || pathname === "/"} onPress={() => go(pathname, "/channels")} />
-        <NavItem icon="sparkles" label="Agent" selected={pathname === "/agent" || pathname.startsWith("/chat/")} onPress={() => go(pathname, "/agent")} />
+        <NavItem icon="sparkles" label="Agent" selected={pathname === "/agent" || pathname.startsWith("/chat/") || (pathname === "/files" && params.kind === "chat")} onPress={() => go(pathname, "/agent")} />
         <NavItem icon="chat" label="Direct messages" count={unread.messages} selected={pathname === "/messages"} onPress={() => go(pathname, "/messages")} />
-        <NavItem icon="people" label="People" selected={pathname === "/members"} onPress={() => go(pathname, "/members")} />
+        <NavItem icon="people" label="People" selected={pathname === "/members" || pathname === "/invite"} onPress={() => go(pathname, "/members")} />
 
         <Section title="Channels" open={channelsOpen} onToggle={() => setChannelsOpen(v => !v)} addLabel="Create a channel" onAdd={() => go(pathname, "/new-channel")}>
-          {channels.map(c => <ConversationItem key={c.id} c={c} selected={pathname === `/c/${c.id}`} onPress={() => open(c)} />)}
+          {channels.map(c => <ConversationItem key={c.id} c={c} selected={isOpen(c)} onPress={() => open(c)} />)}
           <NavItem quiet icon="plus" label="Browse channels" selected={pathname === "/browse"} onPress={() => go(pathname, "/browse")} />
           {archivedCount ? <NavItem quiet icon="archive" label="Archived" count={archivedCount} countMuted selected={pathname === "/archived-channels"} onPress={() => go(pathname, "/archived-channels")} /> : null}
         </Section>
 
         <Section title="Direct messages" open={dmsOpen} onToggle={() => setDmsOpen(v => !v)} addLabel="New direct message" onAdd={() => go(pathname, "/new-message")}>
-          {dms.map(c => <ConversationItem key={c.id} c={c} selected={pathname === `/c/${c.id}`} onPress={() => open(c)} />)}
+          {dms.map(c => <ConversationItem key={c.id} c={c} selected={isOpen(c)} onPress={() => open(c)} />)}
           {!dms.length ? <NavItem quiet icon="plus" label="New message" onPress={() => go(pathname, "/new-message")} /> : null}
         </Section>
       </ScrollView>
       <Pressable accessibilityRole="button" accessibilityLabel={`${account.user.name}, your profile and settings`} onPress={() => go(pathname, "/you")}
-        style={state => [styles.footer, (hovered(state) || pathname === "/you") && styles.hovered]}>
+        style={state => [styles.footer, (hovered(state) || ["/you", "/notifications", "/feedback", "/leaderboard"].includes(pathname)) && styles.hovered]}>
         <View>
           <Avatar name={account.user.name} userId={account.user.id} size={30} />
           <View style={[styles.status, { backgroundColor: connected ? colors.green : colors.borderStrong }]} />

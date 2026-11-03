@@ -1,5 +1,10 @@
+import { Platform } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { useTheme } from "../lib/theme";
+
+// Decorative: hidden from screen readers. On the web only aria-hidden reaches the
+// DOM (the native-only props become invalid attributes there).
+const hiddenIcon = Platform.OS === "web" ? { "aria-hidden": true } as const : { accessible: false, accessibilityElementsHidden: true, importantForAccessibility: "no-hide-descendants" } as const;
 
 const paths = {
   home: "M3 10 12 3l9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1V10Z",
@@ -37,7 +42,7 @@ export function AppIcon({ name, size = 20, color, strokeWidth = 1.8 }: {
   name: AppIconName; size?: number; color?: string; strokeWidth?: number;
 }) {
   const { colors } = useTheme();
-  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" {...hiddenIcon}>
     <Path d={paths[name]} stroke={color ?? colors.ink} strokeWidth={name === "more" ? 4 : strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
   </Svg>;
 }

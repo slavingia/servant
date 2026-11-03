@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useNotifications } from '../lib/notifications';
 import { Button } from '../components/Button';
 import { radius, space, typography, createThemedStyles, useTheme } from '../lib/theme';
@@ -15,7 +15,7 @@ export default function NotificationSettings() {
   const { supported, enabled, busy, error, preferences, enable, update } = useNotifications();
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(timer); }, []);
-  if (!supported) return <ScrollView style={styles.root} contentContainerStyle={styles.content}><Text style={styles.description}>Push notifications are available in the iOS and Android apps.</Text></ScrollView>;
+  if (!supported) return <ScrollView style={styles.root} contentContainerStyle={styles.content}><Text accessibilityRole="header" style={styles.title}>Get notified on your phone</Text><Text style={styles.description}>Install Servant on iPhone or Android and sign in to get alerts for DMs, mentions and agent replies. Your settings there apply everywhere.</Text></ScrollView>;
   const paused = preferences.pausedUntil > now;
   return <ScrollView style={styles.root} contentContainerStyle={styles.content}>
 
@@ -29,13 +29,14 @@ export default function NotificationSettings() {
     </Pressable>)}
     <Text accessibilityRole="header" style={styles.label}>Privacy</Text>
     <View style={styles.row}><View style={styles.copy}><Text style={styles.rowTitle}>Show sender and message</Text><Text style={styles.detail}>Off shows only “You have a new message”</Text></View>
-      <Switch accessibilityLabel="Show sender and message" disabled={busy} value={preferences.contentPreviews !== false} onValueChange={v => update({ contentPreviews: v })} trackColor={{ true: colors.primary }} /></View>
+      <Switch accessibilityLabel="Show sender and message" disabled={busy} value={preferences.contentPreviews !== false} onValueChange={v => update({ contentPreviews: v })} trackColor={{ true: colors.primary, false: colors.borderStrong }} thumbColor="#FFFFFF" {...(Platform.OS === 'web' ? { activeThumbColor: '#FFFFFF' } : {})} /></View>
     <Text accessibilityRole="header" style={styles.label}>Pause notifications</Text>
     {paused ? <><Text style={styles.description}>Paused until {new Date(preferences.pausedUntil).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</Text><Pressable disabled={busy} accessibilityRole="button" onPress={() => update({ pausedUntil: 0 })} style={styles.settings}><Text style={styles.link}>Resume notifications</Text></Pressable></> : <View style={styles.pauseChoices}>{[['30 minutes', 30], ['1 hour', 60], ['8 hours', 480]].map(([label, minutes]) => <Pressable key={label} disabled={busy} accessibilityRole="button" onPress={() => update({ pausedUntil: Date.now() + Number(minutes) * 60000 })} style={styles.pause}><Text style={styles.link}>{label}</Text></Pressable>)}</View>}
   </ScrollView>;
 }
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.background }, content: { padding: space.side, paddingBottom: space.xxl },
+  root: { flex: 1, backgroundColor: colors.background }, content: { padding: space.side, paddingBottom: space.xxl, width: '100%', maxWidth: 680, alignSelf: 'center' },
+  title: { ...typography.bodyStrong, color: colors.ink, marginBottom: space.xs },
   description: { ...typography.caption, color: colors.muted },
   label: { ...typography.label, marginTop: space.lg, marginBottom: space.xs, color: colors.muted },
   row: { paddingVertical: space.sm, minHeight: 60, flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },

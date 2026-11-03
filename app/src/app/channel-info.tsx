@@ -188,7 +188,7 @@ export default function ChannelInfo() {
 
 const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
-  content: { padding: space.side, paddingBottom: space.xxl },
+  content: { padding: space.side, paddingBottom: space.xxl, width: "100%", maxWidth: 680, alignSelf: "center" },
   loading: { padding: space.lg, alignItems: "center", justifyContent: "center", gap: space.lg },
   loadError: { ...typography.body, color: colors.red, textAlign: "center" },
   identity: { flexDirection: "row", alignItems: "center", gap: space.sm },

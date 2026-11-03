@@ -200,6 +200,7 @@ export default function Chats() {
             <SwipeRow name={title} kind="conversation" archived={!!item.archived} labels={CLOSE_LABELS} open={openId === item.id} busy={busyId !== null} canDelete
               onOpen={() => setOpenId(item.id)} onClose={closeRow} onArchive={() => { void act(item); }} onDelete={() => { setActionError(null); setDeleting(item); }}>
               {(bind) => (
+                <View style={styles.rowWrap}>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`${title}${unread ? `, ${unread} unread ${unread === 1 ? "reply" : "replies"}` : ""}${item.shared === false ? ", private" : ""}${item.closed ? `. ${closedLine(item.closed)}` : lastLine(item, "You") ? `. ${lastLine(item, "You")}` : ""}`}
@@ -227,8 +228,10 @@ export default function Chats() {
                     <Text style={[styles.rowWhen, unread > 0 && styles.unreadWhen]}>{when(item.updatedAt)}</Text>
                     {unread > 0 ? <View style={styles.unreadBadge}><Text style={styles.unreadBadgeText}>{unread > 99 ? "99+" : unread}</Text></View> : null}
                   </View>
-                  {bind.trailing}
                 </Pressable>
+                {/* Beside the row, not inside it: a button can't hold a button on the web. */}
+                {bind.trailing}
+                </View>
               )}
             </SwipeRow>
           );
@@ -273,14 +276,15 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   error: { ...typography.caption, marginBottom: space.sm, marginHorizontal: space.side, color: colors.red },
   sectionTitle: { ...typography.label, color: colors.muted, paddingHorizontal: space.side, paddingTop: space.sm, paddingBottom: space.xs, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   retry: { marginHorizontal: space.side },
+  rowWrap: { flexDirection: "row", alignItems: "center", backgroundColor: colors.background, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   row: {
+    flex: 1,
+    minWidth: 0,
     minHeight: 64,
     paddingVertical: space.sm,
     paddingHorizontal: space.side,
     flexDirection: "row",
     alignItems: "center",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.line,
   },
   agentIcon: { width: 36, height: 36, marginRight: space.sm, alignItems: "center", justifyContent: "center", backgroundColor: colors.blueSoft, borderRadius: radius.sm },
   projectTag: { ...typography.meta, color: colors.blueDark, marginTop: 1 },

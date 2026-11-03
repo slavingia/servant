@@ -172,7 +172,7 @@ export default function Settings() {
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   hint: { ...typography.caption, color: colors.muted, marginTop: space.xs, marginHorizontal: space.xs },
   root: { flex: 1, backgroundColor: colors.surface },
-  content: { paddingBottom: space.xl },
+  content: { paddingBottom: space.xl, width: "100%", maxWidth: 680, alignSelf: "center" },
   profile: { marginHorizontal: space.side, marginBottom: space.lg, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", gap: space.sm },
   profileCopy: { flex: 1, minWidth: 0 },
   profileName: { ...typography.heading, color: colors.ink },

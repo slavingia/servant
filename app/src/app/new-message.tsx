@@ -50,7 +50,7 @@ export default function NewMessage() {
     <View style={styles.root}>
       <View style={styles.recipientRow}>
         <Text style={styles.to}>To:</Text>
-        <TextInput accessibilityLabel="Search people" value={query} onChangeText={setQuery} placeholder="Name or teammate" placeholderTextColor={colors.muted} style={styles.search} autoCorrect={false} autoCapitalize="none" />
+        <TextInput accessibilityLabel="Search people" value={query} onChangeText={setQuery} placeholder="Search people" placeholderTextColor={colors.muted} style={styles.search} autoCorrect={false} autoCapitalize="none" />
       </View>
       <Text style={styles.intro}>Choose up to eight people.</Text>
       {picked.length ? <View style={styles.selection}>
@@ -102,7 +102,7 @@ export default function NewMessage() {
 }
 
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.background },
+  root: { flex: 1, backgroundColor: colors.background, width: "100%", maxWidth: 680, alignSelf: "center" },
   recipientRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: space.side, gap: space.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   to: { ...typography.bodyStrong, color: colors.muted },
   intro: { ...typography.caption, marginVertical: space.sm, marginHorizontal: space.side, color: colors.muted },

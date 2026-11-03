@@ -87,7 +87,7 @@ export default function Feedback() {
 }
 const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
-  content: { padding: space.side, gap: space.md, paddingBottom: space.xxl },
+  content: { padding: space.side, gap: space.md, paddingBottom: space.xxl, width: "100%", maxWidth: 680, alignSelf: "center" },
   sectionHeading: { ...typography.label, marginTop: space.md, color: colors.ink },
   label: { ...typography.label, color: colors.ink, marginTop: space.xs, marginBottom: -space.xs },
   intro: { ...typography.caption, color: colors.muted },

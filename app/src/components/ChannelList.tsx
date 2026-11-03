@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { AppIcon } from "./AppIcon";
 import { Button } from "./Button";
@@ -118,7 +118,7 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
         onScrollBeginDrag={closeRow}
         refreshControl={<RefreshControl refreshing={refreshing} tintColor={colors.blue} onRefresh={() => void reload()} />}
         ListHeaderComponent={<View>
-          {archived ? <Text style={styles.archiveIntro}>Swipe left to restore a conversation to Home</Text> : <View style={styles.filters}>
+          {archived ? (archivedCount ? <Text style={styles.archiveIntro}>{Platform.OS === "web" ? "Use ••• on a conversation to restore it to Home" : "Swipe left to restore a conversation to Home"}</Text> : null) : <View style={styles.filters}>
             {[false, true].map(value => <Pressable key={String(value)} accessibilityRole="button" accessibilityLabel={value ? `Unread conversations, ${unreadCount}` : "All conversations"} accessibilityState={{ selected: unreadOnly === value }}
               onPress={() => { setUnreadOnly(value); closeRow(); }} style={({ pressed }) => [styles.filter, unreadOnly === value && styles.selectedFilter, pressed && styles.pressed]}>
               <Text style={[styles.filterText, unreadOnly === value && styles.selectedFilterText]}>{value ? "Unread" : "All"}</Text>

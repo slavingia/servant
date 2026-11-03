@@ -10,8 +10,12 @@ import { formatFileSize } from "../lib/media";
 import { radius, space, typography } from "../lib/theme";
 import { useMediaGallery } from "./MediaGalleryContext";
 
+// Decorative: hidden from screen readers. On the web only aria-hidden reaches the
+// DOM (the native-only props become invalid attributes there).
+const hiddenIcon = Platform.OS === "web" ? { "aria-hidden": true } as const : { accessible: false, accessibilityElementsHidden: true, importantForAccessibility: "no-hide-descendants" } as const;
+
 function PlayMark({ size = 24 }: { size?: number }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants"><Path d="M7 3.8a1 1 0 0 1 1.5-.86l13 8.2a1 1 0 0 1 0 1.72l-13 8.2A1 1 0 0 1 7 20.2Z" fill="#FFFFFF" /></Svg>;
+  return <Svg width={size} height={size} viewBox="0 0 24 24" {...hiddenIcon}><Path d="M7 3.8a1 1 0 0 1 1.5-.86l13 8.2a1 1 0 0 1 0 1.72l-13 8.2A1 1 0 0 1 7 20.2Z" fill="#FFFFFF" /></Svg>;
 }
 
 /** Full clips are fetched only after a tap, never for every timeline preview. */

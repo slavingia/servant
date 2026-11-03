@@ -50,10 +50,10 @@ export default function LeaderboardScreen() {
         <Text style={styles.totalLabel}>{account.serverName} · {current.caption}</Text>
         <Text style={styles.totalValue}>{formatTokens(board.totals.total)}</Text>
         <Text style={styles.totalDetail}>tokens · {board.totals.turns.toLocaleString("en-US")} agent {board.totals.turns === 1 ? "reply" : "replies"}</Text>
-        <View style={styles.split}>
+        {board.totals.total ? <View style={styles.split}>
           <Text style={styles.splitText}>In {formatTokens(board.totals.input)}</Text>
           <Text style={styles.splitText}>Out {formatTokens(board.totals.output)}</Text>
-        </View>
+        </View> : null}
       </View>
 
       {mine ? <Text style={styles.you}>You're #{mine.rank} with {formatTokens(mine.total)} tokens ({sharePercent(mine.total, board.totals.total)} of the total).</Text> : null}
@@ -79,7 +79,7 @@ export default function LeaderboardScreen() {
           </View>;
         })}
       </View>
-      <Text style={styles.footnote}>Tokens the agent reported for each reply, credited to the person who asked: their agent chats plus @s replies in channels. Bars show each person's share of the total. Prompts are not shown here.</Text>
+      <Text style={styles.footnote}>Tokens the agent reported for each reply, credited to the person who asked: their agent chats plus @s replies in channels.{board.people.length ? " Bars show each person's share of the total." : ""} Prompts are not shown here.</Text>
     </>}
   </ScrollView>;
 }

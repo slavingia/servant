@@ -22,12 +22,12 @@ export function Button({ label, onPress, kind = "primary", busy, disabled, compa
       accessibilityState={{ disabled: !!off, busy: !!busy }}
       disabled={!!off}
       onPress={off ? undefined : onPress}
-      style={({ pressed }) => [styles.base, styles[kind], compact && styles.compact, off && styles.off, pressed && !off && styles.pressed, style]}
+      style={({ pressed }) => [styles.base, styles[kind], compact && styles.compact, off && (kind === "primary" && !busy ? styles.primaryOff : styles.off), pressed && !off && styles.pressed, style]}
     >
       {busy ? (
         <ActivityIndicator color={kind === "primary" ? colors.onPrimary : kind === "danger" ? colors.red : colors.blue} />
       ) : (
-        <Text style={[styles.label, styles[`${kind}Label`]]}>{label}</Text>
+        <Text style={[styles.label, styles[`${kind}Label`], off && kind === "primary" && styles.primaryOffLabel]}>{label}</Text>
       )}
     </Pressable>
   );
@@ -41,6 +41,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   link: { minHeight: 44, backgroundColor: "transparent" },
   danger: { minHeight: 44, backgroundColor: "transparent" },
   off: { opacity: 0.5 },
+  primaryOff: { backgroundColor: colors.line },
+  primaryOffLabel: { color: colors.muted },
   pressed: { opacity: 0.85 },
   label: { ...typography.bodyStrong, textAlign: "center" },
   primaryLabel: { color: colors.onPrimary },
