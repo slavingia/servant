@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, FlatList, Platform, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { ActivityIndicator, AppState, FlatList, Platform, Pressable, StyleSheet, Switch, Text, useWindowDimensions, View } from "react-native";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { randomUUID } from "expo-crypto";
@@ -20,6 +20,7 @@ import { useSession } from "../../lib/session";
 import { forwardTitle, parseForward, type ForwardCard } from "../../lib/forward";
 import { AppIcon } from "../../components/AppIcon";
 import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
+import { useWideLayout } from "../../lib/layout";
 
 type Row = Message & { waitingForAgent?: boolean; queuedTurn?: AgentTurn; agentWorking?: boolean; pending?: boolean; failed?: boolean; localId?: string; uploads?: Upload[]; forwardPreview?: ForwardCard | null };
 
@@ -41,6 +42,7 @@ function SharedChatView() {
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [chat, setChat] = useState<Chat | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showTitle, setShowTitle] = useState(false);
   const load = useCallback(async () => {
     if (!account || !id) return;
     try {
@@ -62,7 +64,8 @@ function SharedChatView() {
   return (
     <MediaGalleryProvider key={id} scope={{ kind: "chat", id }} items={media}>
     <View style={styles.root}>
-      <Stack.Screen options={{ title: chat?.title || title || "Conversation", ...filesHeader(String(id), chat?.title || title || "Conversation", colors.blue) }} />
+      <Stack.Screen options={{ title: chat?.title || title || "Conversation", headerTitle: titleButton(showTitle, setShowTitle), ...filesHeader(String(id), chat?.title || title || "Conversation", colors.blue) }} />
+      {showTitle ? <FullTitle title={chat?.title || title || "Conversation"} onClose={() => setShowTitle(false)} /> : null}
       <View style={styles.sharedBanner}>
         <Text style={styles.turnLabel}>{authorName}'s conversation</Text>
         <Text style={styles.turnDetail}>{chat?.shared === false
@@ -96,6 +99,37 @@ function SharedChatView() {
     </View>
     </MediaGalleryProvider>
   );
+}
+
+// Long titles get cut off in the header: tap the title to read all of it.
+function titleButton(open: boolean, setOpen: (next: boolean) => void) {
+  const render = ({ children }: { children: string }) => <HeaderTitle title={children} open={open} onPress={() => setOpen(!open)} />;
+  render.displayName = "ChatHeaderTitle";
+  return render;
+}
+
+function HeaderTitle({ title, open, onPress }: { title: string; open: boolean; onPress: () => void }) {
+  const { colors } = useTheme();
+  const { width } = useWindowDimensions();
+  const wide = useWideLayout();
+  const size = wide ? { fontSize: 16, fontWeight: "700" as const } : { fontSize: typography.bodyStrong.fontSize, fontWeight: typography.bodyStrong.fontWeight };
+  // Leave room for Back and Files on a phone.
+  const maxWidth = wide ? undefined : Math.max(120, width - 150);
+  return <Pressable testID="chat-title" accessibilityRole="button" accessibilityLabel={title}
+    accessibilityHint={open ? "Hides the full title" : "Shows the full title"} accessibilityState={{ expanded: open }}
+    onPress={onPress} hitSlop={8} style={{ maxWidth, flexShrink: 1, minHeight: 44, justifyContent: "center" }}>
+    <Text numberOfLines={1} style={{ ...size, color: colors.ink }}>{title}</Text>
+  </Pressable>;
+}
+
+function FullTitle({ title, onClose }: { title: string; onClose: () => void }) {
+  const styles = useStyles();
+  return <View testID="full-title" style={styles.fullTitle}>
+    <Text selectable accessibilityRole="header" style={styles.fullTitleText}>{title}</Text>
+    <Pressable accessibilityRole="button" accessibilityLabel="Hide full title" hitSlop={12} onPress={onClose} style={styles.remove}>
+      <Text style={styles.removeText}>✕</Text>
+    </Pressable>
+  </View>;
 }
 
 // Your own chat: shared with the server by default; this switch turns it off.
@@ -204,6 +238,14 @@ function ChatConversation() {
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [heading, setHeading] = useState(title && title !== "New chat" ? title : "New chat");
+  const [showTitle, setShowTitle] = useState(false);
+  // Links, pushes and the sidebar may open a chat without its title: read it from the server.
+  useEffect(() => {
+    if (!account || !id) return;
+    let live = true;
+    api.chat(account, id).then(c => { if (live && c.title && c.title !== "New chat") setHeading(h => h === "New chat" ? c.title : h); }).catch(() => {});
+    return () => { live = false; };
+  }, [account, id]);
   const list = useRef<FlatList<Row>>(null);
   const abort = useRef<AbortController | null>(null);
   const currentLoad = useRef<object | null>(null);
@@ -524,7 +566,8 @@ function ChatConversation() {
   return (
     <MediaGalleryProvider key={id} scope={{ kind: "chat", id }} items={media}>
     <View style={styles.root}>
-      <Stack.Screen options={{ title: heading, ...filesHeader(String(id), heading, colors.blue) }} />
+      <Stack.Screen options={{ title: heading, headerTitle: titleButton(showTitle, setShowTitle), ...filesHeader(String(id), heading, colors.blue) }} />
+      {showTitle ? <FullTitle title={heading} onClose={() => setShowTitle(false)} /> : null}
       <VibeBar id={String(id)} />
       <ShareToggle id={String(id)} />
       <ConversationKeyboardView>
@@ -653,6 +696,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   turnCopy: { flex: 1 }, turnLabel: { ...typography.captionStrong, color: colors.ink }, turnDetail: { ...typography.meta, color: colors.muted },
   list: { paddingVertical: space.sm },
   readOnlyList: { paddingTop: space.xl },
+  fullTitle: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.side, paddingVertical: space.sm, backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  fullTitleText: { ...typography.bodyStrong, flex: 1, color: colors.ink },
   sharedBanner: { paddingHorizontal: space.side, paddingVertical: space.xs, backgroundColor: colors.blueSoft },
   vibeBar: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.side, paddingVertical: space.sm, backgroundColor: colors.blueSoft },
   previewButton: { minHeight: 40, paddingHorizontal: space.md, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
