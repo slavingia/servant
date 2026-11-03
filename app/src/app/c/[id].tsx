@@ -237,7 +237,7 @@ export default function ConversationScreen() {
     } catch (e) { setError(e instanceof Error ? e.message : "Couldn't start the meeting"); }
     finally { setCalling(false); }
   };
-  const headerButton = { type: "button" as const, tintColor: colors.blue, labelStyle: { color: colors.blue, fontWeight: "600" as const }, hidesSharedBackground: true };
+  const headerButton = { type: "button" as const, tintColor: colors.blue, labelStyle: { color: colors.blue, fontSize: typography.label.fontSize, fontWeight: "600" as const }, hidesSharedBackground: true };
 
   return (
     <MediaGalleryProvider key={`${id}:${unavailable}`} scope={{ kind: "conversation", id }} items={media}>
