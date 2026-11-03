@@ -403,6 +403,21 @@ export function Composer({
     finally { sending.current = false; setBusy(false); }
   };
   const off = (!text.trim() && !files.length && !dictation.listening && !canSendEmpty) || busy || picking;
+  // After swipe typing, iOS can cancel the first touch on Send before it
+  // lifts, and the rendered text can trail the native box by a frame. So
+  // Send goes on touch down, judged by the latest native text rather than
+  // the rendered state. Taps from VoiceOver or a keyboard still use onPress.
+  const pressedAt = useRef(0);
+  const ready = () => !!latest.current.text.trim() || !!files.length || dictation.listening || canSendEmpty;
+  const sendOnPressIn = () => {
+    if (busy || picking || !ready()) return;
+    pressedAt.current = Date.now();
+    void send();
+  };
+  const sendOnPress = () => {
+    if (Date.now() - pressedAt.current < 5000) { pressedAt.current = 0; return; }
+    if (ready()) void send();
+  };
   return (
     <View style={[styles.composerWrap, wide && styles.composerWrapWide, { paddingBottom: wide ? space.md : keyboard ? space.xs : Math.max(insets.bottom, space.xs) }]}>
       {fileError || dictation.error ? <Text accessibilityRole="alert" style={styles.composerError}>{fileError || dictation.error}</Text> : null}
@@ -478,7 +493,7 @@ export function Composer({
           {!onCancel && dictation.available ? <Pressable testID="composer-dictate" accessibilityRole="button" accessibilityLabel={dictation.listening ? "Stop dictation" : "Dictate a message"} accessibilityState={{ disabled: busy, selected: dictation.listening }} disabled={busy} onPress={dictation.toggle} hitSlop={6} style={[styles.dictate, dictation.listening && styles.dictateOn]}>
             <AppIcon name={dictation.listening ? "stop" : "mic"} size={21} color={dictation.listening ? colors.onPrimary : colors.muted} />
           </Pressable> : null}
-          <Pressable testID="composer-send" accessibilityRole="button" accessibilityLabel={busy ? "Sending message" : sendLabel === "Send" ? "Send message" : sendLabel} accessibilityState={{ disabled: off, busy }} onPress={send} disabled={off} style={({ pressed }) => [styles.send, off && styles.sendDisabled, pressed && !off && { backgroundColor: colors.primaryPressed }]}>
+          <Pressable testID="composer-send" accessibilityRole="button" accessibilityLabel={busy ? "Sending message" : sendLabel === "Send" ? "Send message" : sendLabel} accessibilityState={{ disabled: off, busy }} onPressIn={sendOnPressIn} onPress={sendOnPress} disabled={busy || picking} style={({ pressed }) => [styles.send, off && styles.sendDisabled, pressed && !off && { backgroundColor: colors.primaryPressed }]}>
             {busy ? <ActivityIndicator size="small" color={colors.muted} /> : sendLabel === "Send" ? <AppIcon name="send" size={19} color={off ? colors.muted : colors.onPrimary} /> : <Text style={[styles.sendText, off && { color: colors.muted }]}>{sendLabel}</Text>}
           </Pressable>
         </View>
