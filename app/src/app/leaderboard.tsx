@@ -14,7 +14,7 @@ const periods: { key: LeaderboardPeriod; label: string; caption: string }[] = [
   { key: "all", label: "All time", caption: "all time" },
 ];
 
-// Built-in leaderboard: agent tokens used across the server and by person.
+// Built-in shame board: agent tokens used across the server and by person.
 export default function LeaderboardScreen() {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -27,7 +27,7 @@ export default function LeaderboardScreen() {
   const load = useCallback(async (which: LeaderboardPeriod) => {
     if (!account) return;
     try { setBoard(await api.leaderboard(account, which)); setError(null); }
-    catch (e) { setError(e instanceof ServerError ? e.message : "Couldn't load the leaderboard"); }
+    catch (e) { setError(e instanceof ServerError ? e.message : "Couldn't load the shame board"); }
   }, [account]);
   useFocusEffect(useCallback(() => { void load(period); }, [load, period]));
   if (!account) return null;
@@ -44,8 +44,10 @@ export default function LeaderboardScreen() {
       </Pressable>)}
     </View>
 
+    <Text style={styles.goal}>The goal is productivity: pull requests merged per million tokens, not tokens used. Tokens only show how much the agent is used.</Text>
+
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-    {!board ? <ActivityIndicator accessibilityLabel="Loading leaderboard" style={{ marginTop: space.xl }} color={colors.blue} /> : <>
+    {!board ? <ActivityIndicator accessibilityLabel="Loading shame board" style={{ marginTop: space.xl }} color={colors.blue} /> : <>
       <View accessible accessibilityLabel={`${formatTokens(board.totals.total)} tokens used on ${account.serverName} in ${current.caption}, across ${board.totals.turns} agent replies`} style={styles.total}>
         <Text style={styles.totalLabel}>{account.serverName} · {current.caption}</Text>
         <Text style={styles.totalValue}>{formatTokens(board.totals.total)}</Text>
@@ -102,6 +104,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   you: { ...typography.caption, color: colors.ink, marginBottom: space.sm },
   section: { ...typography.label, color: colors.muted, marginTop: space.sm, marginBottom: space.xs },
   empty: { ...typography.body, color: colors.muted, marginVertical: space.md },
+  goal: { ...typography.label, color: colors.muted, marginTop: space.md },
   list: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   row: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: space.sm, paddingHorizontal: space.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   rowMe: { backgroundColor: colors.surface },

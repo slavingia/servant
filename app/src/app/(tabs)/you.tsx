@@ -138,7 +138,7 @@ export default function Settings() {
       <Text accessibilityRole="header" style={styles.section}>Workspace</Text>
       <View style={styles.group}>
         <Row label="People" onPress={() => router.push("/members")} />
-        <Row label="Token leaderboard" onPress={() => router.push("/leaderboard")} />
+        <Row label="Shame board" onPress={() => router.push("/leaderboard")} />
         {owner ? <Row label="Invite people" onPress={() => router.push("/invite")} /> : null}
         <Row label="Archived" onPress={() => router.push("/archived-channels")} />
       </View>
