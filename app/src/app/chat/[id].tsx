@@ -19,7 +19,7 @@ import { forwardTitle, parseForward, type ForwardCard } from "../../lib/forward"
 import { AppIcon } from "../../components/AppIcon";
 import { space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 
-type Row = Message & { pending?: boolean; failed?: boolean; localId?: string; uploads?: Upload[]; forwardPreview?: ForwardCard | null };
+type Row = Message & { waitingForAgent?: boolean; pending?: boolean; failed?: boolean; localId?: string; uploads?: Upload[]; forwardPreview?: ForwardCard | null };
 
 export default function ChatScreen() {
   const { id, readOnly } = useLocalSearchParams<{ id: string; readOnly?: string }>();
@@ -458,7 +458,14 @@ function ChatConversation() {
     finally { if (mounted.current) setActionBusy(false); }
   };
 
-  const data = [...(messages ?? [])].reverse();
+  // A brand-new chat whose first message hasn't reached the agent yet (it's
+  // busy elsewhere) has no history. Show that message as sent, not a blank
+  // "What can I help with?", while it waits its turn.
+  const unstarted = messages?.length === 0 && !loadError
+    ? (turn && activeAgentTurn(turn) && !turn.accepted ? turn : waiting[0] ?? null) : null;
+  const firstRow: Row | null = unstarted ? { id: `waiting_${unstarted.id}`, role: "user", text: unstarted.text || "Attachment", at: unstarted.createdAt, waitingForAgent: true } : null;
+  const queuedBelow = firstRow ? waiting.filter(t => t.id !== unstarted!.id) : waiting;
+  const data = [...(messages ?? []), ...(firstRow ? [firstRow] : [])].reverse();
 
   return (
     <MediaGalleryProvider key={id} scope={{ kind: "chat", id }} items={media}>
@@ -476,7 +483,7 @@ function ChatConversation() {
             keyExtractor={(m) => m.id}
             contentContainerStyle={styles.list}
             ListFooterComponent={
-              messages.length === 0 ? (
+              messages.length === 0 && !firstRow ? (
                 <View style={styles.empty}>
                   <Text accessibilityRole="header" style={styles.emptyTitle}>{loadError ? "Couldn't load this chat" : "What can I help with?"}</Text>
                   {loadError ? <>
@@ -505,6 +512,7 @@ function ChatConversation() {
                   {item.uploads?.length ? <PendingAttachments files={item.uploads} /> : null}
                   {working ? <Text accessibilityLiveRegion="polite" style={styles.typing}>{status ?? "Working on it…"}</Text> : null}
                   {item.interrupted ? <Text style={styles.typing}>Cut off before it finished</Text> : null}
+                  {item.waitingForAgent ? <Text accessibilityLiveRegion="polite" style={styles.typing}>Sends when the agent is free</Text> : null}
                 </View>
               </View>;
             }}
@@ -518,8 +526,8 @@ function ChatConversation() {
           {turn.canStop ? <Button label="Stop" kind="danger" compact busy={actionBusy} disabled={turn.status === 'stopping'} onPress={() => { void stop(); }} /> : null}
         </View> : null}
         {turn && ['cancelled', 'interrupted', 'failed'].includes(turn.status) ? <View style={styles.turnStatus}><Text accessibilityLiveRegion="polite" style={styles.turnLabel}>{agentTurnLabel(turn)}</Text></View> : null}
-        {waiting.length ? <View accessibilityLabel="Waiting messages" style={styles.queue}>
-          {waiting.map(item => <View key={item.id} style={styles.queued}>
+        {queuedBelow.length ? <View accessibilityLabel="Waiting messages" style={styles.queue}>
+          {queuedBelow.map(item => <View key={item.id} style={styles.queued}>
             <View style={styles.turnCopy}>
               <Text numberOfLines={2} style={styles.queuedText}>{item.text || "Attachment"}</Text>
               <Text style={styles.turnDetail}>{item.steerRequested ? "Adding this to the current reply…" : "Sends when the agent is done"}</Text>
