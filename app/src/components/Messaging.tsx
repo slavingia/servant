@@ -13,18 +13,14 @@ import { messageDeviceLabel } from "../lib/message-device";
 import { useSession } from "../lib/session";
 import { usePhotos } from "../lib/photos";
 import { useWideLayout } from "../lib/layout";
+import { shortTime } from "../lib/time-label";
 import { validateAttachmentSelection } from "../lib/media";
 import { Attachments, DraftAttachments, pickAttachments, type DraftAttachment } from "./Attachments";
 import { AppIcon } from "./AppIcon";
 import { MessageText } from "./MessageText";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
-export function when(ms: number) {
-  const d = new Date(ms);
-  const today = new Date();
-  if (d.toDateString() === today.toDateString()) return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  return d.toLocaleDateString([], { month: "short", day: "numeric" });
-}
+export const when = (ms: number) => shortTime(ms);
 
 // userId shows that person's photo. Add tapToMessage to make the avatar open your
 // DM with them; it stays a plain picture for you, the agent, and pickers.

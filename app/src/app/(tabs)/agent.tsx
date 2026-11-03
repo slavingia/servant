@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, AppState, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
+import { shortTime as when } from "../../lib/time-label";
 import { AppIcon } from "../../components/AppIcon";
 import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -28,12 +29,6 @@ function closedLine(closed: ChatClosed) {
   return closed.reason ? `${who}: ${closed.reason}` : closed.by === "agent" ? "Agent finished" : who;
 }
 
-function when(ms: number) {
-  const d = new Date(ms);
-  const today = new Date();
-  if (d.toDateString() === today.toDateString()) return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  return d.toLocaleDateString([], { month: "short", day: "numeric" });
-}
 
 export default function Chats() {
   const styles = useStyles();
