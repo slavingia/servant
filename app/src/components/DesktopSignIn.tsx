@@ -82,7 +82,7 @@ function DesktopSignInAttempt({ workspace, onUseInvite, onRetry }: { workspace: 
       <Band />
       <ScrollView contentContainerStyle={styles.body}>
         <Text accessibilityRole="header" style={styles.title}>Your workspace, on your Mac</Text>
-        <Text style={styles.lead}>Sign in with the Servant app on your phone.</Text>
+        <Text style={styles.lead}>Sign in with the Servant app on your phone, or paste an invite link.</Text>
         <View style={styles.card}>
           {session && !error && !expired && !completing ? <>
             <View accessibilityLabel="Computer sign-in QR code" style={styles.qr}>
@@ -105,8 +105,8 @@ function DesktopSignInAttempt({ workspace, onUseInvite, onRetry }: { workspace: 
           <Text style={styles.step}>3. Check the matching number, then tap Sign in on Mac.</Text>
         </View>
         <Text accessibilityLiveRegion="polite" style={styles.status}>{connection || (session && !error && !expired && !completing ? "Waiting for approval on your phone…" : "")}</Text>
-        <Button label="Use an invite link instead" kind="link" disabled={completing} onPress={onUseInvite} />
-        <Text style={styles.note}>Need the phone option? Update Servant to the latest version first.</Text>
+        <Button label="Paste an invite link" kind="link" disabled={completing} onPress={onUseInvite} />
+        <Text style={styles.note}>No phone? Ask your admin for an invite link. On the server's own Mac, run servant invite --owner</Text>
       </ScrollView>
     </View>
   );

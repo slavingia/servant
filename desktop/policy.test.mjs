@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { allowedPermission, assetPath, externalUrl, isAppUrl, teamIdentifier, updateMode, workspaceConfig } from './policy.mjs';
+import { allowedPermission, assetPath, externalUrl, inviteLink, isAppUrl, teamIdentifier, updateMode, workspaceConfig } from './policy.mjs';
+
+test('only servant://pair invite links reach the app', () => {
+  const link = 'servant://pair?code=ABCDE-FGH23&server=http%3A%2F%2F127.0.0.1%3A8787&key=02' + 'a'.repeat(64);
+  assert.equal(inviteLink(link), link);
+  for (const url of ['servant://pair', 'servant://chat?code=X', 'https://pair?code=X', 'javascript:alert(1)', 'servant://pair?code=' + 'A'.repeat(5000), undefined, 42]) assert.equal(inviteLink(url), null);
+});
 
 test('local assets cannot escape their root or use another origin', () => {
   assert.equal(assetPath('/bundle/web', 'servant-app://app/assets/a.js'), '/bundle/web/assets/a.js');

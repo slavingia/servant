@@ -44,6 +44,20 @@ Both `web/` and `workspace.json` are generated and ignored by Git.
 in `desktop/dist/`. Packaged apps must use production HTTPS configuration; local
 test configuration is for development only.
 
+## Set up and sign in with no phone
+
+The Mac app does not need the phone app or a QR code. On the Mac that will host the server, from a Servant checkout:
+
+```sh
+deploy/mac/install.sh            # add --tunnel so phones and other computers can reach it
+```
+
+It installs the server as launch agents, adds a `servant` command, and prints a one-time `servant://pair` link for the owner. If `/Applications/Servant.app` is installed it opens the link and signs in. Otherwise, open the app, choose **Paste an invite link** and paste it.
+
+Later, on the same Mac: `servant invite --owner` (a new device for you), `servant invite` (team link), `servant invite --name "Ann"` (one person). Without a public address, links point at `127.0.0.1` and work only on that Mac. Running the installer again deploys newer code and keeps the data.
+
+To join a server run by someone else, ask the admin for an invite link and paste it into the Mac app. `servant://` links opened from Terminal, Mail or a browser also open the Mac app.
+
 ## QR sign-in
 
 The Mac displays a short-lived QR request. A signed-in phone scans it through

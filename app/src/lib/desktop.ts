@@ -5,6 +5,8 @@ declare global {
     servantDesktop?: {
       platform: "macos";
       workspace?: DesktopWorkspace;
+      takeInvite?: () => string | null;
+      onInvite?: (callback: (link: string) => void) => () => void;
       storage?: {
         getItem(key: string): Promise<string | null>;
         setItem(key: string, value: string): Promise<void>;
@@ -16,6 +18,16 @@ declare global {
 
 export function isDesktop() {
   return typeof window !== "undefined" && window.servantDesktop?.platform === "macos";
+}
+
+// servant://pair links opened on the Mac (from Terminal, Mail or a browser).
+// Calls back with the one that launched the app, then with each new one.
+export function watchDesktopInvites(callback: (link: string) => void): () => void {
+  if (!isDesktop()) return () => {};
+  const bridge = window.servantDesktop!;
+  const first = bridge.takeInvite?.();
+  if (first) callback(first);
+  return bridge.onInvite?.(callback) ?? (() => {});
 }
 
 // This configuration is bundled with the Mac app. QR codes never supply an

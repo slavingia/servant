@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Servant admin command on a Mac (installed by deploy/mac/install.sh).
+#   servant invite --owner                 sign this Mac or another device in as you
+#   servant invite [--fresh]               team join link
+#   servant invite --name "X" [--role owner]   one-time named invite
+#   (add --local for a link that only works on this Mac)
+#   servant devices | revoke <id>
+#   servant status | rollback              API release selection
+#   servant logs                           follow every Servant log
+set -euo pipefail
+ENV_FILE="$HOME/.local/share/servant/servant.env"
+[[ -f "$ENV_FILE" ]] || { echo "Servant isn't installed here. Run deploy/mac/install.sh" >&2; exit 1; }
+set -a; . "$ENV_FILE"; set +a
+active() {
+  "$NODE" -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).activeRelease)' "$SERVANT_RUNTIME_DIR/deployment.json"
+}
+cmd="${1:-status}"; shift || true
+case "$cmd" in
+  status|rollback) exec "$NODE" "$SERVANT_RUNTIME_DIR/bootstrap/deploy.mjs" "$cmd" "$@" ;;
+  logs) exec tail -n 50 -F "$SERVANT_RUNTIME_DIR"/logs/*.log ;;
+  invite|devices|revoke|release)
+    cd "$SERVANT_RUNTIME_DIR/releases/$(active)"
+    exec "$NODE" server.mjs "$cmd" "$@" ;;
+  *) sed -n 2,9p "$0"; exit 2 ;;
+esac

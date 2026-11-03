@@ -116,7 +116,7 @@ VM or data center) with systemd, see [Linux](docs/linux.md).
 
 ```
 server/    Node server (no npm dependencies)
-deploy/    Linux installer and systemd units
+deploy/    Mac installer (deploy/mac) and Linux installer and systemd units
 relay/     optional Cloudflare Worker relay (development tests use Miniflare)
 config/    reproducible restricted member profile and policy
 app/    Expo mobile app

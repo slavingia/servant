@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, protocol, 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { APP_URL, DOWNLOAD_PAGE, allowedPermission, assetPath, externalUrl, isAppUrl, workspaceConfig } from './policy.mjs';
+import { APP_URL, DOWNLOAD_PAGE, allowedPermission, assetPath, externalUrl, inviteLink, isAppUrl, workspaceConfig } from './policy.mjs';
 import { createUpdates } from './updates.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -20,10 +20,24 @@ let window;
 const validSender = event => event.sender === window?.webContents && event.senderFrame === window.webContents.mainFrame && isAppUrl(event.senderFrame.url);
 const openExternal = value => { const url = externalUrl(value); if (url) void shell.openExternal(url); };
 const updates = createUpdates({ getWindow: () => window, openExternal });
+// An invite link opened before the window can take it (for example the one
+// deploy/mac/install.sh opens) waits here until the app asks for it.
+let pendingInvite = null;
+const openInvite = value => {
+  const link = inviteLink(value);
+  if (!link) return;
+  // Kept until the page takes it, so a link sent while the page is loading is not lost.
+  pendingInvite = link;
+  window?.webContents.send('servant:invite');
+  if (window?.isMinimized()) window.restore();
+  window?.show(); window?.focus();
+};
+app.on('open-url', (event, url) => { event.preventDefault(); openInvite(url); });
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
-  app.on('second-instance', () => { if (window?.isMinimized()) window.restore(); window?.show(); window?.focus(); });
+  if (app.isPackaged) app.setAsDefaultProtocolClient('servant');
+  app.on('second-instance', (event, argv) => { if (window?.isMinimized()) window.restore(); window?.show(); window?.focus(); argv.forEach(openInvite); });
   app.whenReady().then(async () => {
     protocol.handle('servant-app', async request => {
       let file = assetPath(webRoot, request.url);
@@ -44,6 +58,10 @@ else {
     session.defaultSession.setPermissionCheckHandler((contents, permission, origin, details) => contents === window?.webContents && isAppUrl(origin) && allowedPermission(permission, details));
     session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => callback(contents === window?.webContents && isAppUrl(details.requestingUrl) && allowedPermission(permission, details)));
     ipcMain.on('servant:config', event => { event.returnValue = validSender(event) ? { workspace } : {}; });
+    ipcMain.on('servant:pending-invite', event => {
+      event.returnValue = validSender(event) ? pendingInvite : null;
+      if (validSender(event)) pendingInvite = null;
+    });
     // Serialize storage writes to preserve sign-out and account changes in order.
     let storageQueue = Promise.resolve();
     ipcMain.handle('servant:storage', (event, operation, key, value) => {

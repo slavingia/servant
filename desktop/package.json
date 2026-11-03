@@ -42,6 +42,14 @@
       "icon": "../app/assets/icon.png",
       "minimumSystemVersion": "13.0",
       "hardenedRuntime": true,
+      "protocols": [
+        {
+          "name": "Servant invite",
+          "schemes": [
+            "servant"
+          ]
+        }
+      ],
       "entitlements": "entitlements.mac.plist",
       "entitlementsInherit": "entitlements.mac.plist",
       "extendInfo": {

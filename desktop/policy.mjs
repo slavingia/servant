@@ -10,6 +10,13 @@ export function externalUrl(value) {
   try { const url = new URL(value); return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password ? url.href : null; }
   catch { return null; }
 }
+// servant://pair invite links opened from Terminal, Mail or a browser. The app
+// treats them exactly like a pasted invite.
+export function inviteLink(value) {
+  if (typeof value !== 'string' || value.length > 4096) return null;
+  try { const url = new URL(value); return url.protocol === 'servant:' && url.host === 'pair' && url.searchParams.get('code') ? value : null; }
+  catch { return null; }
+}
 export function assetPath(root, value) {
   if (!isAppUrl(value)) return null;
   try {

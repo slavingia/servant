@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { Band, PageTitle } from "../components/Band";
@@ -6,7 +6,7 @@ import { Button } from "../components/Button";
 import { parseInvite } from "../lib/invite";
 import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
 import { useSession } from "../lib/session";
-import { getDesktopWorkspace } from "../lib/desktop";
+import { getDesktopWorkspace, watchDesktopInvites } from "../lib/desktop";
 import { DesktopSignIn } from "../components/DesktopSignIn";
 
 export default function Welcome() {
@@ -26,6 +26,14 @@ export default function Welcome() {
     }
     router.push({ pathname: "/pair", params: { code: invite.code, key: invite.serverKey ?? "", d: invite.discovery ?? "", server: invite.server ?? "" } });
   };
+
+  // On the Mac, an invite link opened from Terminal, Mail or a browser (such as
+  // the one `servant invite --owner` prints) signs in with no phone or QR code.
+  useEffect(() => watchDesktopInvites(link => {
+    const invite = parseInvite(link);
+    if (!invite) return;
+    router.push({ pathname: "/pair", params: { code: invite.code, key: invite.serverKey ?? "", d: invite.discovery ?? "", server: invite.server ?? "" } });
+  }), []);
 
   if (desktopWorkspace && !useInvite) return <DesktopSignIn workspace={desktopWorkspace} onUseInvite={() => setUseInvite(true)} />;
 

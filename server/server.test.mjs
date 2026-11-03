@@ -207,6 +207,21 @@ test("invites are single use and pair link carries the discovery URL", async () 
   assert.equal(again.json.error.message, "That invite link doesn't work. Ask for a new one");
 });
 
+test("an owner invite signs the server's own Mac in with a loopback link and no phone", async () => {
+  const first = mod.ownerInvite({ name: "Sam" });
+  const link = new URL(mod.pairLink(first.code, { port: 8787, discoveryUrl: "https://example.test/hub.json" }, { local: true }));
+  assert.equal(link.searchParams.get("server"), "http://127.0.0.1:8787");
+  assert.equal(link.searchParams.get("d"), null, "a local link never depends on discovery");
+  assert.match(link.searchParams.get("key"), /^(02|03)[0-9a-f]{64}$/);
+  const paired = await api("POST", "/v1/pair", { body: { code: first.code } });
+  assert.equal(paired.status, 201);
+  assert.equal(paired.json.user.role, "owner");
+  const second = mod.ownerInvite();
+  assert.equal(second.existing, true, "later owner invites add a device to the same owner");
+  const again = await api("POST", "/v1/pair", { body: { code: second.code } });
+  assert.equal(again.json.user.id, paired.json.user.id);
+});
+
 test("the join link works for many people, asks each for a name, and a fresh link retires it", async () => {
   const { code } = mod.joinLink();
   assert.equal(mod.joinLink().code, code, "same live link until replaced");

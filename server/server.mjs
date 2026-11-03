@@ -199,12 +199,24 @@ function makeJoinLink(state, { fresh }) {
   return { code, expiresAt: now() + INVITE_TTL_MS };
 }
 
-export function pairLink(code, cfg = loadConfig()) {
+// `local` links point at this computer's loopback port, so the Mac app on the
+// server's own Mac can join with no tunnel, discovery file or phone.
+export function pairLink(code, cfg = loadConfig(), { local = false } = {}) {
   const params = new URLSearchParams({ code });
   params.set("key", serverIdentity(DATA_DIR).publicKey);
-  if (cfg.discoveryUrl) params.set("d", cfg.discoveryUrl);
+  if (local) params.set("server", `http://127.0.0.1:${cfg.port}`);
+  else if (cfg.discoveryUrl) params.set("d", cfg.discoveryUrl);
   else if (cfg.publicUrl) params.set("hub", cfg.publicUrl);
   return `servant://pair?${params}`;
+}
+
+// One-time invite for the owner: a new device for the existing owner, or the
+// first owner account on a fresh server. Lets the server's own computer sign in
+// without a phone to scan a QR code.
+export function ownerInvite({ name } = {}) {
+  const owner = Object.values(readState().users).find(u => u.role === "owner");
+  const code = owner ? createInvite({ userId: owner.id }) : createInvite({ name: name || os.userInfo().username, role: "owner" });
+  return { code, expiresAt: now() + INVITE_TTL_MS, existing: !!owner };
 }
 
 // ---------- http helpers ----------
@@ -1445,13 +1457,21 @@ const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPat
 if (isMain) {
   const cmd = process.argv[2];
   if (cmd === "invite") {
-    const named = arg("name", "") || arg("user", "");
-    const { code, expiresAt } = named
+    // --owner: sign in as the owner (first owner on a new server). --local: the
+    // link points at 127.0.0.1, for the Mac app on this same computer.
+    const owner = process.argv.includes("--owner");
+    const cfg = loadConfig();
+    // With no public address yet, only this computer can reach the server.
+    const local = process.argv.includes("--local") || (!cfg.discoveryUrl && !cfg.publicUrl);
+    const named = owner || arg("name", "") || arg("user", "");
+    const { code, expiresAt } = owner ? ownerInvite({ name: arg("name", "") })
+      : named
       ? { code: createInvite({ name: arg("name", ""), role: arg("role", "member"), userId: arg("user", "") || undefined }), expiresAt: now() + INVITE_TTL_MS }
       : joinLink({ fresh: process.argv.includes("--fresh") });
     console.log(`Invite code: ${code}`);
-    console.log(`Link:        ${pairLink(code)}`);
+    console.log(`Link:        ${pairLink(code, cfg, { local })}`);
     console.log(`${named ? "Single use" : "Anyone with it can join"}. Expires ${new Date(expiresAt).toDateString()}.`);
+    if (local) console.log("Works only on this computer. In the Servant Mac app, choose Paste an invite link and paste it.");
   } else if (cmd === "release") {
     const [build, file] = process.argv.slice(3);
     if (!build || !file) {
