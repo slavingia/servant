@@ -290,3 +290,33 @@ test('a recognizer that ends promptly sends its final words without the grace pa
   assert.equal(f.calls.abort, 0);
   assert.deepEqual(session.words, ['Done']);
 });
+
+test('a typed message sent while the last dictation is still draining goes on the first tap', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture();
+  const session = f.session();
+  await session.start('en-US');
+  f.emit({ type: 'result', isFinal: false, text: 'First message' });
+  const first = session.finish(1200);
+  t.mock.timers.tick(1200);
+  assert.equal(await first, true);
+  // The recognizer hasn't sent end yet; the next Send must not be dropped.
+  assert.equal(await session.finish(1200), true);
+  f.emit({ type: 'end' });
+  assert.equal(await session.finish(1200), true);
+});
+
+test('no-speech or aborted on stop still sends the words already heard', async () => {
+  for (const error of ['no-speech', 'aborted', 'speech-timeout']) {
+    const f = fixture();
+    const session = f.session();
+    await session.start('en-US');
+    f.emit({ type: 'result', isFinal: true, text: 'Book the room' });
+    const sending = session.finish(1200);
+    f.emit({ type: 'error', error });
+    f.emit({ type: 'end' });
+    assert.equal(await sending, true, error);
+    assert.deepEqual(session.words, ['Book the room']);
+    assert.equal(session.states.at(-1)!.error, '');
+  }
+});

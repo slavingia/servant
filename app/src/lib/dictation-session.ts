@@ -138,9 +138,12 @@ export function createDictationCoordinator(speech: Speech, { permissionMayBackgr
                   if (event.text.trim()) session.onText(event.text);
                 } else update(session, { partial: event.text });
               } else if (event.type === 'error') {
+                // iOS reports no-speech or aborted when it's stopped after the
+                // words already arrived. That's an ordinary end, not a failure
+                // that should swallow the Send tap.
+                if (['aborted', 'no-speech', 'speech-timeout'].includes(event.error)) { update(session, { partial: '' }); return; }
                 run.failed = true;
-                update(session, { partial: '', error: ['aborted', 'no-speech', 'speech-timeout'].includes(event.error)
-                  ? '' : messages[event.error] ?? "Couldn't hear that. Try again" });
+                update(session, { partial: '', error: messages[event.error] ?? "Couldn't hear that. Try again" });
               }
             });
             run.native = true;
@@ -159,7 +162,9 @@ export function createDictationCoordinator(speech: Speech, { permissionMayBackgr
         finish(graceMs = 0): Promise<boolean> {
           const run = owner;
           if (!run || run.session !== session) return Promise.resolve(session.active && session.foreground);
-          if (run.cancelled) return Promise.resolve(false);
+          // A recognizer still draining after an earlier send (or a cancel) has
+          // nothing left for this draft, so a typed follow-up sends right away.
+          if (run.cancelled) return Promise.resolve(session.active && session.foreground);
           if (!run.stopping) {
             run.stopping = true;
             if (run.resume) { settle(run, true); return run.done; }
