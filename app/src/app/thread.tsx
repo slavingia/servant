@@ -20,7 +20,9 @@ import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
 export default function ThreadScreen() {
   const styles = useStyles();
   const { colors } = useTheme();
-  const { conv, root, title, focus } = useLocalSearchParams<{ conv: string; root: string; title?: string; focus?: string }>();
+  const { conv, root, title, focus, from } = useLocalSearchParams<{ conv: string; root: string; title?: string; focus?: string; from?: string }>();
+  // A push lands on the notified reply: highlight it, but it is not a search match.
+  const matchLabel = from === "push" ? null : "Search match";
   const { account } = useSession();
   const focused = useIsFocused();
   const { subscribe } = useLive();
@@ -245,7 +247,7 @@ export default function ThreadScreen() {
             contentContainerStyle={{ paddingBottom: space.side }}
             renderItem={({ item, index }) => {
               if (item.id === root) return <View style={[styles.head, item.id === focus && styles.searchMatch]}>
-                {item.id === focus ? <Text style={styles.searchLabel}>Search match</Text> : null}
+                {item.id === focus && matchLabel ? <Text style={styles.searchLabel}>{matchLabel}</Text> : null}
                 {title ? <Text style={styles.where}>In {title}</Text> : null}
                 <PostRow post={item} receipt={receipts?.get(item.id)} onReact={(emoji, active) => react(item, emoji, active)} onAskAgent={() => askAgent(item)} me={me} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
                 <Text accessibilityRole="header" style={styles.count}>
@@ -257,7 +259,7 @@ export default function ThreadScreen() {
               const compact = above?.id !== root && canCompactPost(above, item, account.user.role);
               return <View style={item.id === focus ? styles.searchMatch : undefined}>
                 {newDay ? <MessageDate at={item.createdAt} /> : null}
-                {item.id === focus ? <Text style={styles.searchLabel}>Search match</Text> : null}
+                {item.id === focus && matchLabel ? <Text style={styles.searchLabel}>{matchLabel}</Text> : null}
                 <PostRow post={item} receipt={receipts?.get(item.id)} onReact={(emoji, active) => react(item, emoji, active)} onAskAgent={() => askAgent(item)} me={me} compact={compact && item.id !== focus} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
               </View>;
             }}

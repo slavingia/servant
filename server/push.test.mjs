@@ -27,6 +27,9 @@ test('Slack-style default recipients and privacy settings', () => {
   assert.equal(n.title, 'Servant'); assert.equal(n.body, 'You have a new message');
   assert.equal(n.data.userId, user.id); assert.equal(n.data.deviceId, 'd_1');
   assert.equal(apnsPayload(n).aps['thread-id'], 'ch_test');
+  // expo-notifications on iOS reads tap data only from userInfo.body.
+  assert.equal(apnsPayload(n).body.conversationId, 'ch_test');
+  assert.equal(apnsPayload(n).body.userId, n.data.userId);
   assert.equal(JSON.parse(fcmMessage('fake', n).message.data.body).conversationId, 'ch_test');
 });
 test('registration moves a token to the new session, settings validate inputs', () => {

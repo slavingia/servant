@@ -30,7 +30,10 @@ export function fcmMessage(token, notification) {
 }
 export function apnsPayload(notification) {
   const n = privateNotification(notification);
-  return { aps: { alert: { title: n.title, body: n.body }, sound: 'default', badge: n.badge, 'thread-id': n.group }, ...n.data };
+  // expo-notifications reads a remote push's data ONLY from userInfo.body on
+  // iOS (NotificationRecords.serializedNotificationData). Without it a tap has
+  // no route and just opens the app. Top-level copies stay for older builds.
+  return { aps: { alert: { title: n.title, body: n.body }, sound: 'default', badge: n.badge, 'thread-id': n.group }, ...n.data, body: n.data };
 }
 export function createPushTransport(config, fetcher = fetch) {
   let google = null;

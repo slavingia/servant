@@ -5,6 +5,9 @@ test('notification taps route to conversations, threads and agent chats only for
   const base = { userId: 'u', deviceId: 'd', conversationId: 'ch_test' };
   assert.deepEqual(notificationRoute(base, 'u', 'd'), { pathname: '/c/[id]', params: { id: 'ch_test' } });
   assert.deepEqual(notificationRoute({ ...base, threadRoot: '42' }, 'u', 'd'), { pathname: '/thread', params: { conv: 'ch_test', root: '42' } });
+  assert.deepEqual(notificationRoute({ ...base, threadRoot: '42', messageId: '57' }, 'u', 'd'), { pathname: '/thread', params: { conv: 'ch_test', root: '42', focus: '57', from: 'push' } });
+  assert.deepEqual(notificationRoute({ ...base, threadRoot: '42', messageId: '42' }, 'u', 'd'), { pathname: '/thread', params: { conv: 'ch_test', root: '42' } });
+  assert.deepEqual(notificationRoute({ ...base, threadRoot: '42', messageId: 'x;y' }, 'u', 'd'), { pathname: '/thread', params: { conv: 'ch_test', root: '42' } });
   assert.deepEqual(notificationRoute({ userId: 'u', deviceId: 'd', chatId: 'cht_test' }, 'u', 'd'), { pathname: '/chat/[id]', params: { id: 'cht_test' } });
   assert.equal(notificationRoute(base, 'other', 'd'), null);
   assert.equal(notificationRoute(base, 'u', 'other'), null);
