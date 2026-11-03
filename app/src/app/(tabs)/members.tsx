@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { PageTitle } from "../../components/Band";
 import { Avatar } from "../../components/Messaging";
@@ -14,13 +14,11 @@ import { space, typography, useTheme, createThemedStyles } from "../../lib/theme
 
 export default function Members() {
   const styles = useStyles();
-  const { colors, controls } = useTheme();
+  const { colors } = useTheme();
   const { account } = useSession();
   const { presence, connected } = useLive();
   const now = useStatusNow();
   const [directory, setDirectory] = useState<{ token: string; people: Person[] } | null>(null);
-  const [query, setQuery] = useState("");
-  const [searchFocused, setSearchFocused] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [opening, setOpening] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +35,6 @@ export default function Members() {
   useFocusEffect(useCallback(() => { void load(); }, [load]));
   if (!account) return null;
   const people = directory?.token === account.token ? directory.people : null;
-  const shown = (people ?? []).filter(person => person.name.toLowerCase().includes(query.trim().toLowerCase()));
   const message = async (person: Person) => {
     if (opening) return;
     setOpening(person.id); setError(null);
@@ -50,23 +47,19 @@ export default function Members() {
   };
   return <View style={styles.root}>
     <FlatList
-      data={shown}
+      data={people ?? []}
       keyExtractor={person => person.id}
       keyboardShouldPersistTaps="handled"
       refreshControl={<RefreshControl tintColor={colors.blue} colors={[colors.blue]} progressBackgroundColor={colors.surface} refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />}
       ListHeaderComponent={<>
         <PageTitle action={account.user.role === "owner" ? <Button label="Invite people" kind="link" compact onPress={() => router.push("/invite")} /> : undefined}>People</PageTitle>
-        <View style={[styles.searchBox, searchFocused && controls.inputFocused]}>
-          <AppIcon name="search" size={18} color={colors.muted} />
-          <TextInput accessibilityLabel="Search people" value={query} onChangeText={setQuery} placeholder="Find a teammate" placeholderTextColor={colors.muted} autoCapitalize="none" autoCorrect={false} returnKeyType="search" onFocus={() => setSearchFocused(true)} onBlur={() => setSearchFocused(false)} style={styles.search} />
-        </View>
-        {people && shown.length ? <Text style={styles.resultCount}>{query.trim() ? `${shown.length} ${shown.length === 1 ? "result" : "results"}` : `${people.length} ${people.length === 1 ? "member" : "members"}`}</Text> : null}
+        {people?.length ? <Text style={styles.resultCount}>{`${people.length} ${people.length === 1 ? "member" : "members"}`}</Text> : null}
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
       </>}
       ListEmptyComponent={people === null && !error ? <ActivityIndicator accessibilityLabel="Loading members" style={styles.loading} color={colors.blue} /> : <View style={styles.empty}>
-        <Text style={styles.emptyTitle}>{error ? "Couldn't load members" : query.trim() ? "No matching members" : "No members yet"}</Text>
-        <Text style={styles.emptyBody}>{error ? "Try again to see who's here." : query.trim() ? "Try a different name or clear your search." : "People will appear here when they join your server."}</Text>
-        {error ? <Button label="Try again" kind="secondary" busy={refreshing} onPress={() => { setRefreshing(true); void load(); }} style={styles.emptyAction} /> : query.trim() ? <Button label="Clear search" kind="secondary" onPress={() => setQuery("")} style={styles.emptyAction} /> : null}
+        <Text style={styles.emptyTitle}>{error ? "Couldn't load members" : "No members yet"}</Text>
+        <Text style={styles.emptyBody}>{error ? "Try again to see who's here." : "People will appear here when they join your server."}</Text>
+        {error ? <Button label="Try again" kind="secondary" busy={refreshing} onPress={() => { setRefreshing(true); void load(); }} style={styles.emptyAction} /> : null}
       </View>}
       renderItem={({ item }) => {
         const self = item.id === account.user.id;
@@ -81,11 +74,9 @@ export default function Members() {
     />
   </View>;
 }
-const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create({
+const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   content: { paddingBottom: space.xl, flexGrow: 1 },
-  searchBox: { ...controls.input, flexDirection: "row", alignItems: "center", gap: space.xs, marginHorizontal: space.side, marginBottom: space.md, paddingVertical: 0, backgroundColor: colors.surface },
-  search: { ...typography.body, flex: 1, minWidth: 0, minHeight: 44, paddingVertical: space.sm, color: colors.ink },
   resultCount: { ...typography.caption, marginHorizontal: space.side, marginBottom: space.xs, color: colors.muted },
   row: { minHeight: 64, paddingHorizontal: space.side, paddingVertical: space.sm, flexDirection: "row", alignItems: "center" },
   copy: { flex: 1, minWidth: 0, marginHorizontal: space.sm },
