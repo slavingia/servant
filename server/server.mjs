@@ -711,10 +711,16 @@ async function handle(req, res, cfg) {
     // A chat's time is its last activity. The chat record only moves when a
     // message is sent or a turn ends, so a reply that streams for an hour
     // would otherwise keep the send time and sink below quieter chats.
+    // It also never shows earlier than the newest message: a message steered
+    // into a running reply, or one that waited in the queue, lands in the
+    // history without touching the turn or the chat record.
     const withActivity = (chat, view) => {
-      const latestTurn = agentTurns.latest(chat.id)[0] || null;
-      return { ...view, updatedAt: Math.max(chat.updatedAt || 0, latestTurn?.updatedAt || 0), latestTurn,
-        lastMessage: chatLastMessage(latestTurn, chatMediaStore().last(chat.id)) };
+      const turns = agentTurns.latest(chat.id);
+      const latestTurn = turns[0] || null;
+      const mirrored = chatMediaStore().last(chat.id);
+      const lastMessage = chatLastMessage(latestTurn, mirrored);
+      const updatedAt = Math.max(chat.updatedAt || 0, ...turns.map(t => t.updatedAt || 0), mirrored?.at || 0, lastMessage?.at || 0);
+      return { ...view, updatedAt, latestTurn, lastMessage };
     };
     const sorted = list => list.sort((a, b) => b.updatedAt - a.updatedAt);
     const unread = agentTurns.unreadByChat(user.id);

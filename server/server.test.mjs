@@ -471,6 +471,21 @@ test("agent list times come from the latest turn, so a reply still streaming sta
   assert.equal(list[0].updatedAt, later);
 });
 
+test("agent list time is never earlier than the chat's newest message", async () => {
+  const token = await pair("member", "Rowena");
+  const chat = (await api("POST", "/v1/chats", { token, body: {} })).json.chat;
+  await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "first question" } });
+  // A message steered into a running reply reaches the history without
+  // moving the turn or the chat record.
+  const later = Date.now() + 120_000;
+  const db = new DatabaseSync(path.join(dataDir, "chat-media.db"));
+  db.prepare("INSERT INTO chat_messages(id,chat_id,role,text,at,signature) VALUES(?,?,?,?,?,?)")
+    .run(`msg_rowtime_${chat.id}`, chat.id, "user", "one more thing", later, "test");
+  db.close();
+  const row = (await api("GET", "/v1/chats?scope=org", { token })).json.chats.find(c => c.id === chat.id);
+  assert.equal(row.updatedAt, later);
+});
+
 test("a new agent chat stays out of every list until something is sent in it", async () => {
   const token = await pair("member", "Fay");
   const other = await pair("owner", "Gus");
