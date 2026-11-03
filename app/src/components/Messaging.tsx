@@ -1,9 +1,10 @@
 import { useLayoutEffect, useEffect, useRef, useState, type ComponentRef, type ReactNode } from "react";
-import { ActivityIndicator, Image, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type PressableProps } from "react-native";
+import { ActivityIndicator, Alert, Image, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type PressableProps } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { Conversation, Person, Post, Upload } from "../lib/server";
+import { router } from "expo-router";
+import { api, ServerError, type Conversation, type Person, type Post, type Upload } from "../lib/server";
 import { useDictation } from "../lib/dictation";
 import { insertDictation } from "../lib/dictation-text";
 import { activeMention, insertMention, mentionMatches, mentionText } from "../lib/mentions";
@@ -25,7 +26,38 @@ export function when(ms: number) {
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-export function Avatar({ name, agent, size = 34, userId }: { name: string; agent?: boolean; size?: number; userId?: string }) {
+// userId shows that person's photo. Add tapToMessage to make the avatar open your
+// DM with them; it stays a plain picture for you, the agent, and pickers.
+export function Avatar({ name, agent, size = 34, userId, tapToMessage }: { name: string; agent?: boolean; size?: number; userId?: string; tapToMessage?: boolean }) {
+  const { account } = useSession();
+  const [opening, setOpening] = useState(false);
+  const tappable = !!tapToMessage && !!userId && !agent && !!account && userId !== account.user.id;
+  if (!tappable) return <AvatarFace name={name} agent={agent} size={size} userId={userId} />;
+  const open = async () => {
+    if (opening || !account || !userId) return;
+    setOpening(true);
+    try {
+      const conversation = await api.openDm(account, [userId]);
+      router.push({ pathname: "/c/[id]", params: { id: conversation.id, title: name } });
+    } catch (e) {
+      const message = e instanceof ServerError ? e.message : "Couldn't open the conversation. Try again";
+      if (Platform.OS === "web") globalThis.alert?.(message); else Alert.alert(message);
+    } finally { setOpening(false); }
+  };
+  return <Pressable
+    accessibilityRole="button"
+    accessibilityLabel={`Message ${name}`}
+    accessibilityState={{ busy: opening, disabled: opening }}
+    disabled={opening}
+    hitSlop={4}
+    onPress={() => void open()}
+    style={({ pressed }) => ({ opacity: pressed || opening ? 0.6 : 1, borderRadius: size / 2 })}
+  >
+    <AvatarFace name={name} size={size} userId={userId} />
+  </Pressable>;
+}
+
+function AvatarFace({ name, agent, size, userId }: { name: string; agent?: boolean; size: number; userId?: string }) {
   const styles = useStyles();
   const { colors, avatarTones } = useTheme();
   const photo = usePhotos()?.uri(agent ? undefined : userId);
@@ -166,7 +198,7 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
   return (
     <>
     <Pressable onLongPress={actions} delayLongPress={400} accessible={false} style={[styles.post, compact && styles.postCompact, menu && { backgroundColor: colors.surface }]}>
-      <View style={styles.gutter}>{compact ? null : <Avatar name={post.user.name} agent={post.user.agent} userId={post.user.id} />}</View>
+      <View style={styles.gutter}>{compact ? null : <Avatar name={post.user.name} agent={post.user.agent} userId={post.user.id} tapToMessage />}</View>
       <View style={styles.postContent}>
         <View accessible accessibilityLabel={label} accessibilityHint={available ? "Touch and hold to copy, select text, react or open message actions" : undefined} accessibilityActions={available ? [{ name: "activate", label: "Copy, react or open message actions" }] : undefined} onAccessibilityAction={actions}>
         {!compact || deviceLabel ? (

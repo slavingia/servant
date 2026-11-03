@@ -67,7 +67,7 @@ export default function LeaderboardScreen() {
             accessibilityLabel={`Number ${row.rank}, ${me ? "you" : row.user.name}, ${formatTokens(row.total)} tokens, ${sharePercent(row.total, board.totals.total)} of the total, ${row.turns} replies`}
             style={[styles.row, me && styles.rowMe]}>
             <Text style={[styles.rank, row.rank <= 3 && styles.rankTop]}>{row.rank}</Text>
-            <Avatar name={row.user.name} userId={row.user.id} size={32} />
+            <Avatar name={row.user.name} userId={row.user.id} size={32} tapToMessage />
             <View style={styles.rowCopy}>
               <View style={styles.rowHead}>
                 <Text numberOfLines={1} style={styles.name}>{row.user.name}{me ? " (you)" : ""}</Text>

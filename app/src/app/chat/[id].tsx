@@ -78,7 +78,7 @@ function SharedChatView() {
             const theirs = item.role === "user";
             const timestamp = typeof item.at === "number" ? item.at : item.at ? new Date(item.at).getTime() : NaN;
             return <View accessibilityLabel={theirs ? `${authorName}'s message` : "Agent response"} style={styles.message}>
-              <Avatar name={theirs ? authorName : "Agent"} agent={!theirs} userId={theirs ? chat?.author?.id : undefined} size={34} />
+              <Avatar name={theirs ? authorName : "Agent"} agent={!theirs} userId={theirs ? chat?.author?.id : undefined} size={34} tapToMessage />
               <View style={styles.messageCopy}>
                 <View style={styles.messageMeta}>
                   <Text style={styles.author}>{theirs ? authorName : "Agent"}</Text>
