@@ -118,6 +118,7 @@ function SessionNavigation() {
         <Stack.Screen name="chat/[id]" options={{ title: "", ...sidebarScreen }} />
         <Stack.Screen name="feedback" options={{ title: "Feedback" }} />
         <Stack.Screen name="notifications" options={{ title: "Notifications", ...sidebarScreen }} />
+        <Stack.Screen name="leaderboard" options={{ title: "Token leaderboard", ...sidebarScreen }} />
         <Stack.Screen name="invite" options={{ title: "Invite someone", ...sidebarScreen }} />
       </Stack.Protected>
     </Stack>

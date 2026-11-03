@@ -76,7 +76,7 @@ function fakeHermes(key, label) {
       ev("tool.started", { tool_name: "terminal", args: { command: "cat ~/.ssh/id_rsa" } });
       for (const word of reply.split(/(?= )/)) ev("assistant.delta", { delta: word });
       ev("assistant.completed", { content: reply });
-      ev("run.completed", {});
+      ev("run.completed", { usage: { input_tokens: String(body.message).length, output_tokens: reply.length, total_tokens: String(body.message).length + reply.length } });
       ev("done", {});
       res.end();
       return;
@@ -435,6 +435,47 @@ test("the owner (admin) can always read every chat, private ones too, but not wr
   assert.equal(read.json.messages[0].text, "private question");
   assert.equal((await api("POST", `/v1/chats/${chat.id}/messages`, { token: admin, body: { text: "hi" } })).status, 403);
   assert.equal((await api("PATCH", `/v1/chats/${chat.id}`, { token: admin, body: { shared: true } })).status, 403);
+});
+
+test("leaderboard counts agent tokens in total and by person, across chats and channels", async () => {
+  const before = (await api("GET", "/v1/leaderboard?period=all", { token: await pair("member", "Board viewer") })).json;
+  const zed = await pair("member", "Zed Tokens");
+  const yan = await pair("member", "Yan Tokens");
+  // Zed: two private-chat turns. Yan: one private turn and one channel mention.
+  const zchat = (await api("POST", "/v1/chats", { token: zed, body: {} })).json.chat;
+  await api("POST", `/v1/chats/${zchat.id}/messages`, { token: zed, body: { text: "first question" } });
+  await api("POST", `/v1/chats/${zchat.id}/messages`, { token: zed, body: { text: "a much longer second question for the agent" } });
+  const ychat = (await api("POST", "/v1/chats", { token: yan, body: {} })).json.chat;
+  await api("POST", `/v1/chats/${ychat.id}/messages`, { token: yan, body: { text: "hi" } });
+  const general = (await api("GET", "/v1/conversations", { token: yan })).json.conversations.find(c => c.name === "general");
+  await api("POST", `/v1/conversations/${general.id}/messages`, { token: yan, body: { text: "@agent summarize the week" } });
+  let board;
+  for (let i = 0; i < 100; i++) {
+    board = (await api("GET", "/v1/leaderboard?period=all", { token: yan })).json;
+    if (board.people.find(p => p.user.name === "Yan Tokens")?.channel > 0) break;
+    await new Promise(r => setTimeout(r, 30));
+  }
+  const z = board.people.find(p => p.user.name === "Zed Tokens");
+  const y = board.people.find(p => p.user.name === "Yan Tokens");
+  assert.equal(z.turns, 2);
+  assert.equal(z.channel, 0);
+  assert.equal(z.total, z.input + z.output);
+  assert.ok(z.total > y.chat, "longer prompts, more tokens");
+  assert.equal(y.turns, 2);
+  assert.ok(y.chat > 0 && y.channel > 0, "chat and channel both counted");
+  assert.equal(y.total, y.chat + y.channel);
+  // Sorted by total, ranked, and the org total adds up.
+  assert.deepEqual(board.people.map(p => p.rank), board.people.map((_, i) => i + 1));
+  assert.ok(board.people.every((p, i, all) => i === 0 || all[i - 1].total >= p.total));
+  assert.equal(board.totals.total - before.totals.total, z.total + y.total);
+  assert.equal(board.totals.turns - before.totals.turns, 4);
+  // Periods: default is the last week; unknown values fall back to it.
+  assert.equal((await api("GET", "/v1/leaderboard", { token: yan })).json.period, "week");
+  assert.equal((await api("GET", "/v1/leaderboard?period=bogus", { token: yan })).json.period, "week");
+  assert.equal((await api("GET", "/v1/leaderboard?period=day", { token: yan })).json.people.find(p => p.user.name === "Zed Tokens").total, z.total);
+  // Needs a paired device; never includes prompt text.
+  assert.equal((await api("GET", "/v1/leaderboard")).status, 401);
+  assert.ok(!JSON.stringify(board).includes("first question"));
 });
 
 test("a second-device invite pairs as the same person", async () => {

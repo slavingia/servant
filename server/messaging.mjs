@@ -160,7 +160,7 @@ export function agentShouldReply(text, agentName = "", inAgentThread = false) {
  * @param {() => string} o.agentName
  * @param {(o:{sessionId:string, sessionKey:string, text:string, attachments:Array, onDelta:(t:string)=>void, onStatus:(t:string)=>void}) => Promise<string|{text:string,attachments:Array}>} o.askAgent
  */
-export function createMessaging({ file, users, agentName, askAgent, onMessage = () => {}, externalWorker = false, workHours = () => null }) {
+export function createMessaging({ file, users, agentName, askAgent, onMessage = () => {}, externalWorker = false, workHours = () => null, onUsage = () => {} }) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(file);
   db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON');
@@ -654,6 +654,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     };
     try {
       const final = await askAgent({
+        onUsage: usage => { try { onUsage({ eventId: `channel:${trigger.seq}`, userId: trigger.user_id, source: "channel", usage }); } catch { /* never fail a reply over stats */ } },
         sessionId,
         sessionKey: `servant:${conv.id}`,
         fresh: !thread,

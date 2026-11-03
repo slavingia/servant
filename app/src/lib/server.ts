@@ -24,6 +24,11 @@ export type Account = {
 export type Chat = { id: string; title: string; createdAt: number; updatedAt: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; latestTurn?: AgentTurn | null };
 export type Message = { id: string; role: "user" | "assistant"; text: string; at?: number | string | null; attachments?: Attachment[]; pending?: boolean; interrupted?: boolean; sourceDevice?: SourceDevice };
 
+// ----- token leaderboard -----
+export type LeaderboardPeriod = "day" | "week" | "month" | "all";
+export type LeaderboardRow = { rank: number; user: { id: string; name: string }; input: number; output: number; total: number; turns: number; chat: number; channel: number };
+export type Leaderboard = { period: LeaderboardPeriod; since: number; totals: { input: number; output: number; total: number; turns: number }; people: LeaderboardRow[] };
+
 // ----- channels, direct messages, threads -----
 export type Presence = { userId: string; online: boolean; lastSeenAt: number | null };
 export type Person = { id: string; name: string; agent?: boolean; owner?: boolean; online?: boolean; lastSeenAt?: number | null };
@@ -293,6 +298,7 @@ export const api = {
   chats: (a: Account, m?: (a: Account) => void) => request(a, "/v1/chats", {}, m).then((r) => r.json()).then((d) => d.chats as Chat[]),
   // Your chats plus other people's shared ones (all of them, for the owner).
   orgChats: (a: Account, m?: (a: Account) => void) => request(a, "/v1/chats?scope=org", {}, m).then((r) => r.json()).then((d) => ({ mine: d.chats as Chat[], others: (d.orgChats ?? []) as Chat[] })),
+  leaderboard: (a: Account, period: LeaderboardPeriod) => request(a, `/v1/leaderboard?period=${period}`).then((r) => r.json()) as Promise<Leaderboard>,
   chat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}`).then((r) => r.json()).then((d) => d.chat as Chat),
   setChatShared: (a: Account, id: string, shared: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ shared }) }).then((r) => r.json()).then((d) => d.chat as Chat),
   newChat: (a: Account) => request(a, "/v1/chats", { method: "POST", body: "{}" }).then((r) => r.json()).then((d) => d.chat as Chat),

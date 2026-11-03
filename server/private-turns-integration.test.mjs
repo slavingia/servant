@@ -68,7 +68,7 @@ async function fixture(t, { durable = true, restricted = false } = {}) {
     }
     if (!match[2] && req.method === 'GET') {
       if (pollsOffline-- > 0) return json(503, {});
-      return json(200, { run_id: run.id, status: run.status, output: run.output, pending_approval: run.pending });
+      return json(200, { run_id: run.id, status: run.status, output: run.output, usage: run.usage, pending_approval: run.pending });
     }
     return json(404, {});
   });
@@ -105,7 +105,7 @@ async function fixture(t, { durable = true, restricted = false } = {}) {
     offlineControls: count => { controlsOffline = count; },
     emit: (run, text) => emit(run, 'message.delta', { delta: text }),
     approve: (run, command) => { run.pending = { approval_id: `approval_${run.id}`, command, choices: ['once', 'deny'] }; run.status = 'waiting_for_approval'; emit(run, 'approval.request', run.pending); },
-    finish: (run, text, history = text) => { run.output = text; run.status = 'completed'; histories.get('session').push({ id: `reply_${run.id}`, role: 'assistant', content: history }); emit(run, 'run.completed', { output: text }); run.response?.end(); },
+    finish: (run, text, history = text) => { run.output = text; run.status = 'completed'; run.usage = { input_tokens: 1200, output_tokens: 300, total_tokens: 1500 }; histories.get('session').push({ id: `reply_${run.id}`, role: 'assistant', content: history }); emit(run, 'run.completed', { output: text, usage: run.usage }); run.response?.end(); },
     restartApi: async () => { apiChild.child.kill('SIGKILL'); await apiChild.closed; apiChild = await start('server'); },
     restartWorker: async () => { workerChild.child.kill('SIGKILL'); await workerChild.closed; workerChild = await start('worker'); },
   };
@@ -128,6 +128,9 @@ test('phone disconnect + API restart retain accepted input, partial text, media 
   const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=';
   f.offlineHistory(false); f.finish(run, `Complete later\n\n![Image](data:image/png;base64,${png})`, 'Complete later\n\nMEDIA: /private/generated/picture.png');
   await until(async () => (await f.latest()).status === 'completed');
+  // The durable run's token usage lands on the leaderboard once, across the API restart.
+  const board = await until(async () => { const b = await (await f.api('/v1/leaderboard?period=all')).json(); return b.totals?.turns ? b : null; });
+  assert.deepEqual([board.totals.total, board.totals.turns, board.people[0].user.name, board.people[0].chat], [1500, 1, 'Owner', 1500]);
   f.offlineHistory(true);
   const replay = await f.api('/v1/chats/chat/messages', 'POST', { text: 'Long question', requestId: 'request_long' });
   assert.match(await replay.text(), /Complete later/);

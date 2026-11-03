@@ -73,7 +73,7 @@ export async function runDurableHermes({ up, sessionId, input, sessionKey, runId
   const route = `/v1/runs/${encodeURIComponent(runId)}`;
   const streamAbort = new AbortController();
   const filter = createMediaDeltaFilter();
-  let terminal, final = '', eventError, unread = '';
+  let terminal, final = '', eventError, unread = '', usage = null;
   const seenApprovals = new Set([controls().approval?.id].filter(Boolean));
   const receive = async (name, payload) => {
     if (terminal) return;
@@ -90,6 +90,7 @@ export async function runDurableHermes({ up, sessionId, input, sessionKey, runId
       const tail = filter('', true);
       if (tail) onEvent('assistant.delta', { delta: tail });
       final = payload.output || '';
+      if (payload.usage && typeof payload.usage === 'object') usage = payload.usage;
       onEvent('assistant.completed', { content: final });
       terminal = 'completed';
     } else if (name === 'run.cancelled') terminal = 'cancelled';
@@ -136,7 +137,10 @@ export async function runDurableHermes({ up, sessionId, input, sessionKey, runId
       const status = await response.json();
       if (typeof status.unread_steer === 'string') unread = status.unread_steer;
       if (status.status === 'waiting_for_approval' && status.pending_approval) await receive('approval.request', status.pending_approval);
-      if (status.status === 'completed') await receive('run.completed', status);
+      if (status.status === 'completed') {
+        if (!usage && status.usage && typeof status.usage === 'object') usage = status.usage;
+        await receive('run.completed', status);
+      }
       else if (status.status === 'cancelled') terminal = 'cancelled';
       else if (status.status === 'failed') terminal = 'failed';
       // If an SSE event is malformed/fails persistence, stop instead of losing
@@ -163,7 +167,7 @@ export async function runDurableHermes({ up, sessionId, input, sessionKey, runId
     if (terminal === 'failed') throw agentError('The agent failed');
     // Hermes hands back any steer it never read. Those messages run next.
     const unreadSteers = [...delivered].filter(([, text]) => unread && unread.includes(text)).map(([id]) => id);
-    return { answer: final, status: terminal, unreadSteers };
+    return { answer: final, status: terminal, unreadSteers, usage };
   } finally {
     streamAbort.abort();
     await events;

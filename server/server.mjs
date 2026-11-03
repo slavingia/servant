@@ -28,6 +28,7 @@ import { createStateStore } from "./state-store.mjs";
 import { createDeviceLink, previewDeviceLink, approveDeviceLink, denyDeviceLink, pollDeviceLink } from "./device-links.mjs";
 import { privateMessageView } from "./source-device.mjs";
 import { createChatMediaStore } from "./chat-media.mjs";
+import { createUsageStore } from "./usage.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { supportsDurableRuns, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
 import { verifyMemberUpstream } from "./member-policy.mjs";
@@ -315,7 +316,7 @@ async function hermes(up, method, pathname, body, extraHeaders = {}, signal) {
 
 // Sends one turn to Hermes and calls onEvent(name, payload) for each SSE event.
 // Resolves with the final assistant text.
-async function streamTurn(up, sessionId, text, key, onEvent, isClosed = () => false, onAccepted = () => {}) {
+async function streamTurn(up, sessionId, text, key, onEvent, isClosed = () => false, onAccepted = () => {}, onUsage = () => {}) {
   const r = await hermes(
     up,
     "POST",
@@ -355,6 +356,7 @@ async function streamTurn(up, sessionId, text, key, onEvent, isClosed = () => fa
         if (delta) onEvent(name, { ...payload, delta });
         continue;
       }
+      if (name === "run.completed" && payload.usage && typeof payload.usage === "object") onUsage(payload.usage);
       if (name === "assistant.completed") {
         completed = true;
         const tail = filterDelta("", true);
@@ -404,6 +406,9 @@ let agentTurns;
 let privateTimer;
 const privateStreams = new Set();
 const chatMediaStore = () => chatMedia ??= createChatMediaStore(path.join(DATA_DIR, "chat-media.db"));
+let usageDb;
+const usageStore = () => usageDb ??= createUsageStore(path.join(DATA_DIR, "usage.db"));
+const recordUsage = entry => { try { usageStore().record(entry); } catch (error) { console.error("[servant] usage", error.message); } };
 
 async function handle(req, res, cfg) {
   const url = new URL(req.url, "http://server");
@@ -608,6 +613,25 @@ async function handle(req, res, cfg) {
   if (messaging && (await messaging.handle(req, res, { user, device, method, parts, url, send, fail, readBody: readAuthorizedBody, cors: CORS,
     isAuthorized: () => authenticate(req, readState())?.user.id === user.id,
   }))) return undefined;
+
+  // ----- token leaderboard (everyone on the server can see it) -----
+  if (method === "GET" && parts[1] === "leaderboard" && parts.length === 2) {
+    const state = readState();
+    requireAuth(req, state);
+    const periods = { day: 864e5, week: 7 * 864e5, month: 30 * 864e5, all: Infinity };
+    const period = Object.hasOwn(periods, url.searchParams.get("period")) ? url.searchParams.get("period") : "week";
+    const since = periods[period] === Infinity ? 0 : now() - periods[period];
+    const board = usageStore().leaderboard({ since });
+    return send(res, 200, {
+      period, since,
+      totals: board.totals,
+      people: board.people.map((row, index) => ({
+        rank: index + 1,
+        user: { id: row.userId, name: state.users[row.userId]?.name || "Former member" },
+        input: row.input, output: row.output, total: row.total, turns: row.turns, chat: row.chat, channel: row.channel,
+      })),
+    });
+  }
 
   // ----- chats with the agent -----
   if (parts[1] !== "chats") return fail(res, 404, "not_found", "Not found");
@@ -921,6 +945,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
     };
     result = await runDurableHermes({ up, sessionId: turn.session_id, input, sessionKey: sessionKey(user), runId: turn.run_id,
       onAccepted, onEvent, checkpoint: hooks.checkpoint, controls: hooks.controls, steered, canSteer });
+    if (result.usage) recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", usage: result.usage });
     // Run output is resolved by the bridge, while history contains its original
     // MEDIA source. Bind the cache record to that source for later galleries.
     if (assistantMessage) {
@@ -931,7 +956,8 @@ async function executePrivateTurn(turn, hooks, cfg) {
       } catch { /* accepted local media remains available even if history lags */ }
     }
   } else {
-    const answer = await streamTurn(up, turn.session_id, input, sessionKey(user), onEvent, () => false, onAccepted);
+    const answer = await streamTurn(up, turn.session_id, input, sessionKey(user), onEvent, () => false, onAccepted,
+      usage => recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", usage }));
     if (!assistantMessage && answer) saveAssistant(answer);
     result = { status: "completed" };
   }
@@ -965,7 +991,8 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
     workHours: () => (fixedCfg || loadConfig()).workHours,
     // Channels use the same agent as private chats: full access unless the
     // server is set to "agentAccess": "limited".
-    askAgent: async ({ sessionId, sessionKey: key, fresh, text, restartText, attachments, onDelta }) => {
+    onUsage: recordUsage,
+    askAgent: async ({ sessionId, sessionKey: key, fresh, text, restartText, attachments, onDelta, onUsage = () => {} }) => {
       const cfg = fixedCfg || loadConfig();
       const up = upstreamFor({ role: "member" }, cfg);
       if (!up) return "The agent isn't set up on this server yet";
@@ -983,7 +1010,7 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
       }
       const answer = await streamTurn(up, sessionId, hermesInput(text, attachments), key, (name, p) => {
         if (name === "assistant.delta") onDelta(p.delta || "");
-      });
+      }, () => false, () => {}, onUsage);
       return normalizeMediaContent(answer);
     },
   });
@@ -1003,7 +1030,7 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
     send: createPushTransport(() => loadJson(process.env.SERVANT_PUSH_CONFIG || path.join(os.homedir(), ".config/servant/push.json"), {})),
   });
   return { messaging: serviceMessaging, push: servicePush, agentTurns: serviceTurns,
-    closeState: () => { chatMedia?.close(); chatMedia = null; stateStore?.close(); stateStore = null; } };
+    closeState: () => { chatMedia?.close(); chatMedia = null; usageDb?.close(); usageDb = null; stateStore?.close(); stateStore = null; } };
 }
 
 export function createWorkerServices() {
@@ -1064,7 +1091,7 @@ export function startServer(fixedCfg) {
     feedback?.close(); feedback = null;
     messaging?.close(); messaging = null;
     agentTurns?.close(); agentTurns = null;
-    chatMedia?.close(); chatMedia = null;
+    chatMedia?.close(); chatMedia = null; usageDb?.close(); usageDb = null;
     secureTransport?.close(); secureTransport = null;
     stateStore?.close(); stateStore = null;
   })();
