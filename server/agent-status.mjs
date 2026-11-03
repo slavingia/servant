@@ -25,6 +25,8 @@ const LINES = [
 ];
 
 export const WORKING_LINE = "Working on it";
+export const THINKING_LINE = "Thinking";
+export const WRITING_LINE = "Writing";
 
 export function toolStatusLine(toolName, { full = true } = {}) {
   if (!full || typeof toolName !== "string" || !toolName) return WORKING_LINE;

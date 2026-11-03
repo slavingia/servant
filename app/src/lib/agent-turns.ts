@@ -3,6 +3,8 @@ export type AgentTurn = {
   id: string; chatId: string; status: 'queued' | 'running' | 'waiting_for_approval' | 'stopping' | 'completed' | 'cancelled' | 'failed' | 'interrupted' | 'steered';
   accepted: boolean; text: string; assistantText: string; canStop: boolean; approval?: AgentApproval | null;
   steerRequested?: boolean;
+  // Latest plain-language progress line while it runs ("Searching the web").
+  activity?: string | null;
   createdAt: number; updatedAt: number;
 };
 
@@ -14,6 +16,12 @@ export function agentTurnLabel(turn: AgentTurn) {
   return turn.status === 'waiting_for_approval' ? 'Needs your OK' : turn.status === 'queued' ? 'Up next'
     : turn.status === 'stopping' ? 'Stopping' : turn.status === 'cancelled' ? 'Stopped'
       : turn.status === 'interrupted' ? 'Cut off before it finished' : turn.status === 'failed' ? "Couldn't finish. Try sending it again" : 'Working on it';
+}
+// The one line shown in the agent's in-progress message.
+export function liveAgentLine(turn: AgentTurn | null | undefined, streamed?: string | null) {
+  if (turn?.status === 'waiting_for_approval') return 'Waiting for your OK';
+  if (turn?.status === 'stopping') return 'Stopping';
+  return streamed || turn?.activity || 'Thinking';
 }
 export function agentTurnDetail(turn: AgentTurn) {
   return turn.status === 'waiting_for_approval' ? 'Paused until you decide'
@@ -34,7 +42,8 @@ export function parseAgentTurn(value: unknown): AgentTurn | null {
     || typeof t.createdAt !== 'number' || typeof t.updatedAt !== 'number') return null;
   return { id: t.id, chatId: t.chatId, status: t.status as AgentTurn['status'], accepted: t.accepted === true,
     text: typeof t.text === 'string' ? t.text : '', assistantText: typeof t.assistantText === 'string' ? t.assistantText : '',
-    canStop: t.canStop === true, approval: parseApproval(t.approval), steerRequested: t.steerRequested === true, createdAt: t.createdAt, updatedAt: t.updatedAt };
+    canStop: t.canStop === true, approval: parseApproval(t.approval), steerRequested: t.steerRequested === true,
+    activity: typeof t.activity === 'string' && t.activity ? t.activity.slice(0, 80) : null, createdAt: t.createdAt, updatedAt: t.updatedAt };
 }
 
 // The server lists newest first. The reply in progress is the one turn that

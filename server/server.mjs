@@ -34,7 +34,7 @@ import { supportsDurableRuns, supportsSteer, runDurableHermes } from "./hermes-r
 import { availableProjects, chatInstructions, projectById, vibeFolder, VIBE_PROJECT } from "./projects.mjs";
 import { verifyMemberUpstream } from "./member-policy.mjs";
 import { composeForward } from "./forward.mjs";
-import { toolStatusLine } from "./agent-status.mjs";
+import { THINKING_LINE, toolStatusLine, WRITING_LINE } from "./agent-status.mjs";
 import { validateUploads, normalizeMediaContent, hermesInput, mediaPage, createMediaDeltaFilter, MAX_UPLOAD_BODY, TEXT_PART_CHARS } from "./media.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -1019,9 +1019,14 @@ async function executePrivateTurn(turn, hooks, cfg) {
     chatMediaStore().identifyInput(message.id, input);
     hooks.emit("sent", { message });
   };
+  // One live line for what the agent is doing right now. Only changes are
+  // journaled, so a long reply doesn't write a status per token.
+  let activity;
+  const setActivity = text => { if (text !== activity) { activity = text; hooks.emit("status", { text }); } };
   const onEvent = (name, payload) => {
-    if (name === "assistant.delta") hooks.emit("delta", { text: payload.delta || "" });
-    else if (name === "tool.started") hooks.emit("status", { text: toolStatusLine(payload.tool_name, { full }) });
+    if (name === "assistant.delta") { if (payload.delta) setActivity(WRITING_LINE); hooks.emit("delta", { text: payload.delta || "" }); }
+    else if (name === "tool.started") setActivity(toolStatusLine(payload.tool_name, { full }));
+    else if (name === "run.started" || name === "tool.completed" || name.startsWith("reasoning.")) setActivity(THINKING_LINE);
     else if (name === "assistant.completed") saveAssistant(payload.content || "");
     else if (name === "run.completed") {
       const source = (Array.isArray(payload.messages) ? payload.messages : []).findLast(m => m.role === "assistant" && (m.content || m.text));

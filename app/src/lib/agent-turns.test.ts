@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activeAgentTurn, canSteer, parseAgentTurn, splitTurns, type AgentTurn } from './agent-turns.ts';
+import { activeAgentTurn, canSteer, liveAgentLine, parseAgentTurn, splitTurns, type AgentTurn } from './agent-turns.ts';
 import { createAgentEventDecoder, type StreamEvent } from './agent-events.ts';
 
 const turn = { id: 'turn_1', chatId: 'chat_1', status: 'waiting_for_approval', accepted: true, text: 'Prepare notes', assistantText: 'Ready', canStop: true, createdAt: 10, updatedAt: 20 };
@@ -52,4 +52,14 @@ test("steered status and steerRequested parse from the server", () => {
   const parsed = parseAgentTurn({ ...queuedTurn("b", "steered", 2), steerRequested: true });
   assert.equal(parsed?.status, "steered");
   assert.equal(parsed?.steerRequested, true);
+});
+
+test("the in-progress line follows the agent: stream first, then the saved activity, then Thinking", () => {
+  const running = queuedTurn("a", "running", 1, { activity: "Reading a file" });
+  assert.equal(liveAgentLine(running, "Searching the web"), "Searching the web");
+  assert.equal(liveAgentLine(running, null), "Reading a file");
+  assert.equal(liveAgentLine(queuedTurn("a", "running", 1), null), "Thinking");
+  assert.equal(liveAgentLine(null, null), "Thinking");
+  assert.equal(liveAgentLine({ ...running, status: "waiting_for_approval" }, "Running a command"), "Waiting for your OK");
+  assert.equal(parseAgentTurn({ ...running, activity: 5 })?.activity, null);
 });

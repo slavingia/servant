@@ -46,6 +46,9 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
     // Steering: a queued message can be folded into the running turn.
     if (!columns.has('steer_requested')) db.exec('ALTER TABLE private_turns ADD COLUMN steer_requested INTEGER NOT NULL DEFAULT 0');
     if (!columns.has('steered_into')) db.exec('ALTER TABLE private_turns ADD COLUMN steered_into TEXT');
+    // The agent's latest progress line ("Searching the web"), for viewers that
+    // aren't following the live stream.
+    if (!columns.has('activity')) db.exec('ALTER TABLE private_turns ADD COLUMN activity TEXT');
     // Earlier journals allowed one queued-or-running turn per chat. Messages now
     // queue behind a running turn, so only running turns stay unique per chat.
     db.exec('DROP INDEX IF EXISTS private_turn_active');
@@ -79,7 +82,7 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
   const view = t => t && ({ id: t.id, chatId: t.chat_id, status: t.status,
     accepted: !!t.accepted, text: t.text, assistantText: t.assistant_text, messageId: t.message_id,
     canStop: active(t.status) && (t.status === 'queued' || !!t.run_id),
-    steerRequested: !!t.steer_requested, steeredInto: t.steered_into || null,
+    steerRequested: !!t.steer_requested, steeredInto: t.steered_into || null, activity: active(t.status) ? t.activity || null : null,
     approval: t.approval ? JSON.parse(t.approval) : null,
     createdAt: t.created_at, updatedAt: t.updated_at });
   function tx(fn) {
@@ -95,6 +98,7 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
       const t = row(id);
       if (!t || !active(t.status)) return;
       if (name === 'delta') db.prepare('UPDATE private_turns SET assistant_text=assistant_text||?,updated_at=? WHERE id=?').run(payload.text || '', clock(), id);
+      if (name === 'status') db.prepare('UPDATE private_turns SET activity=?,updated_at=? WHERE id=?').run(String(payload.text || '').slice(0, 80), clock(), id);
       if (name === 'sent') db.prepare('UPDATE private_turns SET accepted=1,updated_at=? WHERE id=?').run(clock(), id);
       if (name === 'message') db.prepare('UPDATE private_turns SET assistant_text=?,message_id=?,updated_at=? WHERE id=?').run(payload.text || '', payload.id, clock(), id);
       if (name === 'approval') db.prepare("UPDATE private_turns SET approval=?,approval_choice=NULL,status='waiting_for_approval',updated_at=? WHERE id=?")

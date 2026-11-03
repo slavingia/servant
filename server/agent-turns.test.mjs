@@ -228,3 +228,16 @@ test('upgrading never lights up replies people already had; new replies start un
     assert.deepEqual(upgraded.unreadByChat('owner'), { other: 1 });
   } finally { await upgraded.whenIdle(); upgraded.close(); }
 });
+
+test('the latest progress line rides on the turn while it runs, then clears', async t => {
+  const file = fixture(t), started = deferred(), finish = deferred();
+  const worker = createAgentTurns({ file, execute: async (_t, { emit }) => {
+    emit('status', { text: 'Searching the web' }); started.resolve(); await finish.promise; return {};
+  } });
+  try {
+    const turn = worker.enqueue(input()); const run = worker.processNext(); await started.promise;
+    assert.equal(worker.get(turn.id).activity, 'Searching the web');
+    finish.resolve(); await run;
+    assert.equal(worker.get(turn.id).activity, null);
+  } finally { finish.resolve(); await worker.whenIdle(); worker.close(); }
+});

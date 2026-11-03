@@ -436,7 +436,8 @@ test("limited mode: member chat streams from the member agent and hides tool det
   const events = parseSse(sent.text);
   const deltas = events.filter((e) => e.event === "delta").map((e) => e.data.text).join("");
   assert.equal(deltas, "member-agent heard: hello there");
-  assert.deepEqual(events.find((e) => e.event === "status").data, { text: "Working on it" });
+  // Members see progress, never which tool ran.
+  assert.deepEqual(events.filter((e) => e.event === "status").map((e) => e.data.text), ["Thinking", "Working on it", "Writing"]);
   assert.equal(events.at(-1).event, "done");
   assert.ok(!sent.text.includes("id_rsa"), "tool args must never reach a member");
 

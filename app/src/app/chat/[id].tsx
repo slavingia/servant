@@ -11,7 +11,8 @@ import { mediaFromMessages } from "../../lib/media";
 import { Button } from "../../components/Button";
 import { MessageText } from "../../components/MessageText";
 import { AgentApprovalCard } from "../../components/AgentApprovalCard";
-import { activeAgentTurn, agentTurnDetail, agentTurnLabel, canSteer, splitTurns, type AgentTurn } from "../../lib/agent-turns";
+import { activeAgentTurn, agentTurnLabel, canSteer, liveAgentLine, splitTurns, type AgentTurn } from "../../lib/agent-turns";
+import { LiveStatus } from "../../components/LiveStatus";
 import { bufferAgentReply } from "../../lib/agent-events";
 import { messageDeviceLabel } from "../../lib/message-device";
 import { api, sendMessage, ServerError, type Chat, type Message, type Upload } from "../../lib/server";
@@ -20,7 +21,7 @@ import { forwardTitle, parseForward, type ForwardCard } from "../../lib/forward"
 import { AppIcon } from "../../components/AppIcon";
 import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 
-type Row = Message & { waitingForAgent?: boolean; pending?: boolean; failed?: boolean; localId?: string; uploads?: Upload[]; forwardPreview?: ForwardCard | null };
+type Row = Message & { waitingForAgent?: boolean; queuedTurn?: AgentTurn; agentWorking?: boolean; pending?: boolean; failed?: boolean; localId?: string; uploads?: Upload[]; forwardPreview?: ForwardCard | null };
 
 export default function ChatScreen() {
   const { id, readOnly } = useLocalSearchParams<{ id: string; readOnly?: string }>();
@@ -509,8 +510,16 @@ function ChatConversation() {
   const unstarted = messages?.length === 0 && !loadError
     ? (turn && activeAgentTurn(turn) && !turn.accepted ? turn : waiting[0] ?? null) : null;
   const firstRow: Row | null = unstarted ? { id: `waiting_${unstarted.id}`, role: "user", text: unstarted.text || "Attachment", at: unstarted.createdAt, waitingForAgent: true } : null;
-  const queuedBelow = firstRow ? waiting.filter(t => t.id !== unstarted!.id) : waiting;
-  const data = [...(messages ?? []), ...(firstRow ? [firstRow] : [])].reverse();
+  // The reply in progress lives in the conversation itself. This phone's own
+  // stream already has a pending reply row; otherwise (reopened, other device)
+  // show one from the turn.
+  const streaming = !!messages?.some(m => m.role === "assistant" && m.pending);
+  const workingRow: Row | null = turn && !streaming && unstarted?.id !== turn.id && ['running', 'waiting_for_approval', 'stopping'].includes(turn.status)
+    ? { id: `working_${turn.id}`, role: "assistant", text: "", at: undefined as unknown as Message["at"], pending: true, agentWorking: true } : null;
+  // Messages sent meanwhile sit below it, each with its own one-tap Steer.
+  const queuedRows: Row[] = waiting.filter(t => t.id !== unstarted?.id)
+    .map(t => ({ id: `queued_${t.id}`, role: "user", text: t.text || "Attachment", at: t.createdAt, queuedTurn: t }));
+  const data = [...(messages ?? []), ...(firstRow ? [firstRow] : []), ...(workingRow ? [workingRow] : []), ...queuedRows].reverse();
 
   return (
     <MediaGalleryProvider key={id} scope={{ kind: "chat", id }} items={media}>
@@ -542,9 +551,10 @@ function ChatConversation() {
             renderItem={({ item }) => {
               const mine = item.role === "user";
               const working = !mine && item.pending;
+              const queued = item.queuedTurn;
               const timestamp = typeof item.at === "number" ? item.at : item.at ? new Date(item.at).getTime() : NaN;
               const deviceLabel = messageDeviceLabel(account.user.role, item);
-              return <View accessibilityLabel={mine ? `Your message${item.pending ? ", not yet received" : deviceLabel ? `, sent from ${deviceLabel}` : ""}` : "Agent response"} style={[styles.message, item.failed && styles.failed, item.pending && mine && styles.unconfirmed]}>
+              return <View accessibilityLabel={mine ? `Your message${queued ? ", waiting" : item.pending ? ", not yet received" : deviceLabel ? `, sent from ${deviceLabel}` : ""}` : "Agent response"} style={[styles.message, item.failed && styles.failed, item.pending && mine && styles.unconfirmed, queued && styles.queuedMessage]}>
                 <Avatar name={mine ? account.user.name : "Agent"} agent={!mine} userId={mine ? account.user.id : undefined} size={34} />
                 <View style={styles.messageCopy}>
                   <View style={styles.messageMeta}>
@@ -556,7 +566,22 @@ function ChatConversation() {
                   {mine && !working ? <ForwardedText item={item} /> : !working && item.text ? <ReplyText text={item.text} failed={item.failed} /> : null}
                   {!working && item.attachments?.length ? <Attachments files={item.attachments} /> : null}
                   {item.uploads?.length ? <PendingAttachments files={item.uploads} /> : null}
-                  {working ? <Text accessibilityLiveRegion="polite" style={styles.typing}>{status ?? "Working on it…"}</Text> : null}
+                  {working ? <View style={styles.liveRow}>
+                    <LiveStatus text={liveAgentLine(turn && activeAgentTurn(turn) ? turn : null, item.agentWorking ? null : status)} style={styles.live} />
+                    {turn?.canStop && activeAgentTurn(turn) ? <Pressable accessibilityRole="button" accessibilityLabel="Stop the agent" accessibilityState={{ disabled: actionBusy || turn.status === 'stopping' }}
+                      disabled={actionBusy || turn.status === 'stopping'} hitSlop={12} onPress={() => { void stop(); }} style={styles.stop}>
+                      <Text style={[styles.stopText, (actionBusy || turn.status === 'stopping') && styles.dim]}>Stop</Text>
+                    </Pressable> : null}
+                  </View> : null}
+                  {queued ? <View style={styles.liveRow}>
+                    <Text accessibilityLiveRegion="polite" style={styles.queuedDetail}>{queued.steerRequested ? "Adding this to the current reply…" : "Sends when the agent is free"}</Text>
+                    {canSteer(queued, turn) ? <Pressable accessibilityRole="button" accessibilityLabel="Steer: add this to the current reply" accessibilityState={{ busy: steering === queued.id }}
+                      disabled={!!steering} hitSlop={8} onPress={() => { void steer(queued); }} style={styles.steer}>
+                      {steering === queued.id ? <ActivityIndicator size="small" color={colors.blue} /> : <Text style={styles.steerText}>Steer</Text>}
+                    </Pressable> : null}
+                    {!queued.steerRequested ? <Pressable accessibilityRole="button" accessibilityLabel="Remove waiting message" hitSlop={12}
+                      onPress={() => { void unqueue(queued); }} style={styles.remove}><Text style={styles.removeText}>✕</Text></Pressable> : null}
+                  </View> : null}
                   {item.interrupted ? <Text style={styles.typing}>Cut off before it finished</Text> : null}
                   {item.waitingForAgent ? <Text accessibilityLiveRegion="polite" style={styles.typing}>Sends when the agent is free</Text> : null}
                 </View>
@@ -567,23 +592,7 @@ function ChatConversation() {
         {sendError ? <Text accessibilityRole="alert" style={styles.sendError}>{sendError}</Text> : null}
         {turn?.approval && turn.status === 'waiting_for_approval' && account.user.role === 'owner'
           ? <AgentApprovalCard approval={turn.approval} busy={actionBusy} error={actionError} onAnswer={choice => { void answer(choice); }} /> : null}
-        {turn && activeAgentTurn(turn) ? <View style={styles.turnStatus}>
-          <View style={styles.turnCopy}><Text accessibilityLiveRegion="polite" style={styles.turnLabel}>{agentTurnLabel(turn)}</Text><Text style={styles.turnDetail}>{agentTurnDetail(turn)}</Text></View>
-          {turn.canStop ? <Button label="Stop" kind="danger" compact busy={actionBusy} disabled={turn.status === 'stopping'} onPress={() => { void stop(); }} /> : null}
-        </View> : null}
         {turn && ['cancelled', 'interrupted', 'failed'].includes(turn.status) ? <View style={styles.turnStatus}><Text accessibilityLiveRegion="polite" style={styles.turnLabel}>{agentTurnLabel(turn)}</Text></View> : null}
-        {queuedBelow.length ? <View accessibilityLabel="Waiting messages" style={styles.queue}>
-          {queuedBelow.map(item => <View key={item.id} style={styles.queued}>
-            <View style={styles.turnCopy}>
-              <Text numberOfLines={2} style={styles.queuedText}>{item.text || "Attachment"}</Text>
-              <Text style={styles.turnDetail}>{item.steerRequested ? "Adding this to the current reply…" : "Sends when the agent is free"}</Text>
-            </View>
-            {canSteer(item, turn) ? <Button label="Steer" kind="secondary" compact busy={steering === item.id}
-              onPress={() => { void steer(item); }} /> : null}
-            {!item.steerRequested ? <Pressable accessibilityRole="button" accessibilityLabel="Remove waiting message" hitSlop={12}
-              onPress={() => { void unqueue(item); }} style={styles.remove}><Text style={styles.removeText}>✕</Text></Pressable> : null}
-          </View>)}
-        </View> : null}
         {actionError && !turn?.approval ? <Text accessibilityRole="alert" style={styles.sendError}>{actionError}</Text> : null}
         {pendingForward && messages !== null && !loadError ? <View testID="forward-draft" style={styles.forwardDraft}>
           <View style={styles.forwardDraftCopy}>
@@ -634,6 +643,13 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   queued: { flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs },
   queuedText: { ...typography.body, color: colors.ink },
   remove: { paddingHorizontal: space.xs, paddingVertical: space.xxs }, removeText: { ...typography.body, color: colors.muted },
+  liveRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginTop: 2, minHeight: 28 },
+  live: { ...typography.body, color: colors.muted, flexShrink: 1 },
+  stop: { paddingHorizontal: space.xs, paddingVertical: space.xxs }, stopText: { ...typography.captionStrong, color: colors.red }, dim: { opacity: 0.5 },
+  queuedMessage: { opacity: 0.85 },
+  queuedDetail: { ...typography.meta, color: colors.muted, flexShrink: 1 },
+  steer: { minHeight: 28, minWidth: 64, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.sm, borderRadius: 14, borderWidth: 1, borderColor: colors.blue },
+  steerText: { ...typography.captionStrong, color: colors.blue },
   turnCopy: { flex: 1 }, turnLabel: { ...typography.captionStrong, color: colors.ink }, turnDetail: { ...typography.meta, color: colors.muted },
   list: { paddingVertical: space.sm },
   readOnlyList: { paddingTop: space.xl },
