@@ -17,6 +17,7 @@ import { useLive } from "../../lib/live";
 import { useSession } from "../../lib/session";
 import { askAgentAbout } from "../../lib/ask-agent";
 import { space, typography, useTheme, createThemedStyles } from "../../lib/theme";
+import { groupActivity } from "../../lib/activity-groups";
 
 const errorText = (e: unknown, fallback: string) => (e instanceof ServerError ? e.message : fallback);
 
@@ -218,7 +219,8 @@ export default function ConversationScreen() {
 
   const openThread = (p: Post) => router.push({ pathname: "/thread", params: { conv: id, root: p.id, title } });
   const askAgent = (p: Post) => { askAgentAbout(account, p, conv).catch(e => setError(errorText(e, "Couldn't start a chat with the agent"))); };
-  const data = [...(posts ?? [])].reverse();
+  // Joins and leaves close together read as one line ("Ann and Bo joined the channel").
+  const data = groupActivity([...(posts ?? [])].reverse());
 
   const openDetails = () => router.push({ pathname: "/channel-info", params: { id } });
   const openFiles = () => router.push({ pathname: "/files", params: { kind: "conversation", id, title } });
