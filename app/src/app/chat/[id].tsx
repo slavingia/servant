@@ -88,7 +88,7 @@ function SharedChatView() {
             const theirs = item.role === "user";
             const timestamp = typeof item.at === "number" ? item.at : item.at ? new Date(item.at).getTime() : NaN;
             return <MessageActions item={item} author={theirs ? authorName : "Agent"} canForward={chat?.shared !== false} onForward={setForwarding} chatId={String(id)} style={styles.message} label={theirs ? `${authorName}'s message` : "Agent response"}>
-              <Avatar name={theirs ? authorName : "Agent"} agent={!theirs} userId={theirs ? chat?.author?.id : undefined} size={34} tapToMessage />
+              <Avatar name={theirs ? authorName : "Agent"} agent={!theirs} userId={theirs ? chat?.author?.id : undefined} size={34} tapToMessage={theirs} />
               <View style={styles.messageCopy}>
                 <View style={styles.messageMeta}>
                   <Text style={styles.author}>{theirs ? authorName : "Agent"}</Text>

@@ -27,33 +27,40 @@ import { radius, space, typography, useTheme, createThemedStyles } from "../lib/
 export const when = (ms: number) => shortTime(ms);
 
 // userId shows that person's photo. Add tapToMessage to make the avatar open your
-// DM with them; it stays a plain picture for you, the agent, and pickers.
+// DM with them, or, on the agent's avatar, a new private chat with the agent. It
+// stays a plain picture for you and in pickers.
 export function Avatar({ name, agent, size = 34, userId, tapToMessage }: { name: string; agent?: boolean; size?: number; userId?: string; tapToMessage?: boolean }) {
   const { account } = useSession();
   const [opening, setOpening] = useState(false);
-  const tappable = !!tapToMessage && !!userId && !agent && !!account && userId !== account.user.id;
+  const tappable = !!tapToMessage && !!account && (agent || (!!userId && userId !== account.user.id));
   if (!tappable) return <AvatarFace name={name} agent={agent} size={size} userId={userId} />;
   const open = async () => {
-    if (opening || !account || !userId) return;
+    if (opening || !account) return;
     setOpening(true);
     try {
-      const conversation = await api.openDm(account, [userId]);
-      router.push({ pathname: "/c/[id]", params: { id: conversation.id, title: name } });
+      if (agent) {
+        // Private, so it never shows for the rest of the server.
+        const chat = await api.newChat(account, { shared: false });
+        router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, compose: "1" } });
+      } else if (userId) {
+        const conversation = await api.openDm(account, [userId]);
+        router.push({ pathname: "/c/[id]", params: { id: conversation.id, title: name } });
+      }
     } catch (e) {
-      const message = e instanceof ServerError ? e.message : "Couldn't open the conversation. Try again";
+      const message = e instanceof ServerError ? e.message : agent ? "Couldn't start a chat with the agent. Try again" : "Couldn't open the conversation. Try again";
       if (Platform.OS === "web") globalThis.alert?.(message); else Alert.alert(message);
     } finally { setOpening(false); }
   };
   return <Pressable
     accessibilityRole="button"
-    accessibilityLabel={`Message ${name}`}
+    accessibilityLabel={agent ? "Chat with the agent" : `Message ${name}`}
     accessibilityState={{ busy: opening, disabled: opening }}
     disabled={opening}
     hitSlop={4}
     onPress={() => void open()}
-    style={({ pressed }) => ({ opacity: pressed || opening ? 0.6 : 1, borderRadius: size / 2 })}
+    style={({ pressed }) => ({ opacity: pressed || opening ? 0.6 : 1, borderRadius: agent ? radius.sm : size / 2 })}
   >
-    <AvatarFace name={name} size={size} userId={userId} />
+    <AvatarFace name={name} agent={agent} size={size} userId={userId} />
   </Pressable>;
 }
 
