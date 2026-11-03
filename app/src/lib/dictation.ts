@@ -7,7 +7,7 @@ import { createDictationCoordinator, type DictationState } from "./dictation-ses
 export type Dictation = DictationState & {
   available: boolean;
   toggle: () => void;
-  finish: () => Promise<boolean>;
+  finish: (graceMs?: number) => Promise<boolean>;
 };
 
 const coordinator = createDictationCoordinator({
@@ -53,6 +53,6 @@ export function useDictation(onText: (spoken: string) => void): Dictation {
     if (state.listening) void session.current?.finish();
     else void session.current?.start(deviceLanguage());
   }, [state.listening]);
-  const finish = useCallback(() => session.current?.finish() ?? Promise.resolve(false), []);
+  const finish = useCallback((graceMs?: number) => session.current?.finish(graceMs) ?? Promise.resolve(false), []);
   return { ...state, available, toggle, finish };
 }

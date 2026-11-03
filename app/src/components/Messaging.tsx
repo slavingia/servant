@@ -292,6 +292,9 @@ export function Composer({
   const [attachmentMenu, setAttachmentMenu] = useState(false);
   const [fileError, setFileError] = useState("");
   const sending = useRef(false);
+  // New messages leave the box the moment they're sent (restored if sending
+  // fails); edits stay put until saved.
+  const clearNow = clearOnSend || !onCancel;
   const pick = async (photos: boolean) => {
     if (picking || busy) return;
     setPicking(true);
@@ -344,15 +347,15 @@ export function Composer({
     try {
       // stop() emits its final transcript asynchronously. The commit callback
       // updates latest synchronously, before finish resolves on the end event.
-      if (!await dictation.finish()) return;
+      if (!await dictation.finish(1200)) return;
       body = latest.current.text.trim();
       if (!body && !files.length) return;
-      if (clearOnSend) setText("");
+      if (clearNow) setText("");
       const ok = await onSend(body, files.map(({ name, data }) => ({ name, data })));
-      if (ok) { if (!clearOnSend) setText(""); setFiles([]); setInsertedSelection(undefined); }
-      else if (clearOnSend) setText(current => current || body);
+      if (ok) { if (!clearNow) setText(""); setFiles([]); setInsertedSelection(undefined); }
+      else if (clearNow) setText(current => current || body);
     } catch {
-      if (clearOnSend) setText(current => current || body);
+      if (clearNow) setText(current => current || body);
       setFileError("Couldn't send. Your draft is saved here; try again");
     }
     finally { sending.current = false; setBusy(false); }
@@ -374,7 +377,7 @@ export function Composer({
       <View style={[styles.composer, wide && styles.composerWide, focused && (wide ? styles.composerWideFocused : styles.composerFocused)]}>
         {onCancel ? <Text style={styles.editingLabel}>Editing message</Text> : null}
         <TextInput
-          editable={!busy || clearOnSend}
+          editable={!busy || clearNow}
           ref={input}
           autoFocus={autoFocus}
           testID="composer-input"

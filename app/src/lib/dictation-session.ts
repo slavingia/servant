@@ -23,7 +23,7 @@ const messages: Record<string, string> = {
 export function createDictationCoordinator(speech: Speech, { permissionMayBackgroundApp = false } = {}) {
   type Session = { active: boolean; foreground: boolean; state: DictationState; onText: (text: string) => void; onState: (state: DictationState) => void };
   type Run = { session: Session; native: boolean; permissionPending: boolean; permissionBackgroundAt?: number; cancelled: boolean; failed: boolean; stopping: boolean;
-    done: Promise<boolean>; resolve: (ok: boolean) => void; unsubscribe?: () => void; timeout?: ReturnType<typeof setTimeout>;
+    done: Promise<boolean>; resolve: (ok: boolean) => void; unsubscribe?: () => void; timeout?: ReturnType<typeof setTimeout>; grace?: ReturnType<typeof setTimeout>;
     resume?: (foreground: boolean) => void; resumeTimeout?: ReturnType<typeof setTimeout> };
   let owner: Run | undefined;
   const update = (session: Session, next: Partial<DictationState>) => {
@@ -34,6 +34,7 @@ export function createDictationCoordinator(speech: Speech, { permissionMayBackgr
     if (owner !== run) return;
     owner = undefined;
     clearTimeout(run.timeout);
+    clearTimeout(run.grace);
     clearTimeout(run.resumeTimeout);
     run.resume?.(false);
     run.unsubscribe?.();
@@ -44,8 +45,11 @@ export function createDictationCoordinator(speech: Speech, { permissionMayBackgr
     clearTimeout(run.timeout);
     run.timeout = setTimeout(() => {
       if (owner !== run) return;
-      run.failed = true;
-      update(run.session, { error: "Dictation didn't finish. Review your draft and try again." });
+      // A send that already went out with the words heard so far needs no warning.
+      if (!run.cancelled) {
+        run.failed = true;
+        update(run.session, { error: "Dictation didn't finish. Review your draft and try again." });
+      }
       try { speech.abort(); } catch { /* The session is released below. */ }
       settle(run, false);
     }, 8000);
@@ -149,7 +153,10 @@ export function createDictationCoordinator(speech: Speech, { permissionMayBackgr
             settle(run, false);
           }
         },
-        finish(): Promise<boolean> {
+        // Sending while listening: wait briefly for the recognizer's final words,
+        // then send what was heard (including the live partial) and drop the
+        // recognizer's tail, so the composer never sits on a spinner.
+        finish(graceMs = 0): Promise<boolean> {
           const run = owner;
           if (!run || run.session !== session) return Promise.resolve(session.active && session.foreground);
           if (run.cancelled) return Promise.resolve(false);
@@ -160,6 +167,18 @@ export function createDictationCoordinator(speech: Speech, { permissionMayBackgr
             if (run.native) {
               try { speech.stop(); }
               catch { run.failed = true; try { speech.abort(); } catch {} settle(run, false); }
+            }
+            if (run.native && graceMs > 0 && owner === run) {
+              run.grace = setTimeout(() => {
+                if (owner !== run || run.cancelled || run.failed) return;
+                const heard = session.state.partial.trim();
+                if (heard) session.onText(heard);
+                run.cancelled = true;
+                run.resolve(true);
+                update(session, { listening: false, partial: '' });
+                // Ownership stays until end so late words can't land in the next draft.
+                try { speech.abort(); } catch { settle(run, false); }
+              }, graceMs);
             }
           }
           return run.done;

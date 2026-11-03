@@ -253,3 +253,40 @@ test('other platforms still cancel a pending permission request on real app back
   assert.equal(f.calls.start, 0);
   assert.equal(session.states.at(-1)!.listening, false);
 });
+
+test('sending while listening never waits on a recognizer that is slow to end', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture();
+  let draft = '';
+  const session = f.session(spoken => { draft = insertDictation(draft, draft.length, spoken).text; });
+  await session.start('en-US');
+  f.emit({ type: 'result', isFinal: true, text: 'Book the room' });
+  f.emit({ type: 'result', isFinal: false, text: 'for Friday' });
+  const sending = session.finish(1200);
+  t.mock.timers.tick(1200);
+  assert.equal(await sending, true);
+  assert.equal(draft, 'Book the room for Friday', 'the live partial is kept rather than dropped');
+  assert.equal(session.states.at(-1)!.listening, false);
+  assert.equal(f.calls.abort, 1);
+  f.emit({ type: 'result', isFinal: true, text: 'for Friday' });
+  f.emit({ type: 'end' });
+  assert.equal(draft, 'Book the room for Friday', 'late final words cannot refill the cleared box');
+  t.mock.timers.tick(10_000);
+  assert.equal(session.states.at(-1)!.error, '');
+  await session.start('en-US');
+  assert.equal(f.calls.start, 2, 'the next dictation can start right away');
+});
+
+test('a recognizer that ends promptly sends its final words without the grace path', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture();
+  const session = f.session();
+  await session.start('en-US');
+  const sending = session.finish(1200);
+  f.emit({ type: 'result', isFinal: true, text: 'Done' });
+  f.emit({ type: 'end' });
+  assert.equal(await sending, true);
+  t.mock.timers.tick(5000);
+  assert.equal(f.calls.abort, 0);
+  assert.deepEqual(session.words, ['Done']);
+});
