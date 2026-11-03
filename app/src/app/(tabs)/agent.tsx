@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, AppState, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useScrollToTop } from "expo-router";
 import { shortTime as when } from "../../lib/time-label";
 import { AppIcon } from "../../components/AppIcon";
 import { Button } from "../../components/Button";
@@ -33,6 +33,9 @@ function closedLine(closed: ChatClosed) {
 
 export default function Chats() {
   const styles = useStyles();
+  // Tapping the tab you're already on scrolls back to the top.
+  const scrollRef = useRef<FlatList<Chat>>(null);
+  useScrollToTop(scrollRef);
   const { colors } = useTheme();
   const { account, setAccount, signOut } = useSession();
   const { refreshAgent } = useLive();
@@ -133,7 +136,7 @@ export default function Chats() {
   return (
     <View style={styles.root}>
       <ProjectSheet visible={picking} projects={projects?.list ?? []} onPick={project => void start(project)} onClose={() => setPicking(false)} />
-      <FlatList
+      <FlatList ref={scrollRef}
         data={chats === null ? [] : rows}
         keyExtractor={(c) => c.id}
         extraData={{ openId, busyId, view }}

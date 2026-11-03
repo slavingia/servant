@@ -1,15 +1,19 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useScrollToTop } from "expo-router";
 import { AppIcon } from "../../components/AppIcon";
 import { SwipeChannelRow, useConversationActions } from "../../components/SwipeChannelRow";
 import { Button } from "../../components/Button";
 import { useLive } from "../../lib/live";
+import type { Conversation } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 
 export default function Messages() {
   const styles = useStyles();
+  // Tapping the tab you're already on scrolls back to the top.
+  const scrollRef = useRef<FlatList<Conversation>>(null);
+  useScrollToTop(scrollRef);
   const { colors } = useTheme();
   const { account } = useSession();
   const { conversations, error, refresh, connected } = useLive();
@@ -36,7 +40,7 @@ export default function Messages() {
   const list = dms.filter(c => !unreadOnly || c.unread > 0);
   return (
     <View style={styles.root}>
-      <FlatList
+      <FlatList ref={scrollRef}
         data={list}
         keyExtractor={(c) => c.id}
         extraData={{ openId, busyId }}

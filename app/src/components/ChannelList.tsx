@@ -1,6 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useScrollToTop } from "expo-router";
 import { AppIcon } from "./AppIcon";
 import { Button } from "./Button";
 import { PageTitle } from "./Band";
@@ -27,6 +27,9 @@ type HomeRow =
 
 export function ChannelList({ archived = false }: { archived?: boolean }) {
   const styles = useStyles();
+  // Tapping the tab you're already on scrolls back to the top.
+  const scrollRef = useRef<FlatList<HomeRow>>(null);
+  useScrollToTop(scrollRef);
   const { colors } = useTheme();
   const { account } = useSession();
   const { conversations, error, refresh, connected } = useLive();
@@ -109,7 +112,7 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
 
   return (
     <View style={styles.root}>
-      <FlatList
+      <FlatList ref={scrollRef}
         data={rows}
         keyExtractor={item => item.id}
         extraData={{ openId, busyId, channelsOpen, dmsOpen, discovering, reordering, sort }}

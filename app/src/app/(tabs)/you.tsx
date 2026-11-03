@@ -1,8 +1,8 @@
-import { useCallback, useState } from "react";
+import { type ComponentRef, useCallback, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useScrollToTop } from "expo-router";
 import { api, ServerError, type Release } from "../../lib/server";
 import { usePhotos } from "../../lib/photos";
 import { PageTitle } from "../../components/Band";
@@ -31,6 +31,9 @@ function Row({ label, value, onPress }: { label: string; value?: string; onPress
 }
 
 export default function Settings() {
+  // Tapping the tab you're already on scrolls back to the top.
+  const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
+  useScrollToTop(scrollRef);
   const { account, signOut } = useSession();
   const { colors } = useTheme();
   const styles = useStyles();
@@ -101,7 +104,7 @@ export default function Settings() {
 
   return (
     <View style={styles.root}>
-    <ScrollView style={styles.root} contentContainerStyle={styles.content} contentInsetAdjustmentBehavior="automatic">
+    <ScrollView ref={scrollRef} style={styles.root} contentContainerStyle={styles.content} contentInsetAdjustmentBehavior="automatic">
       <PageTitle>You</PageTitle>
       <Pressable testID="profile-photo" accessibilityRole="button" accessibilityLabel={hasPhoto ? "Change your profile photo" : "Add a profile photo"} accessibilityHint="Everyone on this server sees it"
         accessibilityState={{ busy: photoBusy, expanded: hasPhoto ? photoMenu : undefined }} disabled={photoBusy}

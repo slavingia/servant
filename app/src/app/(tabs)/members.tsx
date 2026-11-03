@@ -1,6 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useScrollToTop } from "expo-router";
 import { PageTitle } from "../../components/Band";
 import { Avatar } from "../../components/Messaging";
 import { Button } from "../../components/Button";
@@ -14,6 +14,9 @@ import { space, typography, useTheme, createThemedStyles } from "../../lib/theme
 
 export default function Members() {
   const styles = useStyles();
+  // Tapping the tab you're already on scrolls back to the top.
+  const scrollRef = useRef<FlatList<Person>>(null);
+  useScrollToTop(scrollRef);
   const { colors } = useTheme();
   const { account } = useSession();
   const { presence, connected } = useLive();
@@ -58,7 +61,7 @@ export default function Members() {
     } finally { setOpening(null); }
   };
   return <View style={styles.root}>
-    <FlatList
+    <FlatList ref={scrollRef}
       data={people ?? []}
       keyExtractor={person => person.id}
       keyboardShouldPersistTaps="handled"
