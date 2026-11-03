@@ -100,7 +100,7 @@ export default function Chats() {
     setError(null);
     try {
       const chat = await api.newChat(account);
-      router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title } });
+      router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, compose: "1" } });
     } catch (e) {
       setError(e instanceof ServerError ? e.message : "Couldn't start a chat");
     } finally {

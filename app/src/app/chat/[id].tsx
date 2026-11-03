@@ -131,7 +131,7 @@ function ShareToggle({ id }: { id: string }) {
 function ChatConversation() {
   const styles = useStyles();
   const { colors } = useTheme();
-  const { id, title, forward, forwardAuthor, forwardWhere, forwardText, forwardFiles } = useLocalSearchParams<{ id: string; title?: string; forward?: string; forwardAuthor?: string; forwardWhere?: string; forwardText?: string; forwardFiles?: string }>();
+  const { id, title, compose, forward, forwardAuthor, forwardWhere, forwardText, forwardFiles } = useLocalSearchParams<{ id: string; title?: string; compose?: string; forward?: string; forwardAuthor?: string; forwardWhere?: string; forwardText?: string; forwardFiles?: string }>();
   const { account, setAccount } = useSession();
   // A message brought here with "Ask the agent", until it's sent or removed.
   const [pendingForward, setPendingForward] = useState<string | null>(forward || null);
@@ -530,7 +530,7 @@ function ChatConversation() {
             <AppIcon name="close" size={16} color={colors.muted} />
           </Pressable>
         </View> : null}
-        {messages !== null && !loadError ? <Composer placeholder={pendingForward ? "Ask about this message, or just send" : "Message the agent"} onSend={send} allowFileAttachments={false} canSendEmpty={!!pendingForward} /> : null}
+        {messages !== null && !loadError ? <Composer autoFocus={compose === "1"} placeholder={pendingForward ? "Ask about this message, or just send" : "Message the agent"} onSend={send} allowFileAttachments={false} canSendEmpty={!!pendingForward} /> : null}
       </ConversationKeyboardView>
     </View>
     </MediaGalleryProvider>

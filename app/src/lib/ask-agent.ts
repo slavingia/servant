@@ -9,7 +9,7 @@ export async function askAgentAbout(account: Account, post: Post, conversation: 
   const where = conversation?.kind === "channel" ? `#${conversation.title}` : "a direct message";
   const chat = await api.newChat(account, { shared: !privateSource });
   router.push({ pathname: "/chat/[id]", params: {
-    id: chat.id, title: chat.title,
+    id: chat.id, title: chat.title, compose: "1",
     forward: post.id, forwardAuthor: post.user.name, forwardWhere: where,
     forwardText: post.text.slice(0, 600), forwardFiles: String(post.attachments?.length ?? 0),
   } });
