@@ -3,7 +3,7 @@
 // and microphone to the server once, and receives everyone else on separate
 // connections, so people can come and go without renegotiating.
 import { Platform } from "react-native";
-import { api, type Account, type Meeting } from "./server";
+import { api, ServerError, type Account, type Meeting } from "./server";
 
 type Stream = any;
 type Peer = any;
@@ -32,6 +32,31 @@ export type CallState = {
   cameraOff: boolean;
 };
 
+export type CallStep = "start" | "load" | "microphone" | "join" | "connect";
+
+/** Says what failed, at which step, and what to do next. Never a bare "Not found". */
+export function callErrorText(e: unknown, step: CallStep): string {
+  const where = { start: "start the call", load: "open the call", microphone: "use your microphone", join: "join the call", connect: "connect the call" }[step];
+  if (e instanceof ServerError) {
+    if (e.code === "meeting_ended") return "This call has ended. Start a new one from the conversation";
+    if (e.code === "meeting_full") return "This call is full (12 people). Try again when someone leaves";
+    if (e.code === "calls_unavailable" || e.status === 503) return `Couldn't ${where}: calls aren't running on this server right now. Try again in a minute, or ask your admin`;
+    if (e.code === "unreachable" || e.code === "network" || e.status === 0) return `Couldn't ${where}: the server isn't reachable. Check your connection and try again`;
+    if (e.status === 401) return `Couldn't ${where}: you're signed out. Open Servant again and sign in`;
+    if (e.status === 404) return step === "start"
+      ? `Couldn't ${where}: ${e.message}. If this keeps happening, this server may not support calls yet. Ask your admin to update it`
+      : `Couldn't ${where}: ${e.message}`;
+    if (e.code === "bad_sdp") return `Couldn't ${where}: the connection setup was rejected. Leave and try again`;
+    return `Couldn't ${where}: ${e.message} (${e.status || e.code})`;
+  }
+  const name = (e as any)?.name;
+  if (name === "NotAllowedError" || name === "SecurityError") return "Servant doesn't have permission to use your microphone. Allow it in Settings, then try again";
+  if (name === "NotFoundError" || name === "OverconstrainedError") return "No microphone found on this device. Connect one and try again";
+  if (name === "NotReadableError") return "Your microphone is busy in another app. Close it and try again";
+  const msg = (e as any)?.message;
+  return msg ? `Couldn't ${where}: ${msg}` : `Couldn't ${where}. Check your connection and try again`;
+}
+
 // Gather the whole answer before sending it: signaling is a single HTTP request.
 async function gathered(pc: Peer, timeoutMs = 3000) {
   if (pc.iceGatheringState === "complete") return;
@@ -49,6 +74,7 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
   let pc: Peer | null = null;
   let participantId: string | null = null;
   let closed = false;
+  let micError: any = null;
   let poll: ReturnType<typeof setTimeout> | null = null;
   const watching = new Map<string, Peer>();
   const iceConfig = (m: Meeting) => ({ iceServers: m.iceServers.length ? m.iceServers : [{ urls: "stun:stun.l.google.com:19302" }] });
@@ -59,7 +85,7 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
     catch {
       // No camera, or the camera was refused: join with audio only.
       try { state.cameraOff = true; return await mediaDevices.getUserMedia({ audio: true, video: false }); }
-      catch { return null; }
+      catch (e) { micError = e; return null; }
     }
   }
 
@@ -115,19 +141,22 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
   }
 
   async function start() {
+    let step: CallStep = "load";
     try {
       const m = await api.meeting(account, meetingId);
       if (m.status !== "live") { state.status = "ended"; emit(); return; }
+      step = "microphone";
       state.local = await getMedia();
-      if (!state.local) throw new Error("Allow the microphone to join the meeting");
+      if (!state.local) throw Object.assign(new Error("microphone"), { name: micError?.name || "NotAllowedError" });
       if (closed) { stopTracks(); return; }
+      step = "join";
       state.status = "connecting"; emit();
       const { RTCPeerConnection } = rtc();
       pc = new RTCPeerConnection(iceConfig(m));
       for (const track of state.local.getTracks()) pc.addTrack(track, state.local);
       pc.addEventListener("connectionstatechange", () => {
         if (pc?.connectionState === "connected") { state.status = "live"; emit(); }
-        if (pc?.connectionState === "failed" && !closed) { state.status = "failed"; state.error = "The call dropped. Check your connection and join again"; emit(); }
+        if (pc?.connectionState === "failed" && !closed) { state.status = "failed"; state.error = "The call dropped before audio connected. Check your connection (some Wi-Fi blocks calls) and join again"; emit(); }
       });
       await pc.setLocalDescription(await pc.createOffer());
       await gathered(pc);
@@ -138,7 +167,7 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
       void sync();
     } catch (e: any) {
       state.status = "failed";
-      state.error = e?.message || "Couldn't join the meeting";
+      state.error = callErrorText(e, step);
       emit();
       await stop(false);
     }

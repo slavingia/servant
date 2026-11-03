@@ -609,7 +609,7 @@ async function handle(req, res, cfg) {
   }
 
   // Everything below needs a device token.
-  if (parts[0] !== "v1") return fail(res, 404, "not_found", "Not found");
+  if (parts[0] !== "v1") return fail(res, 404, "not_found", `This server has no ${method} ${url.pathname}`);
   const state = readState();
   const auth = requireAuth(req, state);
   const { user, device } = auth;
@@ -734,6 +734,7 @@ async function handle(req, res, cfg) {
     }, true);
     return send(res, 200, { person });
   }
+  if (!meetings && parts[1] === "meetings") return fail(res, 503, "calls_unavailable", "Calls aren't running on this server right now. Ask your admin to restart it"), undefined;
   if (meetings && parts[1] === "meetings" && (await meetings.handle(req, res, { user, method, parts, send, fail, readBody: readAuthorizedBody }))) return undefined;
   if (messaging && (await messaging.handle(req, res, { user, device, method, parts, url, send, fail, readBody: readAuthorizedBody, cors: CORS,
     isAuthorized: () => authenticate(req, readState())?.user.id === user.id,
@@ -1052,7 +1053,7 @@ async function handle(req, res, cfg) {
     });
   }
 
-  return fail(res, 404, "not_found", "Not found");
+  return fail(res, 404, "not_found", `This server has no ${method} ${url.pathname}. The app may be newer than the server`);
 }
 
 function streamPrivateTurn(req, res, turnId, authorize, after = 0) {
@@ -1340,7 +1341,8 @@ export function startServer(fixedCfg) {
   feedback ??= createFeedback({ file: path.join(DATA_DIR, "feedback.db"), interval: 0, recover: false });
   messaging.ensureGeneral();
   for (const uid of Object.keys(readState().users)) messaging.joinDefaults(uid);
-  if (!externalWorker && !meetings) {
+  if (!meetings) {
+    // The API process hosts calls even when a separate worker runs agent turns.
     meetings = createMeetings({
       dir: path.join(DATA_DIR, "meetings"),
       messaging,

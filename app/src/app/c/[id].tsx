@@ -12,7 +12,7 @@ import { mergeReadEvent } from "../../lib/read-receipts";
 import { latestMessageReceipts } from "../../lib/message-status";
 import { canCompactPost } from "../../lib/message-device";
 import { TypingLine, useTyping, useTypingPing } from "../../lib/typing";
-import { callsSupported } from "../../lib/meeting-call";
+import { callErrorText, callsSupported } from "../../lib/meeting-call";
 import { api, ServerError, type Conversation, type Upload, type Post, type LiveEvent } from "../../lib/server";
 import { useLive } from "../../lib/live";
 import { useSession } from "../../lib/session";
@@ -234,7 +234,7 @@ export default function ConversationScreen() {
     try {
       const meeting = await api.startMeeting(account, id);
       router.push({ pathname: "/meeting/[id]", params: { id: meeting.id } });
-    } catch (e) { setError(e instanceof Error ? e.message : "Couldn't start the meeting"); }
+    } catch (e) { setError(callErrorText(e, "start")); }
     finally { setCalling(false); }
   };
   const headerButton = { type: "button" as const, tintColor: colors.blue, labelStyle: { color: colors.blue, fontSize: typography.label.fontSize, fontWeight: "600" as const }, hidesSharedBackground: true };

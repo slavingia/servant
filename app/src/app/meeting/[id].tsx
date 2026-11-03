@@ -23,7 +23,7 @@ export default function MeetingScreen() {
 
   useEffect(() => {
     if (!account || !id) return;
-    if (!callsSupported()) { setState(s => ({ ...s, status: "failed", error: "This device can't join calls" })); return; }
+    if (!callsSupported()) { setState(s => ({ ...s, status: "failed", error: "This device or browser can't make calls. Use the Servant app or a current Chrome, Safari or Edge" })); return; }
     const c = createCall(account, id, setState);
     call.current = c;
     void c.start();
