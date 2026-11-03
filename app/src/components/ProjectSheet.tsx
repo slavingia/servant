@@ -3,12 +3,17 @@ import { AppIcon } from "./AppIcon";
 import type { Project } from "../lib/server";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
-// "New chat" choices: talk to the agent as is, or about one project on the Mac.
+// The id for "Vibe coding" in the list; it isn't a project the server knows.
+export const VIBE_CHOICE = "vibe";
+
+// "New chat" choices: talk to the agent as is, vibe code a prototype with a
+// preview, or work on one project on the Mac.
 export function ProjectSheet({ visible, projects, onPick, onClose }: { visible: boolean; projects: Project[]; onPick: (project: string | null) => void; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const options: { id: string | null; name: string; description?: string }[] = [
     { id: null, name: "Just the agent", description: "No project. Ask anything." },
+    { id: VIBE_CHOICE, name: "Vibe coding", description: "Describe a page or tool and get a live preview link." },
     ...projects.filter(p => p.id !== "mac").map(p => ({ id: p.id, name: p.name, description: p.description })),
     ...projects.filter(p => p.id === "mac").map(p => ({ id: p.id, name: p.name, description: p.description })),
   ];
@@ -19,7 +24,7 @@ export function ProjectSheet({ visible, projects, onPick, onClose }: { visible: 
         {options.map(option => <Pressable key={option.id ?? "none"} testID={`project-${option.id ?? "none"}`} accessibilityRole="button"
           accessibilityLabel={option.description ? `${option.name}. ${option.description}` : option.name}
           onPress={() => onPick(option.id)} style={({ pressed }) => [styles.option, pressed && styles.pressed]}>
-          <View style={styles.icon}><AppIcon name={option.id ? "hash" : "sparkles"} size={17} color={colors.blueDark} /></View>
+          <View style={styles.icon}><AppIcon name={option.id === VIBE_CHOICE ? "code" : option.id ? "hash" : "sparkles"} size={17} color={colors.blueDark} /></View>
           <View style={styles.copy}>
             <Text style={styles.label}>{option.name}</Text>
             {option.description ? <Text style={styles.description}>{option.description}</Text> : null}

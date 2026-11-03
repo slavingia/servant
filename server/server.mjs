@@ -804,8 +804,9 @@ async function handle(req, res, cfg) {
     if (!creationUp) return fail(res, 503, "agent_unavailable", "The agent isn't set up on this server yet");
     if (agentRole(creator.role, cfg) !== "owner") await verifyMemberUpstream(creationUp);
     const chatId = id("cht");
-    // Vibe coders always build prototypes; everyone else may pick a project.
-    const vibe = !!readState().users[creator.id]?.vibeCoder;
+    // Vibe coders always build prototypes. Anyone else may pick a project, or
+    // ask for vibe coding (a prototype with a preview link) from the list.
+    const vibe = !!readState().users[creator.id]?.vibeCoder || body.mode === "vibe";
     const project = vibe ? VIBE_PROJECT : (typeof body.project === "string" && availableProjects().some(p => p.id === body.project) ? body.project : null);
     if (body.project && !vibe && !project) return fail(res, 400, "bad_project", "That project isn't available on this server");
     const hermesSessionId = `servant_${creator.id}_${chatId}`;

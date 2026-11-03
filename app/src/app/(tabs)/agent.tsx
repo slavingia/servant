@@ -6,7 +6,7 @@ import { AppIcon } from "../../components/AppIcon";
 import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { SwipeRow } from "../../components/SwipeChannelRow";
-import { ProjectSheet } from "../../components/ProjectSheet";
+import { ProjectSheet, VIBE_CHOICE } from "../../components/ProjectSheet";
 import { api, ServerError, type Chat, type ChatClosed, type Project } from "../../lib/server";
 
 // The line under the title, like the last message in a DM list.
@@ -114,13 +114,14 @@ export default function Chats() {
 
   const start = async (project?: string | null) => {
     if (starting) return;
-    // Technical people choose what the chat is about; vibe coders always build prototypes.
-    if (project === undefined && projects && !projects.vibeCoder && projects.list.length) { setPicking(true); return; }
+    // Everyone else chooses what the chat is about (including vibe coding);
+    // vibe coders always build prototypes.
+    if (project === undefined && projects && !projects.vibeCoder) { setPicking(true); return; }
     setPicking(false);
     setStarting(true);
     setError(null);
     try {
-      const chat = await api.newChat(account, project ? { project } : {});
+      const chat = await api.newChat(account, project === VIBE_CHOICE ? { mode: "vibe" } : project ? { project } : {});
       router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, compose: "1" } });
     } catch (e) {
       setError(e instanceof ServerError ? e.message : "Couldn't start a chat");
@@ -210,7 +211,7 @@ export default function Chats() {
                   onAccessibilityAction={bind.onAccessibilityAction}
                   style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}
                 >
-                  <View style={styles.agentIcon}><AppIcon name={item.mode === "vibe" ? "compose" : "sparkles"} size={19} color={colors.blueDark} /></View>
+                  <View style={styles.agentIcon}><AppIcon name={item.mode === "vibe" ? "code" : "sparkles"} size={19} color={colors.blueDark} /></View>
                   <View style={styles.rowCopy}><Text style={[styles.rowTitle, styles.readTitle, unread > 0 && styles.unreadTitle]} numberOfLines={1}>{title}</Text>
                     {item.mode === "vibe" || item.project ? <Text style={styles.projectTag} numberOfLines={1}>{item.mode === "vibe" ? "Vibe coding" : item.project!.name}</Text> : null}
                     {activeAgentTurn(item.latestTurn) ? <Text style={styles.turnLabel} numberOfLines={1}>{agentTurnLabel(item.latestTurn!)}</Text>

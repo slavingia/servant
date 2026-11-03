@@ -330,6 +330,21 @@ test("projects: technical people pick one; the chat's turns carry its instructio
   assert.equal(chat.mode, undefined);
 });
 
+test("vibe coding is an option for everyone: any member can pick it and gets a preview link", async () => {
+  const token = await pair("member", "Remy Regular");
+  assert.equal((await api("GET", "/v1/projects", { token })).json.vibeCoder, false);
+  const chat = (await api("POST", "/v1/chats", { token, body: { mode: "vibe" } })).json.chat;
+  assert.equal(chat.mode, "vibe");
+  assert.equal(chat.project.id, "design-prototypes");
+  assert.match(chat.previewUrl, /^https:\/\/taxpayer-services-and-online-accounts\.github\.io\/design-prototypes\/vibe-[a-z0-9]+\/$/);
+  const before = owner.calls.length + member.calls.length;
+  await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "a page about refunds" } });
+  const stream = [...owner.calls, ...member.calls].slice(before).find((c) => c.url.endsWith("/chat/stream"));
+  assert.ok(stream.body.system_message.includes(`PREVIEW: ${chat.previewUrl}`));
+  // Not asking for it still gives a plain chat.
+  assert.equal((await api("POST", "/v1/chats", { token, body: {} })).json.chat.mode, undefined);
+});
+
 test("vibe coders: owners mark them; their chats build a prototype and show a preview link", async () => {
   const boss = await pair("owner", "Vi Owner");
   const token = await pair("member", "Val Vibes");
