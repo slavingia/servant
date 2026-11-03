@@ -36,7 +36,7 @@ import { supportsDurableRuns, supportsSteer, runDurableHermes } from "./hermes-r
 import { availableProjects, chatInstructions, projectById, vibeFolder, VIBE_PROJECT } from "./projects.mjs";
 import { verifyMemberUpstream } from "./member-policy.mjs";
 import { composeForward } from "./forward.mjs";
-import { THINKING_LINE, toolStatusLine, WRITING_LINE } from "./agent-status.mjs";
+import { stepDetail, THINKING_LINE, toolStatusLine, WRITING_LINE } from "./agent-status.mjs";
 import { validateUploads, normalizeMediaContent, hermesInput, mediaPage, createMediaDeltaFilter, MAX_UPLOAD_BODY, TEXT_PART_CHARS } from "./media.mjs";
 import { createDocumentStore, DOCUMENT_CHUNK, DOCUMENT_CHUNK_BODY } from "./documents.mjs";
 
@@ -1145,9 +1145,13 @@ async function executePrivateTurn(turn, hooks, cfg) {
   // journaled, so a long reply doesn't write a status per token.
   let activity;
   const setActivity = text => { if (text !== activity) { activity = text; hooks.emit("status", { text }); } };
+  // Each step is also kept (label, and for the owner what it's working on) so
+  // tapping the progress line can show everything the agent has done so far.
+  const step = (label, detail) => hooks.emit("step", { label, ...(full && detail ? { detail: stepDetail(detail) } : {}) });
   const onEvent = (name, payload) => {
-    if (name === "assistant.delta") { if (payload.delta) setActivity(WRITING_LINE); hooks.emit("delta", { text: payload.delta || "" }); }
-    else if (name === "tool.started") setActivity(toolStatusLine(payload.tool_name, { full }));
+    if (name === "assistant.delta") { if (payload.delta) { if (activity !== WRITING_LINE) step(WRITING_LINE); setActivity(WRITING_LINE); } hooks.emit("delta", { text: payload.delta || "" }); }
+    else if (name === "tool.started") { const line = toolStatusLine(payload.tool_name, { full }); step(line, typeof payload.preview === "string" ? payload.preview : ""); setActivity(line); }
+    else if (name === "reasoning.available" || (name === "tool.progress" && payload.tool_name === "_thinking")) { step(THINKING_LINE, payload.text ?? payload.delta); setActivity(THINKING_LINE); }
     else if (name === "run.started" || name === "tool.completed" || name.startsWith("reasoning.")) setActivity(THINKING_LINE);
     else if (name === "assistant.completed") saveAssistant(payload.content || "");
     else if (name === "run.completed") {

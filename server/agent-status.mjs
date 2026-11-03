@@ -28,6 +28,24 @@ export const WORKING_LINE = "Working on it";
 export const THINKING_LINE = "Thinking";
 export const WRITING_LINE = "Writing";
 
+// What the agent is working on (the command, search, file or its reasoning),
+// shown to the owner when they open the progress line. Secrets and long
+// tokens are masked; anything past a short line is cut.
+const SECRETS = [
+  /\b(?:sk|pk|rk|ghp|gho|ghs|github_pat|xox[abprs]|glpat|AKIA|ASIA)[-_A-Za-z0-9]{12,}/g,
+  /\b(Bearer|Basic|token)\s+[A-Za-z0-9._~+/=-]{12,}/gi,
+  /\b([A-Za-z_]*(?:pass(?:word)?|secret|token|api[_-]?key|auth)[A-Za-z_]*)(\s*[=:]\s*)(?!(?:Bearer|Basic|token)\s)("[^"]*"|'[^']*'|\S+)/gi,
+  /-----BEGIN [A-Z ]+-----[\s\S]*?(?:-----END [A-Z ]+-----|$)/g,
+  /\b[A-Fa-f0-9]{32,}\b|\b[A-Za-z0-9+/_-]{40,}={0,2}/g,
+];
+export const DETAIL_CHARS = 160;
+export function stepDetail(text, max = DETAIL_CHARS) {
+  if (typeof text !== "string") return "";
+  let line = text.replace(/\s+/g, " ").trim();
+  line = line.replace(SECRETS[0], "•••").replace(SECRETS[1], "$1 •••").replace(SECRETS[2], "$1$2•••").replace(SECRETS[3], "•••").replace(SECRETS[4], "•••");
+  return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
+}
+
 export function toolStatusLine(toolName, { full = true } = {}) {
   if (!full || typeof toolName !== "string" || !toolName) return WORKING_LINE;
   const name = toolName.trim().toLowerCase();

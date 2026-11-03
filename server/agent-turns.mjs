@@ -7,6 +7,7 @@ import { sourceDeviceKind } from './source-device.mjs';
 
 export const MAX_QUEUED = 5;
 const activeStates = ['queued', 'running', 'waiting_for_approval', 'stopping'];
+const MAX_STEPS = 40;
 const active = status => activeStates.includes(status);
 const fault = (status, code, message) => Object.assign(new Error(message), { status, code });
 export const terminalTurn = turn => !active(turn.status);
@@ -49,6 +50,9 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
     // The agent's latest progress line ("Searching the web"), for viewers that
     // aren't following the live stream.
     if (!columns.has('activity')) db.exec('ALTER TABLE private_turns ADD COLUMN activity TEXT');
+    // Every progress step so far ([{ label, detail?, at }]), for the expanded view.
+    if (!columns.has('steps')) db.exec("ALTER TABLE private_turns ADD COLUMN steps TEXT NOT NULL DEFAULT '[]'");
+    if (!columns.has('started_at')) db.exec('ALTER TABLE private_turns ADD COLUMN started_at INTEGER');
     // Issue-style closing: who closed the chat at this reply (agent|closer), why,
     // and when the closer last judged it (so each reply is judged once).
     for (const column of ['closed_by', 'closed_reason']) if (!columns.has(column)) db.exec(`ALTER TABLE private_turns ADD COLUMN ${column} TEXT`);
@@ -87,6 +91,7 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
     accepted: !!t.accepted, text: t.text, assistantText: t.assistant_text, messageId: t.message_id,
     canStop: active(t.status) && (t.status === 'queued' || !!t.run_id),
     steerRequested: !!t.steer_requested, steeredInto: t.steered_into || null, activity: active(t.status) ? t.activity || null : null,
+    steps: active(t.status) ? JSON.parse(t.steps || '[]') : [], startedAt: t.started_at ?? null,
     approval: t.approval ? JSON.parse(t.approval) : null,
     createdAt: t.created_at, updatedAt: t.updated_at });
   function tx(fn) {
@@ -103,6 +108,14 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
       if (!t || !active(t.status)) return;
       if (name === 'delta') db.prepare('UPDATE private_turns SET assistant_text=assistant_text||?,updated_at=? WHERE id=?').run(payload.text || '', clock(), id);
       if (name === 'status') db.prepare('UPDATE private_turns SET activity=?,updated_at=? WHERE id=?').run(String(payload.text || '').slice(0, 80), clock(), id);
+      if (name === 'step') {
+        // A repeat of the last step (same line, no new detail) only refreshes it.
+        const steps = JSON.parse(t.steps || '[]'), last = steps.at(-1);
+        const step = { label: String(payload.label || '').slice(0, 80), ...(payload.detail ? { detail: String(payload.detail).slice(0, 200) } : {}), at: clock() };
+        if (last && last.label === step.label && !step.detail) return;
+        steps.push(step);
+        db.prepare('UPDATE private_turns SET steps=?,updated_at=? WHERE id=?').run(JSON.stringify(steps.slice(-MAX_STEPS)), clock(), id);
+      }
       if (name === 'sent') db.prepare('UPDATE private_turns SET accepted=1,updated_at=? WHERE id=?').run(clock(), id);
       if (name === 'message') db.prepare('UPDATE private_turns SET assistant_text=?,message_id=?,updated_at=? WHERE id=?').run(payload.text || '', payload.id, clock(), id);
       if (name === 'approval') db.prepare("UPDATE private_turns SET approval=?,approval_choice=NULL,status='waiting_for_approval',updated_at=? WHERE id=?")
@@ -241,7 +254,7 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
         SELECT 1 FROM private_turns r WHERE r.chat_id=q.chat_id AND r.status IN ('running','waiting_for_approval','stopping'))
         ORDER BY q.seq LIMIT 1`).get();
       if (!next) return;
-      db.prepare('UPDATE private_turns SET status=?,updated_at=? WHERE id=?').run(next.stop_requested ? 'stopping' : next.approval ? 'waiting_for_approval' : 'running', clock(), next.id);
+      db.prepare('UPDATE private_turns SET status=?,started_at=COALESCE(started_at,?),updated_at=? WHERE id=?').run(next.stop_requested ? 'stopping' : next.approval ? 'waiting_for_approval' : 'running', clock(), clock(), next.id);
       event(next.id, 'turn', { turn: view(row(next.id)) });
       return row(next.id);
     });

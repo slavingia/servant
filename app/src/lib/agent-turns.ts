@@ -1,3 +1,6 @@
+// One thing the agent did. detail is what it worked on (a command, a search,
+// a file, its reasoning); the server only sends it to the owner.
+export type AgentStep = { label: string; detail?: string; at: number };
 export type AgentApproval = { id: string; command: string; description: string; choices: ('once' | 'deny')[] };
 export type AgentTurn = {
   id: string; chatId: string; status: 'queued' | 'running' | 'waiting_for_approval' | 'stopping' | 'completed' | 'cancelled' | 'failed' | 'interrupted' | 'steered';
@@ -5,6 +8,8 @@ export type AgentTurn = {
   steerRequested?: boolean;
   // Latest plain-language progress line while it runs ("Searching the web").
   activity?: string | null;
+  // Every step so far, and when it started running, for the details view.
+  steps?: AgentStep[]; startedAt?: number | null;
   createdAt: number; updatedAt: number;
 };
 
@@ -43,7 +48,25 @@ export function parseAgentTurn(value: unknown): AgentTurn | null {
   return { id: t.id, chatId: t.chatId, status: t.status as AgentTurn['status'], accepted: t.accepted === true,
     text: typeof t.text === 'string' ? t.text : '', assistantText: typeof t.assistantText === 'string' ? t.assistantText : '',
     canStop: t.canStop === true, approval: parseApproval(t.approval), steerRequested: t.steerRequested === true,
-    activity: typeof t.activity === 'string' && t.activity ? t.activity.slice(0, 80) : null, createdAt: t.createdAt, updatedAt: t.updatedAt };
+    activity: typeof t.activity === 'string' && t.activity ? t.activity.slice(0, 80) : null,
+    steps: parseSteps(t.steps), startedAt: typeof t.startedAt === 'number' ? t.startedAt : null, createdAt: t.createdAt, updatedAt: t.updatedAt };
+}
+function parseSteps(value: unknown): AgentStep[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((s): AgentStep[] => !s || typeof s !== 'object' || typeof s.label !== 'string' || !s.label || typeof s.at !== 'number' ? []
+    : [{ label: s.label.slice(0, 80), ...(typeof s.detail === 'string' && s.detail ? { detail: s.detail.slice(0, 200) } : {}), at: s.at }]);
+}
+// "4 steps · 1:12" under the live line: how far along it is and for how long.
+export function agentProgressMeta(turn: AgentTurn | null | undefined, now: number) {
+  if (!turn) return '';
+  const steps = turn.steps?.length ?? 0, start = turn.startedAt ?? turn.steps?.[0]?.at;
+  const parts = steps ? [`${steps} ${steps === 1 ? 'step' : 'steps'}`] : [];
+  if (start && now - start >= 1000) parts.push(elapsed(now - start));
+  return parts.join(' · ');
+}
+export function elapsed(ms: number) {
+  const s = Math.max(0, Math.floor(ms / 1000)), m = Math.floor(s / 60);
+  return m >= 60 ? `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` : `${m}:${String(s % 60).padStart(2, '0')}`;
 }
 
 // The server lists newest first. The reply in progress is the one turn that

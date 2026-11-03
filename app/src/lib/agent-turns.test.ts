@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activeAgentTurn, canSteer, liveAgentLine, queuedBelow, parseAgentTurn, splitTurns, type AgentTurn } from './agent-turns.ts';
+import { agentProgressMeta, elapsed, activeAgentTurn, canSteer, liveAgentLine, queuedBelow, parseAgentTurn, splitTurns, type AgentTurn } from './agent-turns.ts';
 import { createAgentEventDecoder, type StreamEvent } from './agent-events.ts';
 
 const turn = { id: 'turn_1', chatId: 'chat_1', status: 'waiting_for_approval', accepted: true, text: 'Prepare notes', assistantText: 'Ready', canStop: true, createdAt: 10, updatedAt: 20 };
@@ -68,4 +68,14 @@ test('a queued turn shown as up next is not listed again as waiting', () => {
   const next = queuedTurn("a", "queued", 1), later = queuedTurn("b", "queued", 2);
   assert.deepEqual(queuedBelow([next, later], [next, null]).map(t => t.id), ["b"]);
   assert.deepEqual(queuedBelow([next, later], [undefined, queuedTurn("r", "running", 0)]).map(t => t.id), ["a", "b"]);
+});
+
+test('steps ride on the turn, and the meta line counts them and the time', () => {
+  const turn = parseAgentTurn({ id: 't', chatId: 'c', status: 'running', createdAt: 1, updatedAt: 2, startedAt: 10_000,
+    steps: [{ label: 'Thinking', detail: 'Check the repo', at: 10_500 }, { label: 'Running a command', detail: 'git status', at: 12_000 }, { label: '', at: 1 }, 'junk'] });
+  assert.deepEqual(turn?.steps, [{ label: 'Thinking', detail: 'Check the repo', at: 10_500 }, { label: 'Running a command', detail: 'git status', at: 12_000 }]);
+  assert.equal(agentProgressMeta(turn, 82_000), '2 steps · 1:12');
+  assert.equal(agentProgressMeta({ ...turn!, steps: [turn!.steps![0]!] }, 10_400), '1 step');
+  assert.equal(agentProgressMeta(parseAgentTurn({ id: 't', chatId: 'c', status: 'running', createdAt: 1, updatedAt: 2 }), 5), '');
+  assert.equal(elapsed(3_725_000), '1:02:05');
 });

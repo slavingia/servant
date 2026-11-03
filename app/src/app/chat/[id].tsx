@@ -13,7 +13,7 @@ import { Button } from "../../components/Button";
 import { MessageText } from "../../components/MessageText";
 import { AgentApprovalCard } from "../../components/AgentApprovalCard";
 import { activeAgentTurn, agentTurnLabel, canSteer, liveAgentLine, queuedBelow, splitTurns, type AgentTurn } from "../../lib/agent-turns";
-import { LiveStatus } from "../../components/LiveStatus";
+import { AgentProgress } from "../../components/AgentSteps";
 import { bufferAgentReply } from "../../lib/agent-events";
 import { messageDeviceLabel } from "../../lib/message-device";
 import { api, sendMessage, ServerError, uploadPost, type Chat, type Message, type Upload } from "../../lib/server";
@@ -670,8 +670,8 @@ function ChatConversation() {
                   {mine && !working ? <ForwardedText item={item} /> : !working && item.text ? <ReplyText text={item.text} failed={item.failed} /> : null}
                   {!working && item.attachments?.length ? <Attachments files={item.attachments} /> : null}
                   {item.uploads?.length ? <PendingAttachments files={item.uploads} progress={item.pending ? uploadProgress : null} /> : null}
-                  {working ? <View style={styles.liveRow}>
-                    <LiveStatus text={liveAgentLine(turn && activeAgentTurn(turn) ? turn : null, item.agentWorking ? null : status)} style={styles.live} />
+                  {working ? <View style={[styles.liveRow, styles.workingRow]}>
+                    <AgentProgress line={liveAgentLine(turn && activeAgentTurn(turn) ? turn : null, item.agentWorking ? null : status)} turn={turn && activeAgentTurn(turn) ? turn : null} />
                     {turn?.canStop && activeAgentTurn(turn) ? <Pressable accessibilityRole="button" accessibilityLabel="Stop the agent" accessibilityState={{ disabled: actionBusy || turn.status === 'stopping' }}
                       disabled={actionBusy || turn.status === 'stopping'} hitSlop={12} onPress={() => { void stop(); }} style={styles.stop}>
                       <Text style={[styles.stopText, (actionBusy || turn.status === 'stopping') && styles.dim]}>Stop</Text>
@@ -796,8 +796,10 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   queuedText: { ...typography.body, color: colors.ink },
   remove: { paddingHorizontal: space.xs, paddingVertical: space.xxs }, removeText: { ...typography.body, color: colors.muted },
   liveRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginTop: 2, minHeight: 28 },
+  // Stop stays beside the live line when the steps are open below it.
+  workingRow: { alignItems: 'flex-start' },
   live: { ...typography.body, color: colors.muted, flexShrink: 1 },
-  stop: { paddingHorizontal: space.xs, paddingVertical: space.xxs }, stopText: { ...typography.captionStrong, color: colors.red }, dim: { opacity: 0.5 },
+  stop: { paddingHorizontal: space.xs, paddingVertical: space.xxs, minHeight: 28, justifyContent: 'center' }, stopText: { ...typography.captionStrong, color: colors.red }, dim: { opacity: 0.5 },
   queuedMessage: { opacity: 0.85 },
   queuedDetail: { ...typography.meta, color: colors.muted, flexShrink: 1 },
   steer: { minHeight: 28, minWidth: 64, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.sm, borderRadius: 14, borderWidth: 1, borderColor: colors.blue },

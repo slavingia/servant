@@ -82,9 +82,11 @@ export async function runDurableHermes({ up, sessionId, input, sessionKey, instr
     if (name === 'message.delta') {
       const text = filter(payload.delta || '');
       if (text) onEvent('assistant.delta', { delta: text });
-    } else if (name === 'tool.started') onEvent(name, { tool_name: payload.tool });
-    // Progress only: tool results and reasoning text never leave this worker.
-    else if (name === 'tool.completed' || name === 'reasoning.available') onEvent(name, {});
+    } else if (name === 'tool.started') onEvent(name, { tool_name: payload.tool, preview: payload.preview });
+    // Tool results never leave this worker. The tool's argument preview and a
+    // short reasoning excerpt do, for the owner's progress details only.
+    else if (name === 'reasoning.available') onEvent(name, { text: payload.text });
+    else if (name === 'tool.completed') onEvent(name, {});
     else if (name === 'approval.request') {
       if (!payload.approval_id || seenApprovals.has(payload.approval_id)) return;
       seenApprovals.add(payload.approval_id);

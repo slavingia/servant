@@ -241,3 +241,21 @@ test('the latest progress line rides on the turn while it runs, then clears', as
     assert.equal(worker.get(turn.id).activity, null);
   } finally { finish.resolve(); await worker.whenIdle(); worker.close(); }
 });
+
+test('each progress step is kept on the turn while it runs, then cleared', async t => {
+  const file = fixture(t), started = deferred(), finish = deferred();
+  const worker = createAgentTurns({ file, execute: async (_t, { emit }) => {
+    emit('step', { label: 'Thinking', detail: 'Check the repo first' });
+    emit('step', { label: 'Running a command', detail: 'git status' });
+    emit('step', { label: 'Writing' }); emit('step', { label: 'Writing' });
+    started.resolve(); await finish.promise; return {};
+  } });
+  try {
+    const turn = worker.enqueue(input()); const run = worker.processNext(); await started.promise;
+    const live = worker.get(turn.id);
+    assert.deepEqual(live.steps.map(s => [s.label, s.detail]), [['Thinking', 'Check the repo first'], ['Running a command', 'git status'], ['Writing', undefined]]);
+    assert.equal(typeof live.startedAt, 'number');
+    finish.resolve(); await run;
+    assert.deepEqual(worker.get(turn.id).steps, []);
+  } finally { finish.resolve(); await worker.whenIdle(); worker.close(); }
+});
