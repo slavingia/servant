@@ -79,7 +79,7 @@ export default function LeaderboardScreen() {
           </View>;
         })}
       </View>
-      <Text style={styles.footnote}>Tokens the agent reported for each reply, credited to the person who asked: their agent chats plus @agent replies in channels. Bars show each person's share of the total. Prompts are not shown here.</Text>
+      <Text style={styles.footnote}>Tokens the agent reported for each reply, credited to the person who asked: their agent chats plus @s replies in channels. Bars show each person's share of the total. Prompts are not shown here.</Text>
     </>}
   </ScrollView>;
 }

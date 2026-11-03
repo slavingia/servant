@@ -270,7 +270,7 @@ export function Composer({
   // Long agent replies should leave the input free for the next draft.
   clearOnSend?: boolean;
   onTyping?: (text: string) => void;
-  // Offer @agent in the mention list.
+  // Offer the agent (@s) in the mention list.
   mentionAgent?: boolean;
   // Something else is attached (a forwarded message), so an empty box can send.
   canSendEmpty?: boolean;

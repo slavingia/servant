@@ -17,14 +17,15 @@ export function activeMention(text: string, selection: { start: number; end: num
   return { start, end, query };
 }
 
-// The agent isn't a conversation member, but people call it with @agent, so it
-// is offered first whenever the conversation can reach it.
-export const AGENT_MENTION: MentionPerson = { id: "agent", name: "agent", agent: true };
+// The agent isn't a conversation member, but people call it with @s, so it is
+// offered first whenever the conversation can reach it (typing "@s" or "@ag…").
+export const AGENT_HANDLE = "s";
+export const AGENT_MENTION: MentionPerson = { id: "agent", name: AGENT_HANDLE, agent: true };
 
 export function mentionMatches(members: MentionPerson[], me: string, query: string, withAgent = false) {
   const q = fold(query).replace(/-/g, " ");
   const people = members.filter(p => p.id !== me && !p.agent && fold(p.name).includes(q)).sort((a, b) => a.name.localeCompare(b.name));
-  return withAgent && fold(AGENT_MENTION.name).startsWith(q) ? [AGENT_MENTION, ...people] : people;
+  return withAgent && (AGENT_HANDLE.startsWith(q) || "agent".startsWith(q)) ? [AGENT_MENTION, ...people] : people;
 }
 
 export function insertMention(text: string, match: MentionQuery, name: string) {

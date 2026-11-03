@@ -1,5 +1,5 @@
 // Channels, direct messages and threads. People talk to each other here; the
-// agent joins in when someone mentions @agent.
+// agent joins in when someone mentions @s.
 //
 // Storage is node:sqlite (built into Node, so the server still has no npm
 // dependencies). People (users) live in the server's state.db; this module only
@@ -139,7 +139,8 @@ export function channelName(input) {
 
 export function mentionsAgent(text, agentName = "") {
   const t = String(text);
-  if (/(^|[^\w@])@agent\b/i.test(t)) return true;
+  // @s is how people call the agent; @agent from older messages still works.
+  if (/(^|[^\w@])@(s|agent)(?![\p{L}\p{N}_-])/iu.test(t)) return true;
   const n = agentName.trim().split(/\s+/)[0];
   return !!n && new RegExp(`(^|[^\\w@])@${n.replace(/[^\w]/g, "")}\\b`, "i").test(t);
 }

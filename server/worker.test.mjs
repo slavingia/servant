@@ -231,6 +231,9 @@ test('one @agent mention keeps the agent listening to the rest of that thread', 
 test('agentShouldReply wakes on a mention, or on any un-addressed reply in its thread', async () => {
   const { agentShouldReply } = await import('./messaging.mjs');
   assert.equal(agentShouldReply('@agent hi'), true);
+  // @s calls the agent; longer handles and email addresses don't.
+  for (const text of ['@s hi', 'thanks @S', '(@s)', '@s, please']) assert.equal(agentShouldReply(text), true, text);
+  for (const text of ['@sam hi', '@sahil', '@s-team', 'mail me@s.com']) assert.equal(agentShouldReply(text), false, text);
   assert.equal(agentShouldReply('hi'), false);
   assert.equal(agentShouldReply('hi', '', true), true);
   assert.equal(agentShouldReply('@Ash thanks', '', true), false);
