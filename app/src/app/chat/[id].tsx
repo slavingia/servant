@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, FlatList, Pressable, StyleSheet, Switch, Text, View } from "react-native";
-import { Stack, useLocalSearchParams } from "expo-router";
+import { ActivityIndicator, AppState, FlatList, Platform, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { router, Stack, useLocalSearchParams } from "expo-router";
 import { randomUUID } from "expo-crypto";
 import { ConversationKeyboardView } from "../../components/ConversationKeyboardView";
 import { Avatar, Composer, when } from "../../components/Messaging";
@@ -60,7 +60,7 @@ function SharedChatView() {
   return (
     <MediaGalleryProvider key={id} scope={{ kind: "chat", id }} items={media}>
     <View style={styles.root}>
-      <Stack.Screen options={{ title: chat?.title || title || "Conversation" }} />
+      <Stack.Screen options={{ title: chat?.title || title || "Conversation", ...filesHeader(String(id), chat?.title || title || "Conversation", colors.blue) }} />
       <View style={styles.sharedBanner}>
         <Text style={styles.turnLabel}>{authorName}'s conversation</Text>
         <Text style={styles.turnDetail}>{chat?.shared === false
@@ -97,6 +97,16 @@ function SharedChatView() {
 }
 
 // Your own chat: shared with the server by default; this switch turns it off.
+// Files: every photo, video and file in this agent chat.
+function filesHeader(id: string, title: string, tint: string) {
+  const open = () => router.push({ pathname: "/files", params: { kind: "chat", id, title } });
+  return Platform.OS === "ios"
+    ? { unstable_headerRightItems: () => [{ type: "button" as const, label: "Files", tintColor: tint, labelStyle: { color: tint, fontWeight: "600" as const }, hidesSharedBackground: true, onPress: open }] }
+    : { headerRight: () => <Pressable testID="open-files" accessibilityRole="button" onPress={open} style={{ minHeight: 44, minWidth: 44, justifyContent: "center", paddingRight: 8 }}>
+        <Text style={{ ...typography.label, color: tint }}>Files</Text>
+      </Pressable> };
+}
+
 function ShareToggle({ id }: { id: string }) {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -453,7 +463,7 @@ function ChatConversation() {
   return (
     <MediaGalleryProvider key={id} scope={{ kind: "chat", id }} items={media}>
     <View style={styles.root}>
-      <Stack.Screen options={{ title: heading }} />
+      <Stack.Screen options={{ title: heading, ...filesHeader(String(id), heading, colors.blue) }} />
       <ShareToggle id={String(id)} />
       <ConversationKeyboardView>
         {messages === null ? (

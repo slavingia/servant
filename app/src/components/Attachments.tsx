@@ -109,7 +109,8 @@ function ImageAttachment({ file, tiled }: { file: Attachment; tiled: boolean }) 
   return <View style={tiled ? styles.tile : styles.singlePhoto}>
     <Pressable accessibilityRole="button" accessibilityLabel={`Open image ${file.name} in conversation gallery`} accessibilityHint="View full screen and swipe through shared files" onPress={() => gallery?.open(file)} style={({ pressed }) => [styles.photo, { aspectRatio: tiled ? 1 : Math.min(2.2, Math.max(0.8, aspect)) }, pressed && styles.pressed]}>
       {content.uri && !decodeError ? <Image source={{ uri: content.uri }} accessibilityLabel={file.name} resizeMode={tiled ? "cover" : "contain"} style={StyleSheet.absoluteFill} onLoad={event => {
-        const { width, height } = event.nativeEvent.source;
+        // Web doesn't always report the decoded size.
+        const { width = 0, height = 0 } = event.nativeEvent.source ?? {};
         if (width > 0 && height > 0) setAspect(width / height);
       }} onError={() => setDecodeError(true)} /> : <View style={styles.photoPlaceholder}>
         {failed ? <><AppIcon name="paperclip" size={24} color={colors.muted} /><Text style={styles.placeholderText}>Preview unavailable</Text></> : <ActivityIndicator accessibilityLabel="Loading image" color={colors.blue} />}

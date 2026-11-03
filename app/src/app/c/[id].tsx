@@ -221,6 +221,8 @@ export default function ConversationScreen() {
   const data = [...(posts ?? [])].reverse();
 
   const openDetails = () => router.push({ pathname: "/channel-info", params: { id } });
+  const openFiles = () => router.push({ pathname: "/files", params: { kind: "conversation", id, title } });
+  const headerButton = { type: "button" as const, tintColor: colors.blue, labelStyle: { color: colors.blue, fontWeight: "600" as const }, hidesSharedBackground: true };
 
   return (
     <MediaGalleryProvider key={`${id}:${unavailable}`} scope={{ kind: "conversation", id }} items={media}>
@@ -230,15 +232,20 @@ export default function ConversationScreen() {
           title,
           // Keep channel management quiet beside the conversation title.
           unstable_headerRightItems:
-            isChannel && Platform.OS === "ios"
-              ? () => [{ type: "button", label: "Details", tintColor: colors.blue, labelStyle: { color: colors.blue, fontWeight: "600" }, hidesSharedBackground: true, onPress: openDetails }]
+            conv && Platform.OS === "ios"
+              ? () => [{ ...headerButton, label: "Files", onPress: openFiles }, ...(isChannel ? [{ ...headerButton, label: "Details", onPress: openDetails }] : [])]
               : undefined,
           headerRight:
-            isChannel && Platform.OS !== "ios"
+            conv && Platform.OS !== "ios"
               ? () => (
-                  <Pressable accessibilityRole="button" onPress={openDetails} style={styles.headerAction}>
-                    <Text style={styles.headerLink}>Details</Text>
-                  </Pressable>
+                  <View style={styles.headerActions}>
+                    <Pressable testID="open-files" accessibilityRole="button" onPress={openFiles} style={styles.headerAction}>
+                      <Text style={styles.headerLink}>Files</Text>
+                    </Pressable>
+                    {isChannel ? <Pressable accessibilityRole="button" onPress={openDetails} style={styles.headerAction}>
+                      <Text style={styles.headerLink}>Details</Text>
+                    </Pressable> : null}
+                  </View>
                 )
               : undefined,
         }}
@@ -321,6 +328,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   peer: { flexDirection: "row", flexWrap: "wrap", gap: space.xs, alignItems: "center" },
   peerName: { ...typography.captionStrong, color: colors.ink },
   headerAction: { minHeight: 44, minWidth: 44, justifyContent: "center" },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: space.md, paddingRight: space.sm },
   headerLink: { ...typography.label, color: colors.blue },
   error: { ...typography.caption, paddingHorizontal: space.side, paddingVertical: space.sm, color: colors.red, backgroundColor: colors.redSoft },
   intro: { paddingHorizontal: space.side, paddingTop: space.md, paddingBottom: space.sm },

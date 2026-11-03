@@ -117,6 +117,7 @@ function SessionNavigation() {
         <Stack.Screen name="browse" options={{ headerShown: false }} />
         <Stack.Screen name="archived-channels" options={{ title: "Archived", ...sidebarScreen }} />
         <Stack.Screen name="channel-info" options={{ title: "Details" }} />
+        <Stack.Screen name="files" options={{ title: "Files" }} />
         <Stack.Screen name="chat/[id]" options={{ title: "", ...sidebarScreen }} />
         <Stack.Screen name="feedback" options={{ title: "Feedback" }} />
         <Stack.Screen name="notifications" options={{ title: "Notifications", ...sidebarScreen }} />
