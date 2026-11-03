@@ -149,14 +149,14 @@ function ConversationItem({ c, selected, onPress }: { c: Conversation; selected:
   );
 }
 
-const useStyles = createThemedStyles(({ colors: theme, scheme }) => { const colors = { ...theme, ink: theme.onBrand, muted: "rgba(255,255,255,0.72)", subtle: "rgba(255,255,255,0.12)" }; const sidebarBackground = scheme === "dark" ? "#0D1116" : theme.navy; return StyleSheet.create({
+const useStyles = createThemedStyles(({ colors: theme }) => { const colors = { ...theme, ink: theme.onBrand, muted: "rgba(255,255,255,0.72)", subtle: "rgba(255,255,255,0.12)" }; const sidebarBackground = theme.navy; return StyleSheet.create({
   root: { width: SIDEBAR_WIDTH, flexShrink: 0, backgroundColor: sidebarBackground },
   // Clears the inset macOS traffic lights and doubles as the window drag handle.
   titlebar: { height: 38 },
   workspace: { flexDirection: "row", alignItems: "center", gap: space.xs, paddingLeft: space.sm, paddingRight: space.xs, paddingBottom: space.xs },
   workspaceBrowser: { paddingTop: space.sm },
   workspaceMark: { width: 26, height: 26, borderRadius: radius.sm, backgroundColor: theme.onBrand, alignItems: "center", justifyContent: "center" },
-  workspaceInitial: { ...typography.captionStrong, color: scheme === "dark" ? "#0D1116" : theme.navy },
+  workspaceInitial: { ...typography.captionStrong, color: theme.navy },
   workspaceName: { ...typography.bodyStrong, color: colors.ink, flex: 1, minWidth: 0 },
   iconButton: { width: 32, height: 32, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
   search: { paddingHorizontal: space.sm, paddingBottom: space.sm },
@@ -170,7 +170,7 @@ const useStyles = createThemedStyles(({ colors: theme, scheme }) => { const colo
   quietLabel: { color: colors.muted },
   unreadLabel: { fontWeight: "700" },
   selectedLabel: { fontWeight: "600" },
-  badge: { ...typography.meta, fontWeight: "700", color: scheme === "dark" ? "#0D1116" : theme.navy, backgroundColor: theme.onBrand, minWidth: 20, paddingHorizontal: 6, paddingVertical: 1, borderRadius: radius.pill, textAlign: "center", overflow: "hidden" },
+  badge: { ...typography.meta, fontWeight: "700", color: theme.navy, backgroundColor: theme.onBrand, minWidth: 20, paddingHorizontal: 6, paddingVertical: 1, borderRadius: radius.pill, textAlign: "center", overflow: "hidden" },
   mutedBadge: { color: colors.muted, backgroundColor: "transparent" },
   dmStatus: { position: "absolute", right: -2, bottom: -2, width: 8, height: 8, borderRadius: 4, borderWidth: 1.5, borderColor: sidebarBackground },
   section: { marginTop: space.md },

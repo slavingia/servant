@@ -55,9 +55,9 @@ export function AppChrome({ enabled, children }: { enabled: boolean; children: R
   );
 }
 
-const useStyles = createThemedStyles(({ colors, scheme }) => StyleSheet.create({
+const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
-  wideRoot: { flex: 1, flexDirection: "row", backgroundColor: scheme === "dark" ? "#0D1116" : colors.navy },
+  wideRoot: { flex: 1, flexDirection: "row", backgroundColor: colors.navy },
   // The white main pane, rounded where it meets the sidebar.
   widePane: { backgroundColor: colors.background, borderTopLeftRadius: radius.xl, borderBottomLeftRadius: radius.xl, overflow: "hidden" },
   signedInRoot: { backgroundColor: colors.navy },
