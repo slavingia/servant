@@ -481,7 +481,7 @@ function ChatConversation() {
               const working = !mine && item.pending;
               const timestamp = typeof item.at === "number" ? item.at : item.at ? new Date(item.at).getTime() : NaN;
               const deviceLabel = messageDeviceLabel(account.user.role, item);
-              return <View accessibilityLabel={mine ? `Your message${deviceLabel ? `, sent from ${deviceLabel}` : ""}` : "Agent response"} style={[styles.message, item.failed && styles.failed]}>
+              return <View accessibilityLabel={mine ? `Your message${item.pending ? ", not yet received" : deviceLabel ? `, sent from ${deviceLabel}` : ""}` : "Agent response"} style={[styles.message, item.failed && styles.failed, item.pending && mine && styles.unconfirmed]}>
                 <Avatar name={mine ? account.user.name : "Agent"} agent={!mine} userId={mine ? account.user.id : undefined} size={34} />
                 <View style={styles.messageCopy}>
                   <View style={styles.messageMeta}>
@@ -493,7 +493,6 @@ function ChatConversation() {
                   {mine && !working ? <ForwardedText item={item} /> : !working && item.text ? <MessageText text={item.text} failed={item.failed} /> : null}
                   {!working && item.attachments?.length ? <Attachments files={item.attachments} /> : null}
                   {item.uploads?.length ? <PendingAttachments files={item.uploads} /> : null}
-                  {item.pending && mine ? <Text style={styles.typing}>Sending…</Text> : null}
                   {working ? <Text accessibilityLiveRegion="polite" style={styles.typing}>{status ?? "Working on it…"}</Text> : null}
                   {item.interrupted ? <Text style={styles.typing}>Cut off before it finished</Text> : null}
                 </View>
@@ -584,6 +583,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   agentTag: { ...typography.meta, color: colors.muted, backgroundColor: colors.subtle, paddingHorizontal: space.xxs },
   time: { ...typography.meta, color: colors.muted },
   failed: { backgroundColor: colors.redSoft },
+  // Sent but not yet received by the server; full opacity once it's accepted.
+  unconfirmed: { opacity: 0.9 },
   text: { ...typography.body, color: colors.ink },
   failedText: { color: colors.red },
   sendError: { ...typography.caption, color: colors.red, backgroundColor: colors.redSoft, paddingHorizontal: space.side, paddingVertical: space.xs },
