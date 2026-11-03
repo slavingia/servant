@@ -748,6 +748,21 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     return !!st.member.get(conv.id, userId);
   }
 
+  // A message someone may forward to their agent chat: only one they can see.
+  function forwardSource(messageId, userId) {
+    const m = /^\d+$/.test(String(messageId)) ? st.msg.get(Number(messageId)) : null;
+    const conv = m && st.conv.get(m.conversation_id);
+    if (!m || m.deleted_at || m.pending || m.activity || !canSee(conv, userId)) throw httpError(404, "not_found", "That message is unavailable");
+    return {
+      author: person(m.user_id).name,
+      where: conv.kind === "channel" ? `#${conv.name}` : "a direct message",
+      private: conv.kind !== "channel" || !!conv.private,
+      at: m.created_at,
+      text: m.text,
+      files: db.prepare("SELECT name, mime, data FROM attachments WHERE message_seq = ? ORDER BY rowid").all(m.seq),
+    };
+  }
+
   function requireConversation(conversationId, userId, membership = false) {
     const current = st.conv.get(conversationId);
     if (!canSee(current, userId)) throw httpError(404, 'not_found', "That conversation doesn't exist or you can't see it");
@@ -1293,7 +1308,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     return true;
   }
 
-  return { handle, notificationFor, joinDefaults, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, close: () => { closeEvents(); db.close(); }, db };
+  return { handle, forwardSource, notificationFor, joinDefaults, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, close: () => { closeEvents(); db.close(); }, db };
 }
 
 function httpError(status, code, message) {

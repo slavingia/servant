@@ -15,9 +15,11 @@ import { bufferAgentReply } from "../../lib/agent-events";
 import { messageDeviceLabel } from "../../lib/message-device";
 import { api, sendMessage, ServerError, type Chat, type Message, type Upload } from "../../lib/server";
 import { useSession } from "../../lib/session";
+import { forwardTitle, parseForward, type ForwardCard } from "../../lib/forward";
+import { AppIcon } from "../../components/AppIcon";
 import { space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 
-type Row = Message & { pending?: boolean; failed?: boolean; localId?: string; uploads?: Upload[] };
+type Row = Message & { pending?: boolean; failed?: boolean; localId?: string; uploads?: Upload[]; forwardPreview?: ForwardCard | null };
 
 export default function ChatScreen() {
   const { id, readOnly } = useLocalSearchParams<{ id: string; readOnly?: string }>();
@@ -83,7 +85,7 @@ function SharedChatView() {
                   {!theirs ? <Text style={styles.agentTag}>Agent</Text> : null}
                   {Number.isFinite(timestamp) ? <Text style={styles.time}>{when(timestamp)}</Text> : null}
                 </View>
-                {item.text ? theirs ? <Text selectable style={styles.text}>{item.text}</Text> : <MessageText text={item.text} /> : null}
+                {theirs ? <ForwardedText item={item} /> : item.text ? <MessageText text={item.text} /> : null}
                 {item.attachments?.length ? <Attachments files={item.attachments} /> : null}
               </View>
             </View>;
@@ -129,8 +131,11 @@ function ShareToggle({ id }: { id: string }) {
 function ChatConversation() {
   const styles = useStyles();
   const { colors } = useTheme();
-  const { id, title } = useLocalSearchParams<{ id: string; title?: string }>();
+  const { id, title, forward, forwardAuthor, forwardWhere, forwardText, forwardFiles } = useLocalSearchParams<{ id: string; title?: string; forward?: string; forwardAuthor?: string; forwardWhere?: string; forwardText?: string; forwardFiles?: string }>();
   const { account, setAccount } = useSession();
+  // A message brought here with "Ask the agent", until it's sent or removed.
+  const [pendingForward, setPendingForward] = useState<string | null>(forward || null);
+  const forwardFileCount = Number(forwardFiles) || 0;
   const [messages, setMessages] = useState<Row[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -157,7 +162,7 @@ function ChatConversation() {
     lastReadReply.current = newestReply;
     api.readChat(account, id).catch(() => { lastReadReply.current = null; });
   }, [account, id, newestReply]);
-  const delivery = useRef<{ text: string; uploads: Upload[]; id: string } | null>(null);
+  const delivery = useRef<{ text: string; uploads: Upload[]; id: string; forward?: string | null } | null>(null);
 
   const load = useCallback(() => {
     if (!account || !id) return;
@@ -251,9 +256,10 @@ function ChatConversation() {
   const queue = async (body: string, attachments: Upload[]) => {
     // Same draft retried after an uncertain send reuses its key: no duplicate.
     const previous = delivery.current;
-    if (!previous || previous.text !== body || previous.uploads.length !== attachments.length) {
-      delivery.current = { text: body, uploads: attachments, id: randomUUID() };
+    if (!previous || previous.text !== body || previous.uploads.length !== attachments.length || previous.forward !== pendingForward) {
+      delivery.current = { text: body, uploads: attachments, id: randomUUID(), forward: pendingForward };
     }
+    const forwarding = pendingForward ?? undefined;
     const requestId = delivery.current!.id;
     const controller = new AbortController();
     let queued = false;
@@ -264,7 +270,7 @@ function ChatConversation() {
           setWaiting(w => w.some(t => t.id === e.turn.id) ? w : [...w, e.turn]);
           controller.abort();
         }
-      }, controller.signal, setAccount, attachments, requestId);
+      }, controller.signal, setAccount, attachments, requestId, forwarding);
     } catch (e) {
       if (!queued) {
         setSendError(e instanceof ServerError ? e.message : "Couldn't queue your message. Your draft is saved; try again.");
@@ -273,6 +279,7 @@ function ChatConversation() {
     }
     setSendError(null);
     delivery.current = null;
+    if (queued && forwarding) setPendingForward(null);
     void refreshTurns();
     return queued;
   };
@@ -287,7 +294,7 @@ function ChatConversation() {
 
   const deliver = async (text: string, attachments: Upload[], onAccepted: () => void) => {
     const body = text.trim();
-    if ((!body && !attachments.length) || messages === null || loadError) return false;
+    if ((!body && !attachments.length && !pendingForward) || messages === null || loadError) return false;
     if (busy || activeAgentTurn(turn)) return await queue(body, attachments);
     setBusy(true);
     setStatus(null);
@@ -296,15 +303,17 @@ function ChatConversation() {
     // Retain the key after an uncertain delivery; an unchanged draft can be
     // retried without starting another Mac-owned turn.
     const previous = delivery.current;
-    if (!previous || previous.text !== body || previous.uploads.length !== attachments.length
+    if (!previous || previous.text !== body || previous.uploads.length !== attachments.length || previous.forward !== pendingForward
       || previous.uploads.some((upload, i) => upload.name !== attachments[i]?.name || upload.data !== attachments[i]?.data)) {
-      delivery.current = { text: body, uploads: attachments, id: randomUUID() };
+      delivery.current = { text: body, uploads: attachments, id: randomUUID(), forward: pendingForward };
     }
+    const forwarding = pendingForward ?? undefined;
+    const forwardPreview: ForwardCard | null = forwarding ? { author: forwardAuthor || "Someone", where: forwardWhere || "", when: "", quote: forwardText || "" } : null;
     const requestId = delivery.current!.id;
     const stamp = Date.now();
     const mineKey = `u${stamp}`;
     const replyKey = `a${stamp}`;
-    const mine: Row = { id: mineKey, localId: mineKey, role: "user", text: body, at: stamp, pending: true, uploads: attachments };
+    const mine: Row = { id: mineKey, localId: mineKey, role: "user", text: body, at: stamp, pending: true, uploads: attachments, forwardPreview };
     const reply: Row = { id: replyKey, localId: replyKey, role: "assistant", text: "", pending: true, at: stamp };
     setMessages((m) => [...(m ?? []), mine, reply]);
     const controller = new AbortController();
@@ -322,7 +331,8 @@ function ChatConversation() {
       if (accepted) return;
       accepted = true;
       onAccepted();
-      if (heading === "New chat") setHeading((body || attachments[0]?.name || "New chat").replace(/\s+/g, " ").slice(0, 60));
+      if (heading === "New chat") setHeading(body ? body.replace(/\s+/g, " ").slice(0, 60) : forwarding ? forwardTitle(forwardText || "") : (attachments[0]?.name || "New chat").replace(/\s+/g, " ").slice(0, 60));
+      if (forwarding) setPendingForward(null);
       setMessages((m) => (m ?? []).map((r) => r.localId === mineKey ? { ...r, pending: false } : r));
     };
     try {
@@ -359,6 +369,7 @@ function ChatConversation() {
         setAccount,
         attachments,
         requestId,
+        forwarding,
       );
       if (!failed && isCurrent() && !accepted) {
         failed = true;
@@ -479,7 +490,7 @@ function ChatConversation() {
                     {Number.isFinite(timestamp) ? <Text style={styles.time}>{when(timestamp)}</Text> : null}
                     {deviceLabel ? <Text testID={`message-device-${item.id}`} accessibilityLabel={`Sent from ${deviceLabel}`} style={styles.time}>· {deviceLabel}</Text> : null}
                   </View>
-                  {!working && item.text ? mine ? <Text selectable style={[styles.text, item.failed && styles.failedText]}>{item.text}</Text> : <MessageText text={item.text} failed={item.failed} /> : null}
+                  {mine && !working ? <ForwardedText item={item} /> : !working && item.text ? <MessageText text={item.text} failed={item.failed} /> : null}
                   {!working && item.attachments?.length ? <Attachments files={item.attachments} /> : null}
                   {item.uploads?.length ? <PendingAttachments files={item.uploads} /> : null}
                   {item.pending && mine ? <Text style={styles.typing}>Sending…</Text> : null}
@@ -511,15 +522,50 @@ function ChatConversation() {
           </View>)}
         </View> : null}
         {actionError && !turn?.approval ? <Text accessibilityRole="alert" style={styles.sendError}>{actionError}</Text> : null}
-        {messages !== null && !loadError ? <Composer placeholder="Message the agent" onSend={send} allowFileAttachments={false} /> : null}
+        {pendingForward && messages !== null && !loadError ? <View testID="forward-draft" style={styles.forwardDraft}>
+          <View style={styles.forwardDraftCopy}>
+            <ForwardBlock card={{ author: forwardAuthor || "Someone", where: forwardWhere || "", when: "", quote: forwardText || "" }} files={forwardFileCount} lines={3} />
+          </View>
+          <Pressable accessibilityRole="button" accessibilityLabel="Don't forward this message" hitSlop={12} onPress={() => setPendingForward(null)} style={styles.remove}>
+            <AppIcon name="close" size={16} color={colors.muted} />
+          </Pressable>
+        </View> : null}
+        {messages !== null && !loadError ? <Composer placeholder={pendingForward ? "Ask about this message, or just send" : "Message the agent"} onSend={send} allowFileAttachments={false} canSendEmpty={!!pendingForward} /> : null}
       </ConversationKeyboardView>
     </View>
     </MediaGalleryProvider>
   );
 }
 
+// Your message, with a forwarded channel/DM message shown as a card.
+function ForwardedText({ item }: { item: Row }) {
+  const styles = useStyles();
+  const parsed = item.forwardPreview ? { forward: item.forwardPreview, rest: item.text } : parseForward(item.text);
+  if (!parsed) return item.text ? <Text selectable style={[styles.text, item.failed && styles.failedText]}>{item.text}</Text> : null;
+  return <>
+    <ForwardBlock card={parsed.forward} />
+    {parsed.rest ? <Text selectable style={[styles.text, item.failed && styles.failedText]}>{parsed.rest}</Text> : null}
+  </>;
+}
+
+function ForwardBlock({ card, files = 0, lines }: { card: ForwardCard; files?: number; lines?: number }) {
+  const styles = useStyles();
+  const where = [card.where, card.when].filter(Boolean).join(" · ");
+  return <View accessible accessibilityLabel={`Forwarded message from ${card.author}${where ? `, ${where}` : ""}. ${card.quote || "No text"}`} style={styles.forward}>
+    <Text style={styles.forwardLabel}>Forwarded from {card.author}{where ? <Text style={styles.forwardWhere}> · {where}</Text> : null}</Text>
+    {card.quote ? <Text selectable={!lines} numberOfLines={lines} style={styles.forwardQuote}>{card.quote}</Text> : null}
+    {files ? <Text style={styles.forwardWhere}>{files === 1 ? "1 attachment" : `${files} attachments`}</Text> : null}
+  </View>;
+}
+
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
+  forward: { borderLeftWidth: 3, borderLeftColor: colors.blue, paddingLeft: space.sm, paddingVertical: 2, marginTop: 2, marginBottom: space.xxs, gap: 2 },
+  forwardLabel: { ...typography.captionStrong, color: colors.ink },
+  forwardWhere: { ...typography.meta, fontWeight: "400", color: colors.muted },
+  forwardQuote: { ...typography.body, color: colors.ink },
+  forwardDraft: { flexDirection: "row", alignItems: "flex-start", gap: space.xs, paddingLeft: space.side, paddingRight: space.xs, paddingTop: space.sm, paddingBottom: space.xxs, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line, backgroundColor: colors.background },
+  forwardDraftCopy: { flex: 1, minWidth: 0 },
   turnStatus: { flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs, backgroundColor: colors.surface },
   queue: { backgroundColor: colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   queued: { flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs },

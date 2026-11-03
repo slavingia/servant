@@ -223,13 +223,14 @@ export async function sendMessage(
   onMove?: (a: Account) => void,
   attachments: Upload[] = [],
   requestId?: string,
+  forward?: string,
 ): Promise<void> {
   if (!validServerKey(account.serverKey)) throw new ServerError("Encryption setup required. Open a new invite from your admin.", 0, "encryption_required");
   const go = (base: string) =>
     secureFetch(base, account.serverKey, `/v1/chats/${chatId}/messages`, {
       method: "POST",
       headers: { Authorization: `Bearer ${account.token}`, "Content-Type": "application/json", Accept: "text/event-stream" },
-      body: JSON.stringify({ text, attachments: attachments.map(({ name, data }) => ({ name, data })), requestId }),
+      body: JSON.stringify({ text, attachments: attachments.map(({ name, data }) => ({ name, data })), requestId, ...(forward ? { forward } : {}) }),
       signal,
     });
   let res = await go(account.serverUrl).catch(() => null);
@@ -303,7 +304,7 @@ export const api = {
   readChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/read`, { method: "POST", body: "{}" }).then(() => undefined),
   chat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}`).then((r) => r.json()).then((d) => d.chat as Chat),
   setChatShared: (a: Account, id: string, shared: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ shared }) }).then((r) => r.json()).then((d) => d.chat as Chat),
-  newChat: (a: Account) => request(a, "/v1/chats", { method: "POST", body: "{}" }).then((r) => r.json()).then((d) => d.chat as Chat),
+  newChat: (a: Account, options: { shared?: boolean } = {}) => request(a, "/v1/chats", { method: "POST", body: JSON.stringify(options) }).then((r) => r.json()).then((d) => d.chat as Chat),
   deleteChat: (a: Account, id: string) => request(a, `/v1/chats/${id}`, { method: "DELETE" }),
   archiveChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/archive`, { method: "POST", body: "{}" }),
   restoreChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/restore`, { method: "POST", body: "{}" }),

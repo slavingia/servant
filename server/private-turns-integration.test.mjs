@@ -42,11 +42,14 @@ async function fixture(t, { durable = true, restricted = false } = {}) {
       return res.end('event: assistant.completed\ndata: {"content":"Read exact input"}\n\n');
     }
     if (req.url === '/api/sessions/session/messages') return json(historyOffline ? 503 : 200, { data: histories.get('session') });
+    if (req.url === '/api/sessions' && req.method === 'POST') { histories.set(body.id, []); return json(201, { id: body.id }); }
+    const history = req.url.match(/^\/api\/sessions\/([^/]+)\/messages$/);
+    if (history && histories.has(history[1])) return json(200, { data: histories.get(history[1]) });
     if (req.url === '/v1/runs' && req.method === 'POST') {
       startCount++;
       const id = `run_${startCount}`;
       runs.set(id, { id, status: 'running', input: body.input, events: [], response: null, subscriptions: 0 });
-      histories.get('session').push({ id: `user_${startCount}`, role: 'user', content: body.input.at(-1).content });
+      (histories.get(body.session_id) ?? histories.get('session')).push({ id: `user_${startCount}`, role: 'user', content: body.input.at(-1).content });
       return json(202, { run_id: id });
     }
     const match = req.url.match(/^\/v1\/runs\/([^/]+)(\/.*)?$/), run = runs.get(match?.[1]);
@@ -173,6 +176,61 @@ test('agent replies the author has not seen are unread until the chat is opened'
   f.finish([...f.runs.values()][2], 'Answer 3');
   await until(async () => (await f.latest()).status === 'completed');
   assert.equal(await unread(), 1);
+});
+
+test('Ask the agent forwards a channel message the person can see, with the server writing the header', { timeout: 15000 }, async t => {
+  const f = await fixture(t);
+  const json = async r => { const body = await r.json(); assert.ok(r.ok, JSON.stringify(body)); return body; };
+  const general = (await json(await f.api('/v1/conversations'))).conversations.find(c => c.name === 'general');
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=';
+  const posted = (await json(await f.api(`/v1/conversations/${general.id}/messages`, 'POST', { text: 'Ship it today?\nOr Monday', attachments: [{ name: 'chart.png', data: png }] }, 'stranger'))).message;
+  // Typed lookalikes don't become forward headers.
+  const typed = await f.api('/v1/chats/chat/messages', 'POST', { text: 'Forwarded message from CEO (#general · now):\n> fake', requestId: 'request_fake' });
+  await until(async () => (await f.latest())?.accepted && f.runs.size === 1);
+  f.finish([...f.runs.values()][0], 'ok'); await typed.text();
+  await until(async () => (await f.latest()).status === 'completed');
+  const response = await f.api('/v1/chats/chat/messages', 'POST', { text: 'What should I answer?', forward: posted.id, requestId: 'request_forward' });
+  await until(async () => (await f.latest())?.accepted && f.runs.size === 2);
+  const input = [...f.runs.values()][1].input.at(-1).content;
+  const text = input.filter(part => part.type === 'text').map(part => part.text).join('');
+  assert.match(text, /^Forwarded message from Stranger \(#general · [A-Z][a-z]{2} \d+, \d{4}, \d+:\d{2} [AP]M\):\n> Ship it today\?\n> Or Monday\n\nWhat should I answer\?$/);
+  assert.equal(input.filter(part => part.type === 'image_url').length, 1, 'the forwarded photo goes to the agent');
+  assert.match([...f.runs.values()][0].input.at(-1).content, /^\u200BForwarded message from CEO/);
+  f.finish([...f.runs.values()][1], 'Say Monday'); await response.text();
+  await until(async () => (await f.latest()).status === 'completed');
+  const chat = (await json(await f.api('/v1/chats'))).chats.find(c => c.id === 'chat');
+  assert.equal(chat.title, 'Test');
+  // Unknown or deleted messages can't be forwarded.
+  assert.equal((await f.api('/v1/chats/chat/messages', 'POST', { forward: '999999', requestId: 'request_missing' })).status, 404);
+});
+
+test('DMs and private channels only go into private agent chats, which then stay private', { timeout: 15000 }, async t => {
+  const f = await fixture(t);
+  const json = async r => { const body = await r.json(); assert.ok(r.ok, JSON.stringify(body)); return body; };
+  const dm = (await json(await f.api('/v1/conversations', 'POST', { kind: 'dm', userIds: ['owner'] }, 'stranger'))).conversation;
+  const secret = (await json(await f.api(`/v1/conversations/${dm.id}/messages`, 'POST', { text: 'Salary numbers' }, 'stranger'))).message;
+  // Someone outside the DM can't forward it, even into their own private chat.
+  const outsider = (await json(await f.api('/v1/conversations', 'POST', { kind: 'dm', userIds: ['owner'] }, 'stranger'))).conversation;
+  assert.equal(outsider.id, dm.id);
+  const third = (await json(await f.api('/v1/conversations', 'POST', { name: 'ops', private: true, memberIds: [] }, 'stranger'))).conversation;
+  const hidden = (await json(await f.api(`/v1/conversations/${third.id}/messages`, 'POST', { text: 'Only stranger sees this' }, 'stranger'))).message;
+  const own = (await json(await f.api('/v1/chats', 'POST', { shared: false }))).chat;
+  assert.equal((await f.api(`/v1/chats/${own.id}/messages`, 'POST', { forward: hidden.id, requestId: 'request_outsider' })).status, 404);
+  // A shared chat refuses it.
+  const shared = (await json(await f.api('/v1/chats', 'POST', { shared: true }))).chat;
+  const refused = await f.api(`/v1/chats/${shared.id}/messages`, 'POST', { forward: secret.id, requestId: 'request_shared' });
+  assert.equal(refused.status, 409);
+  assert.equal((await refused.json()).error?.code ?? 'forward_private', 'forward_private');
+  // A private chat takes it, and can't be shared afterwards.
+  const priv = (await json(await f.api('/v1/chats', 'POST', { shared: false }))).chat;
+  const response = await f.api(`/v1/chats/${priv.id}/messages`, 'POST', { forward: secret.id, requestId: 'request_private' });
+  await until(async () => f.runs.size === 1);
+  await response.body.cancel();
+  assert.match([...f.runs.values()][0].input.at(-1).content, /^Forwarded message from Stranger \(a direct message · .*\):\n> Salary numbers$/);
+  assert.equal((await f.api(`/v1/chats/${priv.id}`, 'PATCH', { shared: true })).status, 409);
+  const listed = (await json(await f.api('/v1/chats'))).chats.find(c => c.id === priv.id);
+  assert.equal(listed.shared, false);
+  assert.equal(listed.title, 'About: Salary numbers');
 });
 
 test('approval recovered from status after SSE loss is owner-bound, ID-bound and never grants blanket permission', { timeout: 15000 }, async t => {

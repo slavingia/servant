@@ -32,6 +32,7 @@ import { createUsageStore } from "./usage.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { supportsDurableRuns, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
 import { verifyMemberUpstream } from "./member-policy.mjs";
+import { composeForward } from "./forward.mjs";
 import { validateUploads, normalizeMediaContent, hermesInput, mediaPage, createMediaDeltaFilter, MAX_UPLOAD_BODY, TEXT_PART_CHARS } from "./media.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -729,6 +730,7 @@ async function handle(req, res, cfg) {
   if (method === "PATCH" && parts.length === 3) {
     const body = await readAuthorizedBody(req);
     if (typeof body.shared !== "boolean") return fail(res, 400, "bad_request", "shared must be true or false");
+    if (body.shared && chat.privateForward) return fail(res, 409, "forward_private", "This chat includes a message from a private conversation, so it stays private");
     let updated;
     mutateAuthenticated(req, (state, current) => {
       updated = requireChat(state, current.user.id, chat.id);
@@ -850,8 +852,21 @@ async function handle(req, res, cfg) {
   if (method === "POST" && parts[3] === "messages" && parts.length === 4) {
     const body = await readAuthorizedBody(req, MAX_UPLOAD_BODY);
     if (postingClosed(cfg.workHours)) return fail(res, 403, "work_hours", workHoursMessage(cfg.workHours));
-    const text = String(body.text || "").trim();
-    const attachments = validateUploads(body.attachments, { mediaOnly: true });
+    let text = String(body.text || "").trim();
+    let attachments = validateUploads(body.attachments, { mediaOnly: true });
+    // Only the server writes forward headers; typed lookalikes don't render as one.
+    if (/^Forwarded message from /.test(text)) text = `\u200B${text}`;
+    const ownText = text;
+    let privateForward = false;
+    // "Ask the agent" about a channel or DM message the person can see.
+    if (body.forward != null) {
+      if (!messaging) return fail(res, 404, "not_found", "That message is unavailable");
+      const source = messaging.forwardSource(body.forward, user.id);
+      // A DM or private channel must not leak into a chat the server can read.
+      if (source.private && chatShared(readState().chats[chat.id] || chat)) return fail(res, 409, "forward_private", "Messages from private conversations go into a private chat");
+      privateForward = source.private;
+      ({ text, attachments } = composeForward({ text, attachments }, source));
+    }
     if (!text && !attachments.length) return fail(res, 400, "empty", "Type a message first");
     // Only the full agent can read a saved long message from disk.
     const limit = agentRole(chat.role, cfg) === "owner" ? MAX_MESSAGE_CHARS : INLINE_MESSAGE_CHARS;
@@ -862,8 +877,10 @@ async function handle(req, res, cfg) {
     await syncChatHistory();
     const turn = mutateAuthenticated(req, (state, current) => {
       const active = requireChat(state, current.user.id, chat.id);
+      if (privateForward && chatShared(active)) throw requestError(409, "forward_private", "Messages from private conversations go into a private chat");
       const queued = agentTurns.enqueue({ chat: active, user: current.user, device: current.device, text, attachments, requestId: body.requestId });
-      if (active.title === "New chat") active.title = (text || attachments[0].name).replace(/\s+/g, " ").slice(0, 60);
+      if (privateForward) active.privateForward = true;
+      if (active.title === "New chat") active.title = (ownText || (body.forward != null ? `About: ${text.split("\n")[1]?.replace(/^> /, "") || "a message"}` : "") || text || attachments[0].name).replace(/\s+/g, " ").slice(0, 60);
       active.startedAt ??= now();
       active.updatedAt = now();
       delete active.archivedAt;

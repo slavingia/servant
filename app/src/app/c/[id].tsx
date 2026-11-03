@@ -15,6 +15,7 @@ import { TypingLine, useTyping, useTypingPing } from "../../lib/typing";
 import { api, ServerError, type Conversation, type Upload, type Post, type LiveEvent } from "../../lib/server";
 import { useLive } from "../../lib/live";
 import { useSession } from "../../lib/session";
+import { askAgentAbout } from "../../lib/ask-agent";
 import { space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 
 const errorText = (e: unknown, fallback: string) => (e instanceof ServerError ? e.message : fallback);
@@ -216,6 +217,7 @@ export default function ConversationScreen() {
   };
 
   const openThread = (p: Post) => router.push({ pathname: "/thread", params: { conv: id, root: p.id, title } });
+  const askAgent = (p: Post) => { askAgentAbout(account, p, conv).catch(e => setError(errorText(e, "Couldn't start a chat with the agent"))); };
   const data = [...(posts ?? [])].reverse();
 
   const openDetails = () => router.push({ pathname: "/channel-info", params: { id } });
@@ -287,6 +289,7 @@ export default function ConversationScreen() {
                   receipt={receipts?.get(item.id)}
                   compact={compact}
                   onOpenThread={() => openThread(item)}
+                  onAskAgent={() => askAgent(item)}
                   onEdit={() => setEditing(item)}
                   onDelete={() => remove(item)}
                 />

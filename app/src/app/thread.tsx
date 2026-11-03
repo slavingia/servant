@@ -13,6 +13,7 @@ import { latestMessageReceipts } from "../lib/message-status";
 import { canCompactPost } from "../lib/message-device";
 import { useLive } from "../lib/live";
 import { useSession } from "../lib/session";
+import { askAgentAbout } from "../lib/ask-agent";
 import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
 export default function ThreadScreen() {
@@ -201,6 +202,7 @@ export default function ThreadScreen() {
     }
   };
 
+  const askAgent = (p: Post) => { askAgentAbout(account, p, conversation).catch(e => setError(e instanceof ServerError ? e.message : "Couldn't start a chat with the agent")); };
   const remove = async (p: Post) => {
     try {
       await api.deletePost(account, p.id);
@@ -237,7 +239,7 @@ export default function ThreadScreen() {
               if (item.id === root) return <View style={[styles.head, item.id === focus && styles.searchMatch]}>
                 {item.id === focus ? <Text style={styles.searchLabel}>Search match</Text> : null}
                 {title ? <Text style={styles.where}>In {title}</Text> : null}
-                <PostRow post={item} receipt={receipts?.get(item.id)} onReact={(emoji, active) => react(item, emoji, active)} me={me} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
+                <PostRow post={item} receipt={receipts?.get(item.id)} onReact={(emoji, active) => react(item, emoji, active)} onAskAgent={() => askAgent(item)} me={me} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
                 <Text accessibilityRole="header" style={styles.count}>
                   {!replies?.length ? "No replies yet" : `${replies.length} ${replies.length === 1 ? "reply" : "replies"}`}
                 </Text>
@@ -248,7 +250,7 @@ export default function ThreadScreen() {
               return <View style={item.id === focus ? styles.searchMatch : undefined}>
                 {newDay ? <MessageDate at={item.createdAt} /> : null}
                 {item.id === focus ? <Text style={styles.searchLabel}>Search match</Text> : null}
-                <PostRow post={item} receipt={receipts?.get(item.id)} onReact={(emoji, active) => react(item, emoji, active)} me={me} compact={compact && item.id !== focus} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
+                <PostRow post={item} receipt={receipts?.get(item.id)} onReact={(emoji, active) => react(item, emoji, active)} onAskAgent={() => askAgent(item)} me={me} compact={compact && item.id !== focus} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
               </View>;
             }}
           />

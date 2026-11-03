@@ -89,6 +89,7 @@ type PostProps = {
   onEdit?: () => void;
   onDelete?: () => void;
   onReact?: (emoji: string, active: boolean) => Promise<void>;
+  onAskAgent?: () => void;
 };
 
 const REACTIONS = [
@@ -97,7 +98,7 @@ const REACTIONS = [
   ["👀", "Looking"], ["🔥", "Fire"], ["👏", "Applause"], ["💯", "Hundred"],
 ];
 
-export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDelete, onReact }: PostProps) {
+export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDelete, onReact, onAskAgent }: PostProps) {
   const styles = useStyles();
   const { colors } = useTheme();
   const { account } = useSession();
@@ -139,6 +140,7 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
   );
   const mine = post.user.id === me;
   const options = [
+    ...(onAskAgent ? [{ text: "Ask the agent", onPress: onAskAgent }] : []),
     ...(onOpenThread ? [{ text: "Reply in thread", onPress: onOpenThread }] : []),
     ...(mine && onEdit ? [{ text: "Edit", onPress: onEdit }] : []),
     ...(mine && onDelete ? [{ text: "Delete", onPress: onDelete }] : []),
@@ -253,6 +255,7 @@ export function Composer({
   allowFileAttachments = true,
   clearOnSend = false,
   mentionAgent = false,
+  canSendEmpty = false,
 }: {
   placeholder: string;
   onSend: (text: string, attachments?: Upload[]) => Promise<boolean>;
@@ -269,6 +272,8 @@ export function Composer({
   onTyping?: (text: string) => void;
   // Offer @agent in the mention list.
   mentionAgent?: boolean;
+  // Something else is attached (a forwarded message), so an empty box can send.
+  canSendEmpty?: boolean;
 }) {
   const styles = useStyles();
   const wide = useWideLayout();
@@ -349,7 +354,7 @@ export function Composer({
       // updates latest synchronously, before finish resolves on the end event.
       if (!await dictation.finish(1200)) return;
       body = latest.current.text.trim();
-      if (!body && !files.length) return;
+      if (!body && !files.length && !canSendEmpty) return;
       if (clearNow) setText("");
       const ok = await onSend(body, files.map(({ name, data }) => ({ name, data })));
       if (ok) { if (!clearNow) setText(""); setFiles([]); setInsertedSelection(undefined); }
@@ -360,7 +365,7 @@ export function Composer({
     }
     finally { sending.current = false; setBusy(false); }
   };
-  const off = (!text.trim() && !files.length && !dictation.listening) || busy || picking;
+  const off = (!text.trim() && !files.length && !dictation.listening && !canSendEmpty) || busy || picking;
   return (
     <View style={[styles.composerWrap, wide && styles.composerWrapWide, { paddingBottom: wide ? space.md : keyboard ? space.xs : Math.max(insets.bottom, space.xs) }]}>
       {fileError || dictation.error ? <Text accessibilityRole="alert" style={styles.composerError}>{fileError || dictation.error}</Text> : null}
