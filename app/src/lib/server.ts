@@ -62,6 +62,8 @@ export type Conversation = {
   private: boolean;
   createdBy: string;
   archived: boolean;
+  /** Where this person dragged the channel; null until they sort by hand. */
+  position?: number | null;
   memberCount: number;
   members?: Person[];
   unread: number;
@@ -331,6 +333,7 @@ export const api = {
       .then((d) => d.conversation),
   updateChannel: (a: Account, id: string, body: { name?: string; topic?: string }) =>
     request(a, `/v1/conversations/${id}`, { method: "PATCH", body: JSON.stringify(body) }).then(json<{ conversation: Conversation }>),
+  setChannelOrder: (a: Account, ids: string[]) => request(a, "/v1/conversations/order", { method: "POST", body: JSON.stringify({ ids }) }),
   archiveChannel: (a: Account, id: string) => request(a, `/v1/conversations/${id}/archive`, { method: "POST", body: "{}" }),
   restoreChannel: (a: Account, id: string) => request(a, `/v1/conversations/${id}/restore`, { method: "POST", body: "{}" }),
   deleteChannel: (a: Account, id: string) => request(a, `/v1/conversations/${id}`, { method: "DELETE" }),

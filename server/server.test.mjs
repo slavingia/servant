@@ -800,6 +800,30 @@ test("channel archive is personal, persistent, reversible, and still receives me
   } finally { liveA.close(); liveB.close(); }
 });
 
+test("channel order is personal, follows the person, and skips channels they aren't in", async () => {
+  const a = await pair("member", "Order A");
+  const b = await pair("member", "Order B");
+  const one = (await api("POST", "/v1/conversations", { token: a, body: { name: "order-one" } })).json.conversation;
+  const two = (await api("POST", "/v1/conversations", { token: a, body: { name: "order-two" } })).json.conversation;
+  const theirs = (await api("POST", "/v1/conversations", { token: b, body: { name: "order-theirs", private: true } })).json.conversation;
+  await api("POST", `/v1/conversations/${two.id}/join`, { token: b });
+  const position = async (token, id) => (await api("GET", "/v1/conversations", { token })).json.conversations.find(c => c.id === id)?.position;
+  assert.equal(await position(a, one.id), null, "no place until they sort by hand");
+  assert.equal((await api("POST", "/v1/conversations/order", { token: a, body: { ids: "nope" } })).status, 400);
+  const live = await events(a);
+  try {
+    await waitFor(() => live.got.some(e => e.event === "ready"));
+    const saved = await api("POST", "/v1/conversations/order", { token: a, body: { ids: [two.id, theirs.id, one.id, two.id] } });
+    assert.equal(saved.status, 200);
+    assert.deepEqual(saved.json.ids, [two.id, one.id], "drops repeats and channels they aren't in");
+    await waitFor(() => live.got.some(e => e.event === "conversation.updated"));
+  } finally { live.close(); }
+  assert.equal(await position(a, two.id), 0);
+  assert.equal(await position(a, one.id), 1);
+  assert.equal(await position(b, two.id), null, "someone else's order never changes yours");
+  assert.equal(await position(b, theirs.id), null);
+});
+
 test("channel deletion enforces permissions, protects general, and removes threads for all members", async () => {
   const creator = await pair("member", "Delete creator");
   const other = await pair("member", "Delete member");

@@ -4,6 +4,11 @@ import { router, useFocusEffect } from "expo-router";
 import { AppIcon } from "./AppIcon";
 import { Button } from "./Button";
 import { SwipeChannelRow, useConversationActions } from "./SwipeChannelRow";
+import { ReorderableList } from "./ReorderableList";
+import { ChannelSortSheet } from "./ChannelSortSheet";
+import { CHANNEL_SORTS, sortChannels, withPositions } from "../lib/channel-sort";
+import { setChannelSort, setPendingOrder, useChannelSort } from "../lib/channel-sort-store";
+import { api } from "../lib/server";
 import { type Conversation, type BrowseChannel } from "../lib/server";
 import { useChannelDiscovery } from "../lib/channel-discovery";
 import { useLive } from "../lib/live";
@@ -12,6 +17,7 @@ import { radius, space, typography, useTheme, createThemedStyles } from "../lib/
 
 type HomeRow =
   | { kind: "channel" | "dm"; id: string; conversation: Conversation }
+  | { kind: "channels"; id: "channels"; channels: Conversation[] }
   | { kind: "other"; id: string; channel: BrowseChannel }
   | { kind: "section"; id: "channels-section" | "dms-section" }
   | { kind: "action"; id: "add-channels" | "new-message" | "archive-link" }
@@ -31,6 +37,27 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
   const [discovering, setDiscovering] = useState(false);
   const discovery = useChannelDiscovery(!archived && discovering);
   const { openId, busyId, closeRow, rowProps, dialog, actionError } = useConversationActions(account, refresh);
+  const { sort, pending } = useChannelSort();
+  const [sortOpen, setSortOpen] = useState(false);
+  // Reorder mode: unlocked by a long press, ended with Done.
+  const [reordering, setReordering] = useState(false);
+  const [lifted, setLifted] = useState(false);
+  const [orderError, setOrderError] = useState<string | null>(null);
+
+  const saveOrder = async (ids: string[]) => {
+    if (!account) return;
+    setChannelSort("custom");
+    setPendingOrder(ids);
+    setOrderError(null);
+    try {
+      await api.setChannelOrder(account, ids);
+      await refresh();
+    } catch {
+      setOrderError("Couldn't save the new order. Try again.");
+    } finally {
+      setPendingOrder(null);
+    }
+  };
 
   const reload = async () => {
     if (refreshing) return;
@@ -42,7 +69,7 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
   if (!account) return null;
 
   const channels = (conversations ?? []).filter(c => c.kind === "channel");
-  const activeChannels = channels.filter(c => !c.archived);
+  const activeChannels = sortChannels(withPositions(channels.filter(c => !c.archived), pending), sort);
   const archivedChannels = channels.filter(c => c.archived);
   const dms = (conversations ?? []).filter(c => c.kind === "dm" && !c.archived);
   const archivedDms = (conversations ?? []).filter(c => c.kind === "dm" && c.archived);
@@ -59,7 +86,7 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
   } else if (conversations !== null) {
     rows.push({ kind: "section", id: "channels-section" });
     if (channelsOpen) {
-      rows.push(...shownChannels.map(c => ({ kind: "channel" as const, id: c.id, conversation: c })));
+      if (shownChannels.length) rows.push({ kind: "channels", id: "channels", channels: shownChannels });
       if (!shownChannels.length) rows.push({ kind: "note", id: "empty-channels", text: unreadOnly ? "No unread channels" : "No channels yet. Add one to get started." });
       if (!unreadOnly) {
         rows.push({ kind: "action", id: "add-channels" });
@@ -84,7 +111,8 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
       <FlatList
         data={rows}
         keyExtractor={item => item.id}
-        extraData={{ openId, busyId, channelsOpen, dmsOpen, discovering }}
+        extraData={{ openId, busyId, channelsOpen, dmsOpen, discovering, reordering, sort }}
+        scrollEnabled={!lifted}
         onEndReached={() => { if (discovering && channelsOpen && !unreadOnly && !discovery.error) void discovery.more(); }}
         onEndReachedThreshold={0.4}
         onScrollBeginDrag={closeRow}
@@ -97,6 +125,7 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
               {value && unreadCount ? <Text style={[styles.filterCount, unreadOnly && styles.selectedFilterText]}>{unreadCount}</Text> : null}
             </Pressable>)}
           </View>}
+          {orderError ? <Text accessibilityRole="alert" style={styles.error}>{orderError}</Text> : null}
           {actionError ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
           {error && conversations !== null ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           {/* Keep the status line measured so reconnecting never moves the list. */}
@@ -112,6 +141,17 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
             <Button label="Back to Home" kind="secondary" onPress={() => router.dismissTo("/channels")} />
           </View>}
         renderItem={({ item }) => {
+          if (item.kind === "channels") return <ReorderableList items={item.channels}
+            onLift={() => {
+              closeRow();
+              // Dragging starts from what's on screen, then becomes the custom order.
+              if (!reordering) setReordering(true);
+              setLifted(true);
+            }}
+            onSettle={() => setLifted(false)}
+            onDrop={ids => void saveOrder(ids)}
+            renderRow={(c, drag) => <SwipeChannelRow {...rowProps(c)} compact drag={unreadOnly ? undefined : drag} reordering={reordering}
+              onPress={() => router.push({ pathname: "/c/[id]", params: { id: c.id } })} />} />;
           if (item.kind === "channel" || item.kind === "dm") {
             const c = item.conversation;
             return <SwipeChannelRow {...rowProps(c)} compact onPress={() => router.push({ pathname: "/c/[id]", params: { id: c.id } })} />;
@@ -125,9 +165,15 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
                 <AppIcon name={expanded ? "chevronDown" : "chevronRight"} size={16} color={colors.muted} />
                 <Text style={styles.sectionTitle}>{title}</Text>
               </Pressable>
-              <Pressable accessibilityRole="button" accessibilityLabel={isChannels ? "Create a channel" : "New direct message"} onPress={() => router.push(isChannels ? "/new-channel" : "/new-message")} style={styles.iconButton}>
+              {isChannels && reordering ? <Pressable accessibilityRole="button" accessibilityLabel="Done reordering" onPress={() => setReordering(false)} style={styles.sortButton}>
+                <Text style={styles.doneText}>Done</Text>
+              </Pressable> : isChannels ? <Pressable accessibilityRole="button" accessibilityLabel={`Sort channels, ${CHANNEL_SORTS.find(s => s.value === sort)?.label}`} onPress={() => { closeRow(); setSortOpen(true); }} style={styles.sortButton}>
+                <Text style={styles.sortText}>{CHANNEL_SORTS.find(s => s.value === sort)?.label}</Text>
+                <AppIcon name="chevronDown" size={14} color={colors.muted} />
+              </Pressable> : null}
+              {isChannels && reordering ? null : <Pressable accessibilityRole="button" accessibilityLabel={isChannels ? "Create a channel" : "New direct message"} onPress={() => router.push(isChannels ? "/new-channel" : "/new-message")} style={styles.iconButton}>
                 <AppIcon name="plus" size={18} color={colors.muted} />
-              </Pressable>
+              </Pressable>}
             </View>;
           }
           if (item.kind === "note") return <Text style={styles.sectionNote}>{item.text}</Text>;
@@ -164,6 +210,11 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
         contentContainerStyle={styles.content}
       />
       {dialog}
+      <ChannelSortSheet visible={sortOpen} value={sort} onClose={() => setSortOpen(false)} onChange={value => {
+        setChannelSort(value);
+        // Picking Custom also unlocks dragging; any other sort locks it again.
+        setReordering(value === "custom" && !unreadOnly);
+      }} />
     </View>
   );
 }
@@ -180,6 +231,9 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   section: { flexDirection: "row", alignItems: "center", paddingLeft: space.side, paddingRight: space.xs, marginTop: space.sm },
   sectionToggle: { minHeight: 44, flex: 1, flexDirection: "row", alignItems: "center", gap: space.xs },
   sectionTitle: { ...typography.bodyStrong, color: colors.ink, flexShrink: 1 },
+  sortButton: { minHeight: 44, paddingHorizontal: space.xs, flexDirection: "row", alignItems: "center", gap: 4 },
+  sortText: { ...typography.caption, color: colors.muted },
+  doneText: { ...typography.bodyStrong, color: colors.blue },
   iconButton: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
   sectionNote: { ...typography.caption, color: colors.muted, paddingLeft: space.side + 38, paddingRight: space.side, paddingVertical: space.xs },
   actionRow: { minHeight: 44, paddingHorizontal: space.side, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", gap: space.sm },

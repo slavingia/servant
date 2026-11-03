@@ -172,6 +172,9 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     if (!db.prepare("PRAGMA table_info(members)").all().some(column => column.name === "archived_at")) {
       db.exec("ALTER TABLE members ADD COLUMN archived_at INTEGER");
     }
+    if (!db.prepare("PRAGMA table_info(members)").all().some(column => column.name === "position")) {
+      db.exec("ALTER TABLE members ADD COLUMN position INTEGER");
+    }
     if (!db.prepare("PRAGMA table_info(messages)").all().some(column => column.name === "activity")) {
       db.exec("ALTER TABLE messages ADD COLUMN activity TEXT");
     }
@@ -303,6 +306,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     updateConv: q("UPDATE conversations SET name = ?, topic = ? WHERE id = ?"),
     archive: q("UPDATE conversations SET archived_at = ? WHERE id = ?"),
     archiveMember: q("UPDATE members SET archived_at = ? WHERE conversation_id = ? AND user_id = ?"),
+    setPosition: q("UPDATE members SET position = ? WHERE conversation_id = ? AND user_id = ?"),
     deleteConv: q("DELETE FROM conversations WHERE id = ?"),
     deleteAgentThreads: q("DELETE FROM agent_threads WHERE substr(key, 1, length(?) + 1) = ? || ':'"),
     publicChannels: q("SELECT id FROM conversations WHERE kind = 'channel' AND private = 0 AND archived_at IS NULL AND name = 'general'"),
@@ -455,6 +459,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       title = (others.length ? others : [me]).map((u) => person(u).name).join(", ");
     }
     const last = c.last_seq ? st.msg.get(c.last_seq) : null;
+    const membership = st.member.get(c.id, me);
     return {
       id: c.id,
       kind: c.kind,
@@ -463,7 +468,9 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       topic: c.topic,
       private: !!c.private,
       createdBy: c.created_by,
-      archived: !!st.member.get(c.id, me)?.archived_at,
+      archived: !!membership?.archived_at,
+      // This person's own place for the channel when they sort by hand.
+      position: membership?.position ?? null,
       memberCount: memberIds.length,
       members: includeMembers || c.kind === "dm" || memberIds.length <= 50 ? memberIds.map(person) : undefined,
       unread: c.unread ?? 0,
@@ -1038,6 +1045,21 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
         send(res, 201, { conversation: convView({ ...c, unread: 0 }, user.id) });
         return true;
       }
+    }
+
+    // Saves the order someone dragged their channels into. Personal: it never
+    // changes anyone else's list. Unknown or left channels are ignored.
+    if (r === "conversations" && parts[2] === "order" && parts.length === 3 && method === "POST") {
+      const body = await readBody(req);
+      if (!Array.isArray(body.ids) || body.ids.length > 2000 || body.ids.some(id => typeof id !== "string"))
+        return fail(res, 400, "invalid_order", "Send the channel IDs in order"), true;
+      const ids = [...new Set(body.ids)].filter(id => st.member.get(id, user.id));
+      transaction(() => {
+        ids.forEach((id, index) => st.setPosition.run(index, id, user.id));
+        if (ids.length) publish(ids[0], "conversation.updated", { id: ids[0] }, [user.id]);
+      });
+      send(res, 200, { ok: true, ids });
+      return true;
     }
 
     if (r === "conversations" && parts[2]) {

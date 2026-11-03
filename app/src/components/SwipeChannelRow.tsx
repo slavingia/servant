@@ -5,6 +5,7 @@ import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
 import { ConversationRow } from "./Messaging";
 import { AppIcon } from "./AppIcon";
 import { ConfirmDialog } from "./ConfirmDialog";
+import type { DragBindings } from "./ReorderableList";
 
 const rowName = (c: Conversation) => c.kind === "channel" ? `#${c.title}` : c.title;
 const kindName = (c: Conversation) => c.kind === "channel" ? "channel" : "conversation";
@@ -61,8 +62,12 @@ export function useConversationActions(account: Account | null, refresh: () => u
   return { openId, busyId, closeRow, rowProps, dialog, actionError: deleting ? null : actionError };
 }
 
-export function SwipeChannelRow({ c, compact = false, open, busy, canDelete, onOpen, onClose, onPress, onArchive, onDelete }: {
+export function SwipeChannelRow({ c, compact = false, open, busy, canDelete, onOpen, onClose, onPress, onArchive, onDelete, drag, reordering = false }: {
   c: Conversation;
+  /** Channels on Home: long press lifts the row to drag it instead of opening actions. */
+  drag?: DragBindings;
+  /** Reorder mode: swiping and opening are off and each row shows a grip. */
+  reordering?: boolean;
   compact?: boolean;
   open: boolean;
   busy: boolean;
@@ -73,12 +78,24 @@ export function SwipeChannelRow({ c, compact = false, open, busy, canDelete, onO
   onArchive: () => void;
   onDelete: () => void;
 }) {
-  return <SwipeRow name={rowName(c)} kind={kindName(c)} archived={!!c.archived} open={open} busy={busy} canDelete={canDelete}
+  return <SwipeRow name={rowName(c)} kind={kindName(c)} archived={!!c.archived} open={open} busy={busy} canDelete={canDelete} locked={reordering}
     onOpen={onOpen} onClose={onClose} onArchive={onArchive} onDelete={onDelete}>
     {({ onPress: press, onLongPress, accessibilityActions, onAccessibilityAction, trailing }) =>
-      <ConversationRow c={c} compact={compact} onPress={() => press(onPress)} onLongPress={onLongPress}
-        accessibilityActions={accessibilityActions} onAccessibilityAction={onAccessibilityAction} trailing={trailing} />}
+      <ConversationRow c={c} compact={compact} lifted={drag?.lifted} onPress={() => { if (!reordering) press(onPress); }}
+        onLongPress={drag && !open ? drag.onLongPress : onLongPress}
+        longPressHint={drag ? "Long press, then drag to reorder" : undefined}
+        accessibilityActions={drag ? [...accessibilityActions, ...drag.accessibilityActions] : accessibilityActions}
+        onAccessibilityAction={e => { if (drag?.accessibilityActions.some(a => a.name === e.nativeEvent.actionName)) drag.onAccessibilityAction(e); else onAccessibilityAction(e); }}
+        trailing={drag && reordering ? <DragGrip name={rowName(c)} {...drag.gripProps} /> : trailing} />}
   </SwipeRow>;
+}
+
+function DragGrip({ name, ...responder }: { name: string } & DragBindings["gripProps"]) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  return <View {...responder} accessibilityLabel={`Drag to reorder ${name}`} style={styles.more}>
+    <AppIcon name="grip" size={20} color={colors.muted} />
+  </View>;
 }
 
 type RowBindings = {
@@ -91,8 +108,9 @@ type RowBindings = {
 
 // Swipe left to reveal Archive (or Restore) and Delete. Long press and the
 // VoiceOver actions open the same choices; on web a "⋯" button does.
-export function SwipeRow({ name, kind, archived, open, busy, canDelete, onOpen, onClose, onArchive, onDelete, children }: {
+export function SwipeRow({ name, kind, archived, open, busy, canDelete, locked = false, onOpen, onClose, onArchive, onDelete, children }: {
   name: string;
+  locked?: boolean;
   kind: string;
   archived: boolean;
   open: boolean;
@@ -117,7 +135,7 @@ export function SwipeRow({ name, kind, archived, open, busy, canDelete, onOpen, 
   const pan = useMemo(() => {
     const origin = open ? -width : 0;
     return PanResponder.create({
-    onMoveShouldSetPanResponder: (_, g) => !busy && Math.abs(g.dx) > 12 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
+    onMoveShouldSetPanResponder: (_, g) => !busy && !locked && Math.abs(g.dx) > 12 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
     onPanResponderGrant: () => { x.stopAnimation(); },
     onPanResponderMove: (_, g) => x.setValue(Math.max(-width, Math.min(0, origin + g.dx))),
     onPanResponderRelease: (_, g) => {
@@ -131,13 +149,13 @@ export function SwipeRow({ name, kind, archived, open, busy, canDelete, onOpen, 
       Animated.timing(x, { toValue: 0, duration: 180, useNativeDriver: true }).start();
     },
   });
-  }, [busy, onClose, onOpen, open, width, x]);
+  }, [busy, locked, onClose, onOpen, open, width, x]);
   const bind: RowBindings = {
     onPress: (go) => { if (!busy) { if (open) onClose(); else go(); } },
     onLongPress: () => { if (!busy) onOpen(); },
     accessibilityActions: [{ name: "archive", label: archiveLabel }, ...(canDelete ? [{ name: "delete", label: `Delete ${kind}` }] : [])],
     onAccessibilityAction: (e) => { if (!busy) { if (e.nativeEvent.actionName === "archive") onArchive(); if (e.nativeEvent.actionName === "delete" && canDelete) onDelete(); } },
-    trailing: Platform.OS === "web" ? <Pressable disabled={busy} accessibilityRole="button" accessibilityLabel={`Actions for ${name}`} accessibilityState={{ expanded: open, disabled: busy }} onPress={open ? onClose : onOpen} style={styles.more}><AppIcon name="more" size={18} color={colors.muted} /></Pressable> : undefined,
+    trailing: Platform.OS === "web" && !locked ? <Pressable disabled={busy} accessibilityRole="button" accessibilityLabel={`Actions for ${name}`} accessibilityState={{ expanded: open, disabled: busy }} onPress={open ? onClose : onOpen} style={styles.more}><AppIcon name="more" size={18} color={colors.muted} /></Pressable> : undefined,
   };
   return (
     <View style={styles.root}>

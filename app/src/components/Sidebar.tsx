@@ -4,6 +4,8 @@ import { router, usePathname, type Href } from "expo-router";
 import { type Conversation } from "../lib/server";
 import { isDesktop } from "../lib/desktop";
 import { useLive } from "../lib/live";
+import { sortChannels, withPositions } from "../lib/channel-sort";
+import { useChannelSort } from "../lib/channel-sort-store";
 import { useSession } from "../lib/session";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 import { AppIcon, type AppIconName } from "./AppIcon";
@@ -41,13 +43,14 @@ export function Sidebar() {
   const colors = useSidebarColors();
   const { account } = useSession();
   const { conversations, unread, connected } = useLive();
+  const { sort, pending } = useChannelSort();
   const pathname = usePathname();
   const [channelsOpen, setChannelsOpen] = useState(true);
   const [dmsOpen, setDmsOpen] = useState(true);
   if (!account) return null;
 
   const active = (conversations ?? []).filter(c => !c.archived);
-  const channels = active.filter(c => c.kind === "channel").sort((a, b) => a.title.localeCompare(b.title));
+  const channels = sortChannels(withPositions(active.filter(c => c.kind === "channel"), pending), sort);
   const dms = active.filter(c => c.kind === "dm").sort((a, b) => b.updatedAt - a.updatedAt);
   const archivedCount = (conversations ?? []).filter(c => c.archived).length;
   const open = (c: Conversation) => go(pathname, { pathname: "/c/[id]", params: { id: c.id } });

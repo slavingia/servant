@@ -450,7 +450,7 @@ export function Composer({
   );
 }
 
-export function ConversationRow({ c, onPress, onLongPress, accessibilityActions, onAccessibilityAction, trailing, compact = false }: { c: Conversation; onPress: () => void; trailing?: ReactNode; compact?: boolean } & Pick<PressableProps, "onLongPress" | "accessibilityActions" | "onAccessibilityAction">) {
+export function ConversationRow({ c, onPress, onLongPress, longPressHint, accessibilityActions, onAccessibilityAction, trailing, compact = false, lifted = false }: { c: Conversation; onPress: () => void; trailing?: ReactNode; compact?: boolean; longPressHint?: string; lifted?: boolean } & Pick<PressableProps, "onLongPress" | "accessibilityActions" | "onAccessibilityAction">) {
   const styles = useStyles();
   const { colors } = useTheme();
   const last = c.lastMessage;
@@ -464,10 +464,10 @@ export function ConversationRow({ c, onPress, onLongPress, accessibilityActions,
         accessibilityLabel={`${title}${c.private && c.kind === "channel" ? ", private" : ""}${bold ? `, ${c.unread} unread` : ""}${compact ? "" : `. ${preview}`}`}
         onPress={onPress}
         onLongPress={onLongPress}
-        accessibilityHint={onLongPress ? "Swipe left or long press to archive or delete" : undefined}
+        accessibilityHint={longPressHint ?? (onLongPress ? "Swipe left or long press to archive or delete" : undefined)}
         accessibilityActions={accessibilityActions}
         onAccessibilityAction={onAccessibilityAction}
-        style={({ pressed }) => [styles.row, compact && styles.compactRow, trailing ? styles.rowWithTrailing : null, pressed && { backgroundColor: colors.surface }]}
+        style={({ pressed }) => [styles.row, compact && styles.compactRow, trailing ? styles.rowWithTrailing : null, pressed && !lifted && { backgroundColor: colors.surface }]}
       >
         {c.kind === "dm" ? <Avatar name={c.title} size={compact ? 26 : 40} /> : <View style={[styles.channelGlyph, compact && styles.compactChannelGlyph]}><AppIcon name={c.private ? "lock" : "hash"} size={compact ? 19 : 22} color={bold ? colors.ink : colors.muted} /></View>}
         <View style={styles.rowCopy}>
