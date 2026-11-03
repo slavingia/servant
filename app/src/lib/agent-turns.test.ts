@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activeAgentTurn, canSteer, liveAgentLine, parseAgentTurn, splitTurns, type AgentTurn } from './agent-turns.ts';
+import { activeAgentTurn, canSteer, liveAgentLine, queuedBelow, parseAgentTurn, splitTurns, type AgentTurn } from './agent-turns.ts';
 import { createAgentEventDecoder, type StreamEvent } from './agent-events.ts';
 
 const turn = { id: 'turn_1', chatId: 'chat_1', status: 'waiting_for_approval', accepted: true, text: 'Prepare notes', assistantText: 'Ready', canStop: true, createdAt: 10, updatedAt: 20 };
@@ -62,4 +62,10 @@ test("the in-progress line follows the agent: stream first, then the saved activ
   assert.equal(liveAgentLine(null, null), "Thinking");
   assert.equal(liveAgentLine({ ...running, status: "waiting_for_approval" }, "Running a command"), "Waiting for your OK");
   assert.equal(parseAgentTurn({ ...running, activity: 5 })?.activity, null);
+});
+
+test('a queued turn shown as up next is not listed again as waiting', () => {
+  const next = queuedTurn("a", "queued", 1), later = queuedTurn("b", "queued", 2);
+  assert.deepEqual(queuedBelow([next, later], [next, null]).map(t => t.id), ["b"]);
+  assert.deepEqual(queuedBelow([next, later], [undefined, queuedTurn("r", "running", 0)]).map(t => t.id), ["a", "b"]);
 });

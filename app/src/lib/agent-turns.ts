@@ -54,6 +54,11 @@ export function splitTurns(turns: AgentTurn[]) {
   const waiting = turns.filter(t => t.status === 'queued').sort((a, b) => a.createdAt - b.createdAt);
   return { current, waiting };
 }
+// Waiting messages not already shown above (as the reply in progress or the
+// chat's first message). A queued turn can be both while it's up next.
+export function queuedBelow(waiting: AgentTurn[], shown: (AgentTurn | null | undefined)[]) {
+  return waiting.filter(t => !shown.some(s => s?.id === t.id));
+}
 // Steer folds a waiting message into the reply in progress. Only text can be
 // steered, and only while a reply is actually running.
 export function canSteer(waiting: AgentTurn, current: AgentTurn | null) {

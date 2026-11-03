@@ -138,7 +138,7 @@ export default function ConversationScreen() {
   );
 
   const media = useMemo(() => mediaFromPosts(posts ?? []), [posts]);
-  const receipts = useMemo(() => conv?.id === id && conv.kind === "dm"
+  const receipts = useMemo(() => conv && conv.id === id && conv.kind === "dm"
     ? latestMessageReceipts(posts ?? [], account?.user.id ?? "", conv.members)
     : undefined, [posts, account?.user.id, conv, id]);
   if (!account) return null;

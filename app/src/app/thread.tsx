@@ -53,7 +53,7 @@ export default function ThreadScreen() {
   const typingNames = useTyping(conv, root, account?.user.id ?? "");
   const ping = useTypingPing(account, conv, root);
   const rows = useMemo(() => head ? [head, ...(replies ?? [])] : replies ?? [], [head, replies]);
-  const receipts = useMemo(() => conversation?.id === conv && conversation.kind === "dm"
+  const receipts = useMemo(() => conversation && conversation.id === conv && conversation.kind === "dm"
     ? latestMessageReceipts(rows, account?.user.id ?? "", conversation.members)
     : undefined, [rows, account?.user.id, conversation, conv]);
   const readTracking = useReadReceipts(account, conv, focused, joined && replies !== null && !unavailable, root, rows);

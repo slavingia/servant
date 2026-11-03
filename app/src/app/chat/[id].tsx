@@ -11,7 +11,7 @@ import { mediaFromMessages } from "../../lib/media";
 import { Button } from "../../components/Button";
 import { MessageText } from "../../components/MessageText";
 import { AgentApprovalCard } from "../../components/AgentApprovalCard";
-import { activeAgentTurn, agentTurnLabel, canSteer, liveAgentLine, splitTurns, type AgentTurn } from "../../lib/agent-turns";
+import { activeAgentTurn, agentTurnLabel, canSteer, liveAgentLine, queuedBelow, splitTurns, type AgentTurn } from "../../lib/agent-turns";
 import { LiveStatus } from "../../components/LiveStatus";
 import { bufferAgentReply } from "../../lib/agent-events";
 import { messageDeviceLabel } from "../../lib/message-device";
@@ -517,7 +517,7 @@ function ChatConversation() {
   const workingRow: Row | null = turn && !streaming && unstarted?.id !== turn.id && ['running', 'waiting_for_approval', 'stopping'].includes(turn.status)
     ? { id: `working_${turn.id}`, role: "assistant", text: "", at: undefined as unknown as Message["at"], pending: true, agentWorking: true } : null;
   // Messages sent meanwhile sit below it, each with its own one-tap Steer.
-  const queuedRows: Row[] = waiting.filter(t => t.id !== unstarted?.id)
+  const queuedRows: Row[] = queuedBelow(waiting, [unstarted, turn])
     .map(t => ({ id: `queued_${t.id}`, role: "user", text: t.text || "Attachment", at: t.createdAt, queuedTurn: t }));
   const data = [...(messages ?? []), ...(firstRow ? [firstRow] : []), ...(workingRow ? [workingRow] : []), ...queuedRows].reverse();
 
