@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, AppState, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, AppState, FlatList, Modal, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
 import { router, useFocusEffect, useScrollToTop } from "expo-router";
 import { shortTime as when } from "../../lib/time-label";
 import { AppIcon } from "../../components/AppIcon";
@@ -7,7 +7,7 @@ import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { SwipeRow } from "../../components/SwipeChannelRow";
 import { ProjectSheet, VIBE_CHOICE } from "../../components/ProjectSheet";
-import { api, ServerError, type Chat, type ChatClosed, type Project } from "../../lib/server";
+import { api, ServerError, type Chat, type ChatClosed, type Folder, type Project } from "../../lib/server";
 
 // The line under the title, like the last message in a DM list.
 function lastLine(chat: Chat, author: string, agent = "") {
@@ -45,6 +45,11 @@ export default function Chats() {
   const [refreshing, setRefreshing] = useState(false);
   const [starting, setStarting] = useState(false);
   const [picking, setPicking] = useState(false);
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [naming, setNaming] = useState(false);
+  const [folderName, setFolderName] = useState("");
+  const [folderBusy, setFolderBusy] = useState(false);
+  const [folderError, setFolderError] = useState<string | null>(null);
   const [projects, setProjects] = useState<{ token: string; list: Project[]; vibeCoder: boolean } | null>(null);
   useEffect(() => {
     if (!account) return;
@@ -68,6 +73,7 @@ export default function Chats() {
       setChats(mine);
       refreshAgent(mine);
       setShared(others);
+      api.folders(account).then(setFolders).catch(() => {});
       setError(null);
     } catch (e) {
       if (e instanceof ServerError && e.status === 401) {
@@ -110,6 +116,19 @@ export default function Chats() {
       setBusyId(null);
     }
   };
+  const createFolder = async () => {
+    const name = folderName.trim();
+    if (!name || folderBusy) return;
+    setFolderBusy(true); setFolderError(null);
+    try {
+      const folder = await api.createFolder(account, name);
+      setNaming(false); setFolderName("");
+      setFolders(list => [folder, ...list]);
+      router.push({ pathname: "/folder", params: { id: folder.id } });
+    } catch (e) { setFolderError(e instanceof ServerError ? e.message : "Couldn't make the folder"); }
+    finally { setFolderBusy(false); }
+  };
+  const folderNames = new Map(folders.map(f => [f.id, f.name]));
   const active = (chats ?? []).filter(chat => !chat.archived);
   const archived = (chats ?? []).filter(chat => chat.archived);
   const rows = view === "closed" ? archived : active;
@@ -169,6 +188,22 @@ export default function Chats() {
                 <Text style={styles.rowTitle}>{chat.title}</Text><Text numberOfLines={2} style={styles.approvalDetail}>{chat.latestTurn?.approval?.description || 'Review this action to continue.'}</Text><Text style={styles.review}>Review action →</Text>
               </Pressable>)}
             </View> : null}
+            {view === "active" ? <View>
+              <View style={styles.folderHead}>
+                <Text accessibilityRole="header" style={styles.folderTitle}>Folders</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel="New folder" onPress={() => { setFolderError(null); setNaming(true); }} hitSlop={8} style={styles.folderAction}>
+                  <Text style={styles.folderLink}>New folder</Text>
+                </Pressable>
+              </View>
+              {folders.length === 0 ? <Text style={styles.folderEmpty}>Group chats about one product and give them shared notes and files.</Text> : null}
+              {folders.map(folder => <Pressable key={folder.id} accessibilityRole="button" accessibilityLabel={`${folder.name}, ${folder.chatCount} ${folder.chatCount === 1 ? "chat" : "chats"}`}
+                onPress={() => router.push({ pathname: "/folder", params: { id: folder.id } })} style={({ pressed }) => [styles.folderRow, pressed && { backgroundColor: colors.surface }]}>
+                <View style={styles.agentIcon}><AppIcon name="folder" size={19} color={colors.blueDark} /></View>
+                <Text style={styles.rowTitle} numberOfLines={1}>{folder.name}</Text>
+                <Text style={styles.rowWhen}>{folder.chatCount}</Text>
+                <AppIcon name="chevronRight" size={16} color={colors.muted} />
+              </Pressable>)}
+            </View> : null}
             <View accessibilityRole="tablist" style={styles.filters}>{VIEWS.map(({ key, label }) => <Pressable key={key} accessibilityRole="tab" accessibilityLabel={key === "closed" && archived.length ? `${label}, ${archived.length}` : label} accessibilityState={{ selected: view === key }} aria-selected={view === key} onPress={() => { closeRow(); setView(key); }} style={({ pressed }) => [styles.filter, view === key && styles.selectedFilter, pressed && { opacity: 0.7 }]}>
               <Text style={[styles.filterText, view === key && styles.selectedFilterText]}>{label}</Text>
             </Pressable>)}</View>
@@ -216,7 +251,7 @@ export default function Chats() {
                 >
                   <View style={styles.agentIcon}><AppIcon name={item.mode === "vibe" ? "code" : "sparkles"} size={19} color={colors.blueDark} /></View>
                   <View style={styles.rowCopy}><Text style={[styles.rowTitle, styles.readTitle, unread > 0 && styles.unreadTitle]} numberOfLines={1}>{title}</Text>
-                    {item.mode === "vibe" || item.project ? <Text style={styles.projectTag} numberOfLines={1}>{item.mode === "vibe" ? "Vibe coding" : item.project!.name}</Text> : null}
+                    {item.mode === "vibe" || item.project || (item.folderId && folderNames.has(item.folderId)) ? <Text style={styles.projectTag} numberOfLines={1}>{[item.folderId ? folderNames.get(item.folderId) : null, item.mode === "vibe" ? "Vibe coding" : item.project?.name].filter(Boolean).join(" · ")}</Text> : null}
                     {activeAgentTurn(item.latestTurn) ? <Text style={styles.turnLabel} numberOfLines={1}>{agentTurnLabel(item.latestTurn!)}</Text>
                       : item.closed ? <Text style={styles.preview} numberOfLines={1}>{closedLine(item.closed)}</Text>
                       : <View style={styles.privateTag}>
@@ -255,6 +290,20 @@ export default function Chats() {
         </View> : undefined}
         contentContainerStyle={{ paddingBottom: space.xxl }}
       />
+      <Modal visible={naming} transparent animationType="fade" onRequestClose={() => setNaming(false)}>
+        <Pressable accessibilityLabel="Close" style={styles.scrim} onPress={() => setNaming(false)}>
+          <Pressable accessibilityViewIsModal style={styles.card} onPress={() => {}}>
+            <Text accessibilityRole="header" style={styles.cardTitle}>New folder</Text>
+            <TextInput accessibilityLabel="Folder name" autoFocus value={folderName} onChangeText={setFolderName} onSubmitEditing={() => void createFolder()} returnKeyType="done" maxLength={60}
+              placeholder="e.g. Refund tracker" placeholderTextColor={colors.muted} style={styles.cardInput} />
+            {folderError ? <Text accessibilityRole="alert" style={styles.error}>{folderError}</Text> : null}
+            <View style={styles.cardActions}>
+              <Button label="Cancel" kind="secondary" onPress={() => setNaming(false)} style={{ flex: 1 }} />
+              <Button label="Create" busy={folderBusy} disabled={!folderName.trim()} onPress={() => void createFolder()} style={{ flex: 1 }} />
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
       <ConfirmDialog visible={!!deleting} title="Delete this conversation?"
         description="This permanently deletes your conversation with the agent and everything in it. This can't be undone."
         confirmLabel="Delete conversation" busy={busyId !== null} error={actionError}
@@ -302,6 +351,17 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   selectedFilter: { backgroundColor: colors.blueSoft },
   filterText: { ...typography.bodyStrong, color: colors.muted },
   selectedFilterText: { color: colors.blueDark },
+  folderHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingLeft: space.side, paddingRight: space.xs },
+  folderTitle: { ...typography.label, color: colors.muted },
+  folderAction: { minHeight: 44, paddingHorizontal: space.sm, justifyContent: "center" },
+  folderLink: { ...typography.bodyStrong, color: colors.blue },
+  folderEmpty: { ...typography.caption, color: colors.muted, paddingHorizontal: space.side, paddingBottom: space.sm },
+  folderRow: { minHeight: 56, paddingHorizontal: space.side, flexDirection: "row", alignItems: "center", gap: space.sm },
+  scrim: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: space.side, backgroundColor: "rgba(17,46,81,0.42)" },
+  card: { width: "100%", maxWidth: 420, backgroundColor: colors.background, borderRadius: radius.lg, padding: space.side },
+  cardTitle: { ...typography.heading, color: colors.ink, marginBottom: space.sm },
+  cardInput: { ...typography.body, color: colors.ink, minHeight: 48, paddingHorizontal: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line },
+  cardActions: { flexDirection: "row", gap: space.sm, marginTop: space.md },
   empty: { marginTop: space.xxl, alignItems: "center", paddingHorizontal: space.side },
   emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center", marginTop: space.md },
   emptyBody: { ...typography.body, marginTop: space.xs, color: colors.muted, textAlign: "center", maxWidth: 360 },

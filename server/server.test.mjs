@@ -345,6 +345,58 @@ test("projects: technical people pick one; the chat's turns carry its instructio
   assert.equal(chat.mode, undefined);
 });
 
+test("folders: group your own chats and share notes and files with every chat in them", async () => {
+  const token = await pair("member", "Fran Folders");
+  const other = await pair("member", "Olly Other");
+  assert.equal((await api("POST", "/v1/folders", { token, body: { name: "  " } })).status, 400);
+  const folder = (await api("POST", "/v1/folders", { token, body: { name: "Refund tracker", notes: "Audience: taxpayers. Plain words." } })).json.folder;
+  assert.equal(folder.name, "Refund tracker");
+  assert.equal(folder.chatCount, 0);
+  // Only you see your folders.
+  assert.deepEqual((await api("GET", "/v1/folders", { token: other })).json.folders, []);
+  assert.equal((await api("GET", `/v1/folders/${folder.id}`, { token: other })).status, 404);
+  assert.equal((await api("POST", "/v1/chats", { token: other, body: { folderId: folder.id } })).status, 404);
+  const added = await api("POST", `/v1/folders/${folder.id}/files`, { token, body: { name: "brief.md", data: Buffer.from("The product shows refund status.").toString("base64") } });
+  assert.equal(added.status, 200);
+  assert.deepEqual(added.json.folder.files.map(f => f.name), ["brief.md"]);
+  const chatA = (await api("POST", "/v1/chats", { token, body: { folderId: folder.id } })).json.chat;
+  const chatB = (await api("POST", "/v1/chats", { token, body: {} })).json.chat;
+  assert.equal(chatA.folderId, folder.id);
+  assert.equal(chatB.folderId, undefined);
+  // Move chat B in, then both carry the folder's context on every turn.
+  assert.equal((await api("PATCH", `/v1/chats/${chatB.id}`, { token, body: { folderId: folder.id } })).json.chat.folderId, folder.id);
+  assert.equal((await api("GET", `/v1/folders/${folder.id}`, { token })).json.folder.chatCount, 2);
+  for (const chat of [chatA, chatB]) {
+    const before = owner.calls.length + member.calls.length;
+    await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "hello" } });
+    const stream = [...owner.calls, ...member.calls].slice(before).find((c) => c.url.endsWith("/chat/stream"));
+    assert.match(stream.body.system_message, /folder "Refund tracker"/);
+    assert.match(stream.body.system_message, /Audience: taxpayers/);
+    // The full agent reads files from disk by path.
+    assert.match(stream.body.system_message, /brief\.md.*folder-files/);
+  }
+  // A limited agent never gets a path: small text files come inline instead.
+  await withAgentAccess("limited", async () => {
+    const limited = (await api("POST", "/v1/chats", { token, body: { folderId: folder.id } })).json.chat;
+    const before = owner.calls.length + member.calls.length;
+    await api("POST", `/v1/chats/${limited.id}/messages`, { token, body: { text: "again" } });
+    const stream = await waitFor(() => [...owner.calls, ...member.calls].slice(before).find((c) => c.url.endsWith("/chat/stream")));
+    assert.match(stream.body.system_message, /The product shows refund status\./);
+    assert.doesNotMatch(stream.body.system_message, /folder-files/);
+  });
+  // Rename, edit notes, remove a file.
+  const edited = (await api("PATCH", `/v1/folders/${folder.id}`, { token, body: { name: "Refunds", notes: "" } })).json.folder;
+  assert.equal(edited.name, "Refunds");
+  assert.equal((await api("DELETE", `/v1/folders/${folder.id}/files/${added.json.folder.files[0].id}`, { token })).json.folder.files.length, 0);
+  // Taking a chat out, and deleting the folder keeps the chats.
+  assert.equal((await api("PATCH", `/v1/chats/${chatB.id}`, { token, body: { folderId: null } })).json.chat.folderId, undefined);
+  assert.equal((await api("DELETE", `/v1/folders/${folder.id}`, { token })).status, 200);
+  assert.equal((await api("GET", `/v1/chats/${chatA.id}`, { token })).json.chat.folderId, undefined);
+  assert.deepEqual((await api("GET", "/v1/folders", { token })).json.folders, []);
+  // Let this test's agent turns finish so they don't land in the next test's window.
+  for (let last = -1, n = owner.calls.length + member.calls.length; n !== last; await new Promise(r => setTimeout(r, 400))) { last = n; n = owner.calls.length + member.calls.length; }
+});
+
 test("vibe coding is an option for everyone: any member can pick it and gets a preview link", async () => {
   const token = await pair("member", "Remy Regular");
   assert.equal((await api("GET", "/v1/projects", { token })).json.vibeCoder, false);
@@ -352,9 +404,8 @@ test("vibe coding is an option for everyone: any member can pick it and gets a p
   assert.equal(chat.mode, "vibe");
   assert.equal(chat.project.id, "design-prototypes");
   assert.match(chat.previewUrl, /^https:\/\/taxpayer-services-and-online-accounts\.github\.io\/design-prototypes\/vibe-[a-z0-9]+\/$/);
-  const before = owner.calls.length + member.calls.length;
   await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "a page about refunds" } });
-  const stream = [...owner.calls, ...member.calls].slice(before).find((c) => c.url.endsWith("/chat/stream"));
+  const stream = await waitFor(() => [...owner.calls, ...member.calls].find((c) => c.url.endsWith("/chat/stream") && c.body.message === "a page about refunds"));
   assert.ok(stream.body.system_message.includes(`PREVIEW: ${chat.previewUrl}`));
   // Not asking for it still gives a plain chat.
   assert.equal((await api("POST", "/v1/chats", { token, body: {} })).json.chat.mode, undefined);

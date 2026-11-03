@@ -16,7 +16,7 @@ import { activeAgentTurn, agentTurnLabel, canSteer, liveAgentLine, queuedBelow, 
 import { AgentProgress } from "../../components/AgentSteps";
 import { bufferAgentReply } from "../../lib/agent-events";
 import { messageDeviceLabel } from "../../lib/message-device";
-import { api, sendMessage, ServerError, uploadPost, type Chat, type Message, type Upload } from "../../lib/server";
+import { api, sendMessage, ServerError, uploadPost, type Chat, type Folder, type Message, type Upload } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { useLive } from "../../lib/live";
 import { forwardTitle, parseForward, type ForwardCard } from "../../lib/forward";
@@ -202,13 +202,23 @@ function ReplyText({ text, failed }: { text: string; failed?: boolean }) {
 }
 
 // Header "•••": chat options. Your own chat is shared with the server by default; the switch turns it off. Files lives here too.
-function OptionsSheet({ id, title, shared, onChange, onClose }: { id: string; title: string; shared: boolean | null; onChange: (shared: boolean) => void; onClose: () => void }) {
+function OptionsSheet({ id, title, shared, folderId, onFolder, onChange, onClose }: { id: string; title: string; shared: boolean | null; folderId: string | null; onFolder: (folderId: string | null) => void; onChange: (shared: boolean) => void; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const { account } = useSession();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [folders, setFolders] = useState<Folder[] | null>(null);
+  const [choosing, setChoosing] = useState(false);
+  useEffect(() => { if (account) api.folders(account).then(setFolders).catch(() => setFolders([])); }, [account]);
   if (!account) return null;
+  const move = async (next: string | null) => {
+    setSaving(true); setError(null);
+    try { await api.moveChat(account, id, next); onFolder(next); setChoosing(false); }
+    catch (e) { setError(e instanceof ServerError ? e.message : "Couldn't move the chat"); }
+    finally { setSaving(false); }
+  };
+  const current = folders?.find(f => f.id === folderId);
   const change = async (next: boolean) => {
     onChange(next); setSaving(true); setError(null);
     try { onChange((await api.setChatShared(account, id, next)).shared !== false); }
@@ -227,6 +237,18 @@ function OptionsSheet({ id, title, shared, onChange, onClose }: { id: string; ti
             onValueChange={next => { void change(next); }} trackColor={{ true: colors.blue, false: colors.borderStrong }} thumbColor="#FFFFFF" {...(Platform.OS === "web" ? { activeThumbColor: "#FFFFFF" } : {})} />
         </View> : null}
         {error ? <Text accessibilityRole="alert" style={styles.shareError}>{error}</Text> : null}
+        {folders && (folders.length > 0 || folderId) ? <>
+          <Pressable testID="chat-folder" accessibilityRole="button" accessibilityState={{ expanded: choosing }} disabled={saving} onPress={() => setChoosing(!choosing)} style={[styles.menuAction, styles.folderLine]}>
+            <Text style={styles.menuActionText}>Folder</Text>
+            <Text style={styles.turnDetail} numberOfLines={1}>{current?.name ?? "None"}</Text>
+          </Pressable>
+          {choosing ? <View>
+            {[{ id: null as string | null, name: "No folder" }, ...folders].map(f => <Pressable key={f.id ?? "none"} accessibilityRole="button" accessibilityState={{ selected: f.id === folderId }} disabled={saving} onPress={() => void move(f.id)} style={styles.folderChoice}>
+              <Text style={[styles.menuActionText, f.id === folderId && { fontWeight: "700" }]} numberOfLines={1}>{f.name}</Text>
+              {f.id === folderId ? <AppIcon name="check" size={16} color={colors.blue} /> : null}
+            </Pressable>)}
+          </View> : null}
+        </> : null}
         <Pressable testID="open-files" accessibilityRole="button" onPress={() => { onClose(); router.push({ pathname: "/files", params: { kind: "chat", id, title } }); }} style={styles.menuAction}><Text style={styles.menuActionText}>Files</Text></Pressable>
         <Pressable accessibilityRole="button" onPress={onClose} style={styles.menuAction}><Text style={styles.menuActionText}>Done</Text></Pressable>
       </Pressable>
@@ -262,6 +284,7 @@ function ChatConversation() {
   const [forwarding, setForwarding] = useState<ForwardTarget | null>(null);
   const [shared, setShared] = useState<boolean | null>(null);
   const [sharing, setSharing] = useState(false);
+  const [folderId, setFolderId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const { width: winWidth } = useWindowDimensions();
   // Portrait phones stack the preview above the chat; folds, tablets, landscape and wide windows put it beside.
@@ -276,6 +299,7 @@ function ChatConversation() {
       if (!live) return;
       if (c.title && c.title !== "New chat") setHeading(h => h === "New chat" ? c.title : h);
       setShared(c.shared !== false);
+      setFolderId(c.folderId ?? null);
       setPreviewUrl(c.mode === "vibe" && c.previewUrl ? c.previewUrl : null);
     }).catch(() => {});
     return () => { live = false; };
@@ -636,7 +660,7 @@ function ChatConversation() {
     <View style={styles.root}>
       <Stack.Screen options={{ title: heading, headerTitle: titleButton(showTitle, setShowTitle, headerLinks.length), ...filesHeader(String(id), heading, colors.blue, headerLinks, false) }} />
       {showTitle ? <FullTitle title={heading} onClose={() => setShowTitle(false)} /> : null}
-      {sharing ? <OptionsSheet id={String(id)} title={heading} shared={shared} onChange={setShared} onClose={() => setSharing(false)} /> : null}
+      {sharing ? <OptionsSheet id={String(id)} title={heading} shared={shared} folderId={folderId} onFolder={setFolderId} onChange={setShared} onClose={() => setSharing(false)} /> : null}
       <View style={[styles.split, stacked && previewOpen && styles.splitStacked]}>
       <View style={[styles.chatColumn, stacked && previewOpen && styles.chatColumnStacked]}>
       <ConversationKeyboardView>
@@ -822,6 +846,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   previewButton: { minHeight: 40, paddingHorizontal: space.md, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   previewInline: { alignSelf: "flex-start", marginTop: space.xs },
   previewButtonText: { ...typography.captionStrong, color: colors.onPrimary },
+  folderLine: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm },
+  folderChoice: { minHeight: 44, paddingLeft: space.md, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   shareRow: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingBottom: space.sm },
   split: { flex: 1, flexDirection: "row" },
   splitStacked: { flexDirection: "column-reverse" },

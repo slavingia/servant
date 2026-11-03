@@ -34,6 +34,7 @@ import { createUsageStore } from "./usage.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { withCloseInstructions } from "./close-marker.mjs";
 import { supportsDurableRuns, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
+import { MAX_FOLDERS, cleanName, cleanNotes, createFolderFiles, folderInstructions, folderView, newFolder, validFolderId } from "./folders.mjs";
 import { availableProjects, chatInstructions, projectById, vibeFolder, VIBE_PROJECT } from "./projects.mjs";
 import { verifyMemberUpstream } from "./member-policy.mjs";
 import { composeForward } from "./forward.mjs";
@@ -484,6 +485,7 @@ function chatView(chat, viewer, users = {}) {
   const view = { id: chat.id, title: chat.title, createdAt: chat.createdAt, updatedAt: chat.updatedAt, shared: chatShared(chat),
     // The full agent takes any file (ZIPs, PDFs, prototypes); others take media.
     ...(agentRole(chat.role, loadConfig()) === "owner" ? { files: true } : {}),
+    ...(chat.folderId ? { folderId: chat.folderId } : {}),
     ...(chat.project ? { project: { id: chat.project, name: projectById(chat.project)?.name || chat.project } } : {}),
     ...(chat.mode === "vibe" ? { mode: "vibe", previewUrl: `${projectById(VIBE_PROJECT).pages}${chat.vibeFolder}/` } : {}) };
   if (viewer && chat.userId === viewer.id) {
@@ -511,6 +513,14 @@ let privateTimer;
 const privateStreams = new Set();
 const chatMediaStore = () => chatMedia ??= createChatMediaStore(path.join(DATA_DIR, "chat-media.db"));
 let documentStore;
+let folderFileStore;
+const folderFiles = () => folderFileStore ??= createFolderFiles(path.join(DATA_DIR, "folder-files"));
+// Project instructions plus the chat's folder (notes and files), sent with every turn.
+function chatContext(chat) {
+  const folder = chat.folderId ? readState().users[chat.userId]?.folders?.[chat.folderId] : null;
+  const full = agentRole(chat.role, loadConfig()) === "owner";
+  return [chatInstructions(chat), folderInstructions(folder, folderFiles(), { full })].filter(Boolean).join("\n\n");
+}
 const documents = () => documentStore ??= createDocumentStore(path.join(DATA_DIR, "chat-files"));
 let usageDb;
 let meetings = null;
@@ -740,6 +750,80 @@ async function handle(req, res, cfg) {
     const me = readState().users[user.id];
     return send(res, 200, { projects: availableProjects(), vibeCoder: !!me?.vibeCoder });
   }
+  // Folders: your own groups of agent chats, with shared notes and files.
+  if (parts[1] === "folders") {
+    const mineFolders = () => readState().users[user.id]?.folders || {};
+    const folderChats = () => Object.values(readState().chats).filter(c => c.userId === user.id);
+    const getFolder = fid => { if (!validFolderId(fid) || !mineFolders()[fid]) throw requestError(404, "not_found", "No such folder"); return mineFolders()[fid]; };
+    if (method === "GET" && parts.length === 2) {
+      const chats = folderChats();
+      return send(res, 200, { folders: Object.values(mineFolders()).sort((a, b) => b.updatedAt - a.updatedAt).map(f => folderView(f, chats)) });
+    }
+    if (method === "POST" && parts.length === 2) {
+      const body = await readAuthorizedBody(req);
+      const folder = newFolder(body.name, body.notes ?? "");
+      mutateAuthenticated(req, (state, auth) => {
+        const u = state.users[auth.user.id];
+        u.folders ??= {};
+        if (Object.keys(u.folders).length >= MAX_FOLDERS) throw requestError(409, "limit", `You can have up to ${MAX_FOLDERS} folders`);
+        u.folders[folder.id] = folder;
+      });
+      return send(res, 200, { folder: folderView(folder, []) });
+    }
+    if (parts.length >= 3) {
+      getFolder(parts[2]);
+      if (method === "GET" && parts.length === 3) return send(res, 200, { folder: folderView(mineFolders()[parts[2]], folderChats()) });
+      if (method === "PATCH" && parts.length === 3) {
+        const body = await readAuthorizedBody(req);
+        const updated = mutateAuthenticated(req, (state, auth) => {
+          const f = state.users[auth.user.id]?.folders?.[parts[2]];
+          if (!f) throw requestError(404, "not_found", "No such folder");
+          if (body.name !== undefined) f.name = cleanName(body.name);
+          if (body.notes !== undefined) f.notes = cleanNotes(body.notes);
+          f.updatedAt = now();
+          return { ...f };
+        });
+        return send(res, 200, { folder: folderView(updated, folderChats()) });
+      }
+      if (method === "DELETE" && parts.length === 3) {
+        mutateAuthenticated(req, (state, auth) => {
+          const u = state.users[auth.user.id];
+          if (!u?.folders?.[parts[2]]) throw requestError(404, "not_found", "No such folder");
+          delete u.folders[parts[2]];
+          // The chats stay; they just leave the folder.
+          for (const c of Object.values(state.chats)) if (c.userId === auth.user.id && c.folderId === parts[2]) delete c.folderId;
+        });
+        folderFiles().removeFolder(parts[2]);
+        return send(res, 200, { ok: true });
+      }
+      if (method === "POST" && parts[3] === "files" && parts.length === 4) {
+        const body = await readAuthorizedBody(req, MAX_UPLOAD_BODY);
+        const bytes = typeof body.data === "string" ? Buffer.from(body.data, "base64") : Buffer.alloc(0);
+        const current = mineFolders()[parts[2]];
+        const file = folderFiles().add(current, body.name, bytes);
+        try {
+          mutateAuthenticated(req, (state, auth) => {
+            const f = state.users[auth.user.id]?.folders?.[parts[2]];
+            if (!f) throw requestError(404, "not_found", "No such folder");
+            f.files = [...(f.files || []), file];
+            f.updatedAt = now();
+          });
+        } catch (e) { folderFiles().remove(parts[2], file); throw e; }
+        return send(res, 200, { folder: folderView(mineFolders()[parts[2]], folderChats()) });
+      }
+      if (method === "DELETE" && parts[3] === "files" && parts.length === 5) {
+        const file = (getFolder(parts[2]).files || []).find(f => f.id === parts[4]);
+        if (!file) return fail(res, 404, "not_found", "No such file");
+        mutateAuthenticated(req, (state, auth) => {
+          const f = state.users[auth.user.id]?.folders?.[parts[2]];
+          if (f) { f.files = (f.files || []).filter(x => x.id !== parts[4]); f.updatedAt = now(); }
+        });
+        folderFiles().remove(parts[2], file);
+        return send(res, 200, { folder: folderView(mineFolders()[parts[2]], folderChats()) });
+      }
+    }
+    return fail(res, 404, "not_found", "Not found");
+  }
   // Owners mark people as vibe coders (not programmers).
   if (method === "PATCH" && parts[1] === "people" && parts.length === 3 && parts[2] !== "me") {
     const body = await readAuthorizedBody(req);
@@ -828,6 +912,7 @@ async function handle(req, res, cfg) {
     const vibe = !!readState().users[creator.id]?.vibeCoder || body.mode === "vibe";
     const project = vibe ? VIBE_PROJECT : (typeof body.project === "string" && availableProjects().some(p => p.id === body.project) ? body.project : null);
     if (body.project && !vibe && !project) return fail(res, 400, "bad_project", "That project isn't available on this server");
+    if (body.folderId != null && (!validFolderId(body.folderId) || !readState().users[creator.id]?.folders?.[body.folderId])) return fail(res, 404, "not_found", "No such folder");
     const hermesSessionId = `servant_${creator.id}_${chatId}`;
     const r = await hermes(creationUp, "POST", "/api/sessions", { id: hermesSessionId, title: `Servant · ${creator.name} · ${chatId.slice(-6)}` });
     if (!r.ok) return fail(res, 502, "agent_error", `The agent didn't start a chat (${r.status})`);
@@ -838,6 +923,7 @@ async function handle(req, res, cfg) {
       hermesSessionId,
       title: String(body.title || "New chat").slice(0, 80),
       shared: body.shared !== false,
+      ...(body.folderId ? { folderId: body.folderId } : {}),
       ...(project ? { project } : {}),
       ...(vibe ? { mode: "vibe", vibeFolder: vibeFolder(chatId) } : {}),
       createdAt: now(),
@@ -884,12 +970,20 @@ async function handle(req, res, cfg) {
 
   if (method === "PATCH" && parts.length === 3) {
     const body = await readAuthorizedBody(req);
-    if (typeof body.shared !== "boolean") return fail(res, 400, "bad_request", "shared must be true or false");
+    const hasFolder = Object.hasOwn(body, "folderId");
+    if (typeof body.shared !== "boolean" && !hasFolder) return fail(res, 400, "bad_request", "shared must be true or false");
+    if (typeof body.shared !== "boolean" && body.shared !== undefined) return fail(res, 400, "bad_request", "shared must be true or false");
+    if (hasFolder && body.folderId !== null && !validFolderId(body.folderId)) return fail(res, 400, "bad_request", "folderId must be a folder or null");
     if (body.shared && chat.privateForward) return fail(res, 409, "forward_private", "This chat includes a message from a private conversation, so it stays private");
     let updated;
     mutateAuthenticated(req, (state, current) => {
       updated = requireChat(state, current.user.id, chat.id);
-      updated.shared = body.shared;
+      if (typeof body.shared === "boolean") updated.shared = body.shared;
+      if (hasFolder) {
+        if (body.folderId === null) delete updated.folderId;
+        else if (state.users[current.user.id]?.folders?.[body.folderId]) updated.folderId = body.folderId;
+        else throw requestError(404, "not_found", "No such folder");
+      }
     });
     return send(res, 200, { chat: chatView(updated, user) });
   }
@@ -1183,7 +1277,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
       chatMediaStore().accept(turn.chat_id, "user", queued.text, [], steerId);
       hooks.steered?.(steerId);
     };
-    result = await runDurableHermes({ up, sessionId: turn.session_id, input, sessionKey: sessionKey(user, turn.chat_id), instructions: withCloseInstructions(chatInstructions(chat)), runId: turn.run_id,
+    result = await runDurableHermes({ up, sessionId: turn.session_id, input, sessionKey: sessionKey(user, turn.chat_id), instructions: withCloseInstructions(chatContext(chat)), runId: turn.run_id,
       onAccepted, onEvent, checkpoint: hooks.checkpoint, controls: hooks.controls, steered, canSteer });
     if (result.usage) recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", usage: result.usage });
     // Run output is resolved by the bridge, while history contains its original
@@ -1197,7 +1291,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
     }
   } else {
     const answer = await streamTurn(up, turn.session_id, input, sessionKey(user, turn.chat_id), onEvent, () => false, onAccepted,
-      usage => recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", usage }), chatInstructions(chat));
+      usage => recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", usage }), chatContext(chat));
     if (!assistantMessage && answer) saveAssistant(answer);
     result = { status: "completed" };
   }

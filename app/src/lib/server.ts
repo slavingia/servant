@@ -24,7 +24,8 @@ export type Account = {
 export type ChatLastMessage = { role: "user" | "assistant"; text: string; at: number; attachments: number; pending?: boolean };
 export type Project = { id: string; name: string; description?: string };
 // mode "vibe": a vibe-coding chat that builds a prototype with a preview link.
-export type Chat = { project?: { id: string; name: string }; mode?: "vibe"; previewUrl?: string; files?: boolean; id: string; title: string; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; closed?: ChatClosed; latestTurn?: AgentTurn | null };
+export type Folder = { id: string; name: string; notes: string; files: { id: string; name: string; size: number }[]; chatCount: number; createdAt: number; updatedAt: number };
+export type Chat = { folderId?: string; project?: { id: string; name: string }; mode?: "vibe"; previewUrl?: string; files?: boolean; id: string; title: string; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; closed?: ChatClosed; latestTurn?: AgentTurn | null };
 // Agent chats close like issues: by you, by the agent when it's done, or by
 // the closer after a quiet day. A new message reopens it.
 export type ChatClosed = { by: "you" | "agent" | "closer"; reason: string | null; at: number };
@@ -343,7 +344,16 @@ export const api = {
   setChatShared: (a: Account, id: string, shared: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ shared }) }).then((r) => r.json()).then((d) => d.chat as Chat),
   projects: (a: Account) => request(a, "/v1/projects").then(json<{ projects: Project[]; vibeCoder: boolean }>),
   setVibeCoder: (a: Account, userId: string, vibeCoder: boolean) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ vibeCoder }) }).then(json<{ person: Person }>),
-  newChat: (a: Account, options: { shared?: boolean; project?: string | null; mode?: "vibe" } = {}) => request(a, "/v1/chats", { method: "POST", body: JSON.stringify(options) }).then((r) => r.json()).then((d) => d.chat as Chat),
+  // Folders: your own groups of agent chats, with notes and files every chat in them sees.
+  folders: (a: Account) => request(a, "/v1/folders").then(json<{ folders: Folder[] }>).then(d => d.folders),
+  folder: (a: Account, id: string) => request(a, `/v1/folders/${encodeURIComponent(id)}`).then(json<{ folder: Folder }>).then(d => d.folder),
+  createFolder: (a: Account, name: string, notes = "") => request(a, "/v1/folders", { method: "POST", body: JSON.stringify({ name, notes }) }).then(json<{ folder: Folder }>).then(d => d.folder),
+  updateFolder: (a: Account, id: string, change: { name?: string; notes?: string }) => request(a, `/v1/folders/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(change) }).then(json<{ folder: Folder }>).then(d => d.folder),
+  deleteFolder: (a: Account, id: string) => request(a, `/v1/folders/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  addFolderFile: (a: Account, id: string, name: string, data: string) => request(a, `/v1/folders/${encodeURIComponent(id)}/files`, { method: "POST", body: JSON.stringify({ name, data }) }).then(json<{ folder: Folder }>).then(d => d.folder),
+  removeFolderFile: (a: Account, id: string, fileId: string) => request(a, `/v1/folders/${encodeURIComponent(id)}/files/${encodeURIComponent(fileId)}`, { method: "DELETE" }).then(json<{ folder: Folder }>).then(d => d.folder),
+  moveChat: (a: Account, id: string, folderId: string | null) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ folderId }) }).then((r) => r.json()).then((d) => d.chat as Chat),
+  newChat: (a: Account, options: { shared?: boolean; project?: string | null; mode?: "vibe"; folderId?: string } = {}) => request(a, "/v1/chats", { method: "POST", body: JSON.stringify(options) }).then((r) => r.json()).then((d) => d.chat as Chat),
   deleteChat: (a: Account, id: string) => request(a, `/v1/chats/${id}`, { method: "DELETE" }),
   archiveChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/archive`, { method: "POST", body: "{}" }),
   restoreChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/restore`, { method: "POST", body: "{}" }),
