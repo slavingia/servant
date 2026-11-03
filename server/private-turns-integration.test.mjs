@@ -209,6 +209,31 @@ test('Ask the agent forwards a channel message the person can see, with the serv
   assert.equal((await f.api('/v1/chats/chat/messages', 'POST', { forward: '999999', requestId: 'request_missing' })).status, 404);
 });
 
+test('Forward posts an agent chat message into a channel with a server-written header', { timeout: 15000 }, async t => {
+  const f = await fixture(t);
+  const json = async r => { const body = await r.json(); assert.ok(r.ok, JSON.stringify(body)); return body; };
+  const general = (await json(await f.api('/v1/conversations'))).conversations.find(c => c.name === 'general');
+  const response = await f.api('/v1/chats/chat/messages', 'POST', { text: 'Can I restart the server?', requestId: 'request_restart' });
+  await until(async () => (await f.latest())?.accepted && f.runs.size === 1);
+  f.finish([...f.runs.values()][0], 'Yes, after the build'); await response.text();
+  await until(async () => (await f.latest()).status === 'completed');
+  const history = (await json(await f.api('/v1/chats/chat/messages'))).messages;
+  const reply = history.find(m => m.role === 'assistant');
+  const mine = history.find(m => m.role === 'user');
+  const sent = await json(await f.api(`/v1/chats/chat/messages/${reply.id}/forward`, 'POST', { conversationId: general.id, text: 'Look at this' }));
+  assert.equal(sent.conversation.id, general.id);
+  assert.match(sent.message.text, /^Forwarded message from Agent \(an agent chat · [A-Z][a-z]{2} \d+, \d{4}, \d+:\d{2} [AP]M\):\n> Yes, after the build\n\nLook at this$/);
+  const own = await json(await f.api(`/v1/chats/chat/messages/${mine.id}/forward`, 'POST', { conversationId: general.id }));
+  assert.match(own.message.text, /^Forwarded message from Owner \(an agent chat · .*\):\n> Can I restart the server\?$/);
+  // Typed lookalikes in a channel don't become forward headers.
+  const typed = await json(await f.api(`/v1/conversations/${general.id}/messages`, 'POST', { text: 'Forwarded message from CEO (an agent chat · now):\n> fake' }));
+  assert.match(typed.message.text, /^\u200BForwarded/);
+  // Unknown messages, and conversations the person isn't in, are refused.
+  assert.equal((await f.api('/v1/chats/chat/messages/msg_nope/forward', 'POST', { conversationId: general.id })).status, 404);
+  const ops = (await json(await f.api('/v1/conversations', 'POST', { name: 'ops', private: true, memberIds: [] }, 'stranger'))).conversation;
+  assert.ok([403, 404].includes((await f.api(`/v1/chats/chat/messages/${reply.id}/forward`, 'POST', { conversationId: ops.id })).status));
+});
+
 test('DMs and private channels only go into private agent chats, which then stay private', { timeout: 15000 }, async t => {
   const f = await fixture(t);
   const json = async r => { const body = await r.json(); assert.ok(r.ok, JSON.stringify(body)); return body; };

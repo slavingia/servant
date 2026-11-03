@@ -146,6 +146,15 @@ export function createChatMediaStore(file) {
     accept, identify, identifyInput, beginSync, sync, media,
     history: chatId => db.prepare("SELECT * FROM chat_messages WHERE chat_id=? ORDER BY at,seq").all(chatId).map(view),
     last: chatId => { const row = db.prepare("SELECT * FROM chat_messages WHERE chat_id=? ORDER BY at DESC,seq DESC LIMIT 1").get(chatId); return row ? view(row) : null; },
+    // One message with its files, for forwarding into a channel or DM. Documents
+    // live on disk with the chat, so they come back without data and are named instead.
+    forwardable: (chatId, id) => {
+      const row = db.prepare("SELECT * FROM chat_messages WHERE chat_id=? AND id=?").get(chatId, String(id || ""));
+      if (!row) return null;
+      const files = db.prepare("SELECT name,mime,data,file FROM chat_attachments WHERE message_id=? ORDER BY rowid").all(row.id)
+        .map(f => f.file ? { name: f.name, mime: "application/octet-stream", data: Buffer.alloc(0) } : { name: f.name, mime: f.mime, data: Buffer.from(f.data) });
+      return { role: row.role, text: row.text, at: row.at, files };
+    },
     attachment: id => db.prepare("SELECT a.*,m.chat_id FROM chat_attachments a JOIN chat_messages m ON m.id=a.message_id WHERE a.id=?").get(id),
     deleteChat: chatId => db.prepare("DELETE FROM chat_messages WHERE chat_id=?").run(chatId),
     close: () => db.close(),

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, FlatList, Platform, Pressable, StyleSheet, Switch, Text, useWindowDimensions, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ActivityIndicator, AppState, FlatList, Modal, Platform, Pressable, StyleSheet, Switch, Text, useWindowDimensions, View } from "react-native";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { randomUUID } from "expo-crypto";
@@ -21,6 +21,8 @@ import { useSession } from "../../lib/session";
 import { useLive } from "../../lib/live";
 import { forwardTitle, parseForward, type ForwardCard } from "../../lib/forward";
 import { AppIcon } from "../../components/AppIcon";
+import { ForwardSheet, type ForwardTarget } from "../../components/ForwardSheet";
+import * as Clipboard from "expo-clipboard";
 import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 import { useWideLayout } from "../../lib/layout";
 
@@ -45,6 +47,7 @@ function SharedChatView() {
   const [chat, setChat] = useState<Chat | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showTitle, setShowTitle] = useState(false);
+  const [forwarding, setForwarding] = useState<ForwardTarget | null>(null);
   const load = useCallback(async () => {
     if (!account || !id) return;
     try {
@@ -84,7 +87,7 @@ function SharedChatView() {
           renderItem={({ item }) => {
             const theirs = item.role === "user";
             const timestamp = typeof item.at === "number" ? item.at : item.at ? new Date(item.at).getTime() : NaN;
-            return <View accessibilityLabel={theirs ? `${authorName}'s message` : "Agent response"} style={styles.message}>
+            return <MessageActions item={item} author={theirs ? authorName : "Agent"} canForward={chat?.shared !== false} onForward={setForwarding} chatId={String(id)} style={styles.message} label={theirs ? `${authorName}'s message` : "Agent response"}>
               <Avatar name={theirs ? authorName : "Agent"} agent={!theirs} userId={theirs ? chat?.author?.id : undefined} size={34} tapToMessage />
               <View style={styles.messageCopy}>
                 <View style={styles.messageMeta}>
@@ -95,9 +98,10 @@ function SharedChatView() {
                 {theirs ? <ForwardedText item={item} /> : item.text ? <ReplyText text={item.text} /> : null}
                 {item.attachments?.length ? <Attachments files={item.attachments} /> : null}
               </View>
-            </View>;
+            </MessageActions>;
           }} />
       )}
+      {forwarding ? <ForwardSheet target={forwarding} onClose={() => setForwarding(null)} /> : null}
     </View>
     </MediaGalleryProvider>
   );
@@ -245,6 +249,7 @@ function ChatConversation() {
   const [heading, setHeading] = useState(title && title !== "New chat" ? title : "New chat");
   // The full agent takes any file, so a ZIP of a prototype can be hosted.
   const [showTitle, setShowTitle] = useState(false);
+  const [forwarding, setForwarding] = useState<ForwardTarget | null>(null);
   // Links, pushes and the sidebar may open a chat without its title: read it from the server.
   useEffect(() => {
     if (!account || !id) return;
@@ -630,7 +635,8 @@ function ChatConversation() {
               const queued = item.queuedTurn;
               const timestamp = typeof item.at === "number" ? item.at : item.at ? new Date(item.at).getTime() : NaN;
               const deviceLabel = messageDeviceLabel(account.user.role, item);
-              return <View accessibilityLabel={mine ? `Your message${queued ? ", waiting" : item.pending ? ", not yet received" : deviceLabel ? `, sent from ${deviceLabel}` : ""}` : "Agent response"} style={[styles.message, item.failed && styles.failed, item.pending && mine && styles.unconfirmed, queued && styles.queuedMessage]}>
+              return <MessageActions item={item} author={mine ? account.user.name : "Agent"} canForward={!queued && !item.pending && !item.failed} onForward={setForwarding} chatId={String(id)}
+                label={mine ? `Your message${queued ? ", waiting" : item.pending ? ", not yet received" : deviceLabel ? `, sent from ${deviceLabel}` : ""}` : "Agent response"} style={[styles.message, item.failed && styles.failed, item.pending && mine && styles.unconfirmed, queued && styles.queuedMessage]}>
                 <Avatar name={mine ? account.user.name : "Agent"} agent={!mine} userId={mine ? account.user.id : undefined} size={34} />
                 <View style={styles.messageCopy}>
                   <View style={styles.messageMeta}>
@@ -661,10 +667,11 @@ function ChatConversation() {
                   {item.interrupted ? <Text style={styles.typing}>Cut off before it finished</Text> : null}
                   {item.waitingForAgent ? <Text accessibilityLiveRegion="polite" style={styles.typing}>Sends when the agent is free</Text> : null}
                 </View>
-              </View>;
+              </MessageActions>;
             }}
           />
         )}
+        {forwarding ? <ForwardSheet target={forwarding} onClose={() => setForwarding(null)} /> : null}
         {sendError ? <Text accessibilityRole="alert" style={styles.sendError}>{sendError}</Text> : null}
         {turn?.approval && turn.status === 'waiting_for_approval' && account.user.role === 'owner'
           ? <AgentApprovalCard approval={turn.approval} busy={actionBusy} error={actionError} onAnswer={choice => { void answer(choice); }} /> : null}
@@ -683,6 +690,41 @@ function ChatConversation() {
     </View>
     </MediaGalleryProvider>
   );
+}
+
+// Touch and hold a message (or ••• on the web) to copy it or forward it to a channel or DM.
+function MessageActions({ item, author, chatId, canForward, onForward, label, style, children }: { item: Row; author: string; chatId: string; canForward: boolean; onForward: (t: ForwardTarget) => void; label: string; style: object; children: ReactNode }) {
+  const styles = useStyles();
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+  const text = (item.role === "user" ? parseForward(item.text)?.rest ?? item.text : item.text) || "";
+  const forwardable = canForward && /^msg_/.test(item.id) && (!!item.text || !!item.attachments?.length);
+  const available = forwardable || !!text;
+  const show = () => { if (available) { setCopied(null); setOpen(true); } };
+  const forward = () => { setOpen(false); onForward({ chatId, messageId: item.id, author, text: text.replace(/\n?PREVIEW:\s*https:\/\/\S+\s*$/, ""), files: item.attachments?.length ?? 0 }); };
+  const copy = async () => {
+    try { setCopied(await Clipboard.setStringAsync(text) ? "Copied" : "Couldn't copy"); } catch { setCopied("Couldn't copy"); }
+  };
+  return <>
+    <Pressable onLongPress={show} delayLongPress={400} accessible={false} style={style}>
+      <View accessible accessibilityLabel={label} accessibilityHint={available ? "Touch and hold to copy or forward" : undefined}
+        accessibilityActions={available ? [{ name: "activate", label: "Copy or forward" }] : undefined} onAccessibilityAction={show} style={styles.actionsRow}>
+        {children}
+      </View>
+      {available && Platform.OS === "web" ? <Pressable testID={`message-actions-${item.id}`} accessibilityRole="button" accessibilityLabel={`Actions for ${author}'s message`} onPress={show} style={styles.more}><Text style={styles.moreText}>•••</Text></Pressable> : null}
+    </Pressable>
+    {open ? <Modal transparent animationType="fade" visible onRequestClose={() => setOpen(false)}>
+      <View style={styles.menuOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel="Dismiss message actions" onPress={() => setOpen(false)} />
+        <View accessibilityViewIsModal style={styles.menuCard}>
+          <Text style={styles.menuAuthor}>{author}</Text>
+          {forwardable ? <Pressable testID="message-forward" accessibilityRole="button" onPress={forward} style={styles.menuAction}><Text style={styles.menuActionText}>Forward</Text></Pressable> : null}
+          {text ? <Pressable testID="message-copy" accessibilityRole="button" onPress={() => { void copy(); }} style={styles.menuAction}><Text style={styles.menuActionText}>Copy</Text></Pressable> : null}
+          {copied ? <Text accessibilityRole="alert" style={styles.menuStatus}>{copied}</Text> : null}
+        </View>
+      </View>
+    </Modal> : null}
+  </>;
 }
 
 // Your message, with a forwarded channel/DM message shown as a card.
@@ -708,6 +750,15 @@ function ForwardBlock({ card, files = 0, lines }: { card: ForwardCard; files?: n
 
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
+  actionsRow: { flex: 1, flexDirection: "row", gap: 10 },
+  more: { position: "absolute", right: space.xs, top: 0, minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center", borderRadius: radius.sm },
+  moreText: { ...typography.label, color: colors.muted },
+  menuOverlay: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: space.side, backgroundColor: "rgba(0,0,0,0.35)" },
+  menuCard: { width: "100%", maxWidth: 420, backgroundColor: colors.background, borderRadius: radius.lg, padding: space.side },
+  menuAuthor: { ...typography.bodyStrong, color: colors.ink, marginBottom: space.xs },
+  menuAction: { minHeight: 48, paddingVertical: space.sm, justifyContent: "center", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
+  menuActionText: { ...typography.body, color: colors.blue },
+  menuStatus: { ...typography.caption, color: colors.muted, marginTop: space.xs },
   forward: { borderLeftWidth: 3, borderLeftColor: colors.blue, paddingLeft: space.sm, paddingVertical: 2, marginTop: 2, marginBottom: space.xxs, gap: 2 },
   forwardLabel: { ...typography.captionStrong, color: colors.ink },
   forwardWhere: { ...typography.meta, fontWeight: "400", color: colors.muted },

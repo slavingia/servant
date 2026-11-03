@@ -796,6 +796,17 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     };
   }
 
+  // Forward from an agent chat: the server wrote the header, so post it as-is
+  // into a channel or DM the person belongs to.
+  function forwardInto(conversationId, user, text, attachments = [], device) {
+    const conv = requireConversation(String(conversationId || ""), user.id, true);
+    const rule = workHours();
+    if (postingClosed(rule)) throw httpError(403, "work_hours", workHoursMessage(rule));
+    const m = post(conv, user.id, String(text).slice(0, MAX_TEXT), null, { attachments, device });
+    if (!externalWorker && wantsAgent(conv, m)) agentReply(conv, m).catch((e) => console.error("[servant] agent reply", e));
+    return { conversation: convView(st.conv.get(conv.id), user.id), message: msgView(m, true, user.id) };
+  }
+
   function requireConversation(conversationId, userId, membership = false) {
     const current = st.conv.get(conversationId);
     if (!canSee(current, userId)) throw httpError(404, 'not_found', "That conversation doesn't exist or you can't see it");
@@ -1299,7 +1310,9 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
         const body = await readBody(req, MAX_UPLOAD_BODY);
         const rule = workHours();
         if (postingClosed(rule)) return fail(res, 403, "work_hours", workHoursMessage(rule)), true;
-        const text = String(body.text || "").trim();
+        let text = String(body.text || "").trim();
+        // Only the server writes forward headers; typed lookalikes don't render as one.
+        if (/^Forwarded message from /.test(text)) text = `\u200B${text}`;
         const attachments = validateUploads(body.attachments);
         if (!text && !attachments.length) return fail(res, 400, "empty", "Type a message first"), true;
         if (text.length > MAX_TEXT) return fail(res, 413, "too_long", "That message is too long"), true;
@@ -1407,7 +1420,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     },
   };
 
-  return { ...meetingHooks, handle, forwardSource, notificationFor, joinDefaults, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, close: () => { closeEvents(); db.close(); }, db };
+  return { ...meetingHooks, handle, forwardSource, forwardInto, notificationFor, joinDefaults, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, close: () => { closeEvents(); db.close(); }, db };
 }
 
 function httpError(status, code, message) {

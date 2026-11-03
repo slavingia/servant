@@ -417,6 +417,21 @@ const sessionKey = (user, chatId) => `servant:${user.id}:${chatId}`;
 // Chats from before sharing existed (no "shared" field) were started when the
 // app called them private, so they stay private; new chats store shared: true.
 const chatShared = chat => chat.shared === true;
+// "Forward" on an agent chat message: post it, with a server-written header,
+// into a channel or DM the person is in. Agent chat documents stay on disk
+// with the chat and are named instead of copied.
+async function forwardChatMessage(req, res, { chat, author, user, device, messageId, cfg, readAuthorizedBody }) {
+  const body = await readAuthorizedBody(req);
+  if (!messaging) return fail(res, 404, "not_found", "Messages aren't set up on this server");
+  const source = chatMediaStore().forwardable(chat.id, messageId);
+  if (!source || !source.text && !source.files.length) return fail(res, 404, "not_found", "That message is unavailable");
+  const { text, attachments } = composeForward({ text: String(body.text || "").trim(), attachments: [] }, {
+    author: source.role === "assistant" ? cfg.agentName || "Agent" : author?.name || "Former member",
+    where: "an agent chat", at: source.at, text: source.text, files: source.files,
+  }, { skippedNote: name => `> [Attachment: ${name}]` });
+  return send(res, 201, messaging.forwardInto(body.conversationId, user, text, attachments, device));
+}
+
 function canReadChat(chat, viewer) {
   return !!chat && !chat.deletedAt && !!viewer && (chat.userId === viewer.id || viewer.role === "owner" || chatShared(chat));
 }
@@ -821,6 +836,10 @@ async function handle(req, res, cfg) {
   const visible = currentState.chats[parts[2]];
   if (visible && visible.userId !== user.id && canReadChat(visible, viewer)) {
     // Someone else's shared chat (or any chat, for the owner): read only.
+    // A shared chat's messages can be forwarded to a channel or DM for feedback.
+    if (method === "POST" && parts[3] === "messages" && parts[5] === "forward" && parts.length === 6 && chatShared(visible)) {
+      return forwardChatMessage(req, res, { chat: visible, author: currentState.users[visible.userId], user: viewer, device, messageId: parts[4], cfg, readAuthorizedBody });
+    }
     if (method !== "GET" || !["messages", "media", undefined].includes(parts[3]) || parts.length > 4) {
       return fail(res, 403, "read_only", "Only the person who started this chat can do that");
     }
@@ -972,6 +991,10 @@ async function handle(req, res, cfg) {
   if (method === "POST" && parts[3] === "uploads" && parts.length === 5) {
     const body = await readAuthorizedBody(req, DOCUMENT_CHUNK_BODY);
     return send(res, 200, documents().append({ chatId: chat.id, userId: user.id, id: parts[4], offset: body.offset, data: body.data }));
+  }
+
+  if (method === "POST" && parts[3] === "messages" && parts[5] === "forward" && parts.length === 6) {
+    return forwardChatMessage(req, res, { chat, author: user, user, device, messageId: parts[4], cfg, readAuthorizedBody });
   }
 
   if (method === "POST" && parts[3] === "messages" && parts.length === 4) {

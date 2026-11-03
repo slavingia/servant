@@ -19,6 +19,7 @@ import { validateAttachmentSelection } from "../lib/media";
 import { Attachments, DraftAttachments, pickAttachments, pickDocuments, type DraftAttachment } from "./Attachments";
 import { AppIcon } from "./AppIcon";
 import { MessageText } from "./MessageText";
+import { parseForward } from "../lib/forward";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
 export const when = (ms: number) => shortTime(ms);
@@ -100,6 +101,21 @@ export function MessageDate({ at }: { at: number }) {
 }
 
 // Splits text so @mentions stand out.
+// A message forwarded from an agent chat shows as a quote card, then the note.
+function ForwardedPost({ text, edited }: { text: string; edited: boolean }) {
+  const styles = useStyles();
+  const parsed = parseForward(text);
+  if (!parsed) return <Rich text={text + (edited ? " " : "")} style={styles.body} />;
+  const where = [parsed.forward.where, parsed.forward.when].filter(Boolean).join(" · ");
+  return <>
+    <View accessible accessibilityLabel={`Forwarded message from ${parsed.forward.author}, ${where}. ${parsed.forward.quote || "No text"}`} style={styles.forwardCard}>
+      <Text style={styles.forwardLabel}>Forwarded from {parsed.forward.author}<Text style={styles.forwardWhere}> · {where}</Text></Text>
+      {parsed.forward.quote ? <Text selectable={Platform.OS === "web"} style={styles.body}>{parsed.forward.quote}</Text> : null}
+    </View>
+    {parsed.rest ? <Rich text={parsed.rest + (edited ? " " : "")} style={styles.body} /> : null}
+  </>;
+}
+
 function Rich({ text, style }: { text: string; style: object }) {
   const styles = useStyles();
   const parts = text.split(/(@[\p{L}\p{M}\p{N}_’'.-]+)/gu);
@@ -211,7 +227,7 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
         ) : working || (post.pending && !post.text && !post.attachments?.length) ? (
           <Text style={styles.deleted}>Working…</Text>
         ) : post.text ? (
-          post.user.agent ? <MessageText text={post.text} /> : <Rich text={post.text + (post.editedAt ? " " : "")} style={styles.body} />
+          post.user.agent ? <MessageText text={post.text} /> : <ForwardedPost text={post.text} edited={!!post.editedAt} />
         ) : null}
         {post.editedAt && !post.deleted ? <Text style={styles.edited}>Edited</Text> : null}
         {post.meeting && post.user.agent && !post.deleted ? <MeetingCard meeting={post.meeting} /> : null}
@@ -563,6 +579,9 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   moreText: { ...typography.label, color: colors.muted },
   menuOverlay: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: space.side, backgroundColor: "rgba(0,0,0,0.35)" },
   menuCard: { width: "100%", maxWidth: 420, maxHeight: "100%", backgroundColor: colors.background, borderRadius: radius.lg, padding: space.side },
+  forwardCard: { borderLeftWidth: 3, borderLeftColor: colors.blue, paddingLeft: space.sm, paddingVertical: 2, marginTop: 2, marginBottom: space.xxs, gap: 2 },
+  forwardLabel: { ...typography.captionStrong, color: colors.ink },
+  forwardWhere: { ...typography.meta, fontWeight: "400", color: colors.muted },
   copyStatus: { ...typography.caption, color: colors.muted, marginVertical: space.xs },
   menuAuthor: { ...typography.bodyStrong, color: colors.ink, marginBottom: space.xs },
   menuPreview: { ...typography.body, color: colors.muted, marginTop: space.xs, marginBottom: space.md },

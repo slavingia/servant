@@ -16,7 +16,7 @@ export function forwardHeader({ author, where, at }, timeZone) {
 // Combines the person's own message with the forwarded one. Their own files
 // come first; forwarded photos and videos follow while they fit the agent's
 // limits. Anything left out is named in the quote so the agent knows.
-export function composeForward({ text, attachments }, source, { timeZone } = {}) {
+export function composeForward({ text, attachments }, source, { timeZone, skippedNote = name => `> [Attachment not sent to the agent: ${name}]` } = {}) {
   const files = [...attachments];
   const skipped = [];
   let total = files.reduce((sum, a) => sum + a.data.length, 0);
@@ -28,7 +28,7 @@ export function composeForward({ text, attachments }, source, { timeZone } = {})
   }
   const lines = String(source.text || "").split("\n").map(line => `> ${line}`);
   if (!source.text) lines.length = 0;
-  for (const name of skipped) lines.push(`> [Attachment not sent to the agent: ${name}]`);
+  for (const name of skipped) lines.push(skippedNote(name));
   if (!lines.length) lines.push("> [No text]");
   const quote = `${forwardHeader(source, timeZone)}\n${lines.join("\n")}`;
   return { text: text ? `${quote}\n\n${text}` : quote, attachments: files };
