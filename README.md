@@ -72,7 +72,7 @@ The attachment picker and sharing modules require a new native app build for exi
 
 ## Work hours
 
-An instance can close posting during the workday so work conversations stay in Microsoft Teams. While it's closed, sending a message in a channel, direct message, thread or agent chat is refused with "Posting is off from 8:30 am to 4:30 pm on weekdays. Use Microsoft Teams during work hours", and the draft stays in the composer. Reading, search and reactions still work, and agent replies already in progress finish.
+An instance can remind people that official business belongs in Microsoft Teams. During the configured hours every text box (channels, direct messages, threads and agent chats) shows "Work hours (8:30 am to 4:30 pm on weekdays): use Microsoft Teams for official business." above it, before anyone types. Posting stays open. The app reads the reminder from `GET /v1/work-hours`.
 
 Set it in the server's `config.json` (read on every request, so no restart is needed):
 
@@ -80,7 +80,7 @@ Set it in the server's `config.json` (read on every request, so no restart is ne
 "workHours": { "start": "08:30", "end": "16:30", "timeZone": "America/New_York", "days": [1, 2, 3, 4, 5] }
 ```
 
-`days` uses 0 for Sunday. Leave `workHours` out, or set `"enabled": false`, to keep posting open all day.
+`days` uses 0 for Sunday. Leave `workHours` out, or set `"enabled": false`, to turn the reminder off.
 
 ## Roles
 

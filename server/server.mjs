@@ -13,7 +13,7 @@
 //   node server/server.mjs release <build> <notes.md>   post a build's notes to #whats-new
 
 import http from "node:http";
-import { workHoursConfig, postingClosed, workHoursMessage } from "./work-hours.mjs";
+import { workHoursConfig, workHoursNotice } from "./work-hours.mjs";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -124,7 +124,7 @@ export function loadConfig() {
     // "full" (default): everyone's agent has full Hermes access. "limited":
     // non-owners use the restricted member bridge (docs/member-security.md).
     agentAccess: cfg.agentAccess === "limited" ? "limited" : "full",
-    // Optional "workHours": posting is off during the workday (use Teams).
+    // Optional "workHours": a reminder to use Teams for official business.
     workHours: workHoursConfig(cfg.workHours),
     // Where the server can be reached from phones. Filled in by the tunnel script.
     publicUrl: process.env.SERVANT_PUBLIC_URL || cfg.publicUrl || "",
@@ -634,6 +634,11 @@ async function handle(req, res, cfg) {
     return fail(res, 404, "not_found", "Not found");
   }
 
+  // The reminder the app shows above every text box during work hours.
+  if (method === "GET" && url.pathname === "/v1/work-hours") {
+    return send(res, 200, { notice: workHoursNotice(cfg.workHours) });
+  }
+
   if (method === "GET" && url.pathname === "/v1/me") {
     mutateAuthenticated(req, (_state, current) => { current.device.lastSeenAt = now(); });
     return send(res, 200, { user: { id: user.id, name: user.name, role: user.role }, device: { id: device.id, label: device.label }, server: { name: cfg.name }, hub: { name: cfg.name } });
@@ -985,7 +990,6 @@ async function handle(req, res, cfg) {
   // Documents and design files upload in chunks first; the message then names them.
   if (method === "POST" && parts[3] === "uploads" && parts.length === 4) {
     const body = await readAuthorizedBody(req);
-    if (postingClosed(cfg.workHours)) return fail(res, 403, "work_hours", workHoursMessage(cfg.workHours));
     return send(res, 201, documents().create({ chatId: chat.id, userId: user.id, name: body.name, size: body.size }));
   }
   if (method === "POST" && parts[3] === "uploads" && parts.length === 5) {
@@ -999,7 +1003,6 @@ async function handle(req, res, cfg) {
 
   if (method === "POST" && parts[3] === "messages" && parts.length === 4) {
     const body = await readAuthorizedBody(req, MAX_UPLOAD_BODY);
-    if (postingClosed(cfg.workHours)) return fail(res, 403, "work_hours", workHoursMessage(cfg.workHours));
     let text = String(body.text || "").trim();
     const inline = Array.isArray(body.attachments) ? body.attachments.filter(a => !a?.upload) : body.attachments;
     const uploaded = Array.isArray(body.attachments) ? body.attachments.filter(a => a?.upload) : [];

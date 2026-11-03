@@ -12,6 +12,7 @@ import { activeMention, insertMention, mentionMatches, mentionText } from "../li
 import type { MessageReceipt } from "../lib/message-status";
 import { messageDeviceLabel } from "../lib/message-device";
 import { useSession } from "../lib/session";
+import { useWorkHoursNotice } from "../lib/work-hours";
 import { usePhotos } from "../lib/photos";
 import { useWideLayout } from "../lib/layout";
 import { shortTime } from "../lib/time-label";
@@ -391,6 +392,7 @@ export function Composer({
     setInsertedSelection(caret);
     input.current?.focus();
   };
+  const workHours = useWorkHoursNotice();
   const dictation = useDictation((spoken) => {
     const { text: current, selection: at } = latest.current;
     const next = insertDictation(current, Math.min(at.end, current.length), spoken);
@@ -442,6 +444,10 @@ export function Composer({
   return (
     <View style={[styles.composerWrap, wide && styles.composerWrapWide, { paddingBottom: wide ? space.md : keyboard ? space.xs : Math.max(insets.bottom, space.xs) }]}>
       {fileError || dictation.error ? <Text accessibilityRole="alert" style={styles.composerError}>{fileError || dictation.error}</Text> : null}
+      {workHours && !onCancel ? <View style={styles.workHours}>
+        <AppIcon name="clock" size={14} color={colors.muted} />
+        <Text style={styles.workHoursText}>{workHours}</Text>
+      </View> : null}
       {match ? (
         <ScrollView keyboardShouldPersistTaps="always" style={styles.suggestions} accessibilityLabel="Mention suggestions">
           {suggestions.length ? suggestions.map(person => (
@@ -609,6 +615,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   replies: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", marginTop: space.xxs, minHeight: 44 },
   repliesText: { ...typography.captionStrong, color: colors.blue },
   composerWrap: { backgroundColor: colors.background, paddingHorizontal: space.sm, paddingTop: space.xs },
+  workHours: { flexDirection: "row", alignItems: "flex-start", gap: space.xs, paddingHorizontal: space.xs, paddingBottom: space.xs },
+  workHoursText: { ...typography.caption, color: colors.muted, flex: 1 },
   composerError: { ...typography.caption, color: colors.red, paddingHorizontal: space.xs, paddingBottom: space.xs },
   attachmentMenu: { flexDirection: "row", gap: space.xs, marginHorizontal: space.xs, paddingVertical: space.xxs, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   attachmentChoice: { flexDirection: "row", alignItems: "center", gap: space.xs, minHeight: 44, paddingHorizontal: space.sm, borderRadius: radius.sm, backgroundColor: colors.surface },

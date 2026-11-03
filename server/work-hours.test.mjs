@@ -32,11 +32,11 @@ test("off unless configured, and bad settings fail loudly", () => {
   assert.throws(() => workHoursConfig({ timeZone: "Mars/Olympus" }));
 });
 
-test("the message points people to Teams", () => {
-  assert.equal(workHoursMessage(rule), "Posting is off from 8:30 am to 4:30 pm on weekdays. Use Microsoft Teams during work hours");
+test("the message recommends Teams for official business", () => {
+  assert.equal(workHoursMessage(rule), "Work hours (8:30 am to 4:30 pm on weekdays): use Microsoft Teams for official business.");
 });
 
-test("channel and thread posts are refused while closed, and allowed after hours", async (t) => {
+test("channel posts go through during work hours too", async (t) => {
   let closed = true;
   const people = { owner: { id: "owner", name: "Owner", role: "owner" } };
   const always = workHoursConfig({ start: "00:00", end: "24:00", days: [0, 1, 2, 3, 4, 5, 6] });
@@ -53,11 +53,7 @@ test("channel and thread posts are refused while closed, and allowed after hours
     });
     return out;
   };
-  const refused = await post("during work");
-  assert.equal(refused.status, 403);
-  assert.equal(refused.code, "work_hours");
-  assert.match(refused.message, /Microsoft Teams/);
-  assert.equal(messaging.db.prepare("SELECT COUNT(*) AS n FROM messages WHERE text = ?").get("during work").n, 0, "nothing is stored");
+  assert.equal((await post("during work")).status, 201, "work hours only add a reminder");
   closed = false;
   assert.equal((await post("after work")).status, 201);
 });

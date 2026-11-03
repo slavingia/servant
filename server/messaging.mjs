@@ -16,7 +16,6 @@ import { validateUploads, mediaPage, rasterMime, MAX_UPLOAD_BODY, MAX_UPLOAD_TOT
 const MAX_PHOTO_BYTES = 1024 * 1024;
 const MAX_PHOTO_BODY = Math.ceil(MAX_PHOTO_BYTES / 3) * 4 + 1024;
 import { sourceDeviceKind, sourceDeviceFields } from "./source-device.mjs";
-import { postingClosed, workHoursMessage } from "./work-hours.mjs";
 
 export const AGENT_ID = "agent";
 const MAX_TEXT = 8000;
@@ -800,8 +799,6 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
   // into a channel or DM the person belongs to.
   function forwardInto(conversationId, user, text, attachments = [], device) {
     const conv = requireConversation(String(conversationId || ""), user.id, true);
-    const rule = workHours();
-    if (postingClosed(rule)) throw httpError(403, "work_hours", workHoursMessage(rule));
     const m = post(conv, user.id, String(text).slice(0, MAX_TEXT), null, { attachments, device });
     if (!externalWorker && wantsAgent(conv, m)) agentReply(conv, m).catch((e) => console.error("[servant] agent reply", e));
     return { conversation: convView(st.conv.get(conv.id), user.id), message: msgView(m, true, user.id) };
@@ -1308,8 +1305,6 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       if (sub === "messages" && method === "POST") {
         if (!isMember) return fail(res, 403, "not_member", "Join the channel to post"), true;
         const body = await readBody(req, MAX_UPLOAD_BODY);
-        const rule = workHours();
-        if (postingClosed(rule)) return fail(res, 403, "work_hours", workHoursMessage(rule)), true;
         let text = String(body.text || "").trim();
         // Only the server writes forward headers; typed lookalikes don't render as one.
         if (/^Forwarded message from /.test(text)) text = `\u200B${text}`;
