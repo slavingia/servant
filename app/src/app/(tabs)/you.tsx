@@ -24,7 +24,7 @@ function Row({ label, value, onPress }: { label: string; value?: string; onPress
     </>;
   if (!onPress) return <View style={styles.row}>{content}</View>;
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}>
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.subtle }]}>
       {content}
     </Pressable>
   );
@@ -119,7 +119,7 @@ export default function Settings() {
       </Pressable>
       {photoMenu && hasPhoto ? <View style={[styles.group, styles.photoMenu]}>
         <Row label="Choose from library" onPress={() => void choosePhoto()} />
-        <Pressable accessibilityRole="button" onPress={() => void removePhoto()} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}>
+        <Pressable accessibilityRole="button" onPress={() => void removePhoto()} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.subtle }]}>
           <Text style={[styles.rowLabel, { color: colors.red }]}>Remove photo</Text>
         </Pressable>
       </View> : null}
@@ -148,7 +148,7 @@ export default function Settings() {
             accessibilityRole="button"
             accessibilityHint="Opens the notes and the thread to talk about them"
             onPress={() => router.push({ pathname: "/thread", params: { conv: release.conversationId, root: release.messageId, title: "#whats-new" } })}
-            style={({ pressed }) => [styles.group, styles.notes, pressed && { backgroundColor: colors.surface }]}
+            style={({ pressed }) => [styles.group, styles.notes, pressed && { backgroundColor: colors.subtle }]}
           >
             <View style={styles.notesHeader}><Text style={styles.notesTitle}>What's new</Text><Text style={styles.build}>Build {release.build}</Text></View>
             <Text style={styles.notesText} numberOfLines={3}>
@@ -171,22 +171,22 @@ export default function Settings() {
 
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   hint: { ...typography.caption, color: colors.muted, marginTop: space.xs, marginHorizontal: space.xs },
-  root: { flex: 1, backgroundColor: colors.surface },
+  root: { flex: 1, backgroundColor: colors.groupedBackground },
   content: { paddingBottom: space.xl, width: "100%", maxWidth: 680, alignSelf: "center" },
   profile: { marginHorizontal: space.side, marginBottom: space.lg, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", gap: space.sm },
   profileCopy: { flex: 1, minWidth: 0 },
   profileName: { ...typography.heading, color: colors.ink },
   profileRole: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
   photoLink: { ...typography.captionStrong, color: colors.blue, marginTop: space.xxs },
-  photoBadge: { position: "absolute", right: -2, bottom: -2, width: 22, height: 22, borderRadius: 11, backgroundColor: colors.primary, borderWidth: 2, borderColor: colors.surface, alignItems: "center", justifyContent: "center" },
+  photoBadge: { position: "absolute", right: -2, bottom: -2, width: 22, height: 22, borderRadius: 11, backgroundColor: colors.primary, borderWidth: 2, borderColor: colors.groupedBackground, alignItems: "center", justifyContent: "center" },
   photoMenu: { marginTop: -space.sm },
   photoError: { ...typography.caption, color: colors.red, marginHorizontal: space.side, marginTop: -space.xs, marginBottom: space.md },
   section: { ...typography.label, marginHorizontal: space.side, marginTop: space.sm, marginBottom: space.xs, color: colors.muted },
-  group: { backgroundColor: colors.background, marginHorizontal: space.side, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, overflow: "hidden", marginBottom: space.md },
+  group: { backgroundColor: colors.groupedCard, marginHorizontal: space.side, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, overflow: "hidden", marginBottom: space.md },
   row: { minHeight: 48, paddingHorizontal: space.md, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", gap: space.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   rowLabel: { ...typography.body, color: colors.ink, flex: 1 },
   rowValue: { ...typography.body, color: colors.muted, flex: 1, textAlign: "right" },
-  danger: { marginHorizontal: space.side, marginTop: space.xs, minHeight: 48, justifyContent: "center", paddingHorizontal: space.md, backgroundColor: colors.background, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
+  danger: { marginHorizontal: space.side, marginTop: space.xs, minHeight: 48, justifyContent: "center", paddingHorizontal: space.md, backgroundColor: colors.groupedCard, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
   dangerText: { ...typography.bodyStrong, color: colors.red },
   notes: { padding: space.md },
   notesHeader: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: space.xs, marginBottom: space.xs },

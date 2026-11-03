@@ -3,6 +3,7 @@ import { ActivityIndicator, FlatList, Platform, Pressable, RefreshControl, Style
 import { router, useFocusEffect } from "expo-router";
 import { AppIcon } from "./AppIcon";
 import { Button } from "./Button";
+import { PageTitle } from "./Band";
 import { SwipeChannelRow, useConversationActions } from "./SwipeChannelRow";
 import { ReorderableList } from "./ReorderableList";
 import { ChannelSortSheet } from "./ChannelSortSheet";
@@ -118,6 +119,7 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
         onScrollBeginDrag={closeRow}
         refreshControl={<RefreshControl refreshing={refreshing} tintColor={colors.blue} onRefresh={() => void reload()} />}
         ListHeaderComponent={<View>
+          {archived ? null : <PageTitle>Home</PageTitle>}
           {archived ? (archivedCount ? <Text style={styles.archiveIntro}>{Platform.OS === "web" ? "Use ••• on a conversation to restore it to Home" : "Swipe left to restore a conversation to Home"}</Text> : null) : <View style={styles.filters}>
             {[false, true].map(value => <Pressable key={String(value)} accessibilityRole="button" accessibilityLabel={value ? `Unread conversations, ${unreadCount}` : "All conversations"} accessibilityState={{ selected: unreadOnly === value }}
               onPress={() => { setUnreadOnly(value); closeRow(); }} style={({ pressed }) => [styles.filter, unreadOnly === value && styles.selectedFilter, pressed && styles.pressed]}>

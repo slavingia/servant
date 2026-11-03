@@ -32,6 +32,9 @@ export const lightColors = {
   redSoft: "#FDECEF",
   bubbleMine: "#0071BC",
   bubbleAgent: "#F4F7FA",
+  // Settings-style grouped screens: the page sits behind, cards sit on top.
+  groupedBackground: "#F7F8FA",
+  groupedCard: "#FFFFFF",
 };
 
 export type ThemeColors = typeof lightColors;
@@ -53,6 +56,9 @@ export const darkColors: ThemeColors = {
   red: "#FF8FA5",
   redSoft: "#3D202B",
   bubbleAgent: "#1B222C",
+  // Same page as every other tab; cards lift one step, never the page.
+  groupedBackground: "#12161C",
+  groupedCard: "#1B222C",
 };
 
 export const lightAvatarTones = [
