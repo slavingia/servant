@@ -124,12 +124,13 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
               <Text style={[styles.filterText, unreadOnly === value && styles.selectedFilterText]}>{value ? "Unread" : "All"}</Text>
               {value && unreadCount ? <Text style={[styles.filterCount, unreadOnly && styles.selectedFilterText]}>{unreadCount}</Text> : null}
             </Pressable>)}
+            {/* Reconnecting sits beside the filters, so it never takes a line or moves the list. */}
+            <Text aria-hidden={!reconnecting} accessibilityLiveRegion="polite" style={[styles.status, { opacity: reconnecting ? 1 : 0 }]}>Reconnecting…</Text>
           </View>}
           {orderError ? <Text accessibilityRole="alert" style={styles.error}>{orderError}</Text> : null}
           {actionError ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
           {error && conversations !== null ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-          {/* Keep the status line measured so reconnecting never moves the list. */}
-          <Text aria-hidden={!reconnecting} style={[styles.note, { opacity: reconnecting ? 1 : 0 }]}>Reconnecting…</Text>
+          {archived && reconnecting ? <Text style={styles.note}>Reconnecting…</Text> : null}
         </View>}
         ListEmptyComponent={conversations === null ?
           error ? <View style={styles.empty}><Text accessibilityRole="alert" style={styles.errorText}>{error}</Text><Button label="Try again" kind="secondary" busy={refreshing} onPress={() => void reload()} /></View> :
@@ -222,6 +223,7 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   content: { paddingBottom: space.xxl },
+  status: { ...typography.caption, marginLeft: "auto", alignSelf: "center", color: colors.muted },
   filters: { flexDirection: "row", gap: space.xs, paddingHorizontal: space.side, paddingVertical: space.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   filter: { minHeight: 44, paddingHorizontal: space.md, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", gap: space.xs, borderRadius: radius.md },
   selectedFilter: { backgroundColor: colors.blueSoft },
