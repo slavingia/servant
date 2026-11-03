@@ -30,7 +30,7 @@ import { createStateStore } from "./state-store.mjs";
 import { createDeviceLink, previewDeviceLink, approveDeviceLink, denyDeviceLink, pollDeviceLink } from "./device-links.mjs";
 import { privateMessageView } from "./source-device.mjs";
 import { createChatMediaStore } from "./chat-media.mjs";
-import { createUsageStore } from "./usage.mjs";
+import { createUsageStore, limitMessage } from "./usage.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { withCloseInstructions } from "./close-marker.mjs";
 import { supportsDurableRuns, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
@@ -1200,6 +1200,7 @@ async function handle(req, res, cfg) {
     if (text.length > limit) return fail(res, 413, "too_long", "That message is too long");
     const prior = agentTurns.replay({ chat, text, attachments, requestId: body.requestId });
     if (prior) return streamPrivateTurn(req, res, prior.id, () => ownTurn(prior.id));
+    if (usageStore().overLimit(user)) return fail(res, 429, "usage_limit", limitMessage(usageStore().limit));
     // Establish history before the worker records new accepted deliveries.
     await syncChatHistory();
     const turn = mutateAuthenticated(req, (state, current) => {
@@ -1274,6 +1275,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
   if (!up) throw requestError(502, "agent_error", "The agent is unavailable");
   const full = agentRole(turn.role, cfg) === "owner";
   if (!full) await verifyMemberUpstream(up);
+  if (!turn.run_id && usageStore().overLimit(user)) throw requestError(429, "usage_limit", limitMessage(usageStore().limit));
   const durable = !!turn.run_id || await supportsDurableRuns(up);
   // Legacy owner agents can read the exact saved input instead of receiving
   // altered chunks. Restricted agents never receive a local-file fallback.
@@ -1386,7 +1388,8 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
     // server is set to "agentAccess": "limited".
     onUsage: recordUsage,
     messageExtras: m => meetings?.messageExtras(m),
-    askAgent: async ({ sessionId, sessionKey: key, fresh, text, restartText, attachments, onDelta, onUsage = () => {} }) => {
+    askAgent: async ({ sessionId, sessionKey: key, fresh, text, restartText, attachments, onDelta, onUsage = () => {}, userId }) => {
+      if (usageStore().overLimit(readState().users[userId])) return limitMessage(usageStore().limit);
       const cfg = fixedCfg || loadConfig();
       const up = upstreamFor({ role: "member" }, cfg);
       if (!up) return "The agent isn't set up on this server yet";

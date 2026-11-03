@@ -16,7 +16,13 @@ export function normalizeUsage(raw) {
   return { input, output, total };
 }
 
-export function createUsageStore(file) {
+// Everyone but the owner may use up to this many tokens a day (server-local day).
+export const DAILY_TOKEN_LIMIT = 1_000_000;
+export const startOfDay = (at = Date.now()) => { const d = new Date(at); d.setHours(0, 0, 0, 0); return d.getTime(); };
+export const limitMessage = (limit = DAILY_TOKEN_LIMIT) =>
+  `You've reached today's limit of ${limit.toLocaleString("en-US")} tokens. It resets at midnight`;
+
+export function createUsageStore(file, { limit = DAILY_TOKEN_LIMIT, clock = Date.now } = {}) {
   const db = new DatabaseSync(file);
   db.exec(`PRAGMA journal_mode=WAL;
     CREATE TABLE IF NOT EXISTS token_usage (
@@ -40,6 +46,10 @@ export function createUsageStore(file) {
       if (!u || !userId) return false;
       return insert.run(eventId ?? null, String(userId), source === "channel" ? "channel" : "chat", u.input, u.output, u.total, at).changes > 0;
     },
+    limit,
+    usedToday: userId => Number(db.prepare("SELECT COALESCE(SUM(total_tokens),0) AS n FROM token_usage WHERE user_id=? AND at>=?").get(String(userId), startOfDay(clock())).n),
+    // The owner is unlimited.
+    overLimit(user) { return !!user && user.role !== "owner" && this.usedToday(user.id) >= limit; },
     leaderboard({ since = 0 } = {}) {
       const rows = db.prepare(`SELECT user_id AS userId, SUM(input_tokens) AS input, SUM(output_tokens) AS output,
           SUM(total_tokens) AS total, COUNT(*) AS turns,

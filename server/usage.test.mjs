@@ -30,3 +30,20 @@ test("a turn counts once, and the leaderboard ranks people by total with period 
     assert.deepEqual(recent.people.map(p => [p.userId, p.total, p.chat, p.channel]), [["b", 400, 0, 400], ["a", 150, 150, 0]]);
   } finally { store.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("members stop at one million tokens a day, the owner never does, and the day resets", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "servant-usage-"));
+  let now = new Date(2026, 10, 3, 12).getTime();
+  const store = createUsageStore(path.join(dir, "usage.db"), { clock: () => now });
+  const member = { id: "m", role: "member" }, owner = { id: "o", role: "owner" };
+  store.record({ eventId: "a", userId: "m", usage: { total_tokens: 999_999 }, at: now });
+  store.record({ eventId: "b", userId: "o", usage: { total_tokens: 9_000_000 }, at: now });
+  assert.equal(store.overLimit(member), false);
+  store.record({ eventId: "c", userId: "m", usage: { total_tokens: 1 }, at: now });
+  assert.equal(store.overLimit(member), true);
+  assert.equal(store.overLimit(owner), false);
+  assert.equal(store.overLimit({ id: "other", role: "member" }), false);
+  now = new Date(2026, 10, 4, 0, 1).getTime();
+  assert.equal(store.overLimit(member), false);
+  store.close();
+});

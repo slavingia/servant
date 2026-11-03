@@ -732,6 +732,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       const final = await askAgent({
         onUsage: usage => { try { onUsage({ eventId: `channel:${trigger.seq}`, userId: trigger.user_id, source: "channel", usage }); } catch { /* never fail a reply over stats */ } },
         sessionId,
+        userId: trigger.user_id,
         sessionKey: `servant:${conv.id}`,
         fresh: !thread,
         text: prompt,
