@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 import { createMessaging } from "./messaging.mjs";
 import os from "node:os";
 import { createFeedback, feedbackPrompt, feedbackResult } from "./feedback.mjs";
-import { createPushService, preferences, updatePushRegistration, updatePreferences } from "./push.mjs";
+import { createPushService, preferences, previewText, updatePushRegistration, updatePreferences } from "./push.mjs";
 import { createPushTransport } from "./push-transport.mjs";
 import { createSecureTransport, serverIdentity } from "./secure-transport.mjs";
 import { createStateStore } from "./state-store.mjs";
@@ -391,6 +391,24 @@ function canReadChat(chat, viewer) {
 function chatStarted(chat, latestTurn) {
   return !!chat.startedAt || chat.title !== "New chat" || !!latestTurn;
 }
+// The line under a chat's title in the list, like the last message in a DM.
+// A turn still in flight is newer than anything mirrored; otherwise the
+// mirrored history holds the finished reply (or the user's last message).
+const PREVIEW_CHARS = 140;
+function chatLastMessage(latestTurn, mirrored) {
+  const pick = (role, text, at, attachments = 0, pending = false) => {
+    const flat = previewText(text, PREVIEW_CHARS);
+    if (!flat && !attachments && !pending) return null;
+    return { role, text: flat, at, attachments, ...(pending ? { pending: true } : {}) };
+  };
+  if (latestTurn && !terminalTurn(latestTurn) && latestTurn.status !== "steered") {
+    if (latestTurn.status === "queued") return pick("user", latestTurn.text, latestTurn.createdAt);
+    return latestTurn.assistantText ? pick("assistant", latestTurn.assistantText, latestTurn.updatedAt, 0, true) : pick("user", latestTurn.text, latestTurn.createdAt);
+  }
+  if (mirrored) return pick(mirrored.role, mirrored.text, mirrored.at, mirrored.attachments?.length || 0);
+  if (latestTurn) return latestTurn.assistantText ? pick("assistant", latestTurn.assistantText, latestTurn.updatedAt) : pick("user", latestTurn.text, latestTurn.createdAt);
+  return null;
+}
 function chatView(chat, viewer, users = {}) {
   const view = { id: chat.id, title: chat.title, createdAt: chat.createdAt, updatedAt: chat.updatedAt, shared: chatShared(chat) };
   if (viewer && chat.userId === viewer.id) view.archived = !!chat.archivedAt;
@@ -658,7 +676,8 @@ async function handle(req, res, cfg) {
     // would otherwise keep the send time and sink below quieter chats.
     const withActivity = (chat, view) => {
       const latestTurn = agentTurns.latest(chat.id)[0] || null;
-      return { ...view, updatedAt: Math.max(chat.updatedAt || 0, latestTurn?.updatedAt || 0), latestTurn };
+      return { ...view, updatedAt: Math.max(chat.updatedAt || 0, latestTurn?.updatedAt || 0), latestTurn,
+        lastMessage: chatLastMessage(latestTurn, chatMediaStore().last(chat.id)) };
     };
     const sorted = list => list.sort((a, b) => b.updatedAt - a.updatedAt);
     const unread = agentTurns.unreadByChat(user.id);

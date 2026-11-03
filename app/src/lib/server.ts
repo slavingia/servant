@@ -21,7 +21,8 @@ export type Account = {
   user: { id: string; name: string; role: Role };
 };
 // shared: visible read-only to the rest of the server (default). author/readOnly: someone else's chat.
-export type Chat = { id: string; title: string; createdAt: number; updatedAt: number; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; latestTurn?: AgentTurn | null };
+export type ChatLastMessage = { role: "user" | "assistant"; text: string; at: number; attachments: number; pending?: boolean };
+export type Chat = { id: string; title: string; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; latestTurn?: AgentTurn | null };
 export type Message = { id: string; role: "user" | "assistant"; text: string; at?: number | string | null; attachments?: Attachment[]; pending?: boolean; interrupted?: boolean; sourceDevice?: SourceDevice };
 
 // ----- token leaderboard -----

@@ -276,6 +276,23 @@ test("agent chats: swipe to archive, restore, and a new message un-archives; onl
   assert.equal((await api("GET", "/v1/chats", { token })).json.chats.some((c) => c.id === chat.id), false);
 });
 
+test("agent chat list shows the last message under each title, like DMs", async () => {
+  const token = await pair("member", "Lastline Lou");
+  const other = await pair("member", "Lastline Max");
+  const chat = (await api("POST", "/v1/chats", { token, body: {} })).json.chat;
+  const sent = await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "**summarize** the repo" } });
+  assert.equal(sent.status, 200);
+  await api("GET", `/v1/chats/${chat.id}/messages`, { token });
+  const mine = (await api("GET", "/v1/chats?scope=org", { token })).json.chats.find(c => c.id === chat.id);
+  assert.ok(mine.lastMessage, "has a last message");
+  assert.equal(mine.lastMessage.role, "assistant");
+  assert.match(mine.lastMessage.text, /summarize the repo/, "flattened markdown, one line");
+  assert.ok(!mine.lastMessage.text.includes("**"));
+  assert.ok(mine.lastMessage.text.length <= 140);
+  const theirs = (await api("GET", "/v1/chats?scope=org", { token: other })).json.orgChats.find(c => c.id === chat.id);
+  assert.deepEqual(theirs.lastMessage, mine.lastMessage, "shared rows carry it too");
+});
+
 test("full access (default): a member's private chat uses the full agent and sees tool names", async () => {
   const token = await pair("member", "Fran");
   const created = await api("POST", "/v1/chats", { token, body: {} });

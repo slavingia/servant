@@ -6,6 +6,14 @@ import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { SwipeRow } from "../../components/SwipeChannelRow";
 import { api, ServerError, type Chat } from "../../lib/server";
+
+// The line under the title, like the last message in a DM list.
+function lastLine(chat: Chat, author: string, agent = "") {
+  const last = chat.lastMessage;
+  if (!last) return "";
+  const body = last.text || (last.attachments ? `${last.attachments} attachment${last.attachments === 1 ? "" : "s"}` : "");
+  return last.role === "user" ? `${author}: ${body}` : agent ? `${agent}: ${body}` : body;
+}
 import { useSession } from "../../lib/session";
 import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 import { activeAgentTurn, agentTurnLabel } from '../../lib/agent-turns';
@@ -167,7 +175,7 @@ export default function Chats() {
               {(bind) => (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`${title}${unread ? `, ${unread} unread ${unread === 1 ? "reply" : "replies"}` : ""}${item.shared === false ? ", private" : ""}`}
+                  accessibilityLabel={`${title}${unread ? `, ${unread} unread ${unread === 1 ? "reply" : "replies"}` : ""}${item.shared === false ? ", private" : ""}${lastLine(item, "You") ? `. ${lastLine(item, "You")}` : ""}`}
                   onPress={() => bind.onPress(() => {
                     // Clear the badge right away; the chat screen tells the server.
                     if (unread) setChats(list => list?.map(chat => chat.id === item.id ? { ...chat, unread: 0 } : chat) ?? list);
@@ -180,8 +188,11 @@ export default function Chats() {
                 >
                   <View style={styles.agentIcon}><AppIcon name="sparkles" size={19} color={colors.blueDark} /></View>
                   <View style={styles.rowCopy}><Text style={[styles.rowTitle, styles.readTitle, unread > 0 && styles.unreadTitle]} numberOfLines={1}>{title}</Text>
-                    {activeAgentTurn(item.latestTurn) ? <Text style={styles.turnLabel}>{agentTurnLabel(item.latestTurn!)}</Text>
-                      : item.shared === false ? <View style={styles.privateTag}><AppIcon name="lock" size={12} color={colors.muted} /><Text style={styles.byline}>Private</Text></View> : null}
+                    {activeAgentTurn(item.latestTurn) ? <Text style={styles.turnLabel} numberOfLines={1}>{agentTurnLabel(item.latestTurn!)}</Text>
+                      : <View style={styles.privateTag}>
+                        {item.shared === false ? <AppIcon name="lock" size={12} color={colors.muted} /> : null}
+                        <Text style={[styles.preview, unread > 0 && { color: colors.ink }]} numberOfLines={1}>{lastLine(item, "You") || (item.shared === false ? "Private" : "")}</Text>
+                      </View>}
                   </View>
                   <View style={styles.rowEnd}>
                     <Text style={[styles.rowWhen, unread > 0 && styles.unreadWhen]}>{when(item.updatedAt)}</Text>
@@ -196,7 +207,7 @@ export default function Chats() {
         ListFooterComponent={shared.length ? <View>
           <Text accessibilityRole="header" style={styles.sectionTitle}>{account.user.role === "owner" ? "Everyone's conversations" : "Shared by others"}</Text>
           {shared.map(item => <Pressable key={item.id} accessibilityRole="button"
-            accessibilityLabel={`${item.title.replace(/`/g, "")}, by ${item.author?.name ?? "someone"}${item.shared === false ? ", private" : ""}`}
+            accessibilityLabel={`${item.title.replace(/`/g, "")}, by ${item.author?.name ?? "someone"}${item.shared === false ? ", private" : ""}${lastLine(item, item.author?.name ?? "Someone", "Agent") ? `. ${lastLine(item, item.author?.name ?? "Someone", "Agent")}` : ""}`}
             onPress={() => router.push({ pathname: "/chat/[id]", params: { id: item.id, title: item.title, readOnly: "1", author: item.author?.name ?? "" } })}
             style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}>
             <View style={styles.agentIcon}><AppIcon name="sparkles" size={19} color={colors.blueDark} /></View>
@@ -204,7 +215,7 @@ export default function Chats() {
               <Text style={styles.rowTitle} numberOfLines={1}>{item.title.replace(/`/g, "")}</Text>
               <View style={styles.privateTag}>
                 {item.shared === false ? <AppIcon name="lock" size={12} color={colors.muted} /> : null}
-                <Text style={styles.byline} numberOfLines={1}>{item.author?.name ?? "Someone"}{item.shared === false ? " · Private (visible to admins)" : ""}</Text>
+                <Text style={styles.preview} numberOfLines={1}>{lastLine(item, item.author?.name ?? "Someone", "Agent") || (item.author?.name ?? "Someone")}{item.shared === false ? " · Private (visible to admins)" : ""}</Text>
               </View>
             </View>
             <Text style={styles.rowWhen}>{when(item.updatedAt)}</Text>
@@ -225,7 +236,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   inbox: { marginHorizontal: space.side, marginBottom: space.md, padding: space.md, backgroundColor: colors.blueSoft, borderRadius: radius.lg },
   inboxTitle: { ...typography.bodyStrong, color: colors.brandText, marginBottom: space.xs },
   approvalRow: { paddingVertical: space.xs, gap: space.xxs }, approvalDetail: { ...typography.caption, color: colors.ink }, review: { ...typography.captionStrong, color: colors.blue },
-  rowCopy: { flex: 1 }, byline: { ...typography.meta, color: colors.muted, marginTop: space.xxs }, privateTag: { flexDirection: "row", alignItems: "center", gap: space.xxs, marginTop: space.xxs }, turnLabel: { ...typography.meta, color: colors.blue, marginTop: space.xxs },
+  rowCopy: { flex: 1 }, byline: { ...typography.meta, color: colors.muted, marginTop: space.xxs }, privateTag: { flexDirection: "row", alignItems: "center", gap: space.xxs, marginTop: space.xxs, marginRight: space.sm }, preview: { ...typography.caption, color: colors.muted, flexShrink: 1 }, turnLabel: { ...typography.meta, color: colors.blue, marginTop: space.xxs },
   header: { minHeight: 60, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.xs },
   title: { ...typography.title, color: colors.ink, flexShrink: 1 },
   compose: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },

@@ -140,6 +140,7 @@ export function createChatMediaStore(file) {
   return {
     accept, identify, identifyInput, beginSync, sync, media,
     history: chatId => db.prepare("SELECT * FROM chat_messages WHERE chat_id=? ORDER BY at,seq").all(chatId).map(view),
+    last: chatId => { const row = db.prepare("SELECT * FROM chat_messages WHERE chat_id=? ORDER BY at DESC,seq DESC LIMIT 1").get(chatId); return row ? view(row) : null; },
     attachment: id => db.prepare("SELECT a.*,m.chat_id FROM chat_attachments a JOIN chat_messages m ON m.id=a.message_id WHERE a.id=?").get(id),
     deleteChat: chatId => db.prepare("DELETE FROM chat_messages WHERE chat_id=?").run(chatId),
     close: () => db.close(),
