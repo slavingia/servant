@@ -36,7 +36,7 @@ export function acquireWorkerLock(directory) {
   };
 }
 
-export async function startWorker({ directory, createServices, intervalMs = 250, log = console }) {
+export async function startWorker({ directory, createServices, intervalMs = 250, closerMs = 60 * 60 * 1000, closerIdleMs, log = console }) {
   const release = acquireWorkerLock(directory);
   const owner = crypto.randomUUID();
   let services;
@@ -54,11 +54,12 @@ export async function startWorker({ directory, createServices, intervalMs = 250,
     }
     throw error;
   }
-  const { messaging, push, agentTurns, closeState = () => {} } = services;
+  const { messaging, push, agentTurns, closeIdleChats, closeState = () => {} } = services;
   let stopping = false;
   let agentTask = null;
   let notificationTask = null;
   const privateTasks = new Set();
+  let closerTask = null;
   let shutdownPromise;
   const tickAgent = () => {
     if (stopping || agentTask) return agentTask || Promise.resolve(false);
@@ -87,6 +88,18 @@ export async function startWorker({ directory, createServices, intervalMs = 250,
     privateTasks.add(task);
     return task;
   };
+  // Hourly: close finished chats nobody has come back to (see closeIdleChats).
+  const tickCloser = () => {
+    if (stopping || !closeIdleChats || closerTask) return closerTask || Promise.resolve([]);
+    closerTask = closeIdleChats({ log, ...(closerIdleMs !== undefined ? { idleMs: closerIdleMs } : {}) }).then(closed => {
+      if (closed.length) log.log(`[servant] closer closed ${closed.length} finished chat(s)`);
+      return closed;
+    }, error => { log.error('[servant] closer retrying:', error.message); return []; })
+      .finally(() => { closerTask = null; });
+    return closerTask;
+  };
+  const closerTimer = intervalMs > 0 && closerMs > 0 ? setInterval(tickCloser, closerMs) : null;
+  closerTimer?.unref?.();
   const agentTimer = intervalMs > 0 ? setInterval(tickAgent, intervalMs) : null;
   const privateTimer = intervalMs > 0 ? setInterval(tickPrivate, intervalMs) : null;
   const pushTimer = intervalMs > 0 ? setInterval(tickNotifications, Math.max(intervalMs, 1000)) : null;
@@ -96,8 +109,9 @@ export async function startWorker({ directory, createServices, intervalMs = 250,
     clearInterval(agentTimer);
     clearInterval(privateTimer);
     clearInterval(pushTimer);
+    clearInterval(closerTimer);
     try {
-      await Promise.all([agentTask, notificationTask, ...privateTasks]);
+      await Promise.all([agentTask, notificationTask, closerTask, ...privateTasks]);
       await agentTurns?.whenIdle();
       await messaging.whenIdle();
       messaging.drainOutbox(event => push.enqueue(event));
@@ -111,7 +125,7 @@ export async function startWorker({ directory, createServices, intervalMs = 250,
       }
     }
   })();
-  return { owner, tickAgent, tickPrivate, tickNotifications, shutdown };
+  return { owner, tickAgent, tickPrivate, tickNotifications, tickCloser, shutdown };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -119,7 +133,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   process.umask(0o077);
   try {
     const { createWorkerServices } = await import('./server.mjs');
-    const worker = await startWorker({ directory, createServices: createWorkerServices });
+    // Test instances shorten the closer's hour/day; production uses the defaults.
+    const ms = name => process.env[name] ? Number(process.env[name]) : undefined;
+    const worker = await startWorker({ directory, createServices: createWorkerServices,
+      ...(ms('SERVANT_CLOSER_MS') !== undefined ? { closerMs: ms('SERVANT_CLOSER_MS') } : {}), closerIdleMs: ms('SERVANT_CLOSER_IDLE_MS') });
     console.log('[servant] durable worker ready');
     let stopping = false;
     for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {

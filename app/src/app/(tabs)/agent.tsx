@@ -6,7 +6,7 @@ import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { SwipeRow } from "../../components/SwipeChannelRow";
 import { ProjectSheet } from "../../components/ProjectSheet";
-import { api, ServerError, type Chat, type Project } from "../../lib/server";
+import { api, ServerError, type Chat, type ChatClosed, type Project } from "../../lib/server";
 
 // The line under the title, like the last message in a DM list.
 function lastLine(chat: Chat, author: string, agent = "") {
@@ -18,6 +18,15 @@ function lastLine(chat: Chat, author: string, agent = "") {
 import { useSession } from "../../lib/session";
 import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 import { activeAgentTurn, agentTurnLabel } from '../../lib/agent-turns';
+
+// Agent chats work like issues: Close files one away, a new message reopens it.
+const CLOSE_LABELS = { archive: "Close", restore: "Reopen" };
+// "Agent: Fixed the export bug" / "Closed by the closer: Nothing pending" / "Closed by you"
+function closedLine(closed: ChatClosed) {
+  if (closed.by === "you") return "Closed by you";
+  const who = closed.by === "agent" ? "Agent" : "Closed by the closer";
+  return closed.reason ? `${who}: ${closed.reason}` : closed.by === "agent" ? "Agent finished" : who;
+}
 
 function when(ms: number) {
   const d = new Date(ms);
@@ -173,9 +182,9 @@ export default function Chats() {
         }
         renderItem={({ item }) => {
           if (!("title" in item)) return (
-            <Pressable accessibilityRole="button" accessibilityLabel={`Archived, ${archived.length}`} accessibilityState={{ expanded: showArchived }} onPress={() => { closeRow(); setShowArchived(v => !v); }} style={({ pressed }) => [styles.archivedToggle, pressed && { backgroundColor: colors.surface }]}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`Closed, ${archived.length}`} accessibilityState={{ expanded: showArchived }} onPress={() => { closeRow(); setShowArchived(v => !v); }} style={({ pressed }) => [styles.archivedToggle, pressed && { backgroundColor: colors.surface }]}>
               <View style={styles.archivedIcon}><AppIcon name="archive" size={17} color={colors.muted} /></View>
-              <Text style={styles.archivedLabel}>Archived</Text>
+              <Text style={styles.archivedLabel}>Closed</Text>
               <Text style={[styles.rowWhen, { marginRight: space.xs }]}>{archived.length}</Text>
               <AppIcon name={showArchived ? "chevronDown" : "chevronRight"} size={16} color={colors.muted} />
             </Pressable>
@@ -183,12 +192,12 @@ export default function Chats() {
           const unread = item.unread ?? 0;
           const title = item.title.replace(/`/g, "");
           return (
-            <SwipeRow name={title} kind="conversation" archived={!!item.archived} open={openId === item.id} busy={busyId !== null} canDelete
+            <SwipeRow name={title} kind="conversation" archived={!!item.archived} labels={CLOSE_LABELS} open={openId === item.id} busy={busyId !== null} canDelete
               onOpen={() => setOpenId(item.id)} onClose={closeRow} onArchive={() => { void act(item); }} onDelete={() => { setActionError(null); setDeleting(item); }}>
               {(bind) => (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`${title}${unread ? `, ${unread} unread ${unread === 1 ? "reply" : "replies"}` : ""}${item.shared === false ? ", private" : ""}${lastLine(item, "You") ? `. ${lastLine(item, "You")}` : ""}`}
+                  accessibilityLabel={`${title}${unread ? `, ${unread} unread ${unread === 1 ? "reply" : "replies"}` : ""}${item.shared === false ? ", private" : ""}${item.closed ? `. ${closedLine(item.closed)}` : lastLine(item, "You") ? `. ${lastLine(item, "You")}` : ""}`}
                   onPress={() => bind.onPress(() => {
                     // Clear the badge right away; the chat screen tells the server.
                     if (unread) setChats(list => list?.map(chat => chat.id === item.id ? { ...chat, unread: 0 } : chat) ?? list);
@@ -203,6 +212,7 @@ export default function Chats() {
                   <View style={styles.rowCopy}><Text style={[styles.rowTitle, styles.readTitle, unread > 0 && styles.unreadTitle]} numberOfLines={1}>{title}</Text>
                     {item.mode === "vibe" || item.project ? <Text style={styles.projectTag} numberOfLines={1}>{item.mode === "vibe" ? "Vibe coding" : item.project!.name}</Text> : null}
                     {activeAgentTurn(item.latestTurn) ? <Text style={styles.turnLabel} numberOfLines={1}>{agentTurnLabel(item.latestTurn!)}</Text>
+                      : item.closed ? <Text style={styles.preview} numberOfLines={1}>{closedLine(item.closed)}</Text>
                       : <View style={styles.privateTag}>
                         {item.shared === false ? <AppIcon name="lock" size={12} color={colors.muted} /> : null}
                         <Text style={[styles.preview, unread > 0 && { color: colors.ink }]} numberOfLines={1}>{lastLine(item, "You") || (item.shared === false ? "Private" : "")}</Text>

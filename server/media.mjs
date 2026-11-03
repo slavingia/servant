@@ -2,6 +2,7 @@
 // agent-emitted local path or fetch a URL here: Hermes supplies inline data URLs
 // after applying its own media-delivery policy.
 import crypto from "node:crypto";
+import { splitCloseMarker } from "./close-marker.mjs";
 
 export const MAX_FILE = 5 * 1024 * 1024;
 export const MAX_VIDEO = 25 * 1024 * 1024;
@@ -224,7 +225,8 @@ export function normalizeMediaContent(content, extra = []) {
     if (typeof file.data === "string") add(`data:${file.mime || "image/png"};base64,${file.data}`, file.name);
     else if (file.url) add(file.url, file.name);
   }
-  return { text: text.replace(/\n{3,}/g, "\n\n").trim(), attachments };
+  // The agent's hidden "done" line (see close-marker.mjs) is never shown.
+  return { text: splitCloseMarker(text).text.replace(/\n{3,}/g, "\n\n").trim(), attachments };
 }
 
 export function mediaPage(items, searchParams) {

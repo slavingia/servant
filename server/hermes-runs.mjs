@@ -2,6 +2,7 @@
 // API does not preserve the session stream's history/media behavior.
 import { setTimeout as sleep } from 'node:timers/promises';
 import { createMediaDeltaFilter } from './media.mjs';
+import { createCloseMarkerFilter, splitCloseMarker } from './close-marker.mjs';
 
 const agentError = message => Object.assign(new Error(message), { code: 'agent_error' });
 // What the agent reads mid-task. Files can't ride along, so only text steers.
@@ -72,8 +73,9 @@ export async function runDurableHermes({ up, sessionId, input, sessionKey, instr
   }
   const route = `/v1/runs/${encodeURIComponent(runId)}`;
   const streamAbort = new AbortController();
-  const filter = createMediaDeltaFilter();
-  let terminal, final = '', eventError, unread = '', usage = null;
+  const media = createMediaDeltaFilter(), closer = createCloseMarkerFilter();
+  const filter = (chunk, end = false) => closer(media(chunk, end), end);
+  let terminal, final = '', eventError, unread = '', usage = null, closeReason = null;
   const seenApprovals = new Set([controls().approval?.id].filter(Boolean));
   const receive = async (name, payload) => {
     if (terminal) return;
@@ -91,7 +93,8 @@ export async function runDurableHermes({ up, sessionId, input, sessionKey, instr
     else if (name === 'run.completed') {
       const tail = filter('', true);
       if (tail) onEvent('assistant.delta', { delta: tail });
-      final = payload.output || '';
+      ({ text: final, reason: closeReason } = splitCloseMarker(payload.output || ''));
+      closeReason ??= closer.reason();
       if (payload.usage && typeof payload.usage === 'object') usage = payload.usage;
       onEvent('assistant.completed', { content: final });
       terminal = 'completed';
@@ -169,7 +172,7 @@ export async function runDurableHermes({ up, sessionId, input, sessionKey, instr
     if (terminal === 'failed') throw agentError('The agent failed');
     // Hermes hands back any steer it never read. Those messages run next.
     const unreadSteers = [...delivered].filter(([, text]) => unread && unread.includes(text)).map(([id]) => id);
-    return { answer: final, status: terminal, unreadSteers, usage };
+    return { answer: final, status: terminal, unreadSteers, usage, closeReason: terminal === 'completed' ? closeReason : null };
   } finally {
     streamAbort.abort();
     await events;

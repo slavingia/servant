@@ -30,6 +30,7 @@ import { privateMessageView } from "./source-device.mjs";
 import { createChatMediaStore } from "./chat-media.mjs";
 import { createUsageStore } from "./usage.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
+import { withCloseInstructions } from "./close-marker.mjs";
 import { supportsDurableRuns, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
 import { availableProjects, chatInstructions, projectById, vibeFolder, VIBE_PROJECT } from "./projects.mjs";
 import { verifyMemberUpstream } from "./member-policy.mjs";
@@ -413,11 +414,24 @@ function chatLastMessage(latestTurn, mirrored) {
   if (latestTurn) return latestTurn.assistantText ? pick("assistant", latestTurn.assistantText, latestTurn.updatedAt) : pick("user", latestTurn.text, latestTurn.createdAt);
   return null;
 }
+// Chats close like issues: by the person (archive), by the agent when it says
+// it's done, or by the closer sweep. The latter two are derived from the last
+// reply, count only once that reply has been read, and lose to a later Restore.
+// Any new message reopens the chat because the reply it ends on changes.
+function chatClosure(chat) {
+  if (chat.archivedAt) return { by: "you", reason: null, at: chat.archivedAt };
+  const derived = agentTurns?.closure(chat.id);
+  return derived && derived.at > (chat.reopenedAt || 0) ? derived : null;
+}
 function chatView(chat, viewer, users = {}) {
   const view = { id: chat.id, title: chat.title, createdAt: chat.createdAt, updatedAt: chat.updatedAt, shared: chatShared(chat),
     ...(chat.project ? { project: { id: chat.project, name: projectById(chat.project)?.name || chat.project } } : {}),
     ...(chat.mode === "vibe" ? { mode: "vibe", previewUrl: `${projectById(VIBE_PROJECT).pages}${chat.vibeFolder}/` } : {}) };
-  if (viewer && chat.userId === viewer.id) view.archived = !!chat.archivedAt;
+  if (viewer && chat.userId === viewer.id) {
+    const closed = chatClosure(chat);
+    view.archived = !!closed;
+    if (closed) view.closed = closed;
+  }
   if (viewer && chat.userId !== viewer.id) {
     const author = users[chat.userId];
     view.author = { id: chat.userId, name: author?.name || "Former member" };
@@ -789,12 +803,14 @@ async function handle(req, res, cfg) {
   // A member promoted to owner (or the reverse) keeps old chats on the old agent.
   const chatUp = cfg.upstreams[agentRole(chat.role, cfg)];
 
-  // Archive is a tidy-up only: the chat keeps running, and sending a new
-  // message brings it back to the list.
+  // Close (archive) is a tidy-up only: the chat keeps running, and sending a
+  // new message brings it back to the list. Restore also reopens a chat the
+  // agent or the closer closed.
   if (method === "POST" && (parts[3] === "archive" || parts[3] === "restore") && parts.length === 4) {
     const updated = mutateAuthenticated(req, (state, current) => {
       const active = requireChat(state, current.user.id, chat.id);
-      if (parts[3] === "archive") active.archivedAt = now(); else delete active.archivedAt;
+      if (parts[3] === "archive") active.archivedAt = now();
+      else { delete active.archivedAt; active.reopenedAt = now(); }
       return { ...active };
     });
     return send(res, 200, { chat: chatView(updated, user) });
@@ -1051,7 +1067,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
       chatMediaStore().accept(turn.chat_id, "user", queued.text, [], steerId);
       hooks.steered?.(steerId);
     };
-    result = await runDurableHermes({ up, sessionId: turn.session_id, input, sessionKey: sessionKey(user, turn.chat_id), instructions: chatInstructions(chat), runId: turn.run_id,
+    result = await runDurableHermes({ up, sessionId: turn.session_id, input, sessionKey: sessionKey(user, turn.chat_id), instructions: withCloseInstructions(chatInstructions(chat)), runId: turn.run_id,
       onAccepted, onEvent, checkpoint: hooks.checkpoint, controls: hooks.controls, steered, canSteer });
     if (result.usage) recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", usage: result.usage });
     // Run output is resolved by the bridge, while history contains its original
@@ -1070,7 +1086,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
     result = { status: "completed" };
   }
   mutateState(state => { const current = state.chats[turn.chat_id]; if (current && !current.deletedAt) current.updatedAt = now(); });
-  return { status: result.status, unreadSteers: result.unreadSteers, notification: assistantMessage && (assistantMessage.text || assistantMessage.attachments.length) ? {
+  return { status: result.status, unreadSteers: result.unreadSteers, closeReason: result.closeReason, notification: assistantMessage && (assistantMessage.text || assistantMessage.attachments.length) ? {
     kind: "agent", eventId: turn.id, chatId: turn.chat_id, userId: turn.user_id,
     text: assistantMessage.text || (assistantMessage.attachments.some(a => a.mime.startsWith("video/")) ? "Sent a video" : "Sent an image"),
   } : undefined };
@@ -1138,7 +1154,56 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
     send: createPushTransport(() => loadJson(process.env.SERVANT_PUSH_CONFIG || path.join(os.homedir(), ".config/servant/push.json"), {})),
   });
   return { messaging: serviceMessaging, push: servicePush, agentTurns: serviceTurns,
+    closeIdleChats: options => closeIdleChats(serviceTurns, fixedCfg || loadConfig(), options),
     closeState: () => { chatMedia?.close(); chatMedia = null; usageDb?.close(); usageDb = null; stateStore?.close(); stateStore = null; } };
+}
+
+// The closer: a second pass, like someone triaging stale issues. Once a day
+// after a read reply with no follow-up, a no-tools model call on the
+// restricted agent decides whether anything still waits on the person. It
+// never touches a chat with a running or queued turn, a pending approval, an
+// unread reply, or one the person archived or restored themselves.
+export const CLOSER_IDLE_MS = 24 * 60 * 60 * 1000;
+const CLOSER_PROMPT = [
+  "You triage finished conversations between a person and their AI agent, like closing stale issues.",
+  "Decide if the conversation is done: the request was handled and nothing waits on the person (no question to them, no decision they owe, no promised follow-up).",
+  'Reply with JSON only: {"done": true|false, "reason": "one short sentence, e.g. Fix shipped, nothing pending"}.',
+  "If unsure, done is false.",
+].join(" ");
+export function parseCloserVerdict(text) {
+  const match = String(text || "").match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    const verdict = JSON.parse(match[0]);
+    if (verdict.done !== true) return null;
+    return previewText(String(verdict.reason || "Nothing pending"), 160) || "Nothing pending";
+  } catch { return null; }
+}
+async function closeIdleChats(turns, cfg, { now: at = now(), idleMs = CLOSER_IDLE_MS, limit = 10, log = console } = {}) {
+  const up = upstreamFor({ role: "member" }, cfg);
+  if (!up) return [];
+  const closed = [];
+  for (const candidate of turns.closerCandidates({ before: at - idleMs, limit })) {
+    const chat = readState().chats[candidate.chatId];
+    // Chats the person filed or brought back themselves are theirs to manage.
+    if (!chat || chat.deletedAt || chat.archivedAt || (chat.reopenedAt || 0) > candidate.updatedAt) { turns.closerJudged(candidate.id, null); continue; }
+    let reason = null;
+    try {
+      const transcript = turns.transcript(candidate.chatId).map(m => `${m.role === "user" ? "Person" : "Agent"}: ${String(m.text).slice(0, 4000)}`).join("\n\n");
+      const response = await hermes(up, "POST", "/v1/chat/completions", { messages: [
+        { role: "system", content: CLOSER_PROMPT }, { role: "user", content: transcript },
+      ] }, {}, AbortSignal.timeout(120_000));
+      if (!response.ok) throw new Error(`closer model returned ${response.status}`);
+      const data = await response.json();
+      reason = parseCloserVerdict(data.choices?.[0]?.message?.content);
+    } catch (error) {
+      // Leave it unjudged; the next sweep tries again.
+      log.error("[servant] closer skipped a chat:", error.message);
+      continue;
+    }
+    if (turns.closerJudged(candidate.id, reason)) closed.push({ chatId: candidate.chatId, reason });
+  }
+  return closed;
 }
 
 export function createWorkerServices() {
