@@ -382,6 +382,22 @@ test("limited mode: member chat streams from the member agent and hides tool det
   });
 });
 
+test("agent list times come from the latest turn, so a reply still streaming stays on top", async () => {
+  const token = await pair("member", "Lia");
+  const older = (await api("POST", "/v1/chats", { token, body: {} })).json.chat;
+  await api("POST", `/v1/chats/${older.id}/messages`, { token, body: { text: "first question" } });
+  const newer = (await api("POST", "/v1/chats", { token, body: {} })).json.chat;
+  await api("POST", `/v1/chats/${newer.id}/messages`, { token, body: { text: "second question" } });
+  // The older chat's reply keeps streaming after the newer chat was touched.
+  const later = Date.now() + 60_000;
+  const db = new DatabaseSync(path.join(dataDir, "agent-turns.db"));
+  db.prepare("UPDATE private_turns SET updated_at=? WHERE chat_id=?").run(later, older.id);
+  db.close();
+  const list = (await api("GET", "/v1/chats?scope=org", { token })).json.chats;
+  assert.deepEqual(list.slice(0, 2).map(c => c.id), [older.id, newer.id]);
+  assert.equal(list[0].updatedAt, later);
+});
+
 test("agent chats are shared with the org by default: others read, only the author writes", async () => {
   const a = await pair("member", "Cy");
   const b = await pair("member", "Di");

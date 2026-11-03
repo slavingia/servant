@@ -647,10 +647,21 @@ async function handle(req, res, cfg) {
     const others = url.searchParams.get("scope") === "org"
       ? Object.values(currentState.chats).filter(c => c.userId !== user.id && canReadChat(c, viewer))
       : [];
+    // A chat's time is its last activity. The chat record only moves when a
+    // message is sent or a turn ends, so a reply that streams for an hour
+    // would otherwise keep the send time and sink below quieter chats.
+    const withActivity = (chat, view) => {
+      const latestTurn = agentTurns.latest(chat.id)[0] || null;
+      return { ...view, updatedAt: Math.max(chat.updatedAt || 0, latestTurn?.updatedAt || 0), latestTurn };
+    };
     const sorted = list => list.sort((a, b) => b.updatedAt - a.updatedAt);
+    const unread = agentTurns.unreadByChat(user.id);
     return send(res, 200, {
-      chats: (unread => sorted(mine).map(chat => ({ ...chatView(chat, viewer), unread: unread[chat.id] || 0, latestTurn: agentTurns.latest(chat.id)[0] || null })))(agentTurns.unreadByChat(user.id)),
-      ...(url.searchParams.get("scope") === "org" ? { orgChats: sorted(others).map(chat => chatView(chat, viewer, currentState.users)) } : {}),
+      chats: sorted(mine.map(chat => ({ ...withActivity(chat, chatView(chat, viewer)), unread: unread[chat.id] || 0 }))),
+      ...(url.searchParams.get("scope") === "org" ? { orgChats: sorted(others.map(chat => {
+        const { latestTurn, ...view } = withActivity(chat, chatView(chat, viewer, currentState.users));
+        return view;
+      })) } : {}),
     });
   }
 
