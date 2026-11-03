@@ -154,7 +154,6 @@ export default function Chats() {
                 {starting ? <ActivityIndicator color={colors.blue} /> : <AppIcon name="compose" size={22} color={colors.ink} />}
               </Pressable>
             </View>
-            <Text style={styles.description}>Your conversations with the agent. They're shared with {account.serverName} so people can learn from each other's prompts. Turn sharing off in any chat.</Text>
             {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
             {actionError && !deleting ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
             {account.user.role === 'owner' && chats?.some(chat => chat.latestTurn?.status === 'waiting_for_approval') ? <View style={styles.inbox}>
@@ -266,7 +265,6 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   header: { minHeight: 60, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.xs },
   title: { ...typography.title, color: colors.ink, flexShrink: 1 },
   compose: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
-  description: { ...typography.caption, color: colors.muted, paddingHorizontal: space.side, paddingBottom: space.md },
   error: { ...typography.caption, marginBottom: space.sm, marginHorizontal: space.side, color: colors.red },
   sectionTitle: { ...typography.label, color: colors.muted, paddingHorizontal: space.side, paddingTop: space.sm, paddingBottom: space.xs, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   retry: { marginHorizontal: space.side },
