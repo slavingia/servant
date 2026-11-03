@@ -11,15 +11,15 @@ test("last night stays a time just after midnight", () => {
   assert.equal(shortTime(sent.getTime(), now.getTime()), time(sent));
 });
 
-test("anything under 14 hours old shows the time", () => {
+test("anything under 24 hours old shows the time", () => {
   const now = new Date(2026, 10, 3, 9, 0);
-  const sent = new Date(2026, 10, 2, 19, 30);
+  const sent = new Date(2026, 10, 2, 9, 30);
   assert.equal(shortTime(sent.getTime(), now.getTime()), time(sent));
 });
 
-test("14 hours or older from another day shows the date", () => {
+test("24 hours or older shows the date", () => {
   const now = new Date(2026, 10, 3, 9, 0);
-  const sent = new Date(2026, 10, 2, 18, 59);
+  const sent = new Date(2026, 10, 2, 8, 59);
   assert.equal(shortTime(sent.getTime(), now.getTime()), day(sent));
 });
 

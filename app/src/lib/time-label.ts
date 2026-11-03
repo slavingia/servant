@@ -1,6 +1,6 @@
-const RECENT_MS = 14 * 60 * 60_000;
+const RECENT_MS = 24 * 60 * 60_000;
 
-// Short list/message timestamp. Anything from today, or from the last 14 hours,
+// Short list/message timestamp. Anything from today, or from the last 24 hours,
 // shows the clock time so a message sent at 11 PM doesn't flip to "Nov 2" at midnight.
 export function shortTime(at: number, now = Date.now()) {
   const date = new Date(at);
