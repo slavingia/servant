@@ -8,6 +8,7 @@ import { request, ServerError, type Account, type Attachment } from "../lib/serv
 import { useSession } from "../lib/session";
 import { createMediaCache, formatFileSize, isPreviewImage, isPreviewVideo, MAX_FILE_BYTES, MAX_VIDEO_BYTES, mediaRoute, mergeMediaItems, readMediaPage, type MediaItem, type MediaScope } from "../lib/media";
 import { radius, space, typography } from "../lib/theme";
+import { downloadDocument } from "../lib/document-upload";
 import { canStartGalleryDismiss, shouldDismissGallery } from "../lib/gallery-gestures";
 import { AppIcon } from "./AppIcon";
 import { GalleryVideo } from "./VideoMedia";
@@ -29,6 +30,10 @@ function ScopedGallery({ account, scope, items, children }: { account: Account; 
   const [cache] = useState(() => createMediaCache(async (file, signal) => {
     const response = await request(account, `/v1/attachments/${encodeURIComponent(file.id)}`, { signal });
     const value = await response.json();
+    // Documents arrive in ranges; anything else is one response.
+    if (typeof value.size === "number" && typeof value.data === "string") {
+      return await downloadDocument(value, async offset => (await request(account, `/v1/attachments/${encodeURIComponent(file.id)}?offset=${offset}`, { signal })).json());
+    }
     const maxBytes = isPreviewImage(file) ? MAX_FILE_BYTES : MAX_VIDEO_BYTES;
     if (typeof value.data !== "string" || value.data.length > Math.ceil(maxBytes / 3) * 4 || value.data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(value.data)) throw new Error("Attachment content is unavailable");
     return value.data;

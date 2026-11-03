@@ -3,15 +3,17 @@ import crypto from "node:crypto";
 import { normalizeMediaContent, mediaCaption } from "./media.mjs";
 
 const uid = prefix => `${prefix}_${crypto.randomBytes(12).toString("base64url")}`;
+// Documents keep their bytes on disk; their stored path identifies them.
+const contentHash = a => crypto.createHash("sha256").update(a.file ? `file:${a.file}` : a.data).digest("hex");
 const signature = (role, text, attachments) => mediaCaption(text) + (role === "user"
-  ? `:${[...new Set(attachments.map(a => crypto.createHash("sha256").update(a.data).digest("hex")))].join(",")}` : "");
+  ? `:${[...new Set(attachments.map(contentHash))].join(",")}` : "");
 const hash = value => crypto.createHash("sha256").update(value).digest("hex");
 const inputKey = (text, attachments) => `input:${hash(signature("user", text, attachments))}`;
 function sourceKey(content, attachments) {
   const serialized = typeof content === "string" ? content : JSON.stringify(content ?? "");
   const paths = serialized.match(/MEDIA:\s*[^\n]+/gi);
   if (paths?.length) return `media:${hash(paths.join("\n"))}`;
-  return attachments.length ? `image:${[...new Set(attachments.map(a => hash(a.data)))].join(",")}` : "";
+  return attachments.length ? `image:${[...new Set(attachments.map(contentHash))].join(",")}` : "";
 }
 const timestamp = value => {
   if (typeof value === "number") return value < 1e12 ? value * 1000 : value;
@@ -43,6 +45,9 @@ export function createChatMediaStore(file) {
   if (!db.prepare("PRAGMA table_info(chat_messages)").all().some(c => c.name === "source_key")) {
     db.exec("ALTER TABLE chat_messages ADD COLUMN source_key TEXT NOT NULL DEFAULT ''");
   }
+  if (!db.prepare("PRAGMA table_info(chat_attachments)").all().some(c => c.name === "file")) {
+    db.exec("ALTER TABLE chat_attachments ADD COLUMN file TEXT");
+  }
   const files = db.prepare("SELECT id,name,mime,size FROM chat_attachments WHERE message_id=? ORDER BY rowid");
   const view = row => ({ id: row.id, role: row.role, text: row.text, at: row.at, attachments: files.all(row.id) });
   function transaction(fn) {
@@ -54,8 +59,8 @@ export function createChatMediaStore(file) {
     const id = stableId || uid("msg");
     db.prepare("INSERT INTO chat_messages(id,chat_id,upstream_id,role,text,at,signature,source_key) VALUES (?,?,?,?,?,?,?,?)")
       .run(id, chatId, upstreamId, role, text, at, signature(role, text, attachments), key);
-    for (const a of attachments) db.prepare("INSERT INTO chat_attachments VALUES (?,?,?,?,?,?)")
-      .run(uid("chatfile"), id, a.name, a.mime, a.data.length, a.data);
+    for (const a of attachments) db.prepare("INSERT INTO chat_attachments(id,message_id,name,mime,size,data,file) VALUES (?,?,?,?,?,?,?)")
+      .run(uid("chatfile"), id, a.name, a.mime, a.file ? a.size : a.data.length, a.file ? Buffer.alloc(0) : a.data, a.file || null);
     return view(db.prepare("SELECT * FROM chat_messages WHERE id=?").get(id));
   }
   function accept(chatId, role, text, attachments = [], deliveryKey) {

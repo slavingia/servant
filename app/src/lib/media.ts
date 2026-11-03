@@ -13,18 +13,25 @@ export type MediaPage = { items: MediaItem[]; nextCursor: string | null };
 export const MAX_FILE_BYTES = 5 * 1024 * 1024;
 export const MAX_VIDEO_BYTES = 25 * 1024 * 1024;
 export const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
+// Documents and design files upload in chunks, outside the 30 MB message limit.
+export const MAX_DOCUMENT_BYTES = 100 * 1024 * 1024;
+export const DOCUMENT_CHUNK_BYTES = 3 * 1024 * 1024;
 
-export function validateAttachmentSelection(files: readonly { mime: string; size: number }[]) {
+export function validateAttachmentSelection(files: readonly { mime: string; size: number; document?: unknown }[]) {
   if (files.length > 4) throw new Error("Attach up to 4 files");
   for (const file of files) {
     if (!Number.isSafeInteger(file.size) || file.size < 0) throw new Error("Couldn't read this file");
+    if (file.document) {
+      if (file.size > MAX_DOCUMENT_BYTES) throw new Error("Choose documents under 100 MB each");
+      continue;
+    }
     // Only images go to the model inline (5 MB cap); videos and other files get 25 MB.
     const image = file.mime.startsWith("image/");
     if (file.size > (image ? MAX_FILE_BYTES : MAX_VIDEO_BYTES)) {
       throw new Error(image ? "Choose photos under 5 MB each" : "Choose videos and files under 25 MB each");
     }
   }
-  if (files.reduce((total, file) => total + file.size, 0) > MAX_UPLOAD_BYTES) throw new Error("Attachments must be under 30 MB total");
+  if (files.reduce((total, file) => total + (file.document ? 0 : file.size), 0) > MAX_UPLOAD_BYTES) throw new Error("Attachments must be under 30 MB total");
 }
 
 export function mediaRoute(scope: MediaScope, after?: string) {

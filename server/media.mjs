@@ -3,6 +3,7 @@
 // after applying its own media-delivery policy.
 import crypto from "node:crypto";
 import { splitCloseMarker } from "./close-marker.mjs";
+import { documentNotice } from "./documents.mjs";
 
 export const MAX_FILE = 5 * 1024 * 1024;
 export const MAX_VIDEO = 25 * 1024 * 1024;
@@ -106,18 +107,23 @@ export function splitText(text, size = TEXT_PART_CHARS) {
   return parts;
 }
 
-export function hermesInput(text, attachments = [], { durable = false } = {}) {
+export function hermesInput(text, attachments = [], { durable = false, full = false } = {}) {
   // Runs accept the original content without the legacy per-part truncation.
   const textParts = text ? (durable ? [text] : splitText(text)) : [];
   if (!attachments.length) return textParts.length > 1 ? textParts.map(part => ({ type: "text", text: part })) : text;
   // With images Hermes retains the blocks instead of newline-joining them.
   // Keep those separators explicitly (still below its 64K per-part limit).
-  const images = attachments.filter(a => a.mime.startsWith("image/"));
-  const videos = attachments.filter(a => a.mime.startsWith("video/"));
+  // Documents never become image parts, whatever their type: the model
+  // rejects big images, and the bytes stay on disk for the agent's tools.
+  const documents = attachments.filter(a => a.file);
+  const images = attachments.filter(a => !a.file && a.mime.startsWith("image/"));
+  const videos = attachments.filter(a => !a.file && a.mime.startsWith("video/"));
+  const docNotice = documentNotice(documents, { full });
   const notice = videos.length ? `[Servant shared video attachments: ${videos.map(a => `${JSON.stringify(a.name)} (${a.mime}, ${a.data.length} bytes, SHA-256 ${crypto.createHash("sha256").update(a.data).digest("hex")})`).join("; ")}]. The videos are available to people in this conversation. This Hermes API accepts images and text only, so you have not received the video bytes and cannot inspect or describe their contents. Ask for a description or still frames if needed.` : "";
   return [
     ...textParts.map((part, index) => ({ type: "text", text: part + (!durable && images.length && index < textParts.length - 1 ? "\n" : "") })),
     ...(notice ? [{ type: "text", text: notice }] : []),
+    ...(docNotice ? [{ type: "text", text: docNotice }] : []),
     ...images.map(a => ({ type: "image_url", image_url: { url: `data:${a.mime};base64,${Buffer.from(a.data).toString("base64")}` } })),
   ];
 }

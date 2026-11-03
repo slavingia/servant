@@ -5,7 +5,8 @@ import * as WebBrowser from "expo-web-browser";
 import { randomUUID } from "expo-crypto";
 import { ConversationKeyboardView } from "../../components/ConversationKeyboardView";
 import { Avatar, Composer, when } from "../../components/Messaging";
-import { Attachments, PendingAttachments } from "../../components/Attachments";
+import { Attachments, documentReader, PendingAttachments } from "../../components/Attachments";
+import { uploadDocument, UploadError } from "../../lib/document-upload";
 import { MediaGalleryProvider } from "../../components/MediaGallery";
 import { mediaFromMessages } from "../../lib/media";
 import { Button } from "../../components/Button";
@@ -15,7 +16,7 @@ import { activeAgentTurn, agentTurnLabel, canSteer, liveAgentLine, queuedBelow, 
 import { LiveStatus } from "../../components/LiveStatus";
 import { bufferAgentReply } from "../../lib/agent-events";
 import { messageDeviceLabel } from "../../lib/message-device";
-import { api, sendMessage, ServerError, type Chat, type Message, type Upload } from "../../lib/server";
+import { api, sendMessage, ServerError, uploadPost, type Chat, type Message, type Upload } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { useLive } from "../../lib/live";
 import { forwardTitle, parseForward, type ForwardCard } from "../../lib/forward";
@@ -233,6 +234,8 @@ function ChatConversation() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
+  const uploaded = useRef(new Map<string, string>());
   const [turn, setTurn] = useState<AgentTurn | null>(null);
   // Messages sent while the agent works wait here, oldest first.
   const [waiting, setWaiting] = useState<AgentTurn[]>([]);
@@ -241,7 +244,6 @@ function ChatConversation() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [heading, setHeading] = useState(title && title !== "New chat" ? title : "New chat");
   // The full agent takes any file, so a ZIP of a prototype can be hosted.
-  const [acceptsFiles, setAcceptsFiles] = useState(false);
   const [showTitle, setShowTitle] = useState(false);
   // Links, pushes and the sidebar may open a chat without its title: read it from the server.
   useEffect(() => {
@@ -249,7 +251,6 @@ function ChatConversation() {
     let live = true;
     api.chat(account, id).then(c => {
       if (!live) return;
-      setAcceptsFiles(c.files === true);
       if (c.title && c.title !== "New chat") setHeading(h => h === "New chat" ? c.title : h);
     }).catch(() => {});
     return () => { live = false; };
@@ -359,6 +360,26 @@ function ChatConversation() {
   // Sent while the agent is working: the server queues it behind the current
   // reply. We don't follow its stream here; the waiting row shows it until it
   // runs, then the regular refresh shows the reply.
+  // Documents go up in chunks before the message that names them. Finished
+  // uploads are remembered, so retrying the same draft doesn't resend them.
+  const uploadDocuments = async (attachments: Upload[], signal?: AbortSignal) => {
+    const out: Upload[] = [];
+    for (const file of attachments) {
+      if (!file.document) { out.push(file); continue; }
+      const key = `${file.document.uri}:${file.document.size}`;
+      let upload = uploaded.current.get(key);
+      if (!upload) {
+        setUploadProgress("Uploading…");
+        upload = await uploadDocument({ chatId: String(id), name: file.name, size: file.document.size, read: documentReader(file.document), post: uploadPost(account, setAccount), signal,
+          onProgress: fraction => setUploadProgress(`Uploading ${Math.floor(fraction * 100)}%`) });
+        uploaded.current.set(key, upload);
+      }
+      out.push({ ...file, upload });
+    }
+    setUploadProgress(null);
+    return out;
+  };
+
   const queue = async (body: string, attachments: Upload[]) => {
     // Same draft retried after an uncertain send reuses its key: no duplicate.
     const previous = delivery.current;
@@ -370,16 +391,18 @@ function ChatConversation() {
     const controller = new AbortController();
     let queued = false;
     try {
+      const ready = await uploadDocuments(attachments);
       await sendMessage(account, String(id), body, e => {
         if (e.type === 'turn' && e.turn.status === 'queued' && !queued) {
           queued = true;
           setWaiting(w => w.some(t => t.id === e.turn.id) ? w : [...w, e.turn]);
           controller.abort();
         }
-      }, controller.signal, setAccount, attachments, requestId, forwarding);
+      }, controller.signal, setAccount, ready, requestId, forwarding);
     } catch (e) {
+      setUploadProgress(null);
       if (!queued) {
-        setSendError(e instanceof ServerError ? e.message : "Couldn't queue your message. Your draft is saved; try again.");
+        setSendError(e instanceof ServerError || e instanceof UploadError ? e.message : "Couldn't queue your message. Your draft is saved; try again.");
         return false;
       }
     }
@@ -442,6 +465,7 @@ function ChatConversation() {
       setMessages((m) => (m ?? []).map((r) => r.localId === mineKey ? { ...r, pending: false } : r));
     };
     try {
+      const ready = await uploadDocuments(attachments, controller.signal);
       await sendMessage(
         account,
         String(id),
@@ -473,7 +497,7 @@ function ChatConversation() {
         }),
         controller.signal,
         setAccount,
-        attachments,
+        ready,
         requestId,
         forwarding,
       );
@@ -495,7 +519,8 @@ function ChatConversation() {
       }
     } catch (e) {
       failed = true;
-      if (isCurrent()) setSendError(e instanceof ServerError ? e.message : accepted ? "Your message was sent. Reconnecting to the reply saved on your Mac…" : "Couldn't confirm delivery. Your draft is saved; check the conversation before trying again.");
+      setUploadProgress(null);
+      if (isCurrent()) setSendError(e instanceof ServerError || e instanceof UploadError ? e.message : accepted ? "Your message was sent. Reconnecting to the reply saved on your Mac…" : "Couldn't confirm delivery. Your draft is saved; check the conversation before trying again.");
       update((r) => ({ ...r, pending: false, failed: true }));
     } finally {
       if (isCurrent()) {
@@ -616,7 +641,7 @@ function ChatConversation() {
                   </View>
                   {mine && !working ? <ForwardedText item={item} /> : !working && item.text ? <ReplyText text={item.text} failed={item.failed} /> : null}
                   {!working && item.attachments?.length ? <Attachments files={item.attachments} /> : null}
-                  {item.uploads?.length ? <PendingAttachments files={item.uploads} /> : null}
+                  {item.uploads?.length ? <PendingAttachments files={item.uploads} progress={item.pending ? uploadProgress : null} /> : null}
                   {working ? <View style={styles.liveRow}>
                     <LiveStatus text={liveAgentLine(turn && activeAgentTurn(turn) ? turn : null, item.agentWorking ? null : status)} style={styles.live} />
                     {turn?.canStop && activeAgentTurn(turn) ? <Pressable accessibilityRole="button" accessibilityLabel="Stop the agent" accessibilityState={{ disabled: actionBusy || turn.status === 'stopping' }}
@@ -653,7 +678,7 @@ function ChatConversation() {
             <AppIcon name="close" size={16} color={colors.muted} />
           </Pressable>
         </View> : null}
-        {messages !== null && !loadError ? <Composer autoFocus={compose === "1"} placeholder={pendingForward ? "Ask about this message, or just send" : "Message the agent"} onSend={send} allowFileAttachments={acceptsFiles} canSendEmpty={!!pendingForward} /> : null}
+        {messages !== null && !loadError ? <Composer autoFocus={compose === "1"} placeholder={pendingForward ? "Ask about this message, or just send" : "Message the agent"} onSend={send} allowFileAttachments={false} allowDocuments canSendEmpty={!!pendingForward} /> : null}
       </ConversationKeyboardView>
     </View>
     </MediaGalleryProvider>

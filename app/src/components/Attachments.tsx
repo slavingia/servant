@@ -4,7 +4,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { File } from "expo-file-system";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
-import type { Attachment, Upload } from "../lib/server";
+import type { Attachment, LocalDocument, Upload } from "../lib/server";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 import { formatFileSize, isPreviewImage, isPreviewVideo, jpegPhotoUpload, MAX_FILE_BYTES, MAX_UPLOAD_BYTES, MAX_VIDEO_BYTES, uploadImageUri, uploadMediaMime, validateAttachmentSelection } from "../lib/media";
 import { MediaGalleryProvider, useAttachmentContent, useMediaGallery } from "./MediaGallery";
@@ -124,6 +124,41 @@ export async function pickAttachments(mediaLibrary: boolean, existing: readonly 
   return files;
 }
 
+// Documents and design files are never read whole: they upload in chunks
+// straight from the picked file when the message is sent.
+export async function pickDocuments(existing: readonly DraftAttachment[] = []): Promise<DraftAttachment[]> {
+  const count = 4 - existing.length;
+  if (count <= 0) throw new Error("Attach up to 4 files");
+  const result = await DocumentPicker.getDocumentAsync({ type: "*/*", multiple: count > 1, copyToCacheDirectory: true });
+  if (result.canceled) return [];
+  if (result.assets.length > count) throw new Error("Attach up to 4 files");
+  const files: DraftAttachment[] = [];
+  for (const asset of result.assets) {
+    const size = asset.size ?? asset.file?.size ?? (Platform.OS !== "web" ? new File(asset.uri).size : 0);
+    if (!size) throw new Error("Couldn't read this file");
+    const file: DraftAttachment = { name: asset.name, data: "", uri: asset.uri, size, mime: "application/octet-stream", document: { uri: asset.uri, size, blob: asset.file } };
+    validateAttachmentSelection([...existing, ...files, file]);
+    files.push(file);
+  }
+  return files;
+}
+
+/** Reads `length` bytes at `offset` without loading the whole file. */
+export function documentReader(document: LocalDocument) {
+  if (Platform.OS === "web") {
+    let blob: Promise<Blob> | null = document.blob ? Promise.resolve(document.blob) : null;
+    return async (offset: number, length: number) => {
+      blob ??= fetch(document.uri).then(r => r.blob());
+      return new Uint8Array(await (await blob).slice(offset, offset + length).arrayBuffer());
+    };
+  }
+  return async (offset: number, length: number) => {
+    const handle = new File(document.uri).open();
+    try { handle.offset = offset; return await handle.readBytes(length); }
+    finally { handle.close(); }
+  };
+}
+
 export function DraftAttachments({ files, onRemove, disabled }: { files: DraftAttachment[]; onRemove: (index: number) => void; disabled: boolean }) {
   const styles = useStyles();
   return <ScrollView horizontal accessibilityLabel="Selected attachments" contentContainerStyle={styles.drafts}>
@@ -190,7 +225,7 @@ export function Attachments({ files }: { files: Attachment[] }) {
 }
 
 /** Optimistic uploads remain local until the server supplies an attachment ID. */
-export function PendingAttachments({ files }: { files: Upload[] }) {
+export function PendingAttachments({ files, progress }: { files: Upload[]; progress?: string | null }) {
   const styles = useStyles();
   const { colors } = useTheme();
   return <View accessibilityLabel="Attachments being sent" style={styles.attachments}>
@@ -198,7 +233,7 @@ export function PendingAttachments({ files }: { files: Upload[] }) {
       const uri = uploadImageUri(file);
       const video = isPreviewVideo({ mime: uploadMediaMime(file.data) || "" });
       return uri ? <View key={index} style={[files.length > 1 ? styles.tile : styles.singlePhoto, styles.photo, { aspectRatio: files.length > 1 ? 1 : 4 / 3 }]}><Image source={{ uri }} accessibilityLabel={file.name} resizeMode="cover" style={StyleSheet.absoluteFill} /><View style={styles.pendingBadge}><ActivityIndicator size="small" color={colors.white} /><Text style={styles.pendingText}>Sending</Text></View></View>
-        : <View key={index} accessibilityLabel={video ? `Sending video ${file.name}` : `Sending file ${file.name}`} style={styles.pendingFile}>{video ? <Text style={styles.videoLabel}>▶ Video</Text> : <AppIcon name="paperclip" color={colors.muted} />}<Text numberOfLines={1} style={styles.filename}>{file.name}</Text><ActivityIndicator size="small" color={colors.blue} /></View>;
+        : <View key={index} accessibilityLabel={video ? `Sending video ${file.name}` : `Sending file ${file.name}`} style={styles.pendingFile}>{video ? <Text style={styles.videoLabel}>▶ Video</Text> : <AppIcon name="paperclip" color={colors.muted} />}<Text numberOfLines={1} style={styles.filename}>{file.name}</Text>{file.document && progress ? <Text style={styles.fileMeta}>{progress}</Text> : null}<ActivityIndicator size="small" color={colors.blue} /></View>;
     })}</View>
   </View>;
 }

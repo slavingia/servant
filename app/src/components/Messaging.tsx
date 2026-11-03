@@ -15,7 +15,7 @@ import { usePhotos } from "../lib/photos";
 import { useWideLayout } from "../lib/layout";
 import { shortTime } from "../lib/time-label";
 import { validateAttachmentSelection } from "../lib/media";
-import { Attachments, DraftAttachments, pickAttachments, type DraftAttachment } from "./Attachments";
+import { Attachments, DraftAttachments, pickAttachments, pickDocuments, type DraftAttachment } from "./Attachments";
 import { AppIcon } from "./AppIcon";
 import { MessageText } from "./MessageText";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
@@ -290,6 +290,7 @@ export function Composer({
   autoFocus = false,
   allowAttachments = true,
   allowFileAttachments = true,
+  allowDocuments = false,
   clearOnSend = false,
   mentionAgent = false,
   canSendEmpty = false,
@@ -304,6 +305,8 @@ export function Composer({
   autoFocus?: boolean;
   allowAttachments?: boolean;
   allowFileAttachments?: boolean;
+  /** Documents and design files up to 100 MB, uploaded in chunks. */
+  allowDocuments?: boolean;
   // Long agent replies should leave the input free for the next draft.
   clearOnSend?: boolean;
   onTyping?: (text: string) => void;
@@ -337,12 +340,12 @@ export function Composer({
   // New messages leave the box the moment they're sent (restored if sending
   // fails); edits stay put until saved.
   const clearNow = clearOnSend || !onCancel;
-  const pick = async (photos: boolean) => {
+  const pick = async (photos: boolean, documents = false) => {
     if (picking || busy) return;
     setPicking(true);
     setFileError("");
     try {
-      const added = await pickAttachments(photos, files);
+      const added = documents ? await pickDocuments(files) : await pickAttachments(photos, files);
       const next = [...files, ...added];
       validateAttachmentSelection(next);
       setFiles(next);
@@ -393,7 +396,7 @@ export function Composer({
       body = latest.current.text.trim();
       if (!body && !files.length && !canSendEmpty) return;
       if (clearNow) setText("");
-      const ok = await onSend(body, files.map(({ name, data }) => ({ name, data })));
+      const ok = await onSend(body, files.map(({ name, data, document }) => document ? { name, data, document } : { name, data }));
       if (ok) { if (!clearNow) setText(""); setFiles([]); setInsertedSelection(undefined); }
       else if (clearNow) setText(current => current || body);
     } catch {
@@ -482,6 +485,9 @@ export function Composer({
           </Pressable>
           {allowFileAttachments ? <Pressable accessibilityRole="button" accessibilityLabel="Attach files" accessibilityState={{ disabled: busy || picking }} disabled={busy || picking} onPress={() => pick(false)} style={styles.attachmentChoice}>
             <AppIcon name="paperclip" size={18} color={colors.ink} /><Text style={styles.attachmentText}>Files</Text>
+          </Pressable> : null}
+          {allowDocuments ? <Pressable accessibilityRole="button" accessibilityLabel="Attach documents or design files, up to 100 MB each" accessibilityState={{ disabled: busy || picking }} disabled={busy || picking} onPress={() => pick(false, true)} style={styles.attachmentChoice}>
+            <AppIcon name="paperclip" size={18} color={colors.ink} /><Text style={styles.attachmentText}>Documents</Text>
           </Pressable> : null}
         </View> : null}
         <View style={styles.composerToolbar}>

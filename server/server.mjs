@@ -37,6 +37,7 @@ import { verifyMemberUpstream } from "./member-policy.mjs";
 import { composeForward } from "./forward.mjs";
 import { THINKING_LINE, toolStatusLine, WRITING_LINE } from "./agent-status.mjs";
 import { validateUploads, normalizeMediaContent, hermesInput, mediaPage, createMediaDeltaFilter, MAX_UPLOAD_BODY, TEXT_PART_CHARS } from "./media.mjs";
+import { createDocumentStore, DOCUMENT_CHUNK, DOCUMENT_CHUNK_BODY } from "./documents.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.SERVANT_DATA_DIR || path.join(HERE, "data");
@@ -75,7 +76,8 @@ function removeLongMessages(chatId) {
 
 /** Save a turn's non-media files for the full agent and tell it where they are. */
 export function agentFiles(turn, full) {
-  const files = (turn.attachments || []).filter(a => !/^(image|video)\//.test(a.mime));
+  // Chunk-uploaded documents already live on disk; documentNotice names them.
+  const files = (turn.attachments || []).filter(a => !a.file && !/^(image|video)\//.test(a.mime));
   if (!full || !files.length) return "";
   const dir = path.join(UPLOAD_DIR, `${turn.chat_id}-${turn.id}`);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -479,6 +481,8 @@ let agentTurns;
 let privateTimer;
 const privateStreams = new Set();
 const chatMediaStore = () => chatMedia ??= createChatMediaStore(path.join(DATA_DIR, "chat-media.db"));
+let documentStore;
+const documents = () => documentStore ??= createDocumentStore(path.join(DATA_DIR, "chat-files"));
 let usageDb;
 const usageStore = () => usageDb ??= createUsageStore(path.join(DATA_DIR, "usage.db"));
 const recordUsage = entry => { try { usageStore().record(entry); } catch (error) { console.error("[servant] usage", error.message); } };
@@ -681,6 +685,14 @@ async function handle(req, res, cfg) {
     const current = requireAuth(req, state).user;
     const chat = a && state.chats[a.chat_id];
     if (!canReadChat(chat, state.users[current.id] || current)) return fail(res, 404, "not_found", "That attachment is unavailable");
+    if (a.file) {
+      // Documents download in ranges; one response could never hold 100 MB.
+      if (!documents().owns(a.file)) return fail(res, 404, "not_found", "That attachment is unavailable");
+      const offset = Number(url.searchParams.get("offset") || 0);
+      if (!Number.isSafeInteger(offset) || offset < 0 || offset > a.size) return fail(res, 400, "bad_request", "Invalid offset");
+      try { return send(res, 200, { data: documents().read(a.file, offset, Math.min(DOCUMENT_CHUNK, a.size - offset)).toString("base64"), offset, size: a.size }); }
+      catch { return fail(res, 404, "not_found", "That attachment is unavailable"); }
+    }
     return send(res, 200, { data: Buffer.from(a.data).toString("base64") });
   }
   // What an agent chat can work on. Vibe coders don't choose: they build prototypes.
@@ -853,6 +865,7 @@ async function handle(req, res, cfg) {
   if (method === "DELETE" && parts.length === 3) {
     mutateAuthenticated(req, (state, current) => { requireChat(state, current.user.id, chat.id).deletedAt = now(); });
     chatMediaStore().deleteChat(chat.id);
+    documents().deleteChat(chat.id);
     removeLongMessages(chat.id);
     hermes(chatUp, "DELETE", `/api/sessions/${encodeURIComponent(chat.hermesSessionId)}`).catch(() => {});
     return send(res, 200, { ok: true });
@@ -947,11 +960,25 @@ async function handle(req, res, cfg) {
     }
   }
 
+  // Documents and design files upload in chunks first; the message then names them.
+  if (method === "POST" && parts[3] === "uploads" && parts.length === 4) {
+    const body = await readAuthorizedBody(req);
+    if (postingClosed(cfg.workHours)) return fail(res, 403, "work_hours", workHoursMessage(cfg.workHours));
+    return send(res, 201, documents().create({ chatId: chat.id, userId: user.id, name: body.name, size: body.size }));
+  }
+  if (method === "POST" && parts[3] === "uploads" && parts.length === 5) {
+    const body = await readAuthorizedBody(req, DOCUMENT_CHUNK_BODY);
+    return send(res, 200, documents().append({ chatId: chat.id, userId: user.id, id: parts[4], offset: body.offset, data: body.data }));
+  }
+
   if (method === "POST" && parts[3] === "messages" && parts.length === 4) {
     const body = await readAuthorizedBody(req, MAX_UPLOAD_BODY);
     if (postingClosed(cfg.workHours)) return fail(res, 403, "work_hours", workHoursMessage(cfg.workHours));
     let text = String(body.text || "").trim();
-    let attachments = validateUploads(body.attachments, { mediaOnly: agentRole(chat.role, cfg) !== "owner" });
+    const inline = Array.isArray(body.attachments) ? body.attachments.filter(a => !a?.upload) : body.attachments;
+    const uploaded = Array.isArray(body.attachments) ? body.attachments.filter(a => a?.upload) : [];
+    if (Array.isArray(body.attachments) && body.attachments.length > 4) return fail(res, 400, "attachments", "Attach up to 4 files");
+    let attachments = [...validateUploads(inline, { mediaOnly: agentRole(chat.role, cfg) !== "owner" }), ...documents().resolve({ chatId: chat.id, userId: user.id, parts: uploaded })];
     // Only the server writes forward headers; typed lookalikes don't render as one.
     if (/^Forwarded message from /.test(text)) text = `\u200B${text}`;
     const ownText = text;
@@ -1050,7 +1077,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
   // altered chunks. Restricted agents never receive a local-file fallback.
   const text = agentText(turn, full, durable ? INLINE_MESSAGE_CHARS : TEXT_PART_CHARS);
   const files = agentFiles(turn, full);
-  const input = hermesInput(files ? (text ? `${text}\n\n${files}` : files) : text, turn.attachments, { durable });
+  const input = hermesInput(files ? (text ? `${text}\n\n${files}` : files) : text, turn.attachments, { durable, full });
   let assistantMessage;
   const saveAssistant = content => {
     if (assistantMessage) return;

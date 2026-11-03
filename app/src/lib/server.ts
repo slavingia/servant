@@ -40,7 +40,10 @@ export type Presence = { userId: string; online: boolean; lastSeenAt: number | n
 // photo: version of their profile photo, when they have one.
 export type Person = { vibeCoder?: boolean; id: string; name: string; agent?: boolean; owner?: boolean; online?: boolean; lastSeenAt?: number | null; photo?: string | null };
 export type Attachment = { id: string; name: string; mime: string; size: number };
-export type Upload = { name: string; data: string };
+// Documents skip base64: `document` points at the local file until it's
+// uploaded in chunks, then `upload` names the server copy.
+export type LocalDocument = { uri: string; size: number; blob?: Blob };
+export type Upload = { name: string; data: string; document?: LocalDocument; upload?: string };
 export type Post = {
   sourceDevice?: SourceDevice;
   readBy?: { userId: string; readAt: number }[];
@@ -240,7 +243,7 @@ export async function sendMessage(
     secureFetch(base, account.serverKey, `/v1/chats/${chatId}/messages`, {
       method: "POST",
       headers: { Authorization: `Bearer ${account.token}`, "Content-Type": "application/json", Accept: "text/event-stream" },
-      body: JSON.stringify({ text, attachments: attachments.map(({ name, data }) => ({ name, data })), requestId, ...(forward ? { forward } : {}) }),
+      body: JSON.stringify({ text, attachments: attachments.map(({ name, data, upload }) => upload ? { name, upload } : { name, data }), requestId, ...(forward ? { forward } : {}) }),
       signal,
     });
   let res = await go(account.serverUrl).catch(() => null);
@@ -297,6 +300,10 @@ const json = <T,>(r: SecureResponse) => r.json() as Promise<T>;
 export type Release = { build: string; conversationId: string; messageId: string; text: string; createdAt: number };
 
 export type FeedbackReport = { id: string; text: string; status: string; result: string | null; createdAt: number; screenshots?: number };
+
+/** POST helper for chunked document uploads: JSON in, JSON out, ServerError on failure. */
+export const uploadPost = (account: Account, onMove?: (a: Account) => void) => (path: string, body: unknown) =>
+  request(account, path, { method: "POST", body: JSON.stringify(body) }, onMove).then(r => r.json());
 
 export const api = {
   search: (a: Account, query: string, signal?: AbortSignal) =>
