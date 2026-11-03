@@ -101,7 +101,7 @@ export default function Settings() {
 
   return (
     <View style={styles.root}>
-    <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.root} contentContainerStyle={styles.content} contentInsetAdjustmentBehavior="automatic">
       <PageTitle>You</PageTitle>
       <Pressable testID="profile-photo" accessibilityRole="button" accessibilityLabel={hasPhoto ? "Change your profile photo" : "Add a profile photo"} accessibilityHint="Everyone on this server sees it"
         accessibilityState={{ busy: photoBusy, expanded: hasPhoto ? photoMenu : undefined }} disabled={photoBusy}
