@@ -411,6 +411,16 @@ test("people can't see chats the author made private", async () => {
   assert.equal((await api("GET", `/v1/chats/${quiet.id}/messages`, { token: b })).status, 404);
 });
 
+test("chats from before sharing existed stay private", async () => {
+  const a = await pair("member", "Hal");
+  const b = await pair("member", "Ivy");
+  const chat = (await api("POST", "/v1/chats", { token: a, body: {} })).json.chat;
+  // Simulate a chat saved by an older release: no "shared" field at all.
+  mod.mutateStateForTest(state => { delete state.chats[chat.id].shared; });
+  assert.equal((await api("GET", `/v1/chats/${chat.id}/messages`, { token: b })).status, 404);
+  assert.equal((await api("GET", "/v1/chats", { token: a })).json.chats.find(c => c.id === chat.id).shared, false);
+});
+
 test("the owner (admin) can always read every chat, private ones too, but not write", async () => {
   const a = await pair("member", "Gus");
   const admin = await pair("owner", "Admin");

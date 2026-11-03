@@ -127,6 +127,12 @@ function inviteCode() {
 const normalizeCode = (c) => String(c || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
 
 // userId: pair another device (phone, iPad) for someone who's already on the server.
+// Tests only: edit saved state as an older release would have written it.
+export function mutateStateForTest(fn) {
+  if (process.env.NODE_ENV === "production") throw new Error("test helper");
+  return mutateState(fn);
+}
+
 export function createInvite({ name, role = "member", userId }) {
   return mutateState(state => {
     if (!["owner", "member"].includes(role)) throw new Error("role must be owner or member");
@@ -371,7 +377,9 @@ const sessionKey = (user) => `servant:${user.id}`;
 // learn from each other's prompts. The person can turn sharing off per chat;
 // the owner (admin) can always read every chat. Only the person who started a
 // chat can post in it, steer, stop, approve, rename sharing or delete it.
-const chatShared = chat => chat.shared !== false;
+// Chats from before sharing existed (no "shared" field) were started when the
+// app called them private, so they stay private; new chats store shared: true.
+const chatShared = chat => chat.shared === true;
 function canReadChat(chat, viewer) {
   return !!chat && !chat.deletedAt && !!viewer && (chat.userId === viewer.id || viewer.role === "owner" || chatShared(chat));
 }
