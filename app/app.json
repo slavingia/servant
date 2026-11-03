@@ -54,6 +54,9 @@
         {
           "ios": {
             "useFrameworks": "dynamic"
+          },
+          "android": {
+            "extraProguardRules": "-keep class org.webrtc.** { *; }\n-dontwarn org.webrtc.**"
           }
         }
       ],
