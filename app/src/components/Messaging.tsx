@@ -194,7 +194,7 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
     setMenu(true);
     if (Platform.OS !== "web") void Haptics.selectionAsync().catch(() => {});
   };
-  const label = `${post.user.name}, ${when(post.createdAt)}${deviceLabel ? `, sent from ${deviceLabel}` : ""}. ${post.deleted ? "Message deleted" : working ? "Working…" : post.text}${post.replyCount ? `. ${post.replyCount} ${post.replyCount === 1 ? "reply" : "replies"}` : ""}`;
+  const label = `${post.user.name}, ${when(post.createdAt)}${deviceLabel ? `, sent from ${deviceLabel}` : ""}. ${post.deleted ? "Message deleted" : working ? "Working on it…" : post.text}${post.replyCount ? `. ${post.replyCount} ${post.replyCount === 1 ? "reply" : "replies"}` : ""}`;
   return (
     <>
     <Pressable onLongPress={actions} delayLongPress={400} accessible={false} style={[styles.post, compact && styles.postCompact, menu && { backgroundColor: colors.surface }]}>
@@ -496,7 +496,7 @@ export function ConversationRow({ c, onPress, onLongPress, longPressHint, access
   const { colors } = useTheme();
   const me = useSession().account?.user.id;
   const last = c.lastMessage;
-  const preview = last ? (last.deleted ? "Message deleted" : `${!last.activity && (c.kind === "channel" || (c.members?.length ?? 0) > 2) ? `${last.user.name}: ` : ""}${last.pending && last.user.agent ? "Working…" : last.text || (last.attachments?.length ? `${last.attachments.length} attachment${last.attachments.length === 1 ? "" : "s"}` : "Working…")}`) : c.topic || "No messages yet";
+  const preview = last ? (last.deleted ? "Message deleted" : `${!last.activity && (c.kind === "channel" || (c.members?.length ?? 0) > 2) ? `${last.user.name}: ` : ""}${last.pending && last.user.agent ? "Working on it…" : last.text || (last.attachments?.length ? `${last.attachments.length} attachment${last.attachments.length === 1 ? "" : "s"}` : "Working on it…")}`) : c.topic || "No messages yet";
   const bold = c.unread > 0 && !c.archived;
   const title = c.kind === "channel" ? `#${c.title}` : c.title;
   return (

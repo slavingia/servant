@@ -33,6 +33,7 @@ import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { supportsDurableRuns, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
 import { verifyMemberUpstream } from "./member-policy.mjs";
 import { composeForward } from "./forward.mjs";
+import { toolStatusLine } from "./agent-status.mjs";
 import { validateUploads, normalizeMediaContent, hermesInput, mediaPage, createMediaDeltaFilter, MAX_UPLOAD_BODY, TEXT_PART_CHARS } from "./media.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -992,7 +993,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
   };
   const onEvent = (name, payload) => {
     if (name === "assistant.delta") hooks.emit("delta", { text: payload.delta || "" });
-    else if (name === "tool.started") hooks.emit("status", { text: full && payload.tool_name ? `Using ${payload.tool_name}` : "Working" });
+    else if (name === "tool.started") hooks.emit("status", { text: toolStatusLine(payload.tool_name, { full }) });
     else if (name === "assistant.completed") saveAssistant(payload.content || "");
     else if (name === "run.completed") {
       const source = (Array.isArray(payload.messages) ? payload.messages : []).findLast(m => m.role === "assistant" && (m.content || m.text));

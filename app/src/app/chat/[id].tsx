@@ -10,7 +10,7 @@ import { mediaFromMessages } from "../../lib/media";
 import { Button } from "../../components/Button";
 import { MessageText } from "../../components/MessageText";
 import { AgentApprovalCard } from "../../components/AgentApprovalCard";
-import { activeAgentTurn, agentTurnLabel, canSteer, splitTurns, type AgentTurn } from "../../lib/agent-turns";
+import { activeAgentTurn, agentTurnDetail, agentTurnLabel, canSteer, splitTurns, type AgentTurn } from "../../lib/agent-turns";
 import { bufferAgentReply } from "../../lib/agent-events";
 import { messageDeviceLabel } from "../../lib/message-device";
 import { api, sendMessage, ServerError, type Chat, type Message, type Upload } from "../../lib/server";
@@ -418,7 +418,7 @@ function ChatConversation() {
     catch (e) {
       if (mounted.current) {
         setWaiting(w => w.map(t => t.id === target.id ? { ...t, steerRequested: false } : t));
-        setActionError(e instanceof Error ? e.message : "Couldn't steer. It will run next");
+        setActionError(e instanceof Error ? e.message : "Couldn't add it now. It'll send next");
       }
     } finally { if (mounted.current) { setSteering(null); void refreshTurns(); } }
   };
@@ -494,8 +494,8 @@ function ChatConversation() {
                   {!working && item.attachments?.length ? <Attachments files={item.attachments} /> : null}
                   {item.uploads?.length ? <PendingAttachments files={item.uploads} /> : null}
                   {item.pending && mine ? <Text style={styles.typing}>Sending…</Text> : null}
-                  {working ? <Text accessibilityLiveRegion="polite" style={styles.typing}>{status ?? "Working…"}</Text> : null}
-                  {item.interrupted ? <Text style={styles.typing}>Saved before the agent was interrupted.</Text> : null}
+                  {working ? <Text accessibilityLiveRegion="polite" style={styles.typing}>{status ?? "Working on it…"}</Text> : null}
+                  {item.interrupted ? <Text style={styles.typing}>Cut off before it finished</Text> : null}
                 </View>
               </View>;
             }}
@@ -505,7 +505,7 @@ function ChatConversation() {
         {turn?.approval && turn.status === 'waiting_for_approval' && account.user.role === 'owner'
           ? <AgentApprovalCard approval={turn.approval} busy={actionBusy} error={actionError} onAnswer={choice => { void answer(choice); }} /> : null}
         {turn && activeAgentTurn(turn) ? <View style={styles.turnStatus}>
-          <View style={styles.turnCopy}><Text accessibilityLiveRegion="polite" style={styles.turnLabel}>{agentTurnLabel(turn)}</Text><Text style={styles.turnDetail}>{turn.status === 'waiting_for_approval' ? 'The agent is paused until you decide.' : turn.status === 'stopping' ? 'Your partial reply will stay here.' : 'You can leave this conversation. The Mac keeps working.'}</Text></View>
+          <View style={styles.turnCopy}><Text accessibilityLiveRegion="polite" style={styles.turnLabel}>{agentTurnLabel(turn)}</Text><Text style={styles.turnDetail}>{agentTurnDetail(turn)}</Text></View>
           {turn.canStop ? <Button label="Stop" kind="danger" compact busy={actionBusy} disabled={turn.status === 'stopping'} onPress={() => { void stop(); }} /> : null}
         </View> : null}
         {turn && ['cancelled', 'interrupted', 'failed'].includes(turn.status) ? <View style={styles.turnStatus}><Text accessibilityLiveRegion="polite" style={styles.turnLabel}>{agentTurnLabel(turn)}</Text></View> : null}
@@ -513,7 +513,7 @@ function ChatConversation() {
           {waiting.map(item => <View key={item.id} style={styles.queued}>
             <View style={styles.turnCopy}>
               <Text numberOfLines={2} style={styles.queuedText}>{item.text || "Attachment"}</Text>
-              <Text style={styles.turnDetail}>{item.steerRequested ? "Steering the current reply…" : "Sends when the agent finishes"}</Text>
+              <Text style={styles.turnDetail}>{item.steerRequested ? "Adding this to the current reply…" : "Sends when the agent is done"}</Text>
             </View>
             {canSteer(item, turn) ? <Button label="Steer" kind="secondary" compact busy={steering === item.id}
               onPress={() => { void steer(item); }} /> : null}

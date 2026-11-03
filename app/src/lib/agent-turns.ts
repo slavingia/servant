@@ -11,9 +11,15 @@ export function activeAgentTurn(turn: AgentTurn | null | undefined) {
   return !!turn && ['queued', 'running', 'waiting_for_approval', 'stopping'].includes(turn.status);
 }
 export function agentTurnLabel(turn: AgentTurn) {
-  return turn.status === 'waiting_for_approval' ? 'Needs your approval' : turn.status === 'queued' ? 'Waiting for the agent'
-    : turn.status === 'stopping' ? 'Stopping…' : turn.status === 'cancelled' ? 'Stopped'
-      : turn.status === 'interrupted' ? 'Interrupted — the saved reply is below' : turn.status === 'failed' ? 'The agent could not finish' : 'Working on your reply';
+  return turn.status === 'waiting_for_approval' ? 'Needs your OK' : turn.status === 'queued' ? 'Up next'
+    : turn.status === 'stopping' ? 'Stopping' : turn.status === 'cancelled' ? 'Stopped'
+      : turn.status === 'interrupted' ? 'Cut off before it finished' : turn.status === 'failed' ? "Couldn't finish. Try sending it again" : 'Working on it';
+}
+export function agentTurnDetail(turn: AgentTurn) {
+  return turn.status === 'waiting_for_approval' ? 'Paused until you decide'
+    : turn.status === 'stopping' ? 'What it wrote so far stays here'
+      : turn.status === 'queued' ? 'Starts when the agent is free'
+        : "You can leave. It'll keep going";
 }
 export function parseApproval(value: unknown): AgentApproval | null {
   if (!value || typeof value !== 'object') return null;

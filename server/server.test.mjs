@@ -382,7 +382,7 @@ test("limited mode: member chat streams from the member agent and hides tool det
   const events = parseSse(sent.text);
   const deltas = events.filter((e) => e.event === "delta").map((e) => e.data.text).join("");
   assert.equal(deltas, "member-agent heard: hello there");
-  assert.deepEqual(events.find((e) => e.event === "status").data, { text: "Working" });
+  assert.deepEqual(events.find((e) => e.event === "status").data, { text: "Working on it" });
   assert.equal(events.at(-1).event, "done");
   assert.ok(!sent.text.includes("id_rsa"), "tool args must never reach a member");
 
@@ -566,7 +566,7 @@ test("owner gets the owner agent and can invite and revoke", async () => {
   const chat = (await api("POST", "/v1/chats", { token: ownerToken, body: {} })).json.chat;
   const sent = await api("POST", `/v1/chats/${chat.id}/messages`, { token: ownerToken, body: { text: "status?" } });
   assert.match(sent.text, /owner-agent heard: status\?/);
-  assert.match(sent.text, /Using terminal/);
+  assert.match(sent.text, /Running a command/);
 
   const memberToken = await pair("member", "Eve");
   assert.equal((await api("POST", "/v1/invites", { token: memberToken, body: { name: "x" } })).status, 403);
