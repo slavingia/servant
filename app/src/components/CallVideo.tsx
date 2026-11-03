@@ -1,7 +1,6 @@
 import { createElement, useEffect, useRef } from "react";
 import { Platform, View, type StyleProp, type ViewStyle } from "react-native";
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 /** Shows a live camera stream: a <video> element on the web, RTCView on phones. */
 export function CallVideo({ stream, mirror, muted, style }: { stream: any; mirror?: boolean; muted?: boolean; style?: StyleProp<ViewStyle> }) {
