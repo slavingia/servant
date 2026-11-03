@@ -17,6 +17,7 @@ function lastLine(chat: Chat, author: string, agent = "") {
   return last.role === "user" ? `${author}: ${body}` : agent ? `${agent}: ${body}` : body;
 }
 import { useSession } from "../../lib/session";
+import { useLive } from "../../lib/live";
 import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 import { activeAgentTurn, agentTurnLabel } from '../../lib/agent-turns';
 
@@ -34,6 +35,7 @@ export default function Chats() {
   const styles = useStyles();
   const { colors } = useTheme();
   const { account, setAccount, signOut } = useSession();
+  const { refreshAgent } = useLive();
   const [chats, setChats] = useState<Chat[] | null>(null);
   const [shared, setShared] = useState<Chat[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +63,7 @@ export default function Chats() {
     try {
       const { mine, others } = await api.orgChats(account, setAccount);
       setChats(mine);
+      refreshAgent(mine);
       setShared(others);
       setError(null);
     } catch (e) {
@@ -72,7 +75,7 @@ export default function Chats() {
       // Keep the list we already have; just say the refresh failed.
       setError(e instanceof ServerError ? e.message : "Couldn't load chats");
     }
-  }, [account, setAccount, signOut]);
+  }, [account, setAccount, signOut, refreshAgent]);
 
   useFocusEffect(
     useCallback(() => {

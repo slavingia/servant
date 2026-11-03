@@ -6,10 +6,10 @@ import { useLive } from "../lib/live";
 import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
 // Phone-width web: a bottom tab bar with the same icons and colors as the native tabs.
-const TABS: { name: string; href: "/channels" | "/messages" | "/agent" | "/members" | "/you"; label: string; icon: AppIconName; badge?: "channels" | "messages" }[] = [
+const TABS: { name: string; href: "/channels" | "/messages" | "/agent" | "/members" | "/you"; label: string; icon: AppIconName; badge?: "channels" | "messages" | "agent" }[] = [
   { name: "channels", href: "/channels", label: "Home", icon: "home", badge: "channels" },
   { name: "messages", href: "/messages", label: "DMs", icon: "chat", badge: "messages" },
-  { name: "agent", href: "/agent", label: "Agent", icon: "sparkles" },
+  { name: "agent", href: "/agent", label: "Agent", icon: "sparkles", badge: "agent" },
   { name: "members", href: "/members", label: "People", icon: "people" },
   { name: "you", href: "/you", label: "You", icon: "user" },
 ];

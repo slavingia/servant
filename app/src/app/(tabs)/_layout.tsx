@@ -4,6 +4,7 @@ import { Platform } from "react-native";
 import { WebTabs } from "../../components/WebTabBar";
 import { useWideLayout } from "../../lib/layout";
 import { useLive } from "../../lib/live";
+import { badgeText as badge } from "../../lib/agent-unread";
 import { useTheme } from "../../lib/theme";
 
 const Icon = NativeTabs.Trigger.Icon;
@@ -12,7 +13,6 @@ export default function TabsLayout() {
   const { unread } = useLive();
   const { colors } = useTheme();
   const wide = useWideLayout();
-  const badge = (n: number) => (n > 0 ? String(n > 99 ? "99+" : n) : undefined);
   // The sidebar is the tab bar in the wide layout.
   if (wide) return <Slot />;
   // On web the native tab bar renders as a pill at the top; use a real bottom bar instead.
@@ -40,6 +40,7 @@ export default function TabsLayout() {
       <NativeTabs.Trigger name="agent">
         <Icon sf="sparkles" src={require("../../../assets/tab-icons/agent.png")} />
         <NativeTabs.Trigger.Label>Agent</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Badge hidden={!badge(unread.agent)}>{badge(unread.agent)}</NativeTabs.Trigger.Badge>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="members">
         <Icon sf="person.2.fill" src={require("../../../assets/tab-icons/people.png")} />

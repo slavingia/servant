@@ -17,6 +17,7 @@ import { bufferAgentReply } from "../../lib/agent-events";
 import { messageDeviceLabel } from "../../lib/message-device";
 import { api, sendMessage, ServerError, type Chat, type Message, type Upload } from "../../lib/server";
 import { useSession } from "../../lib/session";
+import { useLive } from "../../lib/live";
 import { forwardTitle, parseForward, type ForwardCard } from "../../lib/forward";
 import { AppIcon } from "../../components/AppIcon";
 import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
@@ -223,6 +224,7 @@ function ChatConversation() {
   const { colors } = useTheme();
   const { id, title, compose, forward, forwardAuthor, forwardWhere, forwardText, forwardFiles } = useLocalSearchParams<{ id: string; title?: string; compose?: string; forward?: string; forwardAuthor?: string; forwardWhere?: string; forwardText?: string; forwardFiles?: string }>();
   const { account, setAccount } = useSession();
+  const { refreshAgent } = useLive();
   // A message brought here with "Ask the agent", until it's sent or removed.
   const [pendingForward, setPendingForward] = useState<string | null>(forward || null);
   const forwardFileCount = Number(forwardFiles) || 0;
@@ -264,8 +266,8 @@ function ChatConversation() {
   useEffect(() => {
     if (!account || !id || !newestReply || newestReply === lastReadReply.current || AppState.currentState !== "active") return;
     lastReadReply.current = newestReply;
-    api.readChat(account, id).catch(() => { lastReadReply.current = null; });
-  }, [account, id, newestReply]);
+    api.readChat(account, id).then(() => refreshAgent(), () => { lastReadReply.current = null; });
+  }, [account, id, newestReply, refreshAgent]);
   const delivery = useRef<{ text: string; uploads: Upload[]; id: string; forward?: string | null } | null>(null);
 
   const load = useCallback(() => {

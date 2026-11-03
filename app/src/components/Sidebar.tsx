@@ -71,8 +71,8 @@ export function Sidebar() {
       </View>
       <View style={styles.search}><Omnibar variant="sidebar" /></View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        <NavItem icon="home" label="Home" selected={pathname === "/channels" || pathname === "/"} onPress={() => go(pathname, "/channels")} />
-        <NavItem icon="sparkles" label="Agent" selected={pathname === "/agent" || pathname.startsWith("/chat/") || (pathname === "/files" && params.kind === "chat")} onPress={() => go(pathname, "/agent")} />
+        <NavItem icon="home" label="Home" count={unread.channels} selected={pathname === "/channels" || pathname === "/"} onPress={() => go(pathname, "/channels")} />
+        <NavItem icon="sparkles" label="Agent" count={unread.agent} selected={pathname === "/agent" || pathname.startsWith("/chat/") || (pathname === "/files" && params.kind === "chat")} onPress={() => go(pathname, "/agent")} />
         <NavItem icon="chat" label="Direct messages" count={unread.messages} selected={pathname === "/messages"} onPress={() => go(pathname, "/messages")} />
         <NavItem icon="people" label="People" selected={pathname === "/members" || pathname === "/invite"} onPress={() => go(pathname, "/members")} />
 

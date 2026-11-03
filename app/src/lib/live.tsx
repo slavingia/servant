@@ -5,6 +5,7 @@ import { AppState, Platform } from "react-native";
 import { api, listen, relocate, ServerError, type Conversation, type LiveEvent, type Presence } from "./server";
 import { useSession } from "./session";
 import { usePhotos } from "./photos";
+import { agentUnreadTotal } from "./agent-unread";
 
 type Live = {
   conversations: Conversation[] | null;
@@ -15,7 +16,9 @@ type Live = {
   subscribe: (fn: (e: LiveEvent) => void) => () => void;
   // Called by an open conversation so its unread count stays at zero.
   setOpen: (id: string | null) => void;
-  unread: { channels: number; messages: number };
+  unread: { channels: number; messages: number; agent: number };
+  // Re-count unread agent replies (after reading a chat, or with a fresh list).
+  refreshAgent: (chats?: { unread?: number; archived?: boolean }[]) => void;
 };
 
 const Ctx = createContext<Live | null>(null);
@@ -35,6 +38,27 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshVersion = useRef(0);
   const resume = useRef<{ identity: string; cursor?: string } | null>(null);
+
+  // Agent replies have no live event; poll your chats for their unread count.
+  const [agentUnread, setAgentUnread] = useState({ identity: "", count: 0 });
+  const agentVersion = useRef(0);
+  const refreshAgent = useCallback((chats?: { unread?: number; archived?: boolean }[]) => {
+    if (!account?.serverKey) return;
+    const version = ++agentVersion.current;
+    const id = JSON.stringify([account.serverKey, account.token, account.user.id]);
+    if (chats) return void setAgentUnread({ identity: id, count: agentUnreadTotal(chats) });
+    api.chats(account, setAccount)
+      .then(list => { if (version === agentVersion.current && Array.isArray(list)) setAgentUnread({ identity: id, count: agentUnreadTotal(list) }); })
+      .catch(() => { /* Keep the last count; a failed refresh never clears it. */ });
+  }, [account, setAccount]);
+  useEffect(() => {
+    if (!account?.serverKey) return;
+    const version = agentVersion;
+    const first = setTimeout(() => refreshAgent(), 0);
+    const timer = setInterval(() => { if (AppState.currentState === "active") refreshAgent(); }, 15000);
+    const state = AppState.addEventListener("change", s => { if (s === "active") refreshAgent(); });
+    return () => { clearTimeout(first); clearInterval(timer); state.remove(); version.current++; };
+  }, [account, refreshAgent]);
 
   const refresh = useCallback(async () => {
     if (!account?.serverKey) return;
@@ -149,6 +173,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                 setConnected(true);
                 delay = 1000;
                 refresh();
+                refreshAgent();
                 void refreshPresence();
                 for (const fn of subs.current) fn(e);
                 return;
@@ -202,7 +227,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       ctrl?.abort();
       sub.remove();
     };
-  }, [account, refresh, softRefresh, signOut, setAccount]);
+  }, [account, refresh, refreshAgent, softRefresh, signOut, setAccount]);
 
   const subscribe = useCallback((fn: (e: LiveEvent) => void) => {
     subs.current.add(fn);
@@ -218,16 +243,16 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const shown = account ? conversations : null;
   const presence = useMemo(() => presenceState.identity === identity ? presenceState.people : {}, [presenceState, identity]);
   const unread = useMemo(() => {
-    const u = { channels: 0, messages: 0 };
+    const u = { channels: 0, messages: 0, agent: agentUnread.identity === identity ? agentUnread.count : 0 };
     for (const c of shown ?? []) {
       if (!c.archived) u[c.kind === "channel" ? "channels" : "messages"] += c.unread;
     }
     return u;
-  }, [shown]);
+  }, [shown, agentUnread, identity]);
 
   const value = useMemo(
-    () => ({ conversations: shown, error, connected, presence, refresh, subscribe, setOpen, unread }),
-    [shown, error, connected, presence, refresh, subscribe, setOpen, unread],
+    () => ({ conversations: shown, error, connected, presence, refresh, subscribe, setOpen, unread, refreshAgent }),
+    [shown, error, connected, presence, refresh, subscribe, setOpen, unread, refreshAgent],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
