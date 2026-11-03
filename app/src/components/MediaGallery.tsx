@@ -79,7 +79,9 @@ export async function shareAttachment(file: Attachment, data: string) {
   if (!await Sharing.isAvailableAsync()) throw new Error("Sharing is unavailable on this device");
   const local = new File(Paths.cache, `${Date.now()}-${filename}`);
   try {
-    local.write(data, { encoding: "base64" });
+    // SDK 58 made File.write async. Without the await, the share sheet looked
+    // for a file that wasn't written yet and failed for every attachment.
+    await local.write(data, { encoding: "base64" });
     await Sharing.shareAsync(local.uri, { mimeType: file.mime, dialogTitle: file.name });
   } finally { if (local.exists) local.delete(); }
 }

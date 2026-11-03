@@ -55,7 +55,7 @@ function temporaryVideo(data: string, mime: string): LocalSource {
   const extension = mime === "video/webm" ? "webm" : mime === "video/quicktime" ? "mov" : "mp4";
   const file = new File(Paths.cache, `servant-video-${randomUUID()}.${extension}`);
   const dispose = () => { try { if (file.exists) file.delete(); } catch { /* The OS may already have cleared its cache. */ } };
-  try { file.write(data, { encoding: "base64" }); }
+  try { file.writeSync(data, { encoding: "base64" }); }
   catch (error) { dispose(); throw error; }
   return { uri: file.uri, dispose };
 }
