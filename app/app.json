@@ -60,6 +60,7 @@
       [
         "expo-notifications",
         {
+          "icon": "./assets/notification-icon.png",
           "color": "#0071BC",
           "defaultChannel": "messages",
           "mode": "production"
