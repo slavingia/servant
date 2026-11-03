@@ -31,7 +31,7 @@ export function AppChrome({ enabled, children }: { enabled: boolean; children: R
       <View style={styles.wideRoot}>
         {Platform.OS === "web" ? <style>{dragCss}</style> : null}
         <Sidebar key={`${account?.token ?? ""}:${account?.serverKey ?? ""}`} />
-        <View style={styles.content}>{children}</View>
+        <View style={[styles.content, styles.widePane]}>{children}</View>
       </View>
     );
   }
@@ -55,9 +55,11 @@ export function AppChrome({ enabled, children }: { enabled: boolean; children: R
   );
 }
 
-const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
+const useStyles = createThemedStyles(({ colors, scheme }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
-  wideRoot: { flex: 1, flexDirection: "row", backgroundColor: colors.background },
+  wideRoot: { flex: 1, flexDirection: "row", backgroundColor: scheme === "dark" ? "#0D1116" : colors.navy },
+  // The white main pane, rounded where it meets the sidebar.
+  widePane: { backgroundColor: colors.background, borderTopLeftRadius: radius.xl, borderBottomLeftRadius: radius.xl, overflow: "hidden" },
   signedInRoot: { backgroundColor: colors.navy },
   header: { flexShrink: 0 },
   titlebar: { position: "absolute", top: 0, left: 0, right: 0, height: 28, zIndex: 10 },

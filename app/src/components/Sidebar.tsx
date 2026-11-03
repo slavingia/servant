@@ -12,6 +12,14 @@ import { Omnibar } from "./Omnibar";
 
 export const SIDEBAR_WIDTH = 264;
 
+// The wide layout's sidebar sits on the same navy as the phone's header bar.
+// Inside it, text and icons use on-navy tones; the main pane is a rounded white
+// card beside it (AppChrome).
+function useSidebarColors() {
+  const { colors } = useTheme();
+  return { ...colors, ink: colors.onBrand, muted: "rgba(255,255,255,0.72)", borderStrong: "rgba(255,255,255,0.45)" };
+}
+
 // Top-level destinations live in tabs; everything else is pushed on the stack.
 const TAB_PATHS = ["/channels", "/messages", "/agent", "/members", "/you"];
 
@@ -30,7 +38,7 @@ const drag = { dataSet: { servantDrag: "on" } } as object;
 
 export function Sidebar() {
   const styles = useStyles();
-  const { colors } = useTheme();
+  const colors = useSidebarColors();
   const { account } = useSession();
   const { conversations, unread, connected } = useLive();
   const pathname = usePathname();
@@ -89,7 +97,7 @@ export function Sidebar() {
 
 function Section({ title, open, onToggle, addLabel, onAdd, children }: { title: string; open: boolean; onToggle: () => void; addLabel: string; onAdd: () => void; children: ReactNode }) {
   const styles = useStyles();
-  const { colors } = useTheme();
+  const colors = useSidebarColors();
   return (
     <View style={styles.section}>
       <View style={styles.sectionHeader}>
@@ -108,7 +116,7 @@ function Section({ title, open, onToggle, addLabel, onAdd, children }: { title: 
 
 function NavItem({ icon, label, selected = false, quiet = false, count = 0, countMuted = false, onPress }: { icon: AppIconName; label: string; selected?: boolean; quiet?: boolean; count?: number; countMuted?: boolean; onPress: () => void }) {
   const styles = useStyles();
-  const { colors } = useTheme();
+  const colors = useSidebarColors();
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={count ? `${label}, ${count}` : label} accessibilityState={{ selected }} onPress={onPress}
       style={state => [styles.item, hovered(state) && styles.hovered, selected && styles.selected]}>
@@ -121,7 +129,7 @@ function NavItem({ icon, label, selected = false, quiet = false, count = 0, coun
 
 function ConversationItem({ c, selected, onPress }: { c: Conversation; selected: boolean; onPress: () => void }) {
   const styles = useStyles();
-  const { colors } = useTheme();
+  const colors = useSidebarColors();
   const { presence } = useLive();
   const { account } = useSession();
   const bold = c.unread > 0;
@@ -141,14 +149,14 @@ function ConversationItem({ c, selected, onPress }: { c: Conversation; selected:
   );
 }
 
-const useStyles = createThemedStyles(({ colors, scheme }) => StyleSheet.create({
-  root: { width: SIDEBAR_WIDTH, flexShrink: 0, backgroundColor: scheme === "dark" ? "#0D1116" : colors.surface, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: colors.line },
+const useStyles = createThemedStyles(({ colors: theme, scheme }) => { const colors = { ...theme, ink: theme.onBrand, muted: "rgba(255,255,255,0.72)", subtle: "rgba(255,255,255,0.12)" }; const sidebarBackground = scheme === "dark" ? "#0D1116" : theme.navy; return StyleSheet.create({
+  root: { width: SIDEBAR_WIDTH, flexShrink: 0, backgroundColor: sidebarBackground },
   // Clears the inset macOS traffic lights and doubles as the window drag handle.
   titlebar: { height: 38 },
   workspace: { flexDirection: "row", alignItems: "center", gap: space.xs, paddingLeft: space.sm, paddingRight: space.xs, paddingBottom: space.xs },
   workspaceBrowser: { paddingTop: space.sm },
-  workspaceMark: { width: 26, height: 26, borderRadius: radius.sm, backgroundColor: colors.navy, alignItems: "center", justifyContent: "center" },
-  workspaceInitial: { ...typography.captionStrong, color: colors.onBrand },
+  workspaceMark: { width: 26, height: 26, borderRadius: radius.sm, backgroundColor: theme.onBrand, alignItems: "center", justifyContent: "center" },
+  workspaceInitial: { ...typography.captionStrong, color: scheme === "dark" ? "#0D1116" : theme.navy },
   workspaceName: { ...typography.bodyStrong, color: colors.ink, flex: 1, minWidth: 0 },
   iconButton: { width: 32, height: 32, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
   search: { paddingHorizontal: space.sm, paddingBottom: space.sm },
@@ -156,23 +164,23 @@ const useStyles = createThemedStyles(({ colors, scheme }) => StyleSheet.create({
   scrollContent: { paddingHorizontal: space.xs, paddingBottom: space.md },
   item: { minHeight: 32, flexDirection: "row", alignItems: "center", gap: space.xs, paddingHorizontal: space.xs, borderRadius: radius.md },
   hovered: { backgroundColor: colors.subtle },
-  selected: { backgroundColor: scheme === "dark" ? colors.subtle : "#E4E8EE" },
+  selected: { backgroundColor: "rgba(255,255,255,0.2)" },
   itemIcon: { width: 20, alignItems: "center", justifyContent: "center" },
   itemLabel: { fontSize: 14, lineHeight: 20, color: colors.ink, flex: 1, minWidth: 0 },
   quietLabel: { color: colors.muted },
   unreadLabel: { fontWeight: "700" },
   selectedLabel: { fontWeight: "600" },
-  badge: { ...typography.meta, fontWeight: "600", color: colors.onPrimary, backgroundColor: colors.primary, minWidth: 20, paddingHorizontal: 6, paddingVertical: 1, borderRadius: radius.pill, textAlign: "center", overflow: "hidden" },
+  badge: { ...typography.meta, fontWeight: "700", color: scheme === "dark" ? "#0D1116" : theme.navy, backgroundColor: theme.onBrand, minWidth: 20, paddingHorizontal: 6, paddingVertical: 1, borderRadius: radius.pill, textAlign: "center", overflow: "hidden" },
   mutedBadge: { color: colors.muted, backgroundColor: "transparent" },
-  dmStatus: { position: "absolute", right: -2, bottom: -2, width: 8, height: 8, borderRadius: 4, borderWidth: 1.5, borderColor: scheme === "dark" ? "#0D1116" : colors.surface },
+  dmStatus: { position: "absolute", right: -2, bottom: -2, width: 8, height: 8, borderRadius: 4, borderWidth: 1.5, borderColor: sidebarBackground },
   section: { marginTop: space.md },
   sectionHeader: { flexDirection: "row", alignItems: "center", marginBottom: 2 },
   sectionToggle: { flex: 1, minHeight: 26, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: space.xs, borderRadius: radius.sm },
   sectionTitle: { ...typography.meta, fontWeight: "600", color: colors.muted },
   sectionAdd: { width: 26, height: 26, borderRadius: radius.sm, alignItems: "center", justifyContent: "center" },
   footer: { flexDirection: "row", alignItems: "center", gap: space.sm, margin: space.xs, padding: space.xs, borderRadius: radius.md },
-  status: { position: "absolute", right: -1, bottom: -1, width: 10, height: 10, borderRadius: 5, borderWidth: 2, borderColor: scheme === "dark" ? "#0D1116" : colors.surface },
+  status: { position: "absolute", right: -1, bottom: -1, width: 10, height: 10, borderRadius: 5, borderWidth: 2, borderColor: sidebarBackground },
   footerCopy: { flex: 1, minWidth: 0 },
   footerName: { ...typography.captionStrong, color: colors.ink },
   footerRole: { ...typography.meta, color: colors.muted },
-}));
+}); });

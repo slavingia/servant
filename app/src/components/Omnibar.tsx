@@ -196,7 +196,7 @@ function SearchBar({ account, variant }: { account: Account; variant: "bar" | "s
   return <>
     {variant === "sidebar" ? <Pressable ref={trigger} accessibilityRole="button" accessibilityLabel="Search Servant" accessibilityHint="Find channels, people, messages, and quick actions" accessibilityState={{ expanded: visible }} onPress={open}
       style={state => [styles.sidebarTrigger, ((state as { hovered?: boolean }).hovered || state.pressed) && styles.sidebarTriggerHovered]}>
-      <AppIcon name="search" color={colors.muted} size={16} />
+      <AppIcon name="search" color={colors.onBrand} size={16} />
       <Text numberOfLines={1} style={styles.sidebarPlaceholder}>Search</Text>
       <Text style={styles.sidebarShortcut}>⌘K</Text>
     </Pressable> : <View style={[styles.header, { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right }]}>
@@ -261,10 +261,10 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   triggerPressed: { backgroundColor: "rgba(255,255,255,0.2)" },
   placeholder: { ...typography.body, color: colors.onBrand, flex: 1 },
   shortcut: { ...typography.caption, color: colors.onBrand },
-  sidebarTrigger: { minHeight: 34, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: space.xs, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, backgroundColor: colors.background },
-  sidebarTriggerHovered: { borderColor: colors.borderStrong },
-  sidebarPlaceholder: { ...typography.caption, color: colors.muted, flex: 1 },
-  sidebarShortcut: { ...typography.meta, color: colors.muted, paddingHorizontal: 5, paddingVertical: 1, borderRadius: radius.sm, backgroundColor: colors.subtle, overflow: "hidden" },
+  sidebarTrigger: { minHeight: 34, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: space.xs, borderRadius: radius.md, borderWidth: 1, borderColor: "rgba(255,255,255,0.22)", backgroundColor: "rgba(255,255,255,0.13)" },
+  sidebarTriggerHovered: { backgroundColor: "rgba(255,255,255,0.2)" },
+  sidebarPlaceholder: { ...typography.caption, color: colors.onBrand, flex: 1 },
+  sidebarShortcut: { ...typography.meta, color: colors.onBrand, paddingHorizontal: 5, paddingVertical: 1, borderRadius: radius.sm, backgroundColor: "rgba(255,255,255,0.16)", overflow: "hidden" },
   modalRoot: { flex: 1 },
   overlay: { flex: 1, paddingHorizontal: space.sm, alignItems: "center", backgroundColor: "rgba(20,30,45,0.45)" },
   mobileOverlay: { paddingHorizontal: 0, backgroundColor: colors.background },
