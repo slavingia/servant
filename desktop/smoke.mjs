@@ -104,10 +104,11 @@ try {
   // its assets or Electron binaries. Production workspace.json is never touched.
   const testApp = path.join(scratch, 'app');
   fs.mkdirSync(testApp, { mode: 0o700 });
-  for (const name of ['main.mjs', 'preload.cjs', 'policy.mjs']) fs.copyFileSync(path.join(here, name), path.join(testApp, name));
+  for (const name of ['main.mjs', 'preload.cjs', 'policy.mjs', 'updates.mjs']) fs.copyFileSync(path.join(here, name), path.join(testApp, name));
   fs.writeFileSync(path.join(testApp, 'package.json'), JSON.stringify({ name: 'servant-desktop-smoke', version: '1.0.0', type: 'module', main: 'main.mjs' }));
   fs.writeFileSync(path.join(testApp, 'workspace.json'), JSON.stringify({ server: instance.url, serverKey }));
   fs.symlinkSync(path.join(here, 'web'), path.join(testApp, 'web'), 'dir');
+  fs.symlinkSync(path.join(here, 'node_modules'), path.join(testApp, 'node_modules'), 'dir'); // electron-updater
   const launch = async profile => {
     const app = await electron.launch({ executablePath: electronPath, args: [testApp], env: { ...env, SERVANT_DESKTOP_TEST_PROFILE: profile } });
     instances.add(app);
@@ -172,9 +173,20 @@ print(value)
   await desktop.page.getByRole('button', { name: 'Create a channel', exact: true }).click();
   await desktop.page.getByLabel('Channel name', { exact: true }).fill('desktop-smoke');
   await desktop.page.getByRole('button', { name: 'Create channel', exact: true }).click();
-  await desktop.page.getByLabel('Message #desktop-smoke', { exact: true }).fill('QR sign-in smoke message');
-  await desktop.page.getByRole('button', { name: 'Send message', exact: true }).click();
+  // Return sends on the Mac, Shift+Return adds a line, and web links are links.
+  const composer = desktop.page.getByLabel('Message #desktop-smoke', { exact: true });
+  await composer.fill('first line');
+  await composer.press('Shift+Enter');
+  assert.match(await composer.inputValue(), /^first line\n/, 'Shift+Return must add a line');
+  await composer.fill('');
+  await composer.pressSequentially('QR sign-in smoke message');
+  await composer.press('Enter');
   await desktop.page.getByText('QR sign-in smoke message', { exact: true }).waitFor();
+  assert.equal(await composer.inputValue(), '', 'Return must send and clear the composer');
+  const smokeLink = 'https://github.com/slavingia/servant/issues/25';
+  await composer.pressSequentially(`See ${smokeLink}`);
+  await composer.press('Enter');
+  await desktop.page.getByRole('link', { name: smokeLink, exact: true }).waitFor();
   const conversationId = new URL(desktop.page.url()).pathname.split('/').at(-1);
   const messages = await api('GET', `/v1/conversations/${conversationId}/messages`, undefined, phoneAccount.token);
   assert.equal(messages.status, 200);

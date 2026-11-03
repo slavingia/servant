@@ -1,6 +1,6 @@
 import { useLayoutEffect, useEffect, useRef, useState, type ComponentRef, type ReactNode } from "react";
 import { MeetingCard } from "./MeetingCard";
-import { ActivityIndicator, Alert, Image, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type PressableProps } from "react-native";
+import { ActivityIndicator, Alert, Image, Keyboard, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type PressableProps } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -20,6 +20,7 @@ import { validateAttachmentSelection } from "../lib/media";
 import { Attachments, DraftAttachments, pickAttachments, pickDocuments, type DraftAttachment } from "./Attachments";
 import { AppIcon } from "./AppIcon";
 import { MessageText } from "./MessageText";
+import { safeUrl } from "../lib/message-format";
 import { parseForward } from "../lib/forward";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
@@ -119,11 +120,16 @@ function ForwardedPost({ text, edited }: { text: string; edited: boolean }) {
 
 function Rich({ text, style }: { text: string; style: object }) {
   const styles = useStyles();
-  const parts = text.split(/(@[\p{L}\p{M}\p{N}_’'.-]+)/gu);
+  // Web links open in the browser; @mentions are highlighted.
+  const parts = text.split(/(https?:\/\/[^\s<>"'`]*[^\s<>"'`.,;:!?)\]}*_~]|@[\p{L}\p{M}\p{N}_’'.-]+)/gu);
   return (
     <Text selectable={Platform.OS === "web"} style={style}>
       {parts.map((p, i) =>
-        p.startsWith("@") ? (
+        /^https?:\/\//.test(p) && safeUrl(p) ? (
+          <Text key={i} style={styles.link} accessibilityRole="link" onPress={() => void Linking.openURL(p).catch(() => {})}>
+            {p}
+          </Text>
+        ) : p.startsWith("@") ? (
           <Text key={i} style={styles.mention}>
             {p}
           </Text>
@@ -609,6 +615,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   time: { ...typography.meta, color: colors.muted, flexShrink: 0 },
   body: { ...typography.body, color: colors.ink },
   mention: { color: colors.blue, fontWeight: "600" },
+  link: { color: colors.blue, textDecorationLine: "underline" },
   deleted: { ...typography.body, color: colors.muted, fontStyle: "italic" },
   edited: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
   receipt: { alignSelf: "flex-end", marginTop: 2 },
