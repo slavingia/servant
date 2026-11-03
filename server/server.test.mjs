@@ -1177,7 +1177,7 @@ test("attachments round trip privately, survive edits, render metadata in thread
   assert.equal(thread.json.replies[0].attachments.length, 1);
   assert.equal((await api("POST", route, { token: sender, body: { attachments: [{ name: "bad", data: "%%%=" }] } })).status, 400);
   assert.equal((await api("POST", route, { token: sender, body: { attachments: Array(5).fill({ name: "x", data: png }) } })).status, 400);
-  assert.equal((await api("POST", route, { token: sender, body: { attachments: [{ name: "big", data: Buffer.alloc(5 * 1024 * 1024 + 1).toString("base64") }] } })).status, 413);
+  assert.equal((await api("POST", route, { token: sender, body: { attachments: [{ name: "big", data: Buffer.alloc(25 * 1024 * 1024 + 1).toString("base64") }] } })).status, 413);
   assert.equal((await api("POST", route, { token: sender, body: {} })).status, 400);
   await api("DELETE", `/v1/messages/${post.id}`, { token: sender });
   assert.equal((await api("GET", download, { token: sender })).status, 404);

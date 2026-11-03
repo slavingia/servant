@@ -8,7 +8,10 @@ export const MAX_FILE = 5 * 1024 * 1024;
 export const MAX_VIDEO = 25 * 1024 * 1024;
 export const MAX_UPLOAD_TOTAL = 30 * 1024 * 1024;
 export const MAX_UPLOAD_BODY = 41 * 1024 * 1024;
-const sizeMessage = "Videos must be under 25 MB, other files under 5 MB, and attachments under 30 MB total";
+// Images go to the model inline and Anthropic refuses images over 5 MB. Videos
+// and other files (ZIPs, PDFs, prototypes) never travel to the model as bytes.
+const sizeMessage = "Images must be under 5 MB, other files under 25 MB, and attachments under 30 MB total";
+export const uploadLimit = mime => mime.startsWith("image/") ? MAX_FILE : MAX_VIDEO;
 const error = (status, message) => Object.assign(new Error(message), { status, code: "attachments" });
 export const safeName = value => String(value || "image").replace(/[\\/\x00-\x1f\x7f]/g, "_").slice(0, 180);
 
@@ -79,7 +82,7 @@ export function validateUploads(input = [], { imagesOnly = false, mediaOnly = fa
     total += data.length;
     if (total > MAX_UPLOAD_TOTAL) throw error(413, sizeMessage);
     const mime = mediaMime(data);
-    if (data.length > (mime.startsWith("video/") ? MAX_VIDEO : MAX_FILE)) throw error(413, sizeMessage);
+    if (data.length > uploadLimit(mime)) throw error(413, sizeMessage);
     if (imagesOnly && !mime.startsWith("image/")) throw error(400, "Agent chats accept PNG, JPEG, GIF, and WebP images");
     if (mediaOnly && !/^(image|video)\//.test(mime)) throw error(400, "Agent chats accept images and MP4, MOV, or WebM videos");
     return { name: safeName(a.name), mime, data };

@@ -51,6 +51,9 @@ const MAX_MESSAGE_CHARS = 5_000_000;
 const INLINE_MESSAGE_CHARS = 100_000;
 const LONG_MESSAGE_PREVIEW_CHARS = 4000;
 const LONG_MESSAGE_DIR = path.join(DATA_DIR, "long-messages");
+// Files the full agent works on (ZIPs, PDFs, prototypes): saved beside the
+// server data so it can open, unpack, run or host them with its own tools.
+const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
 
 export function agentText(turn, full, inlineLimit = INLINE_MESSAGE_CHARS) {
   const text = String(turn.text || "");
@@ -63,10 +66,33 @@ export function agentText(turn, full, inlineLimit = INLINE_MESSAGE_CHARS) {
 }
 
 function removeLongMessages(chatId) {
-  try {
-    for (const name of fs.readdirSync(LONG_MESSAGE_DIR)) if (name.startsWith(`${chatId}-`)) fs.rmSync(path.join(LONG_MESSAGE_DIR, name), { force: true });
-  } catch {}
+  for (const dir of [LONG_MESSAGE_DIR, UPLOAD_DIR]) {
+    try {
+      for (const name of fs.readdirSync(dir)) if (name.startsWith(`${chatId}-`)) fs.rmSync(path.join(dir, name), { force: true, recursive: true });
+    } catch {}
+  }
 }
+
+/** Save a turn's non-media files for the full agent and tell it where they are. */
+export function agentFiles(turn, full) {
+  const files = (turn.attachments || []).filter(a => !/^(image|video)\//.test(a.mime));
+  if (!full || !files.length) return "";
+  const dir = path.join(UPLOAD_DIR, `${turn.chat_id}-${turn.id}`);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const used = new Set();
+  const saved = files.map(a => {
+    let name = path.basename(String(a.name)).replace(/^\.+/, "") || "file";
+    for (let n = 2; used.has(name); n++) name = name.replace(/(\.[^.]*)?$/, ext => `-${n}${ext || ""}`);
+    used.add(name);
+    const file = path.join(dir, name);
+    fs.writeFileSync(file, a.data, { mode: 0o600 });
+    return `${file} (${a.data.length.toLocaleString("en-US")} bytes)`;
+  });
+  return `[Servant: the person attached ${saved.length === 1 ? "a file" : `${saved.length} files`}, saved at:\n${saved.join("\n")}\n` +
+    "Open them with your tools. Unpack a .zip or other archive into a new folder next to it (never outside that folder) before working on it. " +
+    "If it's a prototype or site they want hosted, serve or publish it and reply with the link. Don't mention this note.]";
+}
+
 
 // ---------- config + state ----------
 
@@ -425,6 +451,8 @@ function chatClosure(chat) {
 }
 function chatView(chat, viewer, users = {}) {
   const view = { id: chat.id, title: chat.title, createdAt: chat.createdAt, updatedAt: chat.updatedAt, shared: chatShared(chat),
+    // The full agent takes any file (ZIPs, PDFs, prototypes); others take media.
+    ...(agentRole(chat.role, loadConfig()) === "owner" ? { files: true } : {}),
     ...(chat.project ? { project: { id: chat.project, name: projectById(chat.project)?.name || chat.project } } : {}),
     ...(chat.mode === "vibe" ? { mode: "vibe", previewUrl: `${projectById(VIBE_PROJECT).pages}${chat.vibeFolder}/` } : {}) };
   if (viewer && chat.userId === viewer.id) {
@@ -923,7 +951,7 @@ async function handle(req, res, cfg) {
     const body = await readAuthorizedBody(req, MAX_UPLOAD_BODY);
     if (postingClosed(cfg.workHours)) return fail(res, 403, "work_hours", workHoursMessage(cfg.workHours));
     let text = String(body.text || "").trim();
-    let attachments = validateUploads(body.attachments, { mediaOnly: true });
+    let attachments = validateUploads(body.attachments, { mediaOnly: agentRole(chat.role, cfg) !== "owner" });
     // Only the server writes forward headers; typed lookalikes don't render as one.
     if (/^Forwarded message from /.test(text)) text = `\u200B${text}`;
     const ownText = text;
@@ -1020,7 +1048,9 @@ async function executePrivateTurn(turn, hooks, cfg) {
   const durable = !!turn.run_id || await supportsDurableRuns(up);
   // Legacy owner agents can read the exact saved input instead of receiving
   // altered chunks. Restricted agents never receive a local-file fallback.
-  const input = hermesInput(agentText(turn, full, durable ? INLINE_MESSAGE_CHARS : TEXT_PART_CHARS), turn.attachments, { durable });
+  const text = agentText(turn, full, durable ? INLINE_MESSAGE_CHARS : TEXT_PART_CHARS);
+  const files = agentFiles(turn, full);
+  const input = hermesInput(files ? (text ? `${text}\n\n${files}` : files) : text, turn.attachments, { durable });
   let assistantMessage;
   const saveAssistant = content => {
     if (assistantMessage) return;

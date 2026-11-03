@@ -100,7 +100,9 @@ test("video size budgets allow clips while retaining smaller image/file and tota
   const clip = size => { const data = Buffer.alloc(size); mp4.copy(data); return { name: "clip.mp4", data: data.toString("base64") }; };
   assert.equal(validateUploads([clip(MAX_VIDEO)], { mediaOnly: true })[0].data.length, MAX_VIDEO);
   assert.throws(() => validateUploads([clip(MAX_VIDEO + 1)]), /25 MB/);
-  assert.throws(() => validateUploads([{ name: "file.bin", data: Buffer.alloc(MAX_FILE + 1).toString("base64") }]), /5 MB/);
+  assert.throws(() => validateUploads([{ name: "photo.png", data: Buffer.concat([Buffer.from(png, "base64"), Buffer.alloc(MAX_FILE)]).toString("base64") }]), /Images must be under 5 MB/);
+  // ZIPs and other files skip the image cap: they never go to the model inline.
+  assert.equal(validateUploads([{ name: "site.zip", data: Buffer.alloc(MAX_FILE + 1).toString("base64") }])[0].mime, "application/octet-stream");
   assert.throws(() => validateUploads([clip(16 * 1024 * 1024), clip(16 * 1024 * 1024)]), /30 MB total/);
   assert.ok(Math.ceil(MAX_UPLOAD_TOTAL / 3) * 4 + 64 * 1024 < MAX_UPLOAD_BODY);
   assert.ok(Math.ceil((MAX_UPLOAD_BODY + 64 * 1024) / 3) * 4 < 56 * 1024 * 1024);

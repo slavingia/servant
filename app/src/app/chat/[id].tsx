@@ -238,12 +238,18 @@ function ChatConversation() {
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [heading, setHeading] = useState(title && title !== "New chat" ? title : "New chat");
+  // The full agent takes any file, so a ZIP of a prototype can be hosted.
+  const [acceptsFiles, setAcceptsFiles] = useState(false);
   const [showTitle, setShowTitle] = useState(false);
   // Links, pushes and the sidebar may open a chat without its title: read it from the server.
   useEffect(() => {
     if (!account || !id) return;
     let live = true;
-    api.chat(account, id).then(c => { if (live && c.title && c.title !== "New chat") setHeading(h => h === "New chat" ? c.title : h); }).catch(() => {});
+    api.chat(account, id).then(c => {
+      if (!live) return;
+      setAcceptsFiles(c.files === true);
+      if (c.title && c.title !== "New chat") setHeading(h => h === "New chat" ? c.title : h);
+    }).catch(() => {});
     return () => { live = false; };
   }, [account, id]);
   const list = useRef<FlatList<Row>>(null);
@@ -645,7 +651,7 @@ function ChatConversation() {
             <AppIcon name="close" size={16} color={colors.muted} />
           </Pressable>
         </View> : null}
-        {messages !== null && !loadError ? <Composer autoFocus={compose === "1"} placeholder={pendingForward ? "Ask about this message, or just send" : "Message the agent"} onSend={send} allowFileAttachments={false} canSendEmpty={!!pendingForward} /> : null}
+        {messages !== null && !loadError ? <Composer autoFocus={compose === "1"} placeholder={pendingForward ? "Ask about this message, or just send" : "Message the agent"} onSend={send} allowFileAttachments={acceptsFiles} canSendEmpty={!!pendingForward} /> : null}
       </ConversationKeyboardView>
     </View>
     </MediaGalleryProvider>

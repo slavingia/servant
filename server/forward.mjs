@@ -22,7 +22,7 @@ export function composeForward({ text, attachments }, source, { timeZone } = {})
   let total = files.reduce((sum, a) => sum + a.data.length, 0);
   for (const f of source.files || []) {
     const size = f.data.length;
-    const fits = isMedia(f.mime) && files.length < MAX_FILES && size <= (f.mime.startsWith("video/") ? MAX_VIDEO : MAX_FILE) && total + size <= MAX_UPLOAD_TOTAL;
+    const fits = isMedia(f.mime) && files.length < MAX_FILES && size <= (f.mime.startsWith("image/") ? MAX_FILE : MAX_VIDEO) && total + size <= MAX_UPLOAD_TOTAL;
     if (fits) { files.push({ name: f.name, mime: f.mime, data: Buffer.from(f.data) }); total += size; }
     else skipped.push(f.name);
   }

@@ -29,7 +29,7 @@ function ScopedGallery({ account, scope, items, children }: { account: Account; 
   const [cache] = useState(() => createMediaCache(async (file, signal) => {
     const response = await request(account, `/v1/attachments/${encodeURIComponent(file.id)}`, { signal });
     const value = await response.json();
-    const maxBytes = isPreviewVideo(file) ? MAX_VIDEO_BYTES : MAX_FILE_BYTES;
+    const maxBytes = isPreviewImage(file) ? MAX_FILE_BYTES : MAX_VIDEO_BYTES;
     if (typeof value.data !== "string" || value.data.length > Math.ceil(maxBytes / 3) * 4 || value.data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(value.data)) throw new Error("Attachment content is unavailable");
     return value.data;
   }));

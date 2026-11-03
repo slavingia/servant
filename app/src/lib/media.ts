@@ -18,8 +18,10 @@ export function validateAttachmentSelection(files: readonly { mime: string; size
   if (files.length > 4) throw new Error("Attach up to 4 files");
   for (const file of files) {
     if (!Number.isSafeInteger(file.size) || file.size < 0) throw new Error("Couldn't read this file");
-    if (file.size > (isPreviewVideo(file) ? MAX_VIDEO_BYTES : MAX_FILE_BYTES)) {
-      throw new Error(isPreviewVideo(file) ? "Choose videos under 25 MB each" : "Choose photos and files under 5 MB each");
+    // Only images go to the model inline (5 MB cap); videos and other files get 25 MB.
+    const image = file.mime.startsWith("image/");
+    if (file.size > (image ? MAX_FILE_BYTES : MAX_VIDEO_BYTES)) {
+      throw new Error(image ? "Choose photos under 5 MB each" : "Choose videos and files under 25 MB each");
     }
   }
   if (files.reduce((total, file) => total + file.size, 0) > MAX_UPLOAD_BYTES) throw new Error("Attachments must be under 30 MB total");

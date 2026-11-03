@@ -14,7 +14,7 @@ import { AppIcon } from "./AppIcon";
 export type DraftAttachment = Upload & { uri: string; size: number; mime: string };
 class TooLarge extends Error {}
 async function readFile(uri: string, size?: number, blob?: Blob, limit = MAX_FILE_BYTES, remaining = MAX_UPLOAD_BYTES) {
-  const tooLarge = () => new TooLarge(limit === MAX_VIDEO_BYTES ? "Choose videos under 25 MB each" : "Choose photos and files under 5 MB each");
+  const tooLarge = () => new TooLarge(limit === MAX_VIDEO_BYTES ? "Choose videos and files under 25 MB each" : "Choose photos under 5 MB each");
   const check = (bytes: number) => {
     if (bytes > limit) throw tooLarge();
     if (bytes > remaining) throw new TooLarge("Attachments must be under 30 MB total");
@@ -113,7 +113,7 @@ export async function pickAttachments(mediaLibrary: boolean, existing: readonly 
     const mayBeVideo = asset.mimeType?.startsWith("video/") || /\.(mp4|mov|webm)$/i.test(asset.name);
     const mayBePhoto = asset.mimeType?.startsWith("image/") || /\.(png|jpe?g|gif|webp|heic|heif)$/i.test(asset.name);
     let content: { data: string; size: number };
-    try { content = await readFile(asset.uri, asset.size, asset.file, mayBeVideo ? MAX_VIDEO_BYTES : MAX_FILE_BYTES, remaining); }
+    try { content = await readFile(asset.uri, asset.size, asset.file, mayBePhoto && !mayBeVideo ? MAX_FILE_BYTES : MAX_VIDEO_BYTES, remaining); }
     catch (error) {
       if (!mayBePhoto || !shrinkable(error)) throw error;
       add(await shrinkPhoto(asset.uri, asset.name, undefined, undefined, Math.min(MAX_FILE_BYTES, remaining)));

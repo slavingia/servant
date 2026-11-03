@@ -165,7 +165,7 @@ test("image-only private sends acknowledge stable media and Hermes images surviv
 test("rejected uploads never acknowledge; accepted images remain durable if Hermes subsequently fails", async () => {
   const token = await pair("Delivery states"), c = await chat(token), route = `/v1/chats/${c.id}`;
   const before = turns.length;
-  assert.equal((await api("POST", route + "/messages", token, { attachments: [{ name: "pretend.png", data: "aGVsbG8=" }] })).status, 400);
+  assert.equal((await api("POST", route + "/messages", token, { attachments: [{ name: "pretend.png", data: "not base64!" }] })).status, 400);
   assert.equal(turns.length, before);
   try {
     mode = "reject";

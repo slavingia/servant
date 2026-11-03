@@ -24,7 +24,7 @@ export type Account = {
 export type ChatLastMessage = { role: "user" | "assistant"; text: string; at: number; attachments: number; pending?: boolean };
 export type Project = { id: string; name: string; description?: string };
 // mode "vibe": a vibe-coding chat that builds a prototype with a preview link.
-export type Chat = { project?: { id: string; name: string }; mode?: "vibe"; previewUrl?: string; id: string; title: string; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; closed?: ChatClosed; latestTurn?: AgentTurn | null };
+export type Chat = { project?: { id: string; name: string }; mode?: "vibe"; previewUrl?: string; files?: boolean; id: string; title: string; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; closed?: ChatClosed; latestTurn?: AgentTurn | null };
 // Agent chats close like issues: by you, by the agent when it's done, or by
 // the closer after a quiet day. A new message reopens it.
 export type ChatClosed = { by: "you" | "agent" | "closer"; reason: string | null; at: number };

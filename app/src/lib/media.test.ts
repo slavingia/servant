@@ -125,7 +125,8 @@ test("mixed image/video selection enforces per-file and shared upload limits", (
   assert.doesNotThrow(() => validateAttachmentSelection([photo, video]));
   assert.equal(photo.size + video.size, MAX_UPLOAD_BYTES);
   assert.throws(() => validateAttachmentSelection([{ ...video, size: video.size + 1 }]), /25 MB/);
-  assert.throws(() => validateAttachmentSelection([{ ...photo, size: photo.size + 1 }]), /5 MB/);
+  assert.throws(() => validateAttachmentSelection([{ ...photo, size: photo.size + 1 }]), /photos under 5 MB/);
+  assert.doesNotThrow(() => validateAttachmentSelection([{ mime: "application/octet-stream", size: MAX_VIDEO_BYTES }]));
   assert.throws(() => validateAttachmentSelection([video, { ...video, size: MAX_FILE_BYTES + 1 }]), /30 MB/);
   assert.throws(() => validateAttachmentSelection(Array.from({ length: 5 }, () => ({ ...photo, size: 1 }))), /4 files/);
   assert.throws(() => validateAttachmentSelection([{ mime: "video/mp4", size: Infinity }]), /read this file/);

@@ -301,6 +301,33 @@ test('a message too long to send inline is saved for the agent to read in sectio
   assert.equal(fs.existsSync(file), false);
 });
 
+test('the full agent gets a ZIP saved where it can unpack and host it; deleting the chat removes it', { timeout: 15000 }, async t => {
+  const f = await fixture(t);
+  const zip = Buffer.concat([Buffer.from('PK\x03\x04', 'binary'), Buffer.alloc(6 * 1024 * 1024, 7)]);
+  const response = await f.api('/v1/chats/chat/messages', 'POST', { text: 'Host this prototype', attachments: [{ name: '../prototype.zip', data: zip.toString('base64') }], requestId: 'request_zip_upload' });
+  assert.equal(response.status, 200); await response.body.cancel();
+  await until(async () => (await f.latest())?.accepted);
+  const run = [...f.runs.values()][0];
+  const sent = JSON.stringify(run.input.at(-1).content);
+  assert.match(sent, /Host this prototype/);
+  assert.match(sent, /serve or publish it and reply with the link/);
+  const file = sent.match(/saved at:\\n([^ ]+prototype\.zip)/)[1];
+  assert.ok(file.startsWith(path.join(f.dir, 'uploads')));
+  assert.ok(fs.readFileSync(file).equals(zip));
+  f.finish(run, 'Hosted');
+  await until(async () => (await f.latest()).status === 'completed');
+  assert.equal((await (await f.api('/v1/chats/chat')).json()).chat.files, true);
+  assert.equal((await f.api('/v1/chats/chat', 'DELETE')).status, 200);
+  assert.equal(fs.existsSync(file), false);
+});
+
+test('a limited agent still takes only images and videos', { timeout: 15000 }, async t => {
+  const f = await fixture(t, { restricted: true });
+  const response = await f.api('/v1/chats/chat/messages', 'POST', { text: 'Host this', attachments: [{ name: 'site.zip', data: Buffer.from('PK\x03\x04zip').toString('base64') }], requestId: 'request_zip_member' });
+  assert.equal(response.status, 400);
+  assert.equal(f.startCount(), 0);
+});
+
 test('durable restricted delivery preserves long JSON without granting local-file access', { timeout: 15000 }, async t => {
   const f = await fixture(t, { restricted: true });
   const text = JSON.stringify({ payload: 'x'.repeat(70000) });
