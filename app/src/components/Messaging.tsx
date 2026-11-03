@@ -1,4 +1,5 @@
 import { useLayoutEffect, useEffect, useRef, useState, type ComponentRef, type ReactNode } from "react";
+import { MeetingCard } from "./MeetingCard";
 import { ActivityIndicator, Alert, Image, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type PressableProps } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
@@ -213,6 +214,7 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
           post.user.agent ? <MessageText text={post.text} /> : <Rich text={post.text + (post.editedAt ? " " : "")} style={styles.body} />
         ) : null}
         {post.editedAt && !post.deleted ? <Text style={styles.edited}>Edited</Text> : null}
+        {post.meeting && post.user.agent && !post.deleted ? <MeetingCard meeting={post.meeting} /> : null}
         </View>
         {!post.deleted && !working && post.attachments?.length ? <Attachments files={post.attachments} /> : null}
         {available && reactions.length > 0 ? <View style={styles.reactions}>

@@ -112,6 +112,7 @@ function SessionNavigation() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false, title: "Back", animation: "none" }} />
         <Stack.Screen name="c/[id]" options={{ title: "", ...sidebarScreen }} />
         <Stack.Screen name="thread" options={{ title: "Thread" }} />
+        <Stack.Screen name="meeting/[id]" options={{ headerShown: false, presentation: "fullScreenModal", gestureEnabled: false }} />
         <Stack.Screen name="new-channel" options={{ title: "New channel", ...sidebarScreen }} />
         <Stack.Screen name="new-message" options={{ title: "New message", ...sidebarScreen }} />
         <Stack.Screen name="browse" options={{ headerShown: false }} />

@@ -43,7 +43,11 @@
       "minimumSystemVersion": "13.0",
       "hardenedRuntime": true,
       "entitlements": "entitlements.mac.plist",
-      "entitlementsInherit": "entitlements.mac.plist"
+      "entitlementsInherit": "entitlements.mac.plist",
+      "extendInfo": {
+        "NSCameraUsageDescription": "Servant uses the camera for meeting video.",
+        "NSMicrophoneUsageDescription": "Servant uses the microphone for meetings."
+      }
     },
     "dmg": {
       "title": "Servant",

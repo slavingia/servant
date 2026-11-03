@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assetPath, externalUrl, isAppUrl, teamIdentifier, updateMode, workspaceConfig } from './policy.mjs';
+import { allowedPermission, assetPath, externalUrl, isAppUrl, teamIdentifier, updateMode, workspaceConfig } from './policy.mjs';
 
 test('local assets cannot escape their root or use another origin', () => {
   assert.equal(assetPath('/bundle/web', 'servant-app://app/assets/a.js'), '/bundle/web/assets/a.js');
@@ -23,4 +23,10 @@ test('only Developer ID builds install updates in place', () => {
   for (const output of ['Signature=adhoc\nTeamIdentifier=not set', 'code object is not signed at all', '', undefined]) assert.equal(teamIdentifier(output), null);
   assert.equal(updateMode('AB12CD34EF'), 'install');
   assert.equal(updateMode(null), 'notify');
+});
+test('the window may use the camera and microphone for meetings but nothing else', () => {
+  assert.equal(allowedPermission('clipboard-sanitized-write'), true);
+  assert.equal(allowedPermission('media', { mediaTypes: ['audio', 'video'] }), true);
+  assert.equal(allowedPermission('media', { mediaType: 'audio' }), true);
+  for (const [p, d] of [['media', {}], ['media', { mediaTypes: ['audio', 'screen'] }], ['display-capture', {}], ['clipboard-read', {}], ['geolocation', {}], ['notifications', {}]]) assert.equal(allowedPermission(p, d), false);
 });

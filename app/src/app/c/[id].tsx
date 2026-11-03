@@ -12,6 +12,7 @@ import { mergeReadEvent } from "../../lib/read-receipts";
 import { latestMessageReceipts } from "../../lib/message-status";
 import { canCompactPost } from "../../lib/message-device";
 import { TypingLine, useTyping, useTypingPing } from "../../lib/typing";
+import { callsSupported } from "../../lib/meeting-call";
 import { api, ServerError, type Conversation, type Upload, type Post, type LiveEvent } from "../../lib/server";
 import { useLive } from "../../lib/live";
 import { useSession } from "../../lib/session";
@@ -39,6 +40,7 @@ export default function ConversationScreen() {
   const { subscribe, setOpen, refresh } = useLive();
   const [conv, setConv] = useState<Conversation | null>(null);
   const [joined, setJoined] = useState(true);
+  const [calling, setCalling] = useState(false);
   const [posts, setPosts] = useState<Post[] | null>(null);
   const [more, setMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -224,6 +226,17 @@ export default function ConversationScreen() {
 
   const openDetails = () => router.push({ pathname: "/channel-info", params: { id } });
   const openFiles = () => router.push({ pathname: "/files", params: { kind: "conversation", id, title } });
+  const canCall = !!conv && joined && callsSupported();
+  // One tap starts the meeting (or joins the one already running) and opens the call.
+  const startCall = async () => {
+    if (!account || calling) return;
+    setCalling(true);
+    try {
+      const meeting = await api.startMeeting(account, id);
+      router.push({ pathname: "/meeting/[id]", params: { id: meeting.id } });
+    } catch (e) { setError(e instanceof Error ? e.message : "Couldn't start the meeting"); }
+    finally { setCalling(false); }
+  };
   const headerButton = { type: "button" as const, tintColor: colors.blue, labelStyle: { color: colors.blue, fontWeight: "600" as const }, hidesSharedBackground: true };
 
   return (
@@ -235,12 +248,15 @@ export default function ConversationScreen() {
           // Keep channel management quiet beside the conversation title.
           unstable_headerRightItems:
             conv && Platform.OS === "ios"
-              ? () => [{ ...headerButton, label: "Files", onPress: openFiles }, ...(isChannel ? [{ ...headerButton, label: "Details", onPress: openDetails }] : [])]
+              ? () => [...(canCall ? [{ ...headerButton, label: "Call", onPress: startCall }] : []), { ...headerButton, label: "Files", onPress: openFiles }, ...(isChannel ? [{ ...headerButton, label: "Details", onPress: openDetails }] : [])]
               : undefined,
           headerRight:
             conv && Platform.OS !== "ios"
               ? () => (
                   <View style={styles.headerActions}>
+                    {canCall ? <Pressable testID="start-call" accessibilityRole="button" accessibilityLabel="Start a call" disabled={calling} onPress={startCall} style={styles.headerAction}>
+                      <Text style={styles.headerLink}>Call</Text>
+                    </Pressable> : null}
                     <Pressable testID="open-files" accessibilityRole="button" onPress={openFiles} style={styles.headerAction}>
                       <Text style={styles.headerLink}>Files</Text>
                     </Pressable>

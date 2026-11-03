@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, protocol, 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { APP_URL, DOWNLOAD_PAGE, assetPath, externalUrl, isAppUrl, workspaceConfig } from './policy.mjs';
+import { APP_URL, DOWNLOAD_PAGE, allowedPermission, assetPath, externalUrl, isAppUrl, workspaceConfig } from './policy.mjs';
 import { createUpdates } from './updates.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -39,9 +39,10 @@ else {
       headers.set('X-Content-Type-Options', 'nosniff');
       return new Response(result.body, { status: result.status, headers });
     });
-    // Copy actions may write plain text; no clipboard reading or device access.
-    session.defaultSession.setPermissionCheckHandler((contents, permission, origin) => contents === window?.webContents && isAppUrl(origin) && permission === 'clipboard-sanitized-write');
-    session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => callback(contents === window?.webContents && isAppUrl(details.requestingUrl) && permission === 'clipboard-sanitized-write'));
+    // Copy actions may write plain text, and meetings may use the camera and
+    // microphone. No clipboard reading, screen capture or other device access.
+    session.defaultSession.setPermissionCheckHandler((contents, permission, origin, details) => contents === window?.webContents && isAppUrl(origin) && allowedPermission(permission, details));
+    session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => callback(contents === window?.webContents && isAppUrl(details.requestingUrl) && allowedPermission(permission, details)));
     ipcMain.on('servant:config', event => { event.returnValue = validSender(event) ? { workspace } : {}; });
     // Serialize storage writes to preserve sign-out and account changes in order.
     let storageQueue = Promise.resolve();

@@ -171,7 +171,7 @@ export function agentShouldReply(text, agentName = "", inAgentThread = false) {
  * @param {() => string} o.agentName
  * @param {(o:{sessionId:string, sessionKey:string, text:string, attachments:Array, onDelta:(t:string)=>void, onStatus:(t:string)=>void}) => Promise<string|{text:string,attachments:Array}>} o.askAgent
  */
-export function createMessaging({ file, users, agentName, askAgent, onMessage = () => {}, externalWorker = false, workHours = () => null, onUsage = () => {} }) {
+export function createMessaging({ file, users, agentName, askAgent, onMessage = () => {}, externalWorker = false, workHours = () => null, onUsage = () => {}, messageExtras = () => null }) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(file);
   db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON');
@@ -470,7 +470,12 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     lastReplyAt: m.last_reply_at,
     createdAt: m.created_at,
     editedAt: m.edited_at,
+    // Meetings attach their live card and one-tap next steps to agent posts.
+    ...(m.user_id === AGENT_ID && !m.deleted_at ? safeExtras(m) : {}),
   });
+  function safeExtras(m) {
+    try { return messageExtras(m) || {}; } catch (e) { console.error("[servant] message extras", e); return {}; }
+  }
   function convView(c, me, includeMembers = false) {
     const memberIds = st.members.all(c.id).map((r) => r.user_id);
     let title = c.kind === "channel" ? c.name : null;
@@ -1378,7 +1383,31 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     return true;
   }
 
-  return { handle, forwardSource, notificationFor, joinDefaults, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, close: () => { closeEvents(); db.close(); }, db };
+  // ----- hooks for features that post on the agent's behalf (meetings) -----
+  const meetingHooks = {
+    isMember: (conversationId, userId) => { const c = st.conv.get(conversationId); return !!c && !c.archived_at && canSee(c, userId) && !!st.member.get(conversationId, userId); },
+    conversationInfo: (conversationId) => { const c = st.conv.get(conversationId); return c && { id: c.id, kind: c.kind, name: c.name || "" }; },
+    roomsFor: (userId) => db.prepare("SELECT c.id, c.name FROM conversations c JOIN members m ON m.conversation_id = c.id AND m.user_id = ? WHERE c.kind = 'channel' AND c.archived_at IS NULL ORDER BY c.name").all(userId).map(c => ({ id: c.id, name: c.name })),
+    agentPost: (conversationId, text) => { const c = st.conv.get(conversationId); if (!c) throw httpError(404, 'not_found', 'That conversation is gone'); return post(c, AGENT_ID, text.slice(0, MAX_TEXT)); },
+    updateAgentMessage: (seq, text) => transaction(() => {
+      const m = st.msg.get(seq);
+      if (!m || m.deleted_at || m.user_id !== AGENT_ID) return;
+      st.setAgentText.run(text.slice(0, MAX_TEXT), 0, seq);
+      publish(m.conversation_id, "message.updated", msgView(st.msg.get(seq)));
+    }),
+    refreshMessage: (seq) => { const m = st.msg.get(seq); if (m && !m.deleted_at) publish(m.conversation_id, "message.updated", msgView(m)); },
+    notifyConversation: (conversationId) => { if (st.conv.get(conversationId)) publish(conversationId, "conversation.updated", { id: conversationId }); },
+    // A tapped next step is posted as the person, in a thread under the notes,
+    // and wakes the agent exactly as if they had typed it.
+    postFromUser: (conversationId, user, text, threadRoot) => {
+      const c = requireConversation(conversationId, user.id, true);
+      const m = post(c, user.id, text.slice(0, MAX_TEXT), threadRoot || null, { queueAgent: true });
+      if (!externalWorker && wantsAgent(c, m)) agentReply(c, m).catch((e) => console.error("[servant] agent reply", e));
+      return m;
+    },
+  };
+
+  return { ...meetingHooks, handle, forwardSource, notificationFor, joinDefaults, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, close: () => { closeEvents(); db.close(); }, db };
 }
 
 function httpError(status, code, message) {

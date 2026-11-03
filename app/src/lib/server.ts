@@ -61,6 +61,25 @@ export type Post = {
   lastReplyAt: number | null;
   createdAt: number;
   editedAt: number | null;
+  /** Set on agent posts that belong to a meeting: the live call card or the notes. */
+  meeting?: { id: string; kind: "call" | "notes"; status: MeetingStatus; steps: MeetingStep[] };
+};
+export type MeetingStatus = "live" | "recorded" | "processing" | "done" | "failed";
+export type MeetingStep = { n: number; text: string; owner: string | null; conversationId: string; status: "open" | "accepted" | "skipped"; actedBy: { id: string; name: string } | null; threadId: string | null };
+export type IceServer = { urls: string | string[]; username?: string; credential?: string };
+export type Meeting = {
+  id: string;
+  conversationId: string;
+  status: MeetingStatus;
+  startedBy: { id: string; name: string };
+  startedAt: number;
+  endedAt: number | null;
+  title: string | null;
+  error: string | null;
+  iceServers: IceServer[];
+  participants: { id: string; user: { id: string; name: string }; publishing: boolean; you: boolean; joinedAt: number; hasVideo: boolean; hasAudio: boolean }[];
+  steps: MeetingStep[];
+  transcript: string | null;
 };
 export type Conversation = {
   id: string;
@@ -385,6 +404,19 @@ export const api = {
   reactToPost: (a: Account, postId: string, emoji: string, active: boolean) =>
     request(a, `/v1/messages/${postId}/reactions`, { method: "POST", body: JSON.stringify({ emoji, active }) }).then(json<{ message: Post }>).then((d) => d.message),
   deletePost: (a: Account, postId: string) => request(a, `/v1/messages/${postId}`, { method: "DELETE" }),
+  startMeeting: (a: Account, conversationId: string) =>
+    request(a, "/v1/meetings", { method: "POST", body: JSON.stringify({ conversationId }) }).then(json<{ meeting: Meeting }>).then((d) => d.meeting),
+  meeting: (a: Account, id: string) => request(a, `/v1/meetings/${id}`).then(json<{ meeting: Meeting }>).then((d) => d.meeting),
+  joinMeeting: (a: Account, id: string, sdp: string) =>
+    request(a, `/v1/meetings/${id}/join`, { method: "POST", body: JSON.stringify({ sdp }) }).then(json<{ participantId: string; sdp: string }>),
+  watchMeeting: (a: Account, id: string, participantId: string, publisherId: string, sdp: string) =>
+    request(a, `/v1/meetings/${id}/watch`, { method: "POST", body: JSON.stringify({ participantId, publisherId, sdp }) }).then(json<{ sdp: string }>),
+  leaveMeeting: (a: Account, id: string, participantId: string) =>
+    request(a, `/v1/meetings/${id}/leave`, { method: "POST", body: JSON.stringify({ participantId }) }).catch(() => undefined),
+  endMeeting: (a: Account, id: string) =>
+    request(a, `/v1/meetings/${id}/end`, { method: "POST", body: "{}" }).then(json<{ meeting: Meeting }>).then((d) => d.meeting),
+  meetingStep: (a: Account, id: string, n: number, action: "accept" | "skip") =>
+    request(a, `/v1/meetings/${id}/steps/${n}`, { method: "POST", body: JSON.stringify({ action }) }).then(json<{ meeting: Meeting }>).then((d) => d.meeting),
   latestRelease: (a: Account) =>
     request(a, "/v1/releases/latest").then(json<{ release: Release | null }>).then((d) => d.release),
   signOut: (a: Account) => request(a, "/v1/signout", { method: "POST" }).catch(() => undefined),

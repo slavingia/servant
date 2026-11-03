@@ -19,6 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createMessaging } from "./messaging.mjs";
+import { createMeetings, NOTES_PROMPT as MEETING_NOTES_PROMPT } from "./meetings.mjs";
 import os from "node:os";
 import { createFeedback, feedbackPrompt, feedbackResult } from "./feedback.mjs";
 import { createPushService, preferences, previewText, updatePushRegistration, updatePreferences } from "./push.mjs";
@@ -484,6 +485,7 @@ const chatMediaStore = () => chatMedia ??= createChatMediaStore(path.join(DATA_D
 let documentStore;
 const documents = () => documentStore ??= createDocumentStore(path.join(DATA_DIR, "chat-files"));
 let usageDb;
+let meetings = null;
 const usageStore = () => usageDb ??= createUsageStore(path.join(DATA_DIR, "usage.db"));
 const recordUsage = entry => { try { usageStore().record(entry); } catch (error) { console.error("[servant] usage", error.message); } };
 
@@ -712,6 +714,7 @@ async function handle(req, res, cfg) {
     }, true);
     return send(res, 200, { person });
   }
+  if (meetings && parts[1] === "meetings" && (await meetings.handle(req, res, { user, method, parts, send, fail, readBody: readAuthorizedBody }))) return undefined;
   if (messaging && (await messaging.handle(req, res, { user, device, method, parts, url, send, fail, readBody: readAuthorizedBody, cors: CORS,
     isAuthorized: () => authenticate(req, readState())?.user.id === user.id,
   }))) return undefined;
@@ -1179,6 +1182,7 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
     // Channels use the same agent as private chats: full access unless the
     // server is set to "agentAccess": "limited".
     onUsage: recordUsage,
+    messageExtras: m => meetings?.messageExtras(m),
     askAgent: async ({ sessionId, sessionKey: key, fresh, text, restartText, attachments, onDelta, onUsage = () => {} }) => {
       const cfg = fixedCfg || loadConfig();
       const up = upstreamFor({ role: "member" }, cfg);
@@ -1269,6 +1273,26 @@ async function closeIdleChats(turns, cfg, { now: at = now(), idleMs = CLOSER_IDL
   return closed;
 }
 
+// Meeting notes: a no-tools model call on the restricted agent turns the
+// transcript into a summary, decisions and next steps routed to rooms.
+async function meetingNotes({ transcript, rooms, room, people }) {
+  const cfg = loadConfig();
+  const up = upstreamFor({ role: "member" }, cfg);
+  if (!up) throw new Error("The agent isn't set up on this server yet");
+  const context = [
+    `Meeting room: ${room.kind === "channel" ? "#" + room.name : "a direct message"}`,
+    `People: ${people.join(", ") || "unknown"}`,
+    `Rooms: ${rooms.map(r => "#" + r.name).join(", ") || "none"}`,
+    "", "Transcript:", transcript.slice(-120000),
+  ].join("\n");
+  const response = await hermes(up, "POST", "/v1/chat/completions", { messages: [
+    { role: "system", content: MEETING_NOTES_PROMPT }, { role: "user", content: context },
+  ] }, {}, AbortSignal.timeout(300_000));
+  if (!response.ok) throw new Error(`The agent returned ${response.status}`);
+  const data = await response.json();
+  return data.choices?.[0]?.message?.content || "";
+}
+
 export function createWorkerServices() {
   return createServices(undefined, { externalWorker: true, autoDrain: false });
 }
@@ -1289,6 +1313,16 @@ export function startServer(fixedCfg) {
   feedback ??= createFeedback({ file: path.join(DATA_DIR, "feedback.db"), interval: 0, recover: false });
   messaging.ensureGeneral();
   for (const uid of Object.keys(readState().users)) messaging.joinDefaults(uid);
+  if (!externalWorker && !meetings) {
+    meetings = createMeetings({
+      dir: path.join(DATA_DIR, "meetings"),
+      messaging,
+      users: () => readState().users,
+      config: () => (fixedCfg || loadConfig()).meetings,
+      summarize: meetingNotes,
+    });
+    meetings.recover();
+  }
   let draining = false;
   const requests = new Set();
   const server = http.createServer((req, res) => {
@@ -1321,6 +1355,7 @@ export function startServer(fixedCfg) {
     clearInterval(privateTimer); privateTimer = null;
     await agentTurns?.whenIdle();
     agentTurns?.drainOutbox(event => push.enqueue(event));
+    await meetings?.close().catch(err => console.error("[servant] meetings shutdown", err)); meetings = null;
     await messaging?.whenIdle();
     await push?.shutdown();
     push = null;

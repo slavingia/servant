@@ -37,3 +37,12 @@ export function teamIdentifier(codesignOutput) {
 export function updateMode(team) {
   return team ? 'install' : 'notify';
 }
+
+// The app window may write copied text and, for meetings, use the camera and
+// microphone. Screen capture, clipboard reads and everything else stay off.
+export function allowedPermission(permission, details = {}) {
+  if (permission === 'clipboard-sanitized-write') return true;
+  if (permission !== 'media') return false;
+  const types = details.mediaTypes || (details.mediaType ? [details.mediaType] : []);
+  return types.length > 0 && types.every(type => type === 'audio' || type === 'video');
+}
