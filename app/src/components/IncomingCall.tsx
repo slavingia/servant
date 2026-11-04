@@ -6,6 +6,7 @@ import { CallPulse } from "./CallPulse";
 import { useLive } from "../lib/live";
 import { useSession } from "../lib/session";
 import { api } from "../lib/server";
+import { systemCalls } from "../lib/servant-call";
 import { callsSupported } from "../lib/meeting-call";
 import { RING_MS, shouldRing } from "../lib/incoming-call";
 import { radius, space, typography } from "../lib/theme";
@@ -40,6 +41,8 @@ export function IncomingCall() {
 
   useEffect(() => {
     if (!ring) return;
+    // The app is open and showing its own ring, so the phone's call screen would be a second one.
+    systemCalls.end(ring.id);
     const buzz = () => { void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {}); };
     buzz();
     const tick = setInterval(buzz, 1500);
@@ -47,7 +50,7 @@ export function IncomingCall() {
     return () => { clearInterval(tick); clearTimeout(stop); };
   }, [ring]);
 
-  const hide = () => { if (ring) dismissed.current.add(ring.id); setRing(null); };
+  const hide = () => { if (ring) { dismissed.current.add(ring.id); systemCalls.end(ring.id); } setRing(null); };
   const join = () => { if (!ring) return; const id = ring.id; hide(); router.push({ pathname: "/meeting/[id]", params: { id } }); };
   if (!ring || onMeeting) return null;
   return (

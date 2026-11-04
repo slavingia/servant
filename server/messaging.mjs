@@ -916,7 +916,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     const participant = !!m.thread_root && !!db.prepare("SELECT 1 FROM messages WHERE conversation_id = ? AND (seq = ? OR thread_root = ?) AND user_id = ? AND deleted_at IS NULL AND seq < ? LIMIT 1").get(c.id, m.thread_root, m.thread_root, user.id, m.seq);
     if (call) {
       const caller = person(call.by).name;
-      return { kind: c.kind, conversationId: c.id, meetingId: call.id, mentioned: true, participant: false, badge: Math.max(1, st.mine.all(user.id, 0).reduce((n, x) => n + x.unread, 0)),
+      return { kind: c.kind, conversationId: c.id, meetingId: call.id, caller, place: c.kind === "channel" ? `#${c.name}` : "", mentioned: true, participant: false, badge: Math.max(1, st.mine.all(user.id, 0).reduce((n, x) => n + x.unread, 0)),
         title: `${caller} is calling`, body: c.kind === "channel" ? `In #${c.name}. Tap to join` : "Tap to join" };
     }
     const sender = person(m.user_id).name;

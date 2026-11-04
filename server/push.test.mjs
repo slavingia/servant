@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createPushService, defaults, isMention, notificationPayload, previewText, wantsNotification, updatePushRegistration, updatePreferences } from './push.mjs';
+import { createPushService, defaults, isMention, notificationPayload, previewText, wantsNotification, updatePushRegistration, updateVoipRegistration, updatePreferences } from './push.mjs';
 import { createMessaging } from './messaging.mjs';
-import { fcmMessage, apnsPayload } from './push-transport.mjs';
+import { fcmMessage, apnsPayload, voipPayload } from './push-transport.mjs';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'servant-push-'));
 const user = { id: 'u_alice', name: 'Alice Smith' };
@@ -228,4 +228,42 @@ test('a call rings other members once, only while fresh, and a tap opens the cal
     m.db.prepare('UPDATE messages SET created_at = created_at - 60000 WHERE seq = ?').run(card.seq);
     assert.equal(m.notificationFor(card.seq, people.b, queued.at(-1)), null, 'stale call no longer rings');
   } finally { m.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('calls ring an iPhone through its VoIP token and Android through a data-only push; alerts are the fallback', async () => {
+  const dir = tmp(); const sent = [];
+  const call = { id: 'meet_abc', by: 'a' };
+  const info = { kind: 'channel', conversationId: 'ch_x', meetingId: 'meet_abc', caller: 'Alice', place: '#room', mentioned: true, badge: 1, title: 'Alice is calling', body: 'In #room. Tap to join' };
+  const state = { users: { u: { ...user, id: 'u' } }, devices: {
+    ios: { id: 'ios', userId: 'u', push: { token: 'a'.repeat(64), platform: 'ios' } },
+    old: { id: 'old', userId: 'u', push: { token: 'b'.repeat(64), platform: 'ios' } },
+    droid: { id: 'droid', userId: 'u', push: { token: 'c'.repeat(64), platform: 'android' } } } };
+  updateVoipRegistration(state, state.devices.ios, { token: 'd'.repeat(64) });
+  updateVoipRegistration(state, state.devices.droid, { android: true });
+  assert.throws(() => updateVoipRegistration(state, state.devices.old, { token: 'nope' }));
+  const p = createPushService({ file: path.join(dir, 'push.db'), state: () => state, mutate: fn => fn(state), resolve: () => info, send: async (target, n) => { sent.push({ target, n }); return { ok: true }; }, log: () => {} });
+  p.enqueue({ kind: 'message', messageId: '9', call });await tick();
+  const by = id => sent.filter(x => x.target.token === ({ ios: 'd', old: 'b', droid: 'c' })[id].repeat(64))[0];
+  assert.equal(by('ios').target.platform, 'ios-voip');
+  assert.equal(by('old').target.platform, 'ios', 'a build without call support still gets an alert');
+  assert.equal(by('droid').target.ringing, true);
+  assert.equal(by('ios').n.call.caller, 'Alice');
+  assert.equal(by('ios').n.data.meetingId, 'meet_abc');
+  p.close();fs.rmSync(dir, { recursive: true, force: true });
+});
+test('call payloads carry only the meeting, caller and place; non-calls never go to PushKit', () => {
+  const n = { title: 'Alice is calling', body: 'x', call: { meetingId: 'meet_abc', caller: 'Alice', place: '#room' }, data: { userId: 'u', deviceId: 'd', meetingId: 'meet_abc' } };
+  assert.deepEqual(Object.keys(voipPayload(n)).sort(), ['caller', 'meetingId', 'place', 'sentAt']);
+  assert.equal(voipPayload({ ...n, call: { ...n.call, meetingId: '../x' } }), null);
+  assert.equal(voipPayload({ title: 'Hi', body: 'x', data: {} }), null);
+  const ring = fcmMessage('tok', n, true).message;
+  assert.equal(ring.notification, undefined);
+  assert.equal(ring.data.type, 'call');
+  assert.equal(ring.android.ttl, '45s');
+  assert.ok(fcmMessage('tok', n, false).message.notification, 'old builds show a normal alert');
+});
+test('call registrations are removed with the device push registration', () => {
+  const device = { id: 'd', push: { token: 'x' }, voip: { token: 'y' }, ringsCalls: true };
+  updatePushRegistration({ devices: { d: device } }, device, { token: null });
+  assert.equal(device.voip, undefined); assert.equal(device.ringsCalls, undefined);
 });

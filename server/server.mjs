@@ -23,7 +23,7 @@ import { createOta } from "./ota.mjs";
 import { createMeetings, NOTES_PROMPT as MEETING_NOTES_PROMPT } from "./meetings.mjs";
 import os from "node:os";
 import { createFeedback, feedbackPrompt, feedbackResult } from "./feedback.mjs";
-import { createPushService, preferences, previewText, updatePushRegistration, updatePreferences } from "./push.mjs";
+import { createPushService, preferences, previewText, updatePushRegistration, updateVoipRegistration, updatePreferences } from "./push.mjs";
 import { createPushTransport } from "./push-transport.mjs";
 import { createSecureTransport, serverIdentity } from "./secure-transport.mjs";
 import { createStateStore } from "./state-store.mjs";
@@ -318,6 +318,8 @@ function requireChat(state, userId, chatId) {
 function revokeDevice(device) {
   device.revokedAt = now();
   delete device.push;
+  delete device.voip;
+  delete device.ringsCalls;
   delete device.pushPresence;
 }
 // True when this was the person's last active device, i.e. they've left.
@@ -698,6 +700,7 @@ async function handle(req, res, cfg) {
       const body = await readBody(req);
       const result = mutateAuthenticated(req, (state, current) => {
         if (method === "PUT" && parts.length === 2) updatePushRegistration(state, current.device, body);
+        else if (method === "PUT" && parts[2] === "voip" && parts.length === 3) updateVoipRegistration(state, current.device, body);
         else if (method === "PATCH" && parts.length === 2) updatePreferences(current.user, body);
         else if (method === "POST" && parts[2] === "presence") {
           const conversation = typeof body.conversation === "string" && /^(ch|dm|cht)_[A-Za-z0-9_-]+$/.test(body.conversation) ? body.conversation : null;

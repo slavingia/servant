@@ -5,7 +5,8 @@ import * as Notifications from 'expo-notifications';
 import { AndroidImportance, IosAuthorizationStatus } from 'expo-notifications';
 import { useSession } from './session';
 import { useLive } from './live';
-import { ServerError } from './server';
+import { ServerError, type Account } from './server';
+import { systemCalls, validMeetingId } from './servant-call';
 import { notificationApi, defaultNotifications, type NotificationPreferences } from './notifications-api';
 import { notificationRoute } from './notification-route';
 import type { NotificationState } from './notifications';
@@ -31,6 +32,12 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const lastOpened = useRef('');
   useEffect(() => { latest.current = account; }, [account]);
 
+  const registerCalls = async (a: Account) => {
+    if (systemCalls.androidRings) { await notificationApi.registerCalls(a, { android: true }).catch(() => {}); return; }
+    const token = systemCalls.voipToken();
+    if (Platform.OS === 'ios' && token) await notificationApi.registerCalls(a, { token, environment: 'production' }).catch(() => {});
+  };
+
   const sync = useCallback(async (ask: boolean) => {
     const a = latest.current;
     if (!a) return;
@@ -47,6 +54,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         const token = await Notifications.getDevicePushTokenAsync();
         if (latest.current?.token !== a.token) return;
         await notificationApi.register(a, String(token.data), Platform.OS);
+        await registerCalls(a);
       } else await notificationApi.register(a, null);
       if (latest.current?.token === a.token) setEnabled(allowed);
     } catch (e) {
@@ -78,7 +86,8 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       if (a) void notificationApi.register(a, String(token.data), Platform.OS).catch(() => setError('Could not register the refreshed notification token. Try again'));
     });
     const stateSub = AppState.addEventListener('change', state => { if (state === 'active') void sync(false); });
-    return () => { tokenSub.remove(); stateSub.remove(); };
+    const voipSub = systemCalls.onToken(token => { const a = latest.current; if (a) void notificationApi.registerCalls(a, { token, environment: 'production' }).catch(() => {}); });
+    return () => { tokenSub.remove(); stateSub.remove(); voipSub?.remove(); };
   }, [account, sync]);
 
   useEffect(() => {
@@ -107,6 +116,15 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     const timer = setInterval(presence, 30000);
     return () => { clearInterval(timer); sub.remove(); };
   }, [account, conversation]);
+
+  // Answering on the phone's call screen: open the call, whether the app was running or just launched.
+  useEffect(() => {
+    if (!account || !navigation?.key) return;
+    const join = (id: string | null) => { if (validMeetingId(id)) router.push({ pathname: '/meeting/[id]', params: { id } }); };
+    join(systemCalls.takeAnswered());
+    const sub = systemCalls.onAnswer(join);
+    return () => sub?.remove();
+  }, [account, navigation?.key]);
 
   useEffect(() => {
     if (!account || !deviceId || !navigation?.key) return;

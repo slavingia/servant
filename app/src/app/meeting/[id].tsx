@@ -5,6 +5,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-cont
 import { CallPulse } from "../../components/CallPulse";
 import { CallVideo } from "../../components/CallVideo";
 import { useSession } from "../../lib/session";
+import { systemCalls } from "../../lib/servant-call";
 import { callsSupported, createCall, type CallState } from "../../lib/meeting-call";
 import { radius, space, typography } from "../../lib/theme";
 
@@ -29,6 +30,7 @@ function Meeting() {
   useEffect(() => {
     if (!account || !id) return;
     if (!callsSupported()) { setState(s => ({ ...s, status: "failed", error: "This device or browser can't make calls. Use the Servant app or a current Chrome, Safari or Edge" })); return; }
+    systemCalls.end(id);
     const c = createCall(account, id, setState);
     call.current = c;
     void c.start();
