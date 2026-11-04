@@ -427,12 +427,12 @@ async function streamTurn(up, sessionId, text, key, onEvent, isClosed = () => fa
 // carries from one agent chat into another.
 const sessionKey = (user, chatId) => `servant:${user.id}:${chatId}`;
 
-// Agent chats are shared with the rest of the server by default so people can
-// learn from each other's prompts. The person can turn sharing off per chat;
-// the owner (admin) can always read every chat. Only the person who started a
-// chat can post in it, steer, stop, approve, rename sharing or delete it.
-// Chats from before sharing existed (no "shared" field) were started when the
-// app called them private, so they stay private; new chats store shared: true.
+// Agent chats start private, like ChatGPT. Afterwards the person can choose to share
+// any one of them with the rest of the server (and stop again); a chat is never
+// shared at creation. The owner (admin) can always read every chat. Only the person
+// who started a chat can post in it, steer, stop, approve, change sharing or delete it.
+// Chats made before this change and already shared stay shared until their author
+// stops; chats from before sharing existed (no "shared" field) stay private.
 const chatShared = chat => chat.shared === true;
 // "Forward" on an agent chat message: post it, with a server-written header,
 // into a channel or DM the person is in. Agent chat documents stay on disk
@@ -968,8 +968,6 @@ async function handle(req, res, cfg) {
     const project = vibe ? VIBE_PROJECT : (typeof body.project === "string" && availableProjects().some(p => p.id === body.project) ? body.project : null);
     if (body.project && !vibe && !project) return fail(res, 400, "bad_project", "That project isn't available on this server");
     if (body.folderId != null && !folderAccess(readState().users, creator.id, body.folderId)) return fail(res, 404, "not_found", "No such folder");
-    const folderHit = body.folderId ? folderAccess(readState().users, creator.id, body.folderId) : null;
-    const teamFolder = !!folderHit && (folderHit.role === "member" || (folderHit.folder.members || []).length > 0);
     const hermesSessionId = `servant_${creator.id}_${chatId}`;
     const r = await hermes(creationUp, "POST", "/api/sessions", { id: hermesSessionId, title: `Servant · ${creator.name} · ${chatId.slice(-6)}` });
     if (!r.ok) return fail(res, 502, "agent_error", `The agent didn't start a chat (${r.status})`);
@@ -979,8 +977,8 @@ async function handle(req, res, cfg) {
       role: creator.role,
       hermesSessionId,
       title: String(body.title || "New chat").slice(0, 80),
-      // A chat in a folder with other people starts private to its author; sharing is their choice.
-      shared: teamFolder ? body.shared === true : body.shared !== false,
+      // Always private to start. Sharing with the server or a folder is a later choice, per chat.
+      shared: false,
       ...(body.folderId ? { folderId: body.folderId } : {}),
       ...(project ? { project } : {}),
       ...(vibe ? { mode: "vibe", vibeFolder: vibeFolder(chatId) } : {}),

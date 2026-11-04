@@ -138,7 +138,6 @@ function FullTitle({ title, onClose }: { title: string; onClose: () => void }) {
   </View>;
 }
 
-// Your own chat: shared with the server by default; this switch turns it off.
 // Files: every photo, video and file in this agent chat.
 // Preview and Share sit here too, so the conversation keeps the whole screen.
 type HeaderLink = { label: string; testID: string; accessibilityLabel?: string; onPress: () => void };
@@ -201,7 +200,7 @@ function ReplyText({ text, failed }: { text: string; failed?: boolean }) {
   </View>;
 }
 
-// Header "•••": chat options. Your own chat is shared with the server by default; the switch turns it off. Files lives here too.
+// Header "•••": chat options. Your own chat is private until you choose to share it with the server; Files lives here too.
 function OptionsSheet({ id, title, shared, folderId, folderShared, onFolder, onFolderShared, onChange, onClose }: { id: string; title: string; shared: boolean | null; folderId: string | null; folderShared: boolean; onFolder: (folderId: string | null) => void; onFolderShared: (shared: boolean) => void; onChange: (shared: boolean) => void; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -238,7 +237,7 @@ function OptionsSheet({ id, title, shared, folderId, folderShared, onFolder, onF
         {shared !== null ? <View style={styles.shareRow}>
           <View style={styles.turnCopy}>
             <Text style={styles.turnLabel}>Share with {account.serverName}</Text>
-            <Text style={styles.turnDetail}>{shared ? "Others can read this chat to give feedback on your prompts." : "Only you and admins can see this chat."}</Text>
+            <Text style={styles.turnDetail}>{shared ? `Everyone on ${account.serverName} can read this chat. They can't reply in it. Turn off to make it private again.` : "Only you and admins can see this chat. Turn on to let others read it and give feedback."}</Text>
           </View>
           <Switch accessibilityLabel={`Share this chat with ${account.serverName}`} value={shared} disabled={saving}
             onValueChange={next => { void change(next); }} trackColor={{ true: colors.blue, false: colors.borderStrong }} thumbColor="#FFFFFF" {...(Platform.OS === "web" ? { activeThumbColor: "#FFFFFF" } : {})} />

@@ -239,7 +239,7 @@ export default function Chats() {
                 <View style={styles.rowWrap}>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`${title}${unread ? `, ${unread} unread ${unread === 1 ? "reply" : "replies"}` : ""}${item.shared === false ? ", private" : ""}${item.closed ? `. ${closedLine(item.closed)}` : lastLine(item, "You") ? `. ${lastLine(item, "You")}` : ""}`}
+                  accessibilityLabel={`${title}${unread ? `, ${unread} unread ${unread === 1 ? "reply" : "replies"}` : ""}${item.shared === true ? ", shared with everyone" : ""}${item.closed ? `. ${closedLine(item.closed)}` : lastLine(item, "You") ? `. ${lastLine(item, "You")}` : ""}`}
                   onPress={() => bind.onPress(() => {
                     // Clear the badge right away; the chat screen tells the server.
                     if (unread) setChats(list => list?.map(chat => chat.id === item.id ? { ...chat, unread: 0 } : chat) ?? list);
@@ -256,8 +256,8 @@ export default function Chats() {
                     {activeAgentTurn(item.latestTurn) ? <Text style={styles.turnLabel} numberOfLines={1}>{agentTurnLabel(item.latestTurn!)}</Text>
                       : item.closed ? <Text style={styles.preview} numberOfLines={1}>{closedLine(item.closed)}</Text>
                       : <View style={styles.privateTag}>
-                        {item.shared === false ? <AppIcon name="lock" size={12} color={colors.muted} /> : null}
-                        <Text style={[styles.preview, unread > 0 && { color: colors.ink }]} numberOfLines={1}>{lastLine(item, "You") || (item.shared === false ? "Private" : "")}</Text>
+                        {item.shared === true ? <AppIcon name="people" size={12} color={colors.muted} /> : null}
+                        <Text style={[styles.preview, unread > 0 && { color: colors.ink }]} numberOfLines={1}>{lastLine(item, "You") || (item.shared === true ? "Shared" : "")}</Text>
                       </View>}
                   </View>
                   <View style={styles.rowEnd}>

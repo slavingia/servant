@@ -290,6 +290,8 @@ test("agent chats: swipe to archive, restore, and a new message un-archives; onl
   const chat = (await api("POST", "/v1/chats", { token, body: {} })).json.chat;
   await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "start" } });
   assert.equal(chat.archived, false);
+  assert.equal(chat.shared, false, "a new chat is private");
+  assert.equal((await api("PATCH", `/v1/chats/${chat.id}`, { token, body: { shared: true } })).json.chat.shared, true, "the author can share it afterwards");
   assert.equal((await api("POST", `/v1/chats/${chat.id}/archive`, { token: other })).status, 403, "someone else's shared chat is read only");
   const archived = await api("POST", `/v1/chats/${chat.id}/archive`, { token });
   assert.equal(archived.status, 200);
@@ -313,6 +315,7 @@ test("agent chat list shows the last message under each title, like DMs", async 
   const sent = await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "**summarize** the repo" } });
   assert.equal(sent.status, 200);
   await api("GET", `/v1/chats/${chat.id}/messages`, { token });
+  assert.equal((await api("PATCH", `/v1/chats/${chat.id}`, { token, body: { shared: true } })).status, 200, "shared afterwards, by choice");
   const mine = (await api("GET", "/v1/chats?scope=org", { token })).json.chats.find(c => c.id === chat.id);
   assert.ok(mine.lastMessage, "has a last message");
   assert.equal(mine.lastMessage.role, "assistant");
@@ -453,10 +456,10 @@ test("shared folders: people in a folder share its notes and files, never each o
   const benChat = (await api("POST", "/v1/chats", { token: ben, body: { folderId: folder.id } })).json.chat;
   assert.equal(annChat.shared, false);
   assert.equal(benChat.shared, false);
-  assert.equal((await api("POST", "/v1/chats", { token: ann, body: { folderId: folder.id, shared: true } })).json.chat.shared, true, "they can still opt in");
-  assert.equal((await api("POST", "/v1/chats", { token: ann, body: {} })).json.chat.shared, true, "chats outside folders keep the server default");
+  assert.equal((await api("POST", "/v1/chats", { token: ann, body: { folderId: folder.id, shared: true } })).json.chat.shared, false, "asking for shared at creation is ignored: sharing is chosen afterwards");
+  assert.equal((await api("POST", "/v1/chats", { token: ann, body: {} })).json.chat.shared, false, "chats outside folders are private too");
   const solo = (await api("POST", "/v1/folders", { token: cy, body: { name: "Just me" } })).json.folder;
-  assert.equal((await api("POST", "/v1/chats", { token: cy, body: { folderId: solo.id } })).json.chat.shared, true, "a folder with only you changes nothing");
+  assert.equal((await api("POST", "/v1/chats", { token: cy, body: { folderId: solo.id } })).json.chat.shared, false, "a folder with only you is private as well");
   for (const [token, chat] of [[ann, annChat], [ben, benChat]]) {
     await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: `question from ${chat.id}` } });
     const stream = await waitFor(() => [...owner.calls, ...member.calls].find(c => c.url.endsWith("/chat/stream") && c.body.message === `question from ${chat.id}`));
@@ -695,13 +698,20 @@ test("a new agent chat stays out of every list until something is sent in it", a
   assert.equal(await inOrg(), true);
 });
 
-test("agent chats are shared with the org by default: others read, only the author writes", async () => {
+test("a chat the author chooses to share: others read, only the author writes", async () => {
   const a = await pair("member", "Cy");
   const b = await pair("member", "Di");
   const chat = (await api("POST", "/v1/chats", { token: a, body: {} })).json.chat;
-  assert.equal(chat.shared, true, "shared by default");
+  assert.equal(chat.shared, false, "private to start");
   const sent = await api("POST", `/v1/chats/${chat.id}/messages`, { token: a, body: { text: "draft a memo" } });
   assert.equal(sent.status, 200);
+  // Nobody else can see it yet, not even in the org list.
+  assert.equal((await api("GET", `/v1/chats/${chat.id}/messages`, { token: b })).status, 404);
+  assert.ok(!(await api("GET", "/v1/chats?scope=org", { token: b })).json.orgChats.some(c => c.id === chat.id));
+  // The author shares it afterwards.
+  const on = await api("PATCH", `/v1/chats/${chat.id}`, { token: a, body: { shared: true } });
+  assert.equal(on.status, 200, on.text);
+  assert.equal(on.json.chat.shared, true);
 
   // Not mixed into someone else's own list; listed under the org scope with the author.
   assert.equal((await api("GET", "/v1/chats", { token: b })).json.chats.length, 0);

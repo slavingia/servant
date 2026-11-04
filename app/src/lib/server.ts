@@ -21,7 +21,7 @@ export type Account = {
   serverName: string;
   user: { id: string; name: string; role: Role };
 };
-// shared: visible read-only to the rest of the server (default). author/readOnly: someone else's chat.
+// shared: the author chose to let the rest of the server read it (off when a chat starts). author/readOnly: someone else's chat.
 export type ChatLastMessage = { role: "user" | "assistant"; text: string; at: number; attachments: number; pending?: boolean };
 export type Project = { id: string; name: string; description?: string };
 // mode "vibe": a vibe-coding chat that builds a prototype with a preview link.
@@ -362,7 +362,7 @@ export const api = {
   removeFolderMember: (a: Account, id: string, userId: string) => request(a, `/v1/folders/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`, { method: "DELETE" }).then(json<{ folder?: Folder }>),
   shareChatWithFolder: (a: Account, id: string, folderShared: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ folderShared }) }).then((r) => r.json()).then((d) => d.chat as Chat),
   moveChat: (a: Account, id: string, folderId: string | null) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ folderId }) }).then((r) => r.json()).then((d) => d.chat as Chat),
-  newChat: (a: Account, options: { shared?: boolean; project?: string | null; mode?: "vibe"; folderId?: string } = {}) => request(a, "/v1/chats", { method: "POST", body: JSON.stringify(options) }).then((r) => r.json()).then((d) => d.chat as Chat),
+  newChat: (a: Account, options: { project?: string | null; mode?: "vibe"; folderId?: string } = {}) => request(a, "/v1/chats", { method: "POST", body: JSON.stringify(options) }).then((r) => r.json()).then((d) => d.chat as Chat),
   deleteChat: (a: Account, id: string) => request(a, `/v1/chats/${id}`, { method: "DELETE" }),
   archiveChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/archive`, { method: "POST", body: "{}" }),
   restoreChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/restore`, { method: "POST", body: "{}" }),

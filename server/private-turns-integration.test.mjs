@@ -246,8 +246,10 @@ test('DMs and private channels only go into private agent chats, which then stay
   const hidden = (await json(await f.api(`/v1/conversations/${third.id}/messages`, 'POST', { text: 'Only stranger sees this' }, 'stranger'))).message;
   const own = (await json(await f.api('/v1/chats', 'POST', { shared: false }))).chat;
   assert.equal((await f.api(`/v1/chats/${own.id}/messages`, 'POST', { forward: hidden.id, requestId: 'request_outsider' })).status, 404);
-  // A shared chat refuses it.
+  // A shared chat refuses it. Chats start private; the author shares one afterwards.
   const shared = (await json(await f.api('/v1/chats', 'POST', { shared: true }))).chat;
+  assert.equal(shared.shared, false, 'asking for shared at creation is ignored');
+  await f.api(`/v1/chats/${shared.id}`, 'PATCH', { shared: true });
   const refused = await f.api(`/v1/chats/${shared.id}/messages`, 'POST', { forward: secret.id, requestId: 'request_shared' });
   assert.equal(refused.status, 409);
   assert.equal((await refused.json()).error?.code ?? 'forward_private', 'forward_private');

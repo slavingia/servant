@@ -21,6 +21,7 @@ import { Attachments, DraftAttachments, pickAttachments, pickDocuments, type Dra
 import { AppIcon } from "./AppIcon";
 import { MessageText } from "./MessageText";
 import { safeUrl } from "../lib/message-format";
+import { conversationPreview } from "../lib/conversation-preview";
 import { parseForward } from "../lib/forward";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
@@ -39,8 +40,7 @@ export function Avatar({ name, agent, size = 34, userId, tapToMessage }: { name:
     setOpening(true);
     try {
       if (agent) {
-        // Private, so it never shows for the rest of the server.
-        const chat = await api.newChat(account, { shared: false });
+        const chat = await api.newChat(account, {});
         router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, compose: "1" } });
       } else if (userId) {
         const conversation = await api.openDm(account, [userId]);
@@ -574,8 +574,7 @@ export function ConversationRow({ c, onPress, onLongPress, longPressHint, access
   const styles = useStyles();
   const { colors } = useTheme();
   const me = useSession().account?.user.id;
-  const last = c.lastMessage;
-  const preview = last ? (last.deleted ? "Message deleted" : `${!last.activity && (c.kind === "channel" || (c.members?.length ?? 0) > 2) ? `${last.user.name}: ` : ""}${last.pending && last.user.agent ? "Working on it…" : last.text || (last.attachments?.length ? `${last.attachments.length} attachment${last.attachments.length === 1 ? "" : "s"}` : "Working on it…")}`) : c.topic || "No messages yet";
+  const preview = conversationPreview(c, me);
   const groupPeople = (c.members ?? []).filter(p => !p.agent && p.id !== me);
   const bold = c.unread > 0 && !c.archived;
   const title = c.kind === "channel" ? `#${c.title}` : c.title;
