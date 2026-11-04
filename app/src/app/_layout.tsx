@@ -6,6 +6,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { SessionProvider, useSession } from "../lib/session";
 import { NotificationsProvider } from "../lib/notifications";
 import { LiveProvider } from "../lib/live";
+import { IncomingCall } from "../components/IncomingCall";
 import { PhotoProvider } from "../lib/photos";
 import { FeedbackPrompt } from "../components/FeedbackPrompt";
 import { AppChrome } from "../components/AppChrome";
@@ -130,6 +131,7 @@ function SessionNavigation() {
         <Stack.Screen name="invite" options={{ title: "Invite someone", ...childScreen }} />
       </Stack.Protected>
     </Stack>
+    {paired ? <IncomingCall /> : null}
     </AppChrome>
     </FeedbackPrompt>
     </NotificationsProvider>

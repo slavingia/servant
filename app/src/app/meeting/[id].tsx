@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
+import { CallPulse } from "../../components/CallPulse";
 import { CallVideo } from "../../components/CallVideo";
 import { useSession } from "../../lib/session";
 import { callsSupported, createCall, type CallState } from "../../lib/meeting-call";
@@ -62,7 +63,10 @@ function Meeting() {
           <Text style={styles.statusText}>{statusLine}</Text>
         </View>
       </View>
-      <ScrollView contentContainerStyle={styles.grid}>
+      {state.status === "live" && !tiles.length ? (
+        <View style={styles.calling}><CallPulse initial="…" /><Text style={styles.callingText}>Calling…</Text></View>
+      ) : null}
+      <ScrollView contentContainerStyle={styles.grid} style={state.status === "live" && !tiles.length ? { flex: 0 } : undefined}>
         {tiles.map(r => (
           <View key={r.participantId} style={[styles.tile, { width: `${100 / columns - 2}%` as const }]}>
             {r.stream ? <CallVideo stream={r.stream} style={StyleSheet.absoluteFill} /> : null}
@@ -104,6 +108,8 @@ function Control({ label, onPress, active, danger, disabled, wide }: { label: st
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: DARK },
+  calling: { flex: 1, alignItems: "center", justifyContent: "center", gap: space.sm },
+  callingText: { ...typography.bodyStrong, color: "#FFFFFF" },
   top: { paddingHorizontal: 20, paddingBottom: space.sm },
   status: { flexDirection: "row", alignItems: "center", gap: space.xs },
   recDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#E5484D" },
