@@ -24,8 +24,9 @@ function Meeting() {
   const { account } = useSession();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const [state, setState] = useState<CallState>({ status: "starting", error: null, local: null, remotes: [], muted: false, cameraOff: false, sharing: false });
+  const [state, setState] = useState<CallState>({ status: "starting", error: null, local: null, remotes: [], people: [], muted: false, cameraOff: false, sharing: false });
   const [ending, setEnding] = useState(false);
+  const [showPeople, setShowPeople] = useState(false);
   const call = useRef<ReturnType<typeof createCall> | null>(null);
 
   useEffect(() => {
@@ -93,6 +94,20 @@ function Meeting() {
           </View>
         ))}
       </ScrollView>
+      {showPeople && !done ? (
+        <View testID="people-list" accessibilityLabel="People on the call" style={styles.people}>
+          <Text style={styles.peopleTitle}>{state.people.length === 1 ? "One person on the call" : `${state.people.length} people on the call`}</Text>
+          <ScrollView style={{ maxHeight: 180 }}>
+            {state.people.map(p => (
+              <View key={p.id} accessible accessibilityLabel={`${p.name}${p.hasAudio ? "" : ", muted"}`} style={styles.personRow}>
+                <View style={styles.personDot}><Text style={styles.personInitial}>{p.name.slice(0, 1).toUpperCase()}</Text></View>
+                <Text style={styles.personName} numberOfLines={1}>{p.name}</Text>
+                {!p.hasAudio ? <Text style={styles.personMeta}>Muted</Text> : null}
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      ) : null}
       {state.local && !done ? (
         <View style={styles.selfRow}>
           <View style={styles.self} accessibilityLabel={state.cameraOff ? "Your camera is off" : "Your camera"}>
@@ -107,6 +122,7 @@ function Meeting() {
             <Control label={state.muted ? "Unmute" : "Mute"} active={state.muted} onPress={() => call.current?.toggleMute()} />
             {hasCamera ? <Control label={state.cameraOff ? "Camera on" : "Camera off"} active={state.cameraOff} onPress={() => call.current?.toggleCamera()} /> : null}
             {screenShareSupported() && state.status === "live" ? <Control label={state.sharing ? "Stop sharing" : "Share screen"} active={state.sharing} onPress={() => void call.current?.toggleScreen()} /> : null}
+            <Control label="People" active={showPeople} onPress={() => setShowPeople(v => !v)} />
             <Control label="Leave" onPress={leave} />
           </View>
           <Control label={ending ? "Ending…" : "End for all"} danger disabled={ending} onPress={end} wide />
@@ -127,6 +143,13 @@ function Control({ label, onPress, active, danger, disabled, wide }: { label: st
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: DARK },
+  people: { marginHorizontal: space.xs, marginBottom: space.xs, padding: space.sm, borderRadius: radius.lg, backgroundColor: "#1B2433" },
+  peopleTitle: { ...typography.label, color: "#C9D3E0", marginBottom: space.xs },
+  personRow: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: 6 },
+  personDot: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#0071BC", alignItems: "center", justifyContent: "center" },
+  personInitial: { ...typography.bodyStrong, color: "#FFFFFF" },
+  personName: { ...typography.body, color: "#FFFFFF", flex: 1 },
+  personMeta: { ...typography.label, color: "#C9D3E0" },
   calling: { flex: 1, alignItems: "center", justifyContent: "center", gap: space.sm },
   callingText: { ...typography.bodyStrong, color: "#FFFFFF" },
   top: { paddingHorizontal: 20, paddingBottom: space.sm },

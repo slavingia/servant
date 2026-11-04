@@ -28,11 +28,14 @@ export function callsSupported() {
 }
 
 export type Remote = { participantId: string; name: string; stream: Stream; hasVideo: boolean; /** Someone's shared screen rather than their camera. */ screen?: boolean };
+export type Person = { id: string; name: string; you: boolean; hasAudio: boolean; hasVideo: boolean };
 export type CallState = {
   status: "starting" | "connecting" | "live" | "ended" | "failed";
   error: string | null;
   local: Stream | null;
   remotes: Remote[];
+  /** Everyone in the call, you included, for the people list. */
+  people: Person[];
   muted: boolean;
   cameraOff: boolean;
   /** Your own screen share, while it is on. */
@@ -76,8 +79,8 @@ async function gathered(pc: Peer, timeoutMs = 3000) {
 }
 
 export function createCall(account: Account, meetingId: string, onChange: (s: CallState) => void) {
-  const state: CallState = { status: "starting", error: null, local: null, remotes: [], muted: false, cameraOff: false, sharing: false };
-  const emit = () => onChange({ ...state, remotes: [...state.remotes] });
+  const state: CallState = { status: "starting", error: null, local: null, remotes: [], people: [], muted: false, cameraOff: false, sharing: false };
+  const emit = () => onChange({ ...state, remotes: [...state.remotes], people: [...state.people] });
   let pc: Peer | null = null;
   let participantId: string | null = null;
   let closed = false;
@@ -144,6 +147,8 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
     try {
       const m = await api.meeting(account, meetingId);
       if (m.status !== "live") { state.status = "ended"; emit(); await stop(false); return; }
+      state.people = m.participants.filter(p => !p.screen).map(p => ({ id: p.id, name: p.you ? "You" : p.user.name, you: p.you, hasAudio: p.hasAudio, hasVideo: p.hasVideo }))
+        .sort((a, b) => Number(b.you) - Number(a.you));
       const others = m.participants.filter(p => !p.you && p.id !== participantId && p.publishing);
       for (const p of others) {
         const known = state.remotes.find(r => r.participantId === p.id);
