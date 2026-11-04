@@ -6,6 +6,7 @@ import { AppIcon } from "../components/AppIcon";
 import { Button } from "../components/Button";
 import { request, ServerError } from "../lib/server";
 import { useSession } from "../lib/session";
+import { dayLabel } from "../lib/time-label";
 import { formatFileSize, isPreviewImage, isPreviewVideo, mediaRoute, mergeMediaItems, readMediaPage, type MediaItem, type MediaScope } from "../lib/media";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
 
@@ -137,7 +138,7 @@ function shortDate(at: number) {
   const date = new Date(at);
   const now = new Date();
   if (date.toDateString() === now.toDateString()) return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  return date.toLocaleDateString([], { month: "short", day: "numeric", ...(date.getFullYear() !== now.getFullYear() ? { year: "numeric" as const } : {}) });
+  return dayLabel(at);
 }
 
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({

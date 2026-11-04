@@ -111,10 +111,10 @@ export function MessageDate({ at }: { at: number }) {
   const styles = useStyles();
   const date = new Date(at);
   const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
-  const label = date.toDateString() === today.toDateString() ? "Today"
-    : date.toDateString() === yesterday.toDateString() ? "Yesterday"
+  const ago = Math.round((new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() - new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()) / 86_400_000);
+  const label = ago === 0 ? "Today"
+    : ago === 1 ? "Yesterday"
+    : ago > 1 && ago < 7 ? date.toLocaleDateString([], { weekday: "long" })
     : date.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric", ...(date.getFullYear() !== today.getFullYear() ? { year: "numeric" as const } : {}) });
   return <View accessibilityRole="header" style={styles.dateSeparator}>
     <View style={styles.dateLine} />

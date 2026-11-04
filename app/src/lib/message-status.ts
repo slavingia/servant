@@ -1,4 +1,5 @@
 import type { Person, Post } from "./server";
+import { dayLabel } from "./time-label";
 
 export type PresenceStatus = { online?: boolean; lastSeenAt?: number | null };
 
@@ -10,7 +11,7 @@ export function statusTime(at: number, now = Date.now()) {
   const today = new Date(now);
   const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   if (date.toDateString() === today.toDateString()) return time;
-  const day = date.toLocaleDateString([], { month: "short", day: "numeric", ...(date.getFullYear() !== today.getFullYear() ? { year: "numeric" as const } : {}) });
+  const day = dayLabel(at, now);
   return `${day}, ${time}`;
 }
 

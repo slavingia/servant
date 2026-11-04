@@ -17,9 +17,21 @@ test("anything under 24 hours old shows the time", () => {
   assert.equal(shortTime(sent.getTime(), now.getTime()), time(sent));
 });
 
-test("24 hours or older shows the date", () => {
+test("24 hours or older yesterday says Yesterday", () => {
   const now = new Date(2026, 10, 3, 9, 0);
   const sent = new Date(2026, 10, 2, 8, 59);
+  assert.equal(shortTime(sent.getTime(), now.getTime()), "Yesterday");
+});
+
+test("within the past week shows the weekday", () => {
+  const now = new Date(2026, 10, 4, 9, 0);
+  const sent = new Date(2026, 10, 1, 8, 0);
+  assert.equal(shortTime(sent.getTime(), now.getTime()), sent.toLocaleDateString([], { weekday: "long" }));
+});
+
+test("a week or more ago shows the date", () => {
+  const now = new Date(2026, 10, 10, 9, 0);
+  const sent = new Date(2026, 10, 3, 8, 0);
   assert.equal(shortTime(sent.getTime(), now.getTime()), day(sent));
 });
 
