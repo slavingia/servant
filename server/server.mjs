@@ -976,12 +976,14 @@ async function handle(req, res, cfg) {
   }
   if (method === "PATCH" && parts[1] === "people" && parts.length === 3 && parts[2] !== "me") {
     const body = await readAuthorizedBody(req);
-    if (typeof body.vibeCoder !== "boolean") return fail(res, 400, "bad_request", "vibeCoder must be true or false");
+    // Owners only (the `true` below): vibe coder, and unlimited agent tokens (no daily cap).
+    const flags = ["vibeCoder", "unlimitedTokens"].filter(k => k in body);
+    if (!flags.length || flags.some(k => typeof body[k] !== "boolean")) return fail(res, 400, "bad_request", "Send vibeCoder and/or unlimitedTokens as true or false");
     const person = mutateAuthenticated(req, (state) => {
       const target = state.users[parts[2]];
       if (!target) throw requestError(404, "not_found", "No such person");
-      if (body.vibeCoder) target.vibeCoder = true; else delete target.vibeCoder;
-      return { id: target.id, name: target.name, vibeCoder: !!target.vibeCoder };
+      for (const k of flags) if (body[k]) target[k] = true; else delete target[k];
+      return { id: target.id, name: target.name, vibeCoder: !!target.vibeCoder, unlimitedTokens: !!target.unlimitedTokens };
     }, true);
     return send(res, 200, { person });
   }
@@ -1769,6 +1771,18 @@ if (isMain) {
       if (!r.ok) { console.error(`Couldn't remove them (${r.status}): ${data.error?.message || "server not running?"}`); process.exit(1); }
       console.log(data.removed ? `Removed ${data.name}. Their devices are signed out and #general says they left.` : `${found[0].name} was already removed`);
     }
+  } else if (cmd === "tokens") {
+    // server.mjs tokens <name or id> unlimited|limited — lift or restore someone's daily agent cap.
+    const mode = process.argv.at(-1), query = process.argv.slice(3, -1).join(" ").trim();
+    if (!query || !["unlimited", "limited"].includes(mode)) { console.error("usage: server.mjs tokens <name or id> unlimited|limited"); process.exit(2); }
+    const name = mutateState(state => {
+      const found = Object.values(state.users).filter(u => u.id === query || u.name.toLowerCase() === query.toLowerCase());
+      if (found.length !== 1) return null;
+      if (mode === "unlimited") found[0].unlimitedTokens = true; else delete found[0].unlimitedTokens;
+      return found[0].name;
+    });
+    if (!name) { console.error("No one (or more than one person) by that name. List people with: server.mjs people"); process.exit(1); }
+    console.log(mode === "unlimited" ? `${name} now has no daily agent token limit` : `${name} is back on the daily agent token limit`);
   } else if (cmd === "revoke") {
     const revoked = mutateState(state => {
       const d = Object.values(state.devices).find((x) => x.id === process.argv[3]);

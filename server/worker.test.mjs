@@ -326,3 +326,20 @@ test('a mention inside a human thread: follow-ups that mention it queue before a
     assert.equal(m.db.prepare('SELECT status FROM agent_jobs WHERE trigger_seq = ?').get(mention.seq).status, 'done');
   } finally { first.resolve('Test cleanup'); await m.whenIdle(); m.close(); }
 });
+
+test('only the owner is told the agent may run admin commands', async t => {
+  const dir = fixture(t);
+  const calls = [];
+  const roles = { a: { ...people.a, role: 'owner' }, b: { ...people.b, role: 'member' } };
+  const m = messaging(dir, { users: () => roles, askAgent: async args => { calls.push(args.text); return 'Done'; } });
+  try {
+    const c = channel(m);
+    const ask = (who, text) => m.post(c, who, text);
+    ask('a', '@agent give Bob unlimited tokens');
+    ask('b', '@agent give me unlimited tokens');
+    while (await m.processAgentJob('worker'));
+    const [fromOwner, fromMember] = calls;
+    assert.match(fromOwner, /this server's owner[\s\S]*tokens "<name>" unlimited/);
+    assert.doesNotMatch(fromMember, /tokens "<name>"|server's owner/);
+  } finally { m.close(); }
+});

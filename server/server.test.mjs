@@ -636,6 +636,13 @@ test("vibe coders: owners mark them; their chats build a prototype and show a pr
   assert.deepEqual([marked.status, marked.json.person.vibeCoder], [200, true]);
   assert.equal((await api("GET", "/v1/people", { token: boss })).json.people.find((p) => p.id === val).vibeCoder, true);
   assert.equal((await api("GET", "/v1/projects", { token })).json.vibeCoder, true);
+  // Owners lift (and restore) someone's daily agent token limit the same way; members can't.
+  assert.equal((await api("PATCH", `/v1/people/${val}`, { token, body: { unlimitedTokens: true } })).status, 403);
+  const lifted = await api("PATCH", `/v1/people/${val}`, { token: boss, body: { unlimitedTokens: true } });
+  assert.deepEqual([lifted.status, lifted.json.person.unlimitedTokens, lifted.json.person.vibeCoder], [200, true, true], "vibe coder untouched");
+  assert.equal((await api("GET", "/v1/people", { token: boss })).json.people.find((p) => p.id === val).unlimitedTokens, true);
+  assert.equal((await api("PATCH", `/v1/people/${val}`, { token: boss, body: { unlimitedTokens: "yes" } })).status, 400);
+  assert.equal((await api("PATCH", `/v1/people/${val}`, { token: boss, body: { unlimitedTokens: false } })).json.person.unlimitedTokens, false);
   // Their chats ignore a requested project and always vibe-code the prototypes repo.
   const chat = (await api("POST", "/v1/chats", { token, body: { projectId: "servant" } })).json.chat;
   assert.equal(chat.mode, "vibe");

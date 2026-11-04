@@ -54,6 +54,17 @@ export default function Members() {
       setError(e instanceof ServerError ? e.message : "Couldn't change that. Try again");
     } finally { setOpening(null); }
   };
+  // Owners lift someone's daily agent token cap (designers iterating on a big task, testers).
+  const toggleTokens = async (person: Person) => {
+    if (opening) return;
+    setOpening(person.id); setError(null);
+    try {
+      const { person: updated } = await api.setUnlimitedTokens(account, person.id, !person.unlimitedTokens);
+      setDirectory(d => d && { ...d, people: d.people.map(p => p.id === updated.id ? { ...p, unlimitedTokens: updated.unlimitedTokens } : p) });
+    } catch (e) {
+      setError(e instanceof ServerError ? e.message : "Couldn't change that. Try again");
+    } finally { setOpening(null); }
+  };
   const remove = async () => {
     if (!removing || removeBusy) return;
     setRemoveBusy(true); setRemoveError(null);
@@ -104,6 +115,11 @@ export default function Members() {
               accessibilityHint="Their agent chats build prototypes with a preview link" onPress={() => void toggleVibe(item)}
               style={({ pressed }) => [styles.vibeChip, item.vibeCoder && styles.vibeChipOn, pressed && { opacity: 0.7 }]}>
               <Text style={[styles.vibeChipText, item.vibeCoder && styles.vibeChipTextOn]}>{item.vibeCoder ? "Vibe coder ✓" : "Vibe coder"}</Text>
+            </Pressable> : null}
+            {owner && !item.owner ? <Pressable testID={`tokens-${item.id}`} accessibilityRole="switch" accessibilityState={{ checked: !!item.unlimitedTokens }} accessibilityLabel={`No token limit: ${item.name}`}
+              accessibilityHint="Lifts their daily agent limit" onPress={() => void toggleTokens(item)}
+              style={({ pressed }) => [styles.vibeChip, item.unlimitedTokens && styles.vibeChipOn, pressed && { opacity: 0.7 }]}>
+              <Text style={[styles.vibeChipText, item.unlimitedTokens && styles.vibeChipTextOn]}>{item.unlimitedTokens ? "No limit ✓" : "No limit"}</Text>
             </Pressable> : null}
             {owner && !self && !item.owner ? <Pressable testID={`remove-${item.id}`} accessibilityRole="button" accessibilityLabel={`Remove ${item.name}`} hitSlop={8}
               onPress={() => { setRemoveError(null); setRemoving(item); }} style={({ pressed }) => [styles.removeLink, pressed && { opacity: 0.6 }]}>

@@ -34,6 +34,9 @@ const server = new McpServer({ name: "servant", version: "0.1.0" });
 // Who you are and who's here.
 tool("whoami", "The signed-in person and server.", {}, async () => { const a = account(); return { user: a.user, server: a.serverName, address: a.server }; });
 tool("list_people", "Everyone on the server: id, name, role.", {}, async () => (await api("GET", "/v1/people")).people);
+tool("set_unlimited_tokens", "Owner only: lift (true) or restore (false) someone's daily agent token limit. Pass their user id from list_people.",
+  { user_id: z.string(), unlimited: z.boolean() },
+  async ({ user_id, unlimited }) => (await api("PATCH", `/v1/people/${encodeURIComponent(user_id)}`, { unlimitedTokens: unlimited })).person);
 
 // Channels and direct messages.
 const slim = (c: any) => ({ id: c.id, kind: c.kind, name: c.name ?? c.title, topic: c.topic || undefined, unread: c.unread, archived: c.archived || undefined });
