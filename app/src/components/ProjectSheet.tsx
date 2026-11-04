@@ -8,7 +8,7 @@ export const VIBE_CHOICE = "vibe";
 
 // "New chat" choices: talk to the agent as is, vibe code a prototype with a
 // preview, or work on one project on the Mac.
-export function ProjectSheet({ visible, projects, onPick, onClose }: { visible: boolean; projects: Project[]; onPick: (project: string | null) => void; onClose: () => void }) {
+export function ProjectSheet({ visible, projects, selected = null, onPick, onClose }: { visible: boolean; projects: Project[]; selected?: string | null; onPick: (project: string | null) => void; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const options: { id: string | null; name: string; description?: string }[] = [
@@ -21,7 +21,7 @@ export function ProjectSheet({ visible, projects, onPick, onClose }: { visible: 
     <Pressable accessibilityLabel="Close" style={styles.scrim} onPress={onClose}>
       <Pressable style={styles.sheet} accessibilityViewIsModal onPress={() => {}}>
         <Text accessibilityRole="header" style={styles.title}>New chat about</Text>
-        {options.map(option => <Pressable key={option.id ?? "none"} testID={`project-${option.id ?? "none"}`} accessibilityRole="button"
+        {options.map(option => <Pressable key={option.id ?? "none"} testID={`project-${option.id ?? "none"}`} accessibilityRole="button" accessibilityState={{ selected: option.id === selected }}
           accessibilityLabel={option.description ? `${option.name}. ${option.description}` : option.name}
           onPress={() => onPick(option.id)} style={({ pressed }) => [styles.option, pressed && styles.pressed]}>
           <View style={styles.icon}><AppIcon name={option.id === VIBE_CHOICE ? "code" : option.id ? "hash" : "sparkles"} size={17} color={colors.blueDark} /></View>
@@ -29,6 +29,7 @@ export function ProjectSheet({ visible, projects, onPick, onClose }: { visible: 
             <Text style={styles.label}>{option.name}</Text>
             {option.description ? <Text style={styles.description}>{option.description}</Text> : null}
           </View>
+          {option.id === selected ? <AppIcon name="check" size={18} color={colors.blue} /> : null}
         </Pressable>)}
       </Pressable>
     </Pressable>

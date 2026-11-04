@@ -7,6 +7,7 @@ import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { SwipeRow } from "../../components/SwipeChannelRow";
 import { ProjectSheet, VIBE_CHOICE } from "../../components/ProjectSheet";
+import { getItem, setItem } from "../../lib/storage";
 import { api, ServerError, type Chat, type ChatClosed, type Folder, type Project } from "../../lib/server";
 
 // The line under the title, like the last message in a DM list.
@@ -57,6 +58,13 @@ export default function Chats() {
     api.projects(account).then(r => { if (live) setProjects({ token: account.token, list: r.projects, vibeCoder: r.vibeCoder }); }).catch(() => {});
     return () => { live = false; };
   }, [account]);
+  // The last project chosen sticks, so starting a chat is one tap.
+  const [choice, setChoice] = useState<string | null>(null);
+  const choiceKey = account ? `servant.project.${account.user.id}` : null;
+  useEffect(() => {
+    if (!choiceKey) return;
+    void getItem(choiceKey).then(v => { if (v !== null) setChoice(v || null); }).catch(() => {});
+  }, [choiceKey]);
   // Like the DM tab's All/Unread: Active (everything not closed) and Closed.
   const [view, setView] = useState<"active" | "closed">("active");
   const [openId, setOpenId] = useState<string | null>(null);
@@ -134,11 +142,12 @@ export default function Chats() {
   const rows = view === "closed" ? archived : active;
   const VIEWS = [{ key: "active", label: "Active" }, { key: "closed", label: "Closed" }] as const;
 
+  const choiceName = choice === VIBE_CHOICE ? "Vibe coding" : (choice && projects?.list.find(p => p.id === choice)?.name) || "Just the agent";
   const start = async (project?: string | null) => {
     if (starting) return;
     // Everyone else chooses what the chat is about (including vibe coding);
     // vibe coders always build prototypes.
-    if (project === undefined && projects && !projects.vibeCoder) { setPicking(true); return; }
+    if (project === undefined) project = projects && !projects.vibeCoder ? choice : null;
     setPicking(false);
     setStarting(true);
     setError(null);
@@ -154,7 +163,7 @@ export default function Chats() {
 
   return (
     <View style={styles.root}>
-      <ProjectSheet visible={picking} projects={projects?.list ?? []} onPick={project => void start(project)} onClose={() => setPicking(false)} />
+      <ProjectSheet visible={picking} projects={projects?.list ?? []} selected={choice} onPick={project => { setPicking(false); setChoice(project); if (choiceKey) void setItem(choiceKey, project ?? "").catch(() => {}); }} onClose={() => setPicking(false)} />
       <FlatList ref={scrollRef}
         data={chats === null ? [] : rows}
         keyExtractor={(c) => c.id}
@@ -180,6 +189,11 @@ export default function Chats() {
                 {starting ? <ActivityIndicator color={colors.blue} /> : <AppIcon name="compose" size={22} color={colors.ink} />}
               </Pressable>
             </View>
+            {projects && !projects.vibeCoder ? <Pressable accessibilityRole="button" accessibilityLabel={`New chats are about ${choiceName}. Change`} onPress={() => setPicking(true)} style={({ pressed }) => [styles.picker, pressed && { backgroundColor: colors.surface }]}>
+              <Text style={styles.pickerLabel}>New chat about</Text>
+              <Text style={styles.pickerValue} numberOfLines={1}>{choiceName}</Text>
+              <AppIcon name="chevronDown" size={16} color={colors.muted} />
+            </Pressable> : null}
             {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
             {actionError && !deleting ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
             {account.user.role === 'owner' && chats?.some(chat => chat.latestTurn?.status === 'waiting_for_approval') ? <View style={styles.inbox}>
@@ -366,5 +380,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   empty: { marginTop: space.xxl, alignItems: "center", paddingHorizontal: space.side },
   emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center", marginTop: space.md },
   emptyBody: { ...typography.body, marginTop: space.xs, color: colors.muted, textAlign: "center", maxWidth: 360 },
-  emptyAction: { marginTop: space.lg },
+  emptyAction: { alignSelf: "stretch", marginTop: space.lg, marginBottom: space.xl },
+  picker: { minHeight: 48, marginHorizontal: space.side, marginBottom: space.xs, paddingHorizontal: space.sm, flexDirection: "row", alignItems: "center", gap: space.xs, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line },
+  pickerLabel: { ...typography.caption, color: colors.muted },
+  pickerValue: { ...typography.bodyStrong, flex: 1, color: colors.ink },
 }));
