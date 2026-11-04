@@ -16,7 +16,7 @@ import { usePhotos } from "../lib/photos";
 import { useWideLayout } from "../lib/layout";
 import { shortTime } from "../lib/time-label";
 import { validateAttachmentSelection } from "../lib/media";
-import { Attachments, DraftAttachments, pickAttachments, pickDocuments, type DraftAttachment } from "./Attachments";
+import { Attachments, DraftAttachments, attachmentsFromFiles, pickAttachments, pickDocuments, type DraftAttachment } from "./Attachments";
 import { AppIcon } from "./AppIcon";
 import { MessageText } from "./MessageText";
 import { safeUrl } from "../lib/message-format";
@@ -411,6 +411,24 @@ export function Composer({
     finally { setPicking(false); }
   };
   const input = useRef<ComponentRef<typeof TextInput>>(null);
+  const filesRef = useRef<DraftAttachment[]>([]);
+  useEffect(() => { filesRef.current = files; }, [files]);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const node = input.current as unknown as HTMLElement | null;
+    if (!node?.addEventListener) return;
+    const onPaste = (event: ClipboardEvent) => {
+      const pasted = Array.from(event.clipboardData?.files ?? []) as unknown as Blob[];
+      if (!pasted.length) return;
+      event.preventDefault();
+      setFileError("");
+      attachmentsFromFiles(pasted, filesRef.current)
+        .then((added) => setFiles((current) => { const next = [...current, ...added]; try { validateAttachmentSelection(next); } catch (e) { setFileError(e instanceof Error ? e.message : "Couldn't attach"); return current; } return next; }))
+        .catch((e) => setFileError(e instanceof Error ? e.message : "Couldn't attach"));
+    };
+    node.addEventListener("paste", onPaste);
+    return () => node.removeEventListener("paste", onPaste);
+  }, []);
   const [selection, setSelection] = useState({ start: initial.length, end: initial.length });
   const [insertedSelection, setInsertedSelection] = useState<{ start: number; end: number }>();
   const [focused, setFocused] = useState(false);

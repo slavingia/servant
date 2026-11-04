@@ -126,6 +126,32 @@ export async function pickAttachments(mediaLibrary: boolean, existing: readonly 
 
 // Documents and design files are never read whole: they upload in chunks
 // straight from the picked file when the message is sent.
+/** Web paste/drop: turns clipboard files into drafts (images and videos inline, anything else as a document). */
+export async function attachmentsFromFiles(list: readonly (Blob & { name?: string })[], existing: readonly DraftAttachment[] = []): Promise<DraftAttachment[]> {
+  const count = 4 - existing.length;
+  if (count <= 0 || !list.length) throw new Error("Attach up to 4 files");
+  if (list.length > count) throw new Error("Attach up to 4 files");
+  const files: DraftAttachment[] = [];
+  let remaining = MAX_UPLOAD_BYTES - existing.reduce((total, file) => total + file.size, 0);
+  for (const [i, blob] of list.entries()) {
+    const uri = URL.createObjectURL(blob);
+    const kind = blob.type.startsWith("video/") ? "video" : blob.type.startsWith("image/") ? "image" : "document";
+    let file: DraftAttachment;
+    if (kind === "document") {
+      file = { name: blob.name || `file-${i + 1}`, data: "", uri, size: blob.size, mime: "application/octet-stream", document: { uri, size: blob.size, blob } };
+    } else {
+      const content = await readFile(uri, blob.size, blob, kind === "video" ? MAX_VIDEO_BYTES : MAX_FILE_BYTES, remaining);
+      const mime = uploadMediaMime(content.data) || "application/octet-stream";
+      if (kind === "image" && !/^image\/(png|jpeg|gif|webp)$/.test(mime)) throw new Error("Paste a JPEG or PNG image");
+      const ext = mime.split("/")[1] === "jpeg" ? "jpg" : mime.split("/")[1] || "bin";
+      file = { name: blob.name && blob.name !== "image.png" ? blob.name : `${kind === "video" ? "video" : "pasted-image"}-${Date.now()}-${i + 1}.${ext}`, uri, mime, ...content };
+    }
+    validateAttachmentSelection([...existing, ...files, file]);
+    files.push(file); remaining -= file.size;
+  }
+  return files;
+}
+
 export async function pickDocuments(existing: readonly DraftAttachment[] = []): Promise<DraftAttachment[]> {
   const count = 4 - existing.length;
   if (count <= 0) throw new Error("Attach up to 4 files");
