@@ -7,15 +7,14 @@ import { radius, space, typography, useTheme, createThemedStyles } from "../lib/
 export const VIBE_CHOICE = "vibe";
 
 // "New chat" choices: talk to the agent as is, vibe code a prototype with a
-// preview, or work on one project on the Mac.
-export function ProjectSheet({ visible, projects, selected = null, onPick, onClose }: { visible: boolean; projects: Project[]; selected?: string | null; onPick: (project: string | null) => void; onClose: () => void }) {
+// preview (when the server has the prototypes project), or work in a project.
+export function ProjectSheet({ visible, projects, vibe = true, selected = null, onPick, onClose }: { visible: boolean; projects: Project[]; vibe?: boolean; selected?: string | null; onPick: (project: string | null) => void; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const options: { id: string | null; name: string; description?: string }[] = [
     { id: null, name: "Just the agent", description: "No project. Ask anything." },
-    { id: VIBE_CHOICE, name: "Vibe coding", description: "Describe a page or tool and get a live preview link." },
-    ...projects.filter(p => p.id !== "mac").map(p => ({ id: p.id, name: p.name, description: p.description })),
-    ...projects.filter(p => p.id === "mac").map(p => ({ id: p.id, name: p.name, description: p.description })),
+    ...(vibe ? [{ id: VIBE_CHOICE, name: "Vibe coding", description: "Describe a page or tool and get a live preview link." }] : []),
+    ...projects.map(p => ({ id: p.id, name: p.name, description: p.description || p.repo || undefined })),
   ];
   return <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
     <Pressable accessibilityLabel="Close" style={styles.scrim} onPress={onClose}>
@@ -24,10 +23,10 @@ export function ProjectSheet({ visible, projects, selected = null, onPick, onClo
         {options.map(option => <Pressable key={option.id ?? "none"} testID={`project-${option.id ?? "none"}`} accessibilityRole="button" accessibilityState={{ selected: option.id === selected }}
           accessibilityLabel={option.description ? `${option.name}. ${option.description}` : option.name}
           onPress={() => onPick(option.id)} style={({ pressed }) => [styles.option, pressed && styles.pressed]}>
-          <View style={styles.icon}><AppIcon name={option.id === VIBE_CHOICE ? "code" : option.id ? "hash" : "sparkles"} size={17} color={colors.blueDark} /></View>
+          <View style={styles.icon}><AppIcon name={option.id === VIBE_CHOICE ? "code" : option.id ? "folder" : "sparkles"} size={17} color={colors.blueDark} /></View>
           <View style={styles.copy}>
             <Text style={styles.label}>{option.name}</Text>
-            {option.description ? <Text style={styles.description}>{option.description}</Text> : null}
+            {option.description ? <Text style={styles.description} numberOfLines={1}>{option.description}</Text> : null}
           </View>
           {option.id === selected ? <AppIcon name="check" size={18} color={colors.blue} /> : null}
         </Pressable>)}

@@ -23,11 +23,13 @@ export type Account = {
 };
 // shared: the author chose to let the rest of the server read it (off when a chat starts). author/readOnly: someone else's chat.
 export type ChatLastMessage = { role: "user" | "assistant"; text: string; at: number; attachments: number; pending?: boolean };
-export type Project = { id: string; name: string; description?: string };
+export type ProjectLevel = "read" | "write" | "merge";
+export type ProjectPerson = { key: string; id?: string; name: string; github?: string; level: ProjectLevel; owner: boolean };
+// A body of work the team shares (docs/projects.md). access: your level (null for an admin who isn't listed);
+// canEdit: you own it or are an admin; canWrite: you may change its notes and files.
+export type Project = { id: string; name: string; description: string; notes: string; repo: string; path: string; pages: string; workflow: "main" | "pr"; rules: string[]; files: { id: string; name: string; size: number }[]; people: ProjectPerson[]; access: ProjectLevel | null; canEdit: boolean; canWrite: boolean; chatCount: number; sharedCount: number; createdAt?: number; updatedAt?: number };
 // mode "vibe": a vibe-coding chat that builds a prototype with a preview link.
-// role: "owner" made the folder and manages people; "member" was added. chatCount is your own chats; sharedCount is teammates' chats they shared with the folder.
-export type Folder = { role: "owner" | "member"; owner: { id: string; name: string }; members: { id: string; name: string }[]; sharedCount: number; id: string; name: string; notes: string; files: { id: string; name: string; size: number }[]; chatCount: number; createdAt: number; updatedAt: number };
-export type Chat = { usage?: { input: number; output: number; total: number; turns: number }; folderId?: string; folderShared?: boolean; project?: { id: string; name: string }; mode?: "vibe"; previewUrl?: string; files?: boolean; id: string; title: string; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; latestTurn?: AgentTurn | null };
+export type Chat = { usage?: { input: number; output: number; total: number; turns: number }; projectId?: string; projectShared?: boolean; project?: { id: string; name: string }; mode?: "vibe"; previewUrl?: string; files?: boolean; id: string; title: string; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; latestTurn?: AgentTurn | null };
 export type Message = { id: string; role: "user" | "assistant"; text: string; at?: number | string | null; attachments?: Attachment[]; pending?: boolean; interrupted?: boolean; sourceDevice?: SourceDevice };
 
 // ----- token leaderboard -----
@@ -346,23 +348,23 @@ export const api = {
   readChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/read`, { method: "POST", body: "{}" }).then(() => undefined),
   chat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}`).then((r) => r.json()).then((d) => d.chat as Chat),
   setChatShared: (a: Account, id: string, shared: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ shared }) }).then((r) => r.json()).then((d) => d.chat as Chat),
-  projects: (a: Account) => request(a, "/v1/projects").then(json<{ projects: Project[]; vibeCoder: boolean }>),
+  // Projects: shared bodies of work with notes, files, rules and who can read, write or merge (docs/projects.md).
+  projects: (a: Account) => request(a, "/v1/projects").then(json<{ projects: Project[]; vibeCoder: boolean; vibe: boolean }>),
+  project: (a: Account, id: string) => request(a, `/v1/projects/${encodeURIComponent(id)}`).then(json<{ project: Project; sharedChats: Chat[] }>),
+  createProject: (a: Account, body: { name: string; description?: string; notes?: string }) => request(a, "/v1/projects", { method: "POST", body: JSON.stringify(body) }).then(json<{ project: Project }>).then(d => d.project),
+  updateProject: (a: Account, id: string, change: Partial<Pick<Project, "name" | "description" | "notes" | "repo" | "path" | "pages" | "workflow" | "rules">>) => request(a, `/v1/projects/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(change) }).then(json<{ project: Project }>).then(d => d.project),
+  deleteProject: (a: Account, id: string) => request(a, `/v1/projects/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  addProjectFile: (a: Account, id: string, name: string, data: string) => request(a, `/v1/projects/${encodeURIComponent(id)}/files`, { method: "POST", body: JSON.stringify({ name, data }) }).then(json<{ project: Project }>).then(d => d.project),
+  removeProjectFile: (a: Account, id: string, fileId: string) => request(a, `/v1/projects/${encodeURIComponent(id)}/files/${encodeURIComponent(fileId)}`, { method: "DELETE" }).then(json<{ project: Project }>).then(d => d.project),
+  // who: a Servant person (userId), a GitHub login (github) or someone already listed (key).
+  setProjectPerson: (a: Account, id: string, who: { userId?: string; github?: string; key?: string }, level: ProjectLevel, owner?: boolean) => request(a, `/v1/projects/${encodeURIComponent(id)}/people`, { method: "POST", body: JSON.stringify({ ...who, level, ...(owner === undefined ? {} : { owner }) }) }).then(json<{ project: Project }>).then(d => d.project),
+  removeProjectPerson: (a: Account, id: string, key: string) => request(a, `/v1/projects/${encodeURIComponent(id)}/people/${encodeURIComponent(key)}`, { method: "DELETE" }).then(json<{ project?: Project }>),
+  shareChatWithProject: (a: Account, id: string, projectShared: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ projectShared }) }).then((r) => r.json()).then((d) => d.chat as Chat),
+  moveChat: (a: Account, id: string, projectId: string | null) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ projectId }) }).then((r) => r.json()).then((d) => d.chat as Chat),
+  newChat: (a: Account, options: { projectId?: string | null; mode?: "vibe" } = {}) => request(a, "/v1/chats", { method: "POST", body: JSON.stringify(options) }).then((r) => r.json()).then((d) => d.chat as Chat),
   /** Owner only: take someone who left the team off the server. Signs out all their devices. */
   removePerson: (a: Account, userId: string) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "DELETE" }).then(json<{ ok: true }>),
   setVibeCoder: (a: Account, userId: string, vibeCoder: boolean) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ vibeCoder }) }).then(json<{ person: Person }>),
-  // Folders: your own groups of agent chats, with notes and files every chat in them sees.
-  folders: (a: Account) => request(a, "/v1/folders").then(json<{ folders: Folder[] }>).then(d => d.folders),
-  folder: (a: Account, id: string) => request(a, `/v1/folders/${encodeURIComponent(id)}`).then(json<{ folder: Folder; sharedChats: Chat[] }>),
-  createFolder: (a: Account, name: string, notes = "") => request(a, "/v1/folders", { method: "POST", body: JSON.stringify({ name, notes }) }).then(json<{ folder: Folder }>).then(d => d.folder),
-  updateFolder: (a: Account, id: string, change: { name?: string; notes?: string }) => request(a, `/v1/folders/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(change) }).then(json<{ folder: Folder }>).then(d => d.folder),
-  deleteFolder: (a: Account, id: string) => request(a, `/v1/folders/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  addFolderFile: (a: Account, id: string, name: string, data: string) => request(a, `/v1/folders/${encodeURIComponent(id)}/files`, { method: "POST", body: JSON.stringify({ name, data }) }).then(json<{ folder: Folder }>).then(d => d.folder),
-  removeFolderFile: (a: Account, id: string, fileId: string) => request(a, `/v1/folders/${encodeURIComponent(id)}/files/${encodeURIComponent(fileId)}`, { method: "DELETE" }).then(json<{ folder: Folder }>).then(d => d.folder),
-  addFolderMember: (a: Account, id: string, userId: string) => request(a, `/v1/folders/${encodeURIComponent(id)}/members`, { method: "POST", body: JSON.stringify({ userId }) }).then(json<{ folder: Folder }>).then(d => d.folder),
-  removeFolderMember: (a: Account, id: string, userId: string) => request(a, `/v1/folders/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`, { method: "DELETE" }).then(json<{ folder?: Folder }>),
-  shareChatWithFolder: (a: Account, id: string, folderShared: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ folderShared }) }).then((r) => r.json()).then((d) => d.chat as Chat),
-  moveChat: (a: Account, id: string, folderId: string | null) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ folderId }) }).then((r) => r.json()).then((d) => d.chat as Chat),
-  newChat: (a: Account, options: { project?: string | null; mode?: "vibe"; folderId?: string } = {}) => request(a, "/v1/chats", { method: "POST", body: JSON.stringify(options) }).then((r) => r.json()).then((d) => d.chat as Chat),
   deleteChat: (a: Account, id: string) => request(a, `/v1/chats/${id}`, { method: "DELETE" }),
   archiveChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/archive`, { method: "POST", body: "{}" }),
   restoreChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/restore`, { method: "POST", body: "{}" }),

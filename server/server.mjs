@@ -33,8 +33,7 @@ import { createChatMediaStore } from "./chat-media.mjs";
 import { createUsageStore, limitMessage } from "./usage.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { supportsDurableRuns, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
-import { MAX_FOLDERS, MAX_MEMBERS, accessibleFolders, cleanName, cleanNotes, createFolderFiles, folderAccess, folderInstructions, folderSharedWith, folderView, locateFolder, newFolder, validFolderId } from "./folders.mjs";
-import { availableProjects, chatInstructions, projectById, vibeFolder, VIBE_PROJECT } from "./projects.mjs";
+import { MAX_PEOPLE, MAX_PROJECTS, VIBE_PROJECT, accessOf, accessibleProjects, cleanDescription, cleanLevel, cleanLogin, cleanName, cleanNotes, cleanPath, cleanRepo, cleanRules, cleanUrl, cleanWorkflow, createProjectFiles, createProjectStore, expandPath, migrateFolders, needsMigration, newProject, projectInstructions, projectPeople, projectSharedWith, projectView, removeAccess, setAccess, validProjectId, vibeFolder, vibePreview } from "./projects.mjs";
 import { validTermsAcceptance } from "./terms.mjs";
 import { verifyMemberUpstream } from "./member-policy.mjs";
 import { composeForward } from "./forward.mjs";
@@ -132,6 +131,8 @@ export function loadConfig() {
     discoveryUrl: process.env.SERVANT_DISCOVERY_URL || cfg.discoveryUrl || "",
     // Lets build scripts on this Mac post release notes. Never leaves the Mac.
     adminKey: process.env.SERVANT_ADMIN_KEY || cfg.adminKey || "",
+    // Where projects live (docs/projects.md). A relative path is inside the data dir.
+    projectsFile: path.resolve(DATA_DIR, expandPath(process.env.SERVANT_PROJECTS_FILE || cfg.projectsFile || "projects.json")),
     upstreams: cfg.upstreams || {
       owner: { url: "http://127.0.0.1:8642", key: process.env.SERVANT_OWNER_KEY || "" },
       member: { url: "http://127.0.0.1:8643", key: process.env.SERVANT_MEMBER_KEY || "" },
@@ -354,7 +355,7 @@ function revokeDevice(device) {
   delete device.ringsCalls;
   delete device.pushPresence;
 }
-// A removed person keeps their record (name on old messages, their folders and chats) but is
+// A removed person keeps their record (name on old messages, their projects and chats) but is
 // no longer a member: every device signed out, and they vanish from people, search, mentions
 // and new conversations. Everything that asks "who is on this server" goes through this.
 const isRemoved = user => !!user?.removedAt;
@@ -371,8 +372,8 @@ function removePerson(state, targetId) {
   if (isRemoved(target)) return null;
   target.removedAt = now();
   for (const d of Object.values(state.devices)) if (d.userId === targetId && !d.revokedAt) revokeDevice(d);
-  // Out of everyone's folders; the folders they made stay with their record.
-  for (const u of Object.values(state.users)) for (const f of Object.values(u.folders || {})) if (f.members?.includes(targetId)) f.members = f.members.filter(m => m !== targetId);
+  // Out of every project; projects they owned stay (admins can still edit them).
+  projects().mutate(data => { for (const p of data.projects) removeAccess(p, targetId, state.users, data.people); });
   return target.name;
 }
 // True when this was the person's last active device, i.e. they've left.
@@ -503,7 +504,7 @@ async function forwardChatMessage(req, res, { chat, author, user, device, messag
 }
 
 function canReadChat(chat, viewer) {
-  return !!chat && !chat.deletedAt && !!viewer && (chat.userId === viewer.id || viewer.role === "owner" || chatShared(chat) || folderSharedWith(readState().users, chat, viewer.id));
+  return !!chat && !chat.deletedAt && !!viewer && (chat.userId === viewer.id || viewer.role === "owner" || chatShared(chat) || projectSharedWith(projects().read(), readState().users, chat, viewer));
 }
 // A chat shows in lists only once someone has sent something in it. Tapping
 // New chat and backing out leaves nothing behind in the list.
@@ -532,9 +533,10 @@ function chatView(chat, viewer, users = {}) {
   const view = { id: chat.id, title: chat.title, createdAt: chat.createdAt, updatedAt: chat.updatedAt, shared: chatShared(chat),
     // The full agent takes any file (ZIPs, PDFs, prototypes); others take media.
     ...(agentRole(chat.role, loadConfig()) === "owner" ? { files: true } : {}),
-    ...(chat.folderId ? { folderId: chat.folderId, ...(chat.folderShared ? { folderShared: true } : {}) } : {}),
-    ...(chat.project ? { project: { id: chat.project, name: projectById(chat.project)?.name || chat.project } } : {}),
-    ...(chat.mode === "vibe" ? { mode: "vibe", previewUrl: `${projectById(VIBE_PROJECT).pages}${chat.vibeFolder}/` } : {}) };
+    // folderId/folderShared repeat projectId/projectShared for app builds from before projects.
+    ...(chat.projectId ? { projectId: chat.projectId, folderId: chat.projectId, project: { id: chat.projectId, name: projects().byId(chat.projectId)?.name || chat.projectId },
+      ...(chat.projectShared ? { projectShared: true, folderShared: true } : {}) } : {}),
+    ...(chat.mode === "vibe" ? { mode: "vibe", previewUrl: vibePreview(vibeProject(), chat) } : {}) };
   try { const u = usageStore().chatTotals(chat.id); if (u.turns) view.usage = u; } catch { /* stats never block a chat */ }
   if (viewer && chat.userId === viewer.id) {
     view.archived = !!chat.archivedAt;
@@ -559,14 +561,35 @@ let privateTimer;
 const privateStreams = new Set();
 const chatMediaStore = () => chatMedia ??= createChatMediaStore(path.join(DATA_DIR, "chat-media.db"));
 let documentStore;
-let folderFileStore;
-const folderFiles = () => folderFileStore ??= createFolderFiles(path.join(DATA_DIR, "folder-files"));
-// Project instructions plus the chat's folder (notes and files), sent with every turn.
+let projectFileStore;
+const projectFiles = () => projectFileStore ??= createProjectFiles(path.join(DATA_DIR, "project-files"));
+let projectStore;
+const projects = () => projectStore ??= createProjectStore(loadConfig().projectsFile);
+const vibeProject = () => projects().byId(VIBE_PROJECT);
+// The project with this id, if this person is in it (or is an admin).
+function projectFor(user, pid, users = readState().users) {
+  const data = projects().read();
+  const project = validProjectId(pid) ? data.projects.find(p => p.id === pid) : null;
+  return project && accessOf(project, user, users, data.people).visible ? project : null;
+}
+// Old per-person folders become projects the first time a server with them starts (docs/projects.md).
+function migrateProjects() {
+  if (!needsMigration(readState())) return;
+  mutateState(state => {
+    const n = migrateFolders(state, projects(), projectFiles(), path.join(DATA_DIR, "folder-files"));
+    if (n) console.log(`[servant] ${n} folder(s) became projects in ${projects().file}`);
+  });
+}
+// The chat's project (repo, workflow, rules, what the asker may do, notes and files), sent with every turn.
 function chatContext(chat) {
-  // Whoever started the chat must still be in the folder; otherwise it carries no folder context.
-  const folder = chat.folderId ? folderAccess(readState().users, chat.userId, chat.folderId)?.folder ?? null : null;
-  const full = agentRole(chat.role, loadConfig()) === "owner";
-  return [chatInstructions(chat), folderInstructions(folder, folderFiles(), { full })].filter(Boolean).join("\n\n");
+  const data = projects().read();
+  const project = chat.projectId ? data.projects.find(p => p.id === chat.projectId) : null;
+  if (!project) return "";
+  const users = readState().users;
+  const access = accessOf(project, users[chat.userId], users, data.people);
+  // Whoever started the chat must still be in the project; otherwise the chat carries no project context.
+  if (chat.mode !== "vibe" && !access.visible) return "";
+  return projectInstructions(project, { chat, asker: users[chat.userId], level: access.level, files: projectFiles(), full: agentRole(chat.role, loadConfig()) === "owner" });
 }
 const documents = () => documentStore ??= createDocumentStore(path.join(DATA_DIR, "chat-files"));
 let usageDb;
@@ -808,123 +831,122 @@ async function handle(req, res, cfg) {
     }
     return send(res, 200, { data: Buffer.from(a.data).toString("base64") });
   }
-  // What an agent chat can work on. Vibe coders don't choose: they build prototypes.
-  if (method === "GET" && parts[1] === "projects" && parts.length === 2) {
-    const me = readState().users[user.id];
-    return send(res, 200, { projects: availableProjects(), vibeCoder: !!me?.vibeCoder });
-  }
-  // Folders: groups of agent chats with shared notes and files. The person who makes
-  // one owns it and can add people. Everyone in it shares the notes and files, but
-  // each person only sees their own chats unless they share one with the folder.
-  if (parts[1] === "folders") {
+  // Projects: shared bodies of work with notes, files, rules and who can read, write
+  // or merge (docs/projects.md). App builds from before projects call /v1/folders.
+  if (parts[1] === "projects" || parts[1] === "folders") {
+    const legacy = parts[1] === "folders";
+    const wrap = (one, value) => ({ [legacy ? (one ? "folder" : "folders") : (one ? "project" : "projects")]: value });
     const users = () => readState().users;
     const allChats = () => Object.values(readState().chats);
-    const access = fid => { const a = folderAccess(users(), user.id, fid); if (!a) throw requestError(404, "not_found", "No such folder"); return a; };
-    const view = a => folderView(a, user.id, allChats(), users());
-    // Inside a mutation: the folder, if this person is in it (and is the owner, when asked).
-    const within = (state, auth, fid, ownerOnly = false) => {
-      const a = folderAccess(state.users, auth.user.id, fid);
-      if (!a) throw requestError(404, "not_found", "No such folder");
-      if (ownerOnly && a.role !== "owner") throw requestError(403, "forbidden", "Only the person who made this folder can do that");
-      return a.folder;
+    const found = (data, pid) => {
+      const project = data.projects.find(p => p.id === pid);
+      const access = project && accessOf(project, user, users(), data.people);
+      if (!access?.visible) throw requestError(404, "not_found", "No such project");
+      return { project, access };
     };
+    const may = (access, need) => {
+      if (need === "edit" && !access.canEdit) throw requestError(403, "forbidden", "Only a project owner can do that");
+      if (need === "write" && !access.canWrite) throw requestError(403, "forbidden", "You can read this project but not change it");
+    };
+    const view = pid => { const data = projects().read(); const { project, access } = found(data, pid); return projectView(project, access, user, users(), data.people, allChats()); };
+    // Inside a mutation: the project, if this person may change it this way.
+    const within = (data, pid, need) => { const { project, access } = found(data, pid); may(access, need); project.updatedAt = now(); return project; };
     if (method === "GET" && parts.length === 2) {
+      const data = projects().read();
       const chats = allChats();
-      return send(res, 200, { folders: accessibleFolders(users(), user.id).sort((a, b) => b.folder.updatedAt - a.folder.updatedAt).map(a => folderView(a, user.id, chats, users())) });
+      const list = accessibleProjects(data, user, users()).map(({ project, access }) => projectView(project, access, user, users(), data.people, chats));
+      return send(res, 200, { ...wrap(false, list), vibeCoder: !!users()[user.id]?.vibeCoder, vibe: !!vibeProject() });
     }
     if (method === "POST" && parts.length === 2) {
       const body = await readAuthorizedBody(req);
-      const folder = newFolder(body.name, body.notes ?? "");
-      mutateAuthenticated(req, (state, auth) => {
-        const u = state.users[auth.user.id];
-        u.folders ??= {};
-        if (Object.keys(u.folders).length >= MAX_FOLDERS) throw requestError(409, "limit", `You can have up to ${MAX_FOLDERS} folders`);
-        u.folders[folder.id] = folder;
+      const pid = projects().mutate(data => {
+        if (data.projects.length >= MAX_PROJECTS) throw requestError(409, "limit", `This server holds up to ${MAX_PROJECTS} projects`);
+        const project = newProject(body, user.id, new Set(data.projects.map(p => p.id)));
+        data.projects.push(project);
+        return project.id;
       });
-      return send(res, 200, { folder: view(access(folder.id)) });
+      return send(res, 200, wrap(true, view(pid)));
     }
     if (parts.length >= 3) {
-      const here = access(parts[2]);
+      const pid = parts[2];
       if (method === "GET" && parts.length === 3) {
-        // Teammates' chats appear only when their author shared them with the folder.
-        const sharedChats = allChats().filter(c => c.folderId === parts[2] && c.userId !== user.id && !c.deletedAt && c.folderShared)
+        const project = view(pid);
+        // Teammates' chats appear only when their author shared them with the project.
+        const sharedChats = allChats().filter(c => c.projectId === pid && c.userId !== user.id && !c.deletedAt && c.projectShared)
           .sort((a, b) => b.updatedAt - a.updatedAt).map(c => chatView(c, users()[user.id] || user, users()));
-        return send(res, 200, { folder: view(here), sharedChats });
+        return send(res, 200, { ...wrap(true, project), sharedChats });
       }
       if (method === "PATCH" && parts.length === 3) {
         const body = await readAuthorizedBody(req);
-        mutateAuthenticated(req, (state, auth) => {
-          const f = within(state, auth, parts[2], body.name !== undefined);
-          if (body.name !== undefined) f.name = cleanName(body.name);
-          if (body.notes !== undefined) f.notes = cleanNotes(body.notes);
-          f.updatedAt = now();
+        // Notes are for anyone who can write; the rest is the owners' call.
+        const settings = { name: cleanName, description: cleanDescription, repo: cleanRepo, path: cleanPath, pages: cleanUrl, workflow: cleanWorkflow, rules: cleanRules };
+        const changing = Object.keys(settings).filter(k => body[k] !== undefined);
+        projects().mutate(data => {
+          const p = within(data, pid, changing.length ? "edit" : "write");
+          for (const k of changing) p[k] = settings[k](body[k]);
+          if (body.notes !== undefined) p.notes = cleanNotes(body.notes);
         });
-        return send(res, 200, { folder: view(access(parts[2])) });
+        return send(res, 200, wrap(true, view(pid)));
       }
       if (method === "DELETE" && parts.length === 3) {
-        mutateAuthenticated(req, (state, auth) => {
-          within(state, auth, parts[2], true);
-          delete state.users[auth.user.id].folders[parts[2]];
-          // Everyone's chats stay; they just leave the folder.
-          for (const c of Object.values(state.chats)) if (c.folderId === parts[2]) { delete c.folderId; delete c.folderShared; }
-        });
-        folderFiles().removeFolder(parts[2]);
+        projects().mutate(data => { within(data, pid, "edit"); data.projects = data.projects.filter(p => p.id !== pid); });
+        // Everyone's chats stay; they just leave the project.
+        mutateAuthenticated(req, state => { for (const c of Object.values(state.chats)) if (c.projectId === pid) { delete c.projectId; delete c.projectShared; } });
+        projectFiles().removeProject(pid);
         return send(res, 200, { ok: true });
       }
-      if (method === "POST" && parts[3] === "members" && parts.length === 4) {
+      // People: a Servant user (userId), a GitHub login (github) or someone already listed (key), with a
+      // level and optionally owner true/false. Old builds POST /members with a userId: they can write.
+      if (method === "POST" && (parts[3] === "people" || parts[3] === "members") && parts.length === 4) {
         const body = await readAuthorizedBody(req);
-        mutateAuthenticated(req, (state, auth) => {
-          const f = within(state, auth, parts[2], true);
-          const target = state.users[body.userId];
+        const level = parts[3] === "members" ? "write" : cleanLevel(body.level);
+        let key = typeof body.key === "string" ? body.key : "";
+        if (!key && body.userId !== undefined) {
+          const target = users()[body.userId];
           if (!target || target.revokedAt || isRemoved(target)) throw requestError(404, "not_found", "No such person");
-          if (target.id === auth.user.id) throw requestError(400, "bad_request", "You already own this folder");
-          f.members ??= [];
-          if (f.members.includes(target.id)) return;
-          if (f.members.length >= MAX_MEMBERS) throw requestError(409, "limit", `A folder holds up to ${MAX_MEMBERS} people`);
-          f.members.push(target.id);
-          f.updatedAt = now();
+          key = target.id;
+        }
+        if (!key) key = cleanLogin(body.github);
+        projects().mutate(data => {
+          const p = within(data, pid, "edit");
+          const people = projectPeople(p, users(), data.people);
+          if (body.key && !people.some(x => x.key === key)) throw requestError(404, "not_found", "No such person");
+          if (people.length >= MAX_PEOPLE && !people.some(x => x.key === key)) throw requestError(409, "limit", `A project holds up to ${MAX_PEOPLE} people`);
+          setAccess(p, key, level, typeof body.owner === "boolean" ? body.owner : undefined);
         });
-        return send(res, 200, { folder: view(access(parts[2])) });
+        return send(res, 200, wrap(true, view(pid)));
       }
-      // The owner removes anyone; anyone else can only remove themselves (leave).
-      if (method === "DELETE" && parts[3] === "members" && parts.length === 5) {
-        const targetId = parts[4] === "me" ? user.id : parts[4];
-        mutateAuthenticated(req, (state, auth) => {
-          const f = within(state, auth, parts[2]);
-          const isOwner = state.users[auth.user.id]?.folders?.[parts[2]] === f;
-          if (!isOwner && targetId !== auth.user.id) throw requestError(403, "forbidden", "Only the person who made this folder can remove others");
-          if (targetId === auth.user.id && isOwner) throw requestError(400, "bad_request", "You made this folder. Delete it instead of leaving");
-          f.members = (f.members || []).filter(id => id !== targetId);
-          f.updatedAt = now();
-          // Their chats stay theirs but leave the folder and stop being shared with it.
-          for (const c of Object.values(state.chats)) if (c.userId === targetId && c.folderId === parts[2]) { delete c.folderId; delete c.folderShared; }
+      // Owners remove anyone; anyone else can only remove themselves (leave).
+      if (method === "DELETE" && (parts[3] === "people" || parts[3] === "members") && parts.length === 5) {
+        const target = parts[4] === "me" ? user.id : parts[4];
+        const leaving = target === user.id;
+        projects().mutate(data => {
+          const { project, access } = found(data, pid);
+          if (!leaving && !access.canEdit) throw requestError(403, "forbidden", "Only a project owner can remove people");
+          if (leaving && access.owner && projectPeople(project, users(), data.people).filter(p => p.owner).length === 1) throw requestError(400, "bad_request", "You're the only owner. Add another owner first, or delete the project");
+          removeAccess(project, target, users(), data.people);
+          project.updatedAt = now();
         });
-        const left = targetId === user.id;
-        return send(res, 200, left ? { ok: true } : { folder: view(access(parts[2])) });
+        // Their chats stay theirs but leave the project and stop being shared with it.
+        if (users()[target]) mutateAuthenticated(req, state => { for (const c of Object.values(state.chats)) if (c.userId === target && c.projectId === pid) { delete c.projectId; delete c.projectShared; } });
+        return send(res, 200, leaving ? { ok: true } : wrap(true, view(pid)));
       }
       if (method === "POST" && parts[3] === "files" && parts.length === 4) {
         const body = await readAuthorizedBody(req, MAX_UPLOAD_BODY);
         const bytes = typeof body.data === "string" ? Buffer.from(body.data, "base64") : Buffer.alloc(0);
-        const file = folderFiles().add(here.folder, body.name, bytes);
-        try {
-          mutateAuthenticated(req, (state, auth) => {
-            const f = within(state, auth, parts[2]);
-            f.files = [...(f.files || []), file];
-            f.updatedAt = now();
-          });
-        } catch (e) { folderFiles().remove(parts[2], file); throw e; }
-        return send(res, 200, { folder: view(access(parts[2])) });
+        const here = found(projects().read(), pid);
+        may(here.access, "write");
+        const file = projectFiles().add(here.project, body.name, bytes);
+        try { projects().mutate(data => { within(data, pid, "write").files.push(file); }); }
+        catch (e) { projectFiles().remove(pid, file); throw e; }
+        return send(res, 200, wrap(true, view(pid)));
       }
       if (method === "DELETE" && parts[3] === "files" && parts.length === 5) {
-        const file = (here.folder.files || []).find(f => f.id === parts[4]);
+        const file = found(projects().read(), pid).project.files.find(f => f.id === parts[4]);
         if (!file) return fail(res, 404, "not_found", "No such file");
-        mutateAuthenticated(req, (state, auth) => {
-          const f = within(state, auth, parts[2]);
-          f.files = (f.files || []).filter(x => x.id !== parts[4]);
-          f.updatedAt = now();
-        });
-        folderFiles().remove(parts[2], file);
-        return send(res, 200, { folder: view(access(parts[2])) });
+        projects().mutate(data => { const p = within(data, pid, "write"); p.files = p.files.filter(x => x.id !== parts[4]); });
+        projectFiles().remove(pid, file);
+        return send(res, 200, wrap(true, view(pid)));
       }
     }
     return fail(res, 404, "not_found", "Not found");
@@ -1035,12 +1057,14 @@ async function handle(req, res, cfg) {
     if (!creationUp) return fail(res, 503, "agent_unavailable", "The agent isn't set up on this server yet");
     if (agentRole(creator.role, cfg) !== "owner") await verifyMemberUpstream(creationUp);
     const chatId = id("cht");
-    // Vibe coders always build prototypes. Anyone else may pick a project, or
-    // ask for vibe coding (a prototype with a preview link) from the list.
+    // Vibe coders always build prototypes. Anyone else may start the chat in a project
+    // they're in, or ask for vibe coding (a prototype with a preview link) from the list.
     const vibe = !!readState().users[creator.id]?.vibeCoder || body.mode === "vibe";
-    const project = vibe ? VIBE_PROJECT : (typeof body.project === "string" && availableProjects().some(p => p.id === body.project) ? body.project : null);
-    if (body.project && !vibe && !project) return fail(res, 400, "bad_project", "That project isn't available on this server");
-    if (body.folderId != null && !folderAccess(readState().users, creator.id, body.folderId)) return fail(res, 404, "not_found", "No such folder");
+    if (vibe && !vibeProject()) return fail(res, 503, "vibe_unavailable", "Vibe coding isn't set up on this server");
+    // Old builds send folderId, or project with ids this server may no longer know.
+    const wanted = body.projectId ?? body.folderId ?? (projects().byId(body.project) ? body.project : null);
+    if (!vibe && wanted != null && !projectFor(creator, wanted)) return fail(res, 404, "not_found", "No such project");
+    const projectId = vibe ? VIBE_PROJECT : wanted;
     const hermesSessionId = `servant_${creator.id}_${chatId}`;
     const r = await hermes(creationUp, "POST", "/api/sessions", { id: hermesSessionId, title: `Servant · ${creator.name} · ${chatId.slice(-6)}` });
     if (!r.ok) return fail(res, 502, "agent_error", `The agent didn't start a chat (${r.status})`);
@@ -1050,10 +1074,9 @@ async function handle(req, res, cfg) {
       role: creator.role,
       hermesSessionId,
       title: String(body.title || "New chat").slice(0, 80),
-      // Always private to start. Sharing with the server or a folder is a later choice, per chat.
+      // Always private to start. Sharing with the server or the project is a later choice, per chat.
       shared: false,
-      ...(body.folderId ? { folderId: body.folderId } : {}),
-      ...(project ? { project } : {}),
+      ...(projectId ? { projectId } : {}),
       ...(vibe ? { mode: "vibe", vibeFolder: vibeFolder(chatId) } : {}),
       createdAt: now(),
       updatedAt: now(),
@@ -1099,29 +1122,32 @@ async function handle(req, res, cfg) {
 
   if (method === "PATCH" && parts.length === 3) {
     const body = await readAuthorizedBody(req);
-    const hasFolder = Object.hasOwn(body, "folderId");
-    const hasFolderShared = Object.hasOwn(body, "folderShared");
-    if (typeof body.shared !== "boolean" && !hasFolder && !hasFolderShared) return fail(res, 400, "bad_request", "shared must be true or false");
+    // Old builds say folderId/folderShared; they mean the project.
+    const hasProject = Object.hasOwn(body, "projectId") || Object.hasOwn(body, "folderId");
+    const nextProject = Object.hasOwn(body, "projectId") ? body.projectId : body.folderId;
+    const hasProjectShared = Object.hasOwn(body, "projectShared") || Object.hasOwn(body, "folderShared");
+    const nextShared = Object.hasOwn(body, "projectShared") ? body.projectShared : body.folderShared;
+    if (typeof body.shared !== "boolean" && !hasProject && !hasProjectShared) return fail(res, 400, "bad_request", "shared must be true or false");
     if (typeof body.shared !== "boolean" && body.shared !== undefined) return fail(res, 400, "bad_request", "shared must be true or false");
-    if (hasFolderShared && typeof body.folderShared !== "boolean") return fail(res, 400, "bad_request", "folderShared must be true or false");
-    if (hasFolder && body.folderId !== null && !validFolderId(body.folderId)) return fail(res, 400, "bad_request", "folderId must be a folder or null");
+    if (hasProjectShared && typeof nextShared !== "boolean") return fail(res, 400, "bad_request", "projectShared must be true or false");
+    if (hasProject && nextProject !== null && !validProjectId(nextProject)) return fail(res, 400, "bad_request", "projectId must be a project or null");
     if (body.shared && chat.privateForward) return fail(res, 409, "forward_private", "This chat includes a message from a private conversation, so it stays private");
     let updated;
     mutateAuthenticated(req, (state, current) => {
       updated = requireChat(state, current.user.id, chat.id);
       if (typeof body.shared === "boolean") updated.shared = body.shared;
-      if (hasFolder) {
-        if (body.folderId === null) { delete updated.folderId; delete updated.folderShared; }
-        else if (folderAccess(state.users, current.user.id, body.folderId)) {
-          // Moving to a different folder starts private again.
-          if (updated.folderId !== body.folderId) delete updated.folderShared;
-          updated.folderId = body.folderId;
-        } else throw requestError(404, "not_found", "No such folder");
+      if (hasProject) {
+        if (nextProject === null) { delete updated.projectId; delete updated.projectShared; }
+        else if (projectFor(current.user, nextProject, state.users)) {
+          // Moving to a different project starts private again.
+          if (updated.projectId !== nextProject) delete updated.projectShared;
+          updated.projectId = nextProject;
+        } else throw requestError(404, "not_found", "No such project");
       }
-      if (hasFolderShared) {
-        if (body.folderShared && !updated.folderId) throw requestError(400, "bad_request", "Put this chat in a folder first");
-        if (body.folderShared && updated.privateForward) throw requestError(409, "forward_private", "This chat includes a message from a private conversation, so it stays private");
-        if (body.folderShared) updated.folderShared = true; else delete updated.folderShared;
+      if (hasProjectShared) {
+        if (nextShared && !updated.projectId) throw requestError(400, "bad_request", "Put this chat in a project first");
+        if (nextShared && updated.privateForward) throw requestError(409, "forward_private", "This chat includes a message from a private conversation, so it stays private");
+        if (nextShared) updated.projectShared = true; else delete updated.projectShared;
       }
     });
     return send(res, 200, { chat: chatView(updated, user) });
@@ -1269,7 +1295,7 @@ async function handle(req, res, cfg) {
       if (!messaging) return fail(res, 404, "not_found", "That message is unavailable");
       const source = messaging.forwardSource(body.forward, user.id);
       // A DM or private channel must not leak into a chat the server can read.
-      if (source.private && (chatShared(readState().chats[chat.id] || chat) || (readState().chats[chat.id] || chat).folderShared)) return fail(res, 409, "forward_private", "Messages from private conversations go into a private chat");
+      if (source.private && (chatShared(readState().chats[chat.id] || chat) || (readState().chats[chat.id] || chat).projectShared)) return fail(res, 409, "forward_private", "Messages from private conversations go into a private chat");
       privateForward = source.private;
       ({ text, attachments } = composeForward({ text, attachments }, source));
     }
@@ -1284,7 +1310,7 @@ async function handle(req, res, cfg) {
     await syncChatHistory();
     const turn = mutateAuthenticated(req, (state, current) => {
       const active = requireChat(state, current.user.id, chat.id);
-      if (privateForward && (chatShared(active) || active.folderShared)) throw requestError(409, "forward_private", "Messages from private conversations go into a private chat");
+      if (privateForward && (chatShared(active) || active.projectShared)) throw requestError(409, "forward_private", "Messages from private conversations go into a private chat");
       const queued = agentTurns.enqueue({ chat: active, user: current.user, device: current.device, text, attachments, requestId: body.requestId });
       if (privateForward) active.privateForward = true;
       if (active.title === "New chat") active.title = (ownText || (body.forward != null ? `About: ${text.split("\n")[1]?.replace(/^> /, "") || "a message"}` : "") || text || attachments[0].name).replace(/\s+/g, " ").slice(0, 60);
@@ -1568,6 +1594,7 @@ export function startServer(fixedCfg) {
   }
   secureTransport ??= createSecureTransport(DATA_DIR);
   feedback ??= createFeedback({ file: path.join(DATA_DIR, "feedback.db"), interval: 0, recover: false });
+  migrateProjects();
   messaging.ensureGeneral();
   messaging.joinEveryone(Object.keys(activeUsers(readState())));
   if (!meetings) {

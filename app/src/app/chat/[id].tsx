@@ -17,7 +17,7 @@ import { AgentProgress } from "../../components/AgentSteps";
 import { bufferAgentReply } from "../../lib/agent-events";
 import { messageDeviceLabel } from "../../lib/message-device";
 import { estimateCost, formatCost, formatTokens } from "../../lib/token-format";
-import { api, sendMessage, ServerError, uploadPost, type Chat, type Folder, type Message, type Upload } from "../../lib/server";
+import { api, sendMessage, ServerError, uploadPost, type Chat, type Project, type Message, type Upload } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { useLive } from "../../lib/live";
 import { forwardTitle, parseForward, type ForwardCard } from "../../lib/forward";
@@ -75,7 +75,7 @@ function SharedChatView() {
       <View style={styles.sharedBanner}>
         <Text style={styles.turnLabel}>{authorName}'s conversation</Text>
         <Text style={styles.turnDetail}>{chat?.shared === true ? `Shared with ${account.serverName}. Read only: give feedback in a channel or DM.`
-          : chat?.folderShared ? "Shared with your folder. Read only."
+          : chat?.projectShared ? "Shared with their project. Read only."
             : "Private. You can see it because you're an admin."}</Text>
       </View>
       {messages === null ? <ActivityIndicator style={{ flex: 1 }} color={colors.blue} /> : (
@@ -202,28 +202,28 @@ function ReplyText({ text, failed }: { text: string; failed?: boolean }) {
 }
 
 // Header "•••": chat options. Your own chat is private until you choose to share it with the server; Files lives here too.
-function OptionsSheet({ id, title, shared, folderId, folderShared, onFolder, onFolderShared, onChange, onClose }: { id: string; title: string; shared: boolean | null; folderId: string | null; folderShared: boolean; onFolder: (folderId: string | null) => void; onFolderShared: (shared: boolean) => void; onChange: (shared: boolean) => void; onClose: () => void }) {
+function OptionsSheet({ id, title, shared, projectId, projectShared, onProject, onProjectShared, onChange, onClose }: { id: string; title: string; shared: boolean | null; projectId: string | null; projectShared: boolean; onProject: (projectId: string | null) => void; onProjectShared: (shared: boolean) => void; onChange: (shared: boolean) => void; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const { account } = useSession();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [folders, setFolders] = useState<Folder[] | null>(null);
+  const [projects, setProjects] = useState<Project[] | null>(null);
   const [choosing, setChoosing] = useState(false);
-  useEffect(() => { if (account) api.folders(account).then(setFolders).catch(() => setFolders([])); }, [account]);
+  useEffect(() => { if (account) api.projects(account).then(r => setProjects(r.projects)).catch(() => setProjects([])); }, [account]);
   if (!account) return null;
   const move = async (next: string | null) => {
     setSaving(true); setError(null);
-    try { await api.moveChat(account, id, next); onFolder(next); if (next !== folderId) onFolderShared(false); setChoosing(false); }
+    try { await api.moveChat(account, id, next); onProject(next); if (next !== projectId) onProjectShared(false); setChoosing(false); }
     catch (e) { setError(e instanceof ServerError ? e.message : "Couldn't move the chat"); }
     finally { setSaving(false); }
   };
-  const current = folders?.find(f => f.id === folderId);
-  const teamFolder = !!current && (current.members.length > 0 || current.role === "member");
-  const shareWithFolder = async (next: boolean) => {
-    onFolderShared(next); setSaving(true); setError(null);
-    try { onFolderShared((await api.shareChatWithFolder(account, id, next)).folderShared === true); }
-    catch (e) { onFolderShared(!next); setError(e instanceof ServerError ? e.message : "Couldn't change sharing"); }
+  const current = projects?.find(f => f.id === projectId);
+  const teamProject = !!current && current.people.some(p => p.id && p.id !== account.user.id);
+  const shareWithProject = async (next: boolean) => {
+    onProjectShared(next); setSaving(true); setError(null);
+    try { onProjectShared((await api.shareChatWithProject(account, id, next)).projectShared === true); }
+    catch (e) { onProjectShared(!next); setError(e instanceof ServerError ? e.message : "Couldn't change sharing"); }
     finally { setSaving(false); }
   };
   const change = async (next: boolean) => {
@@ -244,23 +244,23 @@ function OptionsSheet({ id, title, shared, folderId, folderShared, onFolder, onF
             onValueChange={next => { void change(next); }} trackColor={{ true: colors.blue, false: colors.borderStrong }} thumbColor="#FFFFFF" {...(Platform.OS === "web" ? { activeThumbColor: "#FFFFFF" } : {})} />
         </View> : null}
         {error ? <Text accessibilityRole="alert" style={styles.shareError}>{error}</Text> : null}
-        {folders && (folders.length > 0 || folderId) ? <>
-          <Pressable testID="chat-folder" accessibilityRole="button" accessibilityState={{ expanded: choosing }} disabled={saving} onPress={() => setChoosing(!choosing)} style={[styles.menuAction, styles.folderLine]}>
-            <Text style={styles.menuActionText}>Folder</Text>
+        {projects && (projects.length > 0 || projectId) ? <>
+          <Pressable testID="chat-project" accessibilityRole="button" accessibilityState={{ expanded: choosing }} disabled={saving} onPress={() => setChoosing(!choosing)} style={[styles.menuAction, styles.projectLine]}>
+            <Text style={styles.menuActionText}>Project</Text>
             <Text style={styles.turnDetail} numberOfLines={1}>{current?.name ?? "None"}</Text>
           </Pressable>
-          {teamFolder && !choosing ? <View style={styles.shareRow}>
+          {teamProject && !choosing ? <View style={styles.shareRow}>
             <View style={styles.turnCopy}>
               <Text style={styles.turnLabel}>Share with {current!.name}</Text>
-              <Text style={styles.turnDetail}>{folderShared ? "People in this folder can read this chat." : "Only you can see this chat. The folder's notes and files still apply."}</Text>
+              <Text style={styles.turnDetail}>{projectShared ? "People in this project can read this chat." : "Only you can see this chat. The project's notes and files still apply."}</Text>
             </View>
-            <Switch accessibilityLabel={`Share this chat with the ${current!.name} folder`} value={folderShared} disabled={saving}
-              onValueChange={next => { void shareWithFolder(next); }} trackColor={{ true: colors.blue, false: colors.borderStrong }} thumbColor="#FFFFFF" {...(Platform.OS === "web" ? { activeThumbColor: "#FFFFFF" } : {})} />
+            <Switch accessibilityLabel={`Share this chat with the ${current!.name} project`} value={projectShared} disabled={saving}
+              onValueChange={next => { void shareWithProject(next); }} trackColor={{ true: colors.blue, false: colors.borderStrong }} thumbColor="#FFFFFF" {...(Platform.OS === "web" ? { activeThumbColor: "#FFFFFF" } : {})} />
           </View> : null}
           {choosing ? <View>
-            {[{ id: null as string | null, name: "No folder" }, ...folders].map(f => <Pressable key={f.id ?? "none"} accessibilityRole="button" accessibilityState={{ selected: f.id === folderId }} disabled={saving} onPress={() => void move(f.id)} style={styles.folderChoice}>
-              <Text style={[styles.menuActionText, f.id === folderId && { fontWeight: "700" }]} numberOfLines={1}>{f.name}</Text>
-              {f.id === folderId ? <AppIcon name="check" size={16} color={colors.blue} /> : null}
+            {[{ id: null as string | null, name: "No project" }, ...projects].map(f => <Pressable key={f.id ?? "none"} accessibilityRole="button" accessibilityState={{ selected: f.id === projectId }} disabled={saving} onPress={() => void move(f.id)} style={styles.projectChoice}>
+              <Text style={[styles.menuActionText, f.id === projectId && { fontWeight: "700" }]} numberOfLines={1}>{f.name}</Text>
+              {f.id === projectId ? <AppIcon name="check" size={16} color={colors.blue} /> : null}
             </Pressable>)}
           </View> : null}
         </> : null}
@@ -301,8 +301,8 @@ function ChatConversation() {
   const [forwarding, setForwarding] = useState<ForwardTarget | null>(null);
   const [shared, setShared] = useState<boolean | null>(null);
   const [sharing, setSharing] = useState(false);
-  const [folderId, setFolderId] = useState<string | null>(null);
-  const [folderShared, setFolderShared] = useState(false);
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const [projectShared, setProjectShared] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const { width: winWidth } = useWindowDimensions();
   // Portrait phones stack the preview above the chat; folds, tablets, landscape and wide windows put it beside.
@@ -318,8 +318,8 @@ function ChatConversation() {
       if (c.title && c.title !== "New chat") setHeading(h => h === "New chat" ? c.title : h);
       setChatUsage(c.usage ?? null);
       setShared(c.shared !== false);
-      setFolderId(c.folderId ?? null);
-      setFolderShared(c.folderShared === true);
+      setProjectId(c.projectId ?? null);
+      setProjectShared(c.projectShared === true);
       setPreviewUrl(c.mode === "vibe" && c.previewUrl ? c.previewUrl : null);
     }).catch(() => {});
     return () => { live = false; };
@@ -680,7 +680,7 @@ function ChatConversation() {
     <View style={styles.root}>
       <Stack.Screen options={{ title: heading, headerTitle: titleButton(showTitle, setShowTitle, headerLinks.length), ...filesHeader(String(id), heading, colors.blue, headerLinks, false) }} />
       {showTitle ? <FullTitle title={heading} onClose={() => setShowTitle(false)} /> : null}
-      {sharing ? <OptionsSheet id={String(id)} title={heading} shared={shared} folderId={folderId} folderShared={folderShared} onFolder={setFolderId} onFolderShared={setFolderShared} onChange={setShared} onClose={() => setSharing(false)} /> : null}
+      {sharing ? <OptionsSheet id={String(id)} title={heading} shared={shared} projectId={projectId} projectShared={projectShared} onProject={setProjectId} onProjectShared={setProjectShared} onChange={setShared} onClose={() => setSharing(false)} /> : null}
       <View style={[styles.split, stacked && previewOpen && styles.splitStacked]}>
       <View style={[styles.chatColumn, stacked && previewOpen && styles.chatColumnStacked]}>
       <ConversationKeyboardView>
@@ -866,8 +866,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   previewButton: { minHeight: 40, paddingHorizontal: space.md, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   previewInline: { alignSelf: "flex-start", marginTop: space.xs },
   previewButtonText: { ...typography.captionStrong, color: colors.onPrimary },
-  folderLine: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm },
-  folderChoice: { minHeight: 44, paddingLeft: space.md, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  projectLine: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm },
+  projectChoice: { minHeight: 44, paddingLeft: space.md, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   shareRow: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingBottom: space.sm },
   split: { flex: 1, flexDirection: "row" },
   splitStacked: { flexDirection: "column-reverse" },

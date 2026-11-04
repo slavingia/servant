@@ -110,6 +110,15 @@ before(async () => {
       },
     }),
   );
+  // Projects come from projects.json beside the data (docs/projects.md).
+  fs.writeFileSync(path.join(dataDir, "projects.json"), JSON.stringify({
+    people: { patgh: "Pat Projects" },
+    projects: [
+      { id: "servant", name: "Servant", description: "The team app", repo: "slavingia/servant", path: "~/servant", workflow: "main", rules: ["Never rewrite pushed history"], owners: ["bossgh"], access: { merge: ["bossgh"], write: ["patgh"], read: ["Ro Reader"] } },
+      { id: "design-prototypes", name: "Design prototypes", repo: "Taxpayer-Services-and-Online-Accounts/design-prototypes", path: "~/design-prototypes", pages: "https://taxpayer-services-and-online-accounts.github.io/design-prototypes/", workflow: "main", rules: ["Public information and made-up sample data only"] },
+      { id: "secret", name: "Secret", access: { merge: ["nobody-here"] } },
+    ],
+  }));
   mod = await import("./server.mjs");
   server = await mod.startServer();
   base = `http://127.0.0.1:${server.address().port}`;
@@ -356,172 +365,254 @@ test("each agent chat is its own session: a separate Hermes session and session 
   assert.equal(sa.body.system_message, undefined, "no project, no extra instructions");
 });
 
-test("projects: technical people pick one; the chat's turns carry its instructions", async () => {
-  const token = await pair("member", "Pat Projects");
-  const listed = await api("GET", "/v1/projects", { token });
+test("projects: the list comes from projects.json; a chat in one carries its repo, workflow, rules and what the asker may do", async () => {
+  const pat = await pair("member", "Pat Projects");
+  const ro = await pair("member", "Ro Reader");
+  const listed = await api("GET", "/v1/projects", { token: pat });
   assert.equal(listed.status, 200);
-  assert.equal(listed.json.vibeCoder, false);
-  assert.ok(listed.json.projects.some((p) => p.id === "mac"));
-  assert.equal((await api("POST", "/v1/chats", { token, body: { project: "nope" } })).status, 400);
-  const chat = (await api("POST", "/v1/chats", { token, body: { project: "mac" } })).json.chat;
-  assert.deepEqual(chat.project, { id: "mac", name: "Mac" });
-  assert.equal(chat.mode, undefined);
+  assert.deepEqual([listed.json.vibeCoder, listed.json.vibe], [false, true]);
+  assert.deepEqual(listed.json.projects.map(p => p.id), ["servant"], "projects you aren't in don't exist for you");
+  const servant = listed.json.projects[0];
+  assert.deepEqual([servant.access, servant.canEdit, servant.canWrite, servant.workflow, servant.repo, servant.rules], ["write", false, true, "main", "slavingia/servant", ["Never rewrite pushed history"]]);
+  // GitHub logins the people map knows become Servant people; unmapped ones stay logins.
+  assert.deepEqual(servant.people.map(p => [p.name, p.level, p.owner, p.github ?? null, !!p.id]), [["bossgh", "merge", true, "bossgh", false], ["Pat Projects", "write", false, "patgh", true], ["Ro Reader", "read", false, null, true]]);
+  assert.equal((await api("GET", "/v1/projects/secret", { token: pat })).status, 404);
+  assert.equal((await api("POST", "/v1/chats", { token: pat, body: { projectId: "secret" } })).status, 404);
+  assert.equal((await api("POST", "/v1/chats", { token: pat, body: { projectId: "nope" } })).status, 404);
+  // Old builds may still send project ids from the hard-coded days: they get a plain chat.
+  assert.equal((await api("POST", "/v1/chats", { token: pat, body: { project: "mac" } })).json.chat.project, undefined);
+  // Admins see and can edit every project, listed or not.
+  const admin = await pair("owner", "Ada Admin");
+  assert.deepEqual((await api("GET", "/v1/projects", { token: admin })).json.projects.map(p => [p.id, p.canEdit, p.access]), [["servant", true, null], ["design-prototypes", true, null], ["secret", true, null]]);
+  // Writers change notes, not the rules; readers change nothing, but they can still chat in the project.
+  assert.equal((await api("PATCH", "/v1/projects/servant", { token: pat, body: { notes: "Ship small." } })).status, 200);
+  assert.equal((await api("PATCH", "/v1/projects/servant", { token: pat, body: { rules: ["Mine"] } })).status, 403);
+  assert.equal((await api("PATCH", "/v1/projects/servant", { token: ro, body: { notes: "Mine" } })).status, 403);
+  assert.equal((await api("POST", "/v1/projects/servant/files", { token: ro, body: { name: "a.txt", data: Buffer.from("x").toString("base64") } })).status, 403);
+  for (const [token, name, line] of [[pat, "Pat Projects", /Pat Projects can write but not merge: push following the workflow above, but never merge on their behalf/], [ro, "Ro Reader", /Ro Reader can read only: don't push or merge on their behalf; propose changes or open a PR for someone with write\./]]) {
+    const chat = (await api("POST", "/v1/chats", { token, body: { projectId: "servant" } })).json.chat;
+    assert.deepEqual([chat.projectId, chat.project, chat.folderId], ["servant", { id: "servant", name: "Servant" }, "servant"]);
+    await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: `ship it ${name}` } });
+    const stream = await waitFor(() => [...owner.calls, ...member.calls].find(c => c.url.endsWith("/chat/stream") && c.body.message === `ship it ${name}`));
+    const sys = stream.body.system_message;
+    assert.match(sys, /project "Servant" \(The team app\)/);
+    assert.match(sys, /\(GitHub: slavingia\/servant\)/);
+    assert.match(sys, /How we work: push to main, no PRs\./);
+    assert.match(sys, /\n- Never rewrite pushed history/);
+    assert.match(sys, /Project notes from the team:\nShip small\./);
+    assert.match(sys, line);
+  }
+  // The file is the source of truth: an edit by hand shows up on the next request.
+  const file = path.join(dataDir, "projects.json");
+  const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+  raw.projects.find(p => p.id === "servant").workflow = "pr";
+  fs.writeFileSync(file, JSON.stringify(raw, null, 2) + "\n\n");
+  assert.equal((await api("GET", "/v1/projects/servant", { token: pat })).json.project.workflow, "pr");
+  raw.projects.find(p => p.id === "servant").workflow = "main";
+  fs.writeFileSync(file, JSON.stringify(raw, null, 2));
+  assert.equal((await api("GET", "/v1/projects/servant", { token: pat })).json.project.workflow, "main");
 });
 
-test("folders: group your own chats and share notes and files with every chat in them", async () => {
-  const token = await pair("member", "Fran Folders");
+test("projects made in the app: notes and files every chat in them sees; people can read, write or merge", async () => {
+  const token = await pair("member", "Fran Founder");
   const other = await pair("member", "Olly Other");
-  assert.equal((await api("POST", "/v1/folders", { token, body: { name: "  " } })).status, 400);
-  const folder = (await api("POST", "/v1/folders", { token, body: { name: "Refund tracker", notes: "Audience: taxpayers. Plain words." } })).json.folder;
-  assert.equal(folder.name, "Refund tracker");
-  assert.equal(folder.chatCount, 0);
-  assert.equal(folder.role, "owner");
-  // Only you see your folders.
-  assert.deepEqual((await api("GET", "/v1/folders", { token: other })).json.folders, []);
-  assert.equal((await api("GET", `/v1/folders/${folder.id}`, { token: other })).status, 404);
-  assert.equal((await api("POST", "/v1/chats", { token: other, body: { folderId: folder.id } })).status, 404);
-  const added = await api("POST", `/v1/folders/${folder.id}/files`, { token, body: { name: "brief.md", data: Buffer.from("The product shows refund status.").toString("base64") } });
+  const ollyId = (await api("GET", "/v1/people", { token: other })).json.me;
+  assert.equal((await api("POST", "/v1/projects", { token, body: { name: "  " } })).status, 400);
+  const project = (await api("POST", "/v1/projects", { token, body: { name: "Refund tracker", notes: "Audience: taxpayers. Plain words." } })).json.project;
+  assert.deepEqual([project.id, project.name, project.chatCount, project.access, project.canEdit, project.workflow, project.rules, project.role], ["refund-tracker", "Refund tracker", 0, "merge", true, "main", [], "owner"]);
+  assert.deepEqual(project.people.map(p => [p.name, p.level, p.owner]), [["Fran Founder", "merge", true]]);
+  // Only people in a project see it.
+  assert.ok(!(await api("GET", "/v1/projects", { token: other })).json.projects.some(p => p.id === project.id));
+  assert.equal((await api("GET", `/v1/projects/${project.id}`, { token: other })).status, 404);
+  assert.equal((await api("POST", "/v1/chats", { token: other, body: { projectId: project.id } })).status, 404);
+  const added = await api("POST", `/v1/projects/${project.id}/files`, { token, body: { name: "brief.md", data: Buffer.from("The product shows refund status.").toString("base64") } });
   assert.equal(added.status, 200);
-  assert.deepEqual(added.json.folder.files.map(f => f.name), ["brief.md"]);
-  const chatA = (await api("POST", "/v1/chats", { token, body: { folderId: folder.id } })).json.chat;
+  assert.deepEqual(added.json.project.files.map(f => f.name), ["brief.md"]);
+  const chatA = (await api("POST", "/v1/chats", { token, body: { projectId: project.id } })).json.chat;
   const chatB = (await api("POST", "/v1/chats", { token, body: {} })).json.chat;
-  assert.equal(chatA.folderId, folder.id);
-  assert.equal(chatB.folderId, undefined);
-  // Move chat B in, then both carry the folder's context on every turn.
-  assert.equal((await api("PATCH", `/v1/chats/${chatB.id}`, { token, body: { folderId: folder.id } })).json.chat.folderId, folder.id);
-  assert.equal((await api("GET", `/v1/folders/${folder.id}`, { token })).json.folder.chatCount, 2);
+  assert.equal(chatA.projectId, project.id);
+  assert.equal(chatB.projectId, undefined);
+  // Move chat B in, then both carry the project's context on every turn.
+  assert.equal((await api("PATCH", `/v1/chats/${chatB.id}`, { token, body: { projectId: project.id } })).json.chat.projectId, project.id);
+  assert.equal((await api("GET", `/v1/projects/${project.id}`, { token })).json.project.chatCount, 2);
   for (const chat of [chatA, chatB]) {
-    const before = owner.calls.length + member.calls.length;
-    await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "hello" } });
-    const stream = [...owner.calls, ...member.calls].slice(before).find((c) => c.url.endsWith("/chat/stream"));
-    assert.match(stream.body.system_message, /folder "Refund tracker"/);
+    await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: `hello from ${chat.id}` } });
+    const stream = await waitFor(() => [...owner.calls, ...member.calls].find(c => c.url.endsWith("/chat/stream") && c.body.message === `hello from ${chat.id}`));
+    assert.match(stream.body.system_message, /project "Refund tracker"/);
     assert.match(stream.body.system_message, /Audience: taxpayers/);
+    assert.doesNotMatch(stream.body.system_message, /How we work/, "no repo, no workflow talk");
     // The full agent reads files from disk by path.
-    assert.match(stream.body.system_message, /brief\.md.*folder-files/);
+    assert.match(stream.body.system_message, /brief\.md.*project-files/);
   }
   // A limited agent never gets a path: small text files come inline instead.
   await withAgentAccess("limited", async () => {
-    const limited = (await api("POST", "/v1/chats", { token, body: { folderId: folder.id } })).json.chat;
-    const before = owner.calls.length + member.calls.length;
-    await api("POST", `/v1/chats/${limited.id}/messages`, { token, body: { text: "again" } });
-    const stream = await waitFor(() => [...owner.calls, ...member.calls].slice(before).find((c) => c.url.endsWith("/chat/stream")));
+    const limited = (await api("POST", "/v1/chats", { token, body: { projectId: project.id } })).json.chat;
+    await api("POST", `/v1/chats/${limited.id}/messages`, { token, body: { text: "again, limited" } });
+    const stream = await waitFor(() => [...owner.calls, ...member.calls].find(c => c.url.endsWith("/chat/stream") && c.body.message === "again, limited"));
     assert.match(stream.body.system_message, /The product shows refund status\./);
-    assert.doesNotMatch(stream.body.system_message, /folder-files/);
+    assert.doesNotMatch(stream.body.system_message, /project-files/);
   });
-  // Rename, edit notes, remove a file.
-  const edited = (await api("PATCH", `/v1/folders/${folder.id}`, { token, body: { name: "Refunds", notes: "" } })).json.folder;
-  assert.equal(edited.name, "Refunds");
-  assert.equal((await api("DELETE", `/v1/folders/${folder.id}/files/${added.json.folder.files[0].id}`, { token })).json.folder.files.length, 0);
-  // Taking a chat out, and deleting the folder keeps the chats.
-  assert.equal((await api("PATCH", `/v1/chats/${chatB.id}`, { token, body: { folderId: null } })).json.chat.folderId, undefined);
-  assert.equal((await api("DELETE", `/v1/folders/${folder.id}`, { token })).status, 200);
-  assert.equal((await api("GET", `/v1/chats/${chatA.id}`, { token })).json.chat.folderId, undefined);
-  assert.deepEqual((await api("GET", "/v1/folders", { token })).json.folders, []);
+  // Owners set how the team works and who's in: a Servant person with a level, or a GitHub login.
+  const edited = (await api("PATCH", `/v1/projects/${project.id}`, { token, body: { name: "Refunds", description: "Where's my refund, explained", repo: "https://github.com/example/refunds", path: "~/refunds", workflow: "pr", rules: ["Plain words only"] } })).json.project;
+  assert.deepEqual([edited.name, edited.description, edited.repo, edited.path, edited.workflow, edited.rules], ["Refunds", "Where's my refund, explained", "example/refunds", "~/refunds", "pr", ["Plain words only"]]);
+  assert.equal((await api("PATCH", `/v1/projects/${project.id}`, { token, body: { workflow: "trunk" } })).status, 400);
+  assert.equal((await api("POST", `/v1/projects/${project.id}/people`, { token, body: { userId: ollyId, level: "boss" } })).status, 400);
+  assert.equal((await api("POST", `/v1/projects/${project.id}/people`, { token, body: { userId: "usr_nope", level: "read" } })).status, 404);
+  assert.equal((await api("POST", `/v1/projects/${project.id}/people`, { token, body: { github: "not a login", level: "read" } })).status, 400);
+  let people = (await api("POST", `/v1/projects/${project.id}/people`, { token, body: { userId: ollyId, level: "read" } })).json.project.people;
+  assert.deepEqual(people.map(p => [p.name, p.level]), [["Fran Founder", "merge"], ["Olly Other", "read"]]);
+  people = (await api("POST", `/v1/projects/${project.id}/people`, { token, body: { github: "@octocat", level: "merge" } })).json.project.people;
+  assert.deepEqual(people.find(p => p.github === "octocat"), { key: "octocat", name: "octocat", github: "octocat", level: "merge", owner: false });
+  // Olly can read: sees the project and chats in it, but can't change notes or files. With write, they can.
+  const seen = (await api("GET", `/v1/projects/${project.id}`, { token: other })).json.project;
+  assert.deepEqual([seen.access, seen.canWrite, seen.canEdit, seen.role], ["read", false, false, "member"]);
+  assert.equal((await api("PATCH", `/v1/projects/${project.id}`, { token: other, body: { notes: "mine" } })).status, 403);
+  assert.equal((await api("POST", "/v1/chats", { token: other, body: { projectId: project.id } })).json.chat.projectId, project.id);
+  assert.equal((await api("POST", `/v1/projects/${project.id}/people`, { token, body: { key: "nobody", level: "write" } })).status, 404);
+  const promoted = (await api("POST", `/v1/projects/${project.id}/people`, { token, body: { key: ollyId, level: "write" } })).json.project;
+  assert.equal(promoted.people.find(p => p.id === ollyId).level, "write");
+  assert.equal((await api("PATCH", `/v1/projects/${project.id}`, { token: other, body: { notes: "Olly adds: test on iPad." } })).status, 200);
+  assert.equal((await api("PATCH", `/v1/projects/${project.id}`, { token: other, body: { name: "Mine now" } })).status, 403);
+  assert.equal((await api("POST", `/v1/projects/${project.id}/people`, { token: other, body: { github: "friend", level: "read" } })).status, 403);
+  assert.equal((await api("DELETE", `/v1/projects/${project.id}`, { token: other })).status, 403);
+  // The only owner can't leave. A GitHub login is removed by its key; a person leaving takes their chats out.
+  assert.equal((await api("DELETE", `/v1/projects/${project.id}/people/me`, { token })).status, 400);
+  assert.equal((await api("DELETE", `/v1/projects/${project.id}/people/octocat`, { token })).json.project.people.some(p => p.github === "octocat"), false);
+  assert.equal((await api("DELETE", `/v1/projects/${project.id}/people/${ollyId}`, { token: other })).status, 200);
+  assert.equal((await api("GET", `/v1/projects/${project.id}`, { token: other })).status, 404);
+  // Remove a file, take a chat out; deleting the project keeps everyone's chats.
+  assert.equal((await api("DELETE", `/v1/projects/${project.id}/files/${added.json.project.files[0].id}`, { token })).json.project.files.length, 0);
+  assert.equal((await api("PATCH", `/v1/chats/${chatB.id}`, { token, body: { projectId: null } })).json.chat.projectId, undefined);
+  assert.equal((await api("DELETE", `/v1/projects/${project.id}`, { token })).status, 200);
+  assert.equal((await api("GET", `/v1/chats/${chatA.id}`, { token })).json.chat.projectId, undefined);
+  assert.ok(!(await api("GET", "/v1/projects", { token })).json.projects.some(p => p.id === project.id));
+  assert.ok(!fs.existsSync(path.join(dataDir, "project-files", project.id)));
   // Let this test's agent turns finish so they don't land in the next test's window.
   for (let last = -1, n = owner.calls.length + member.calls.length; n !== last; await new Promise(r => setTimeout(r, 400))) { last = n; n = owner.calls.length + member.calls.length; }
 });
 
-test("shared folders: people in a folder share its notes and files, never each other's chats unless one is shared", async () => {
+test("shared projects: people in a project share its notes and files, never each other's chats unless one is shared", async () => {
   const ann = await pair("member", "Ann Author");
   const ben = await pair("member", "Ben Buddy");
   const cy = await pair("member", "Cy Outsider");
   const id = async token => (await api("GET", "/v1/people", { token })).json.me;
   const [benId, cyId] = [await id(ben), await id(cy)];
-  const folder = (await api("POST", "/v1/folders", { token: ann, body: { name: "Tax pro launch", notes: "Goal: ship the client switcher." } })).json.folder;
-  await api("POST", `/v1/folders/${folder.id}/files`, { token: ann, body: { name: "spec.md", data: Buffer.from("Switcher lives in the header.").toString("base64") } });
-  // Not in the folder yet: no access at all.
-  assert.equal((await api("GET", `/v1/folders/${folder.id}`, { token: ben })).status, 404);
-  assert.equal((await api("POST", "/v1/chats", { token: ben, body: { folderId: folder.id } })).status, 404);
-  // Only the owner adds people, and only real ones.
-  assert.equal((await api("POST", `/v1/folders/${folder.id}/members`, { token: ben, body: { userId: cyId } })).status, 404);
-  assert.equal((await api("POST", `/v1/folders/${folder.id}/members`, { token: ann, body: { userId: "usr_nope" } })).status, 404);
-  const withBen = (await api("POST", `/v1/folders/${folder.id}/members`, { token: ann, body: { userId: benId } })).json.folder;
-  assert.deepEqual(withBen.members.map(m => m.name), ["Ben Buddy"]);
-  // Ben sees the folder, its notes and files, as a member.
-  const seen = (await api("GET", `/v1/folders/${folder.id}`, { token: ben })).json.folder;
-  assert.equal(seen.role, "member");
-  assert.equal(seen.owner.name, "Ann Author");
+  const project = (await api("POST", "/v1/projects", { token: ann, body: { name: "Tax pro launch", notes: "Goal: ship the client switcher." } })).json.project;
+  await api("POST", `/v1/projects/${project.id}/files`, { token: ann, body: { name: "spec.md", data: Buffer.from("Switcher lives in the header.").toString("base64") } });
+  // Not in the project yet: no access at all.
+  assert.equal((await api("GET", `/v1/projects/${project.id}`, { token: ben })).status, 404);
+  assert.equal((await api("POST", "/v1/chats", { token: ben, body: { projectId: project.id } })).status, 404);
+  // Only owners add people, and only real ones.
+  assert.equal((await api("POST", `/v1/projects/${project.id}/people`, { token: ben, body: { userId: cyId, level: "read" } })).status, 404);
+  assert.equal((await api("POST", `/v1/projects/${project.id}/people`, { token: ann, body: { userId: "usr_nope", level: "read" } })).status, 404);
+  const withBen = (await api("POST", `/v1/projects/${project.id}/people`, { token: ann, body: { userId: benId, level: "write" } })).json.project;
+  assert.deepEqual(withBen.people.map(p => p.name), ["Ann Author", "Ben Buddy"]);
+  // Ben sees the project, its notes and files.
+  const seen = (await api("GET", `/v1/projects/${project.id}`, { token: ben })).json.project;
+  assert.deepEqual([seen.access, seen.canEdit, seen.owner.name], ["write", false, "Ann Author"]);
   assert.match(seen.notes, /client switcher/);
   assert.deepEqual(seen.files.map(f => f.name), ["spec.md"]);
-  assert.equal((await api("GET", "/v1/folders", { token: ben })).json.folders.length, 1);
-  assert.deepEqual((await api("GET", "/v1/folders", { token: cy })).json.folders, []);
-  // Members work on the shared context but can't rename, delete or add people.
-  assert.equal((await api("PATCH", `/v1/folders/${folder.id}`, { token: ben, body: { notes: "Goal: ship the client switcher. Ben adds: test on iPad." } })).status, 200);
-  assert.equal((await api("PATCH", `/v1/folders/${folder.id}`, { token: ben, body: { name: "Mine now" } })).status, 403);
-  assert.equal((await api("DELETE", `/v1/folders/${folder.id}`, { token: ben })).status, 403);
-  assert.equal((await api("POST", `/v1/folders/${folder.id}/members`, { token: ben, body: { userId: cyId } })).status, 403);
-  // Each person starts their own chat; both carry the shared context. In a folder with
-  // other people a new chat is private to its author unless they say otherwise.
-  const annChat = (await api("POST", "/v1/chats", { token: ann, body: { folderId: folder.id } })).json.chat;
-  const benChat = (await api("POST", "/v1/chats", { token: ben, body: { folderId: folder.id } })).json.chat;
+  assert.ok((await api("GET", "/v1/projects", { token: ben })).json.projects.some(p => p.id === project.id));
+  assert.ok(!(await api("GET", "/v1/projects", { token: cy })).json.projects.some(p => p.id === project.id));
+  // Writers work on the shared context but can't rename, delete or add people.
+  assert.equal((await api("PATCH", `/v1/projects/${project.id}`, { token: ben, body: { notes: "Goal: ship the client switcher. Ben adds: test on iPad." } })).status, 200);
+  assert.equal((await api("PATCH", `/v1/projects/${project.id}`, { token: ben, body: { name: "Mine now" } })).status, 403);
+  assert.equal((await api("DELETE", `/v1/projects/${project.id}`, { token: ben })).status, 403);
+  assert.equal((await api("POST", `/v1/projects/${project.id}/people`, { token: ben, body: { userId: cyId, level: "read" } })).status, 403);
+  // Each person starts their own chat; both carry the shared context. A new chat is private to its author unless they say otherwise.
+  const annChat = (await api("POST", "/v1/chats", { token: ann, body: { projectId: project.id } })).json.chat;
+  const benChat = (await api("POST", "/v1/chats", { token: ben, body: { projectId: project.id } })).json.chat;
   assert.equal(annChat.shared, false);
   assert.equal(benChat.shared, false);
-  assert.equal((await api("POST", "/v1/chats", { token: ann, body: { folderId: folder.id, shared: true } })).json.chat.shared, false, "asking for shared at creation is ignored: sharing is chosen afterwards");
-  assert.equal((await api("POST", "/v1/chats", { token: ann, body: {} })).json.chat.shared, false, "chats outside folders are private too");
-  const solo = (await api("POST", "/v1/folders", { token: cy, body: { name: "Just me" } })).json.folder;
-  assert.equal((await api("POST", "/v1/chats", { token: cy, body: { folderId: solo.id } })).json.chat.shared, false, "a folder with only you is private as well");
+  assert.equal((await api("POST", "/v1/chats", { token: ann, body: { projectId: project.id, shared: true } })).json.chat.shared, false, "asking for shared at creation is ignored: sharing is chosen afterwards");
   for (const [token, chat] of [[ann, annChat], [ben, benChat]]) {
     await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: `question from ${chat.id}` } });
     const stream = await waitFor(() => [...owner.calls, ...member.calls].find(c => c.url.endsWith("/chat/stream") && c.body.message === `question from ${chat.id}`));
-    assert.match(stream.body.system_message, /folder "Tax pro launch"/);
+    assert.match(stream.body.system_message, /project "Tax pro launch"/);
     assert.match(stream.body.system_message, /test on iPad/);
     assert.match(stream.body.system_message, /spec\.md/);
-    assert.match(stream.body.system_message, /Several people work in this folder/);
   }
-  // Private by default: neither can read the other's chat, in the folder or out of it.
+  // Private by default: neither can read the other's chat, in the project or out of it.
   assert.equal((await api("GET", `/v1/chats/${annChat.id}`, { token: ben })).status, 404);
   assert.equal((await api("GET", `/v1/chats/${annChat.id}/messages`, { token: ben })).status, 404);
   assert.equal((await api("GET", `/v1/chats/${benChat.id}/messages`, { token: ann })).status, 404);
-  let listed = (await api("GET", `/v1/folders/${folder.id}`, { token: ben })).json;
+  let listed = (await api("GET", `/v1/projects/${project.id}`, { token: ben })).json;
   assert.deepEqual(listed.sharedChats, []);
-  assert.equal(listed.folder.chatCount, 1);
+  assert.equal(listed.project.chatCount, 1);
   assert.equal((await api("GET", "/v1/chats?scope=org", { token: ben })).json.orgChats.some(c => c.id === annChat.id), false);
-  // Sharing with the folder opens it, read only, to folder people and nobody else.
-  assert.equal((await api("PATCH", `/v1/chats/${annChat.id}`, { token: cy, body: { folderShared: true } })).status, 404);
-  const shared = (await api("PATCH", `/v1/chats/${annChat.id}`, { token: ann, body: { folderShared: true } })).json.chat;
-  assert.equal(shared.folderShared, true);
-  assert.equal(shared.shared, false, "sharing with the folder doesn't share with the whole server");
-  listed = (await api("GET", `/v1/folders/${folder.id}`, { token: ben })).json;
+  // Sharing with the project opens it, read only, to project people and nobody else.
+  assert.equal((await api("PATCH", `/v1/chats/${annChat.id}`, { token: cy, body: { projectShared: true } })).status, 404);
+  const shared = (await api("PATCH", `/v1/chats/${annChat.id}`, { token: ann, body: { projectShared: true } })).json.chat;
+  assert.equal(shared.projectShared, true);
+  assert.equal(shared.shared, false, "sharing with the project doesn't share with the whole server");
+  listed = (await api("GET", `/v1/projects/${project.id}`, { token: ben })).json;
   assert.deepEqual(listed.sharedChats.map(c => c.id), [annChat.id]);
   assert.equal(listed.sharedChats[0].author.name, "Ann Author");
   assert.equal((await api("GET", `/v1/chats/${annChat.id}/messages`, { token: ben })).status, 200);
   assert.equal((await api("POST", `/v1/chats/${annChat.id}/messages`, { token: ben, body: { text: "hijack" } })).status, 403);
   assert.equal((await api("GET", `/v1/chats/${annChat.id}/messages`, { token: cy })).status, 404);
-  assert.equal((await api("GET", `/v1/folders/${folder.id}`, { token: cy })).status, 404);
-  assert.equal((await api("GET", "/v1/chats?scope=org", { token: ben })).json.orgChats.some(c => c.id === annChat.id), false, "folder sharing isn't server-wide sharing");
-  // Taking it back, or moving it out of the folder, closes it again.
-  await api("PATCH", `/v1/chats/${annChat.id}`, { token: ann, body: { folderShared: false } });
+  assert.equal((await api("GET", `/v1/projects/${project.id}`, { token: cy })).status, 404);
+  assert.equal((await api("GET", "/v1/chats?scope=org", { token: ben })).json.orgChats.some(c => c.id === annChat.id), false, "project sharing isn't server-wide sharing");
+  // Taking it back, or moving it out of the project, closes it again.
+  await api("PATCH", `/v1/chats/${annChat.id}`, { token: ann, body: { projectShared: false } });
   assert.equal((await api("GET", `/v1/chats/${annChat.id}/messages`, { token: ben })).status, 404);
-  await api("PATCH", `/v1/chats/${annChat.id}`, { token: ann, body: { folderShared: true } });
-  await api("PATCH", `/v1/chats/${annChat.id}`, { token: ann, body: { folderId: null } });
+  await api("PATCH", `/v1/chats/${annChat.id}`, { token: ann, body: { projectShared: true } });
+  await api("PATCH", `/v1/chats/${annChat.id}`, { token: ann, body: { projectId: null } });
   assert.equal((await api("GET", `/v1/chats/${annChat.id}/messages`, { token: ben })).status, 404);
-  assert.equal((await api("PATCH", `/v1/chats/${annChat.id}`, { token: ann, body: { folderShared: true } })).status, 400, "needs a folder first");
-  // Leaving: Ben's chat leaves the folder with him and loses the shared context.
-  await api("PATCH", `/v1/chats/${benChat.id}`, { token: ben, body: { folderShared: true } });
-  assert.equal((await api("DELETE", `/v1/folders/${folder.id}/members/me`, { token: ben })).status, 200);
-  assert.equal((await api("GET", `/v1/folders/${folder.id}`, { token: ben })).status, 404);
+  assert.equal((await api("PATCH", `/v1/chats/${annChat.id}`, { token: ann, body: { projectShared: true } })).status, 400, "needs a project first");
+  // Leaving: Ben's chat leaves the project with him and loses the shared context.
+  await api("PATCH", `/v1/chats/${benChat.id}`, { token: ben, body: { projectShared: true } });
+  assert.equal((await api("DELETE", `/v1/projects/${project.id}/people/me`, { token: ben })).status, 200);
+  assert.equal((await api("GET", `/v1/projects/${project.id}`, { token: ben })).status, 404);
   const afterLeave = (await api("GET", `/v1/chats/${benChat.id}`, { token: ben })).json.chat;
-  assert.equal(afterLeave.folderId, undefined);
-  assert.equal(afterLeave.folderShared, undefined);
+  assert.equal(afterLeave.projectId, undefined);
+  assert.equal(afterLeave.projectShared, undefined);
   assert.equal((await api("GET", `/v1/chats/${benChat.id}/messages`, { token: ann })).status, 404);
-  // The owner can't leave (delete instead); removing someone else is the owner's call.
-  await api("POST", `/v1/folders/${folder.id}/members`, { token: ann, body: { userId: benId } });
-  assert.equal((await api("DELETE", `/v1/folders/${folder.id}/members/me`, { token: ann })).status, 400);
-  assert.equal((await api("DELETE", `/v1/folders/${folder.id}/members/${benId}`, { token: cy })).status, 404);
-  assert.equal((await api("DELETE", `/v1/folders/${folder.id}/members/${benId}`, { token: ann })).json.folder.members.length, 0);
-  // A teammate's file add and remove land in the one shared folder.
-  await api("POST", `/v1/folders/${folder.id}/members`, { token: ann, body: { userId: benId } });
-  const more = (await api("POST", `/v1/folders/${folder.id}/files`, { token: ben, body: { name: "ben.txt", data: Buffer.from("hi").toString("base64") } })).json.folder;
+  // The only owner can't leave (delete instead); removing someone else is an owner's call.
+  await api("POST", `/v1/projects/${project.id}/people`, { token: ann, body: { userId: benId, level: "write" } });
+  assert.equal((await api("DELETE", `/v1/projects/${project.id}/people/me`, { token: ann })).status, 400);
+  assert.equal((await api("DELETE", `/v1/projects/${project.id}/people/${benId}`, { token: cy })).status, 404);
+  assert.equal((await api("DELETE", `/v1/projects/${project.id}/people/${benId}`, { token: ann })).json.project.people.length, 1);
+  // A second owner can take over; then the first may leave, and the new owner's file add lands in the one shared project.
+  await api("POST", `/v1/projects/${project.id}/people`, { token: ann, body: { userId: benId, level: "merge", owner: true } });
+  const more = (await api("POST", `/v1/projects/${project.id}/files`, { token: ben, body: { name: "ben.txt", data: Buffer.from("hi").toString("base64") } })).json.project;
   assert.deepEqual(more.files.map(f => f.name), ["spec.md", "ben.txt"]);
-  // Deleting the folder frees everyone's chats.
-  assert.equal((await api("DELETE", `/v1/folders/${folder.id}`, { token: ann })).status, 200);
-  assert.equal((await api("GET", `/v1/folders/${folder.id}`, { token: ben })).status, 404);
+  assert.equal((await api("DELETE", `/v1/projects/${project.id}/people/me`, { token: ann })).status, 200);
+  // Deleting the project frees everyone's chats.
+  assert.equal((await api("DELETE", `/v1/projects/${project.id}`, { token: ben })).status, 200);
+  assert.equal((await api("GET", `/v1/projects/${project.id}`, { token: ben })).status, 404);
   for (let last = -1, n = owner.calls.length + member.calls.length; n !== last; await new Promise(r => setTimeout(r, 400))) { last = n; n = owner.calls.length + member.calls.length; }
+});
+
+test("old builds: /v1/folders is projects under another name", async () => {
+  const token = await pair("member", "Old Phone");
+  const mate = await pair("member", "Old Mate");
+  const mateId = (await api("GET", "/v1/people", { token: mate })).json.me;
+  const made = await api("POST", "/v1/folders", { token, body: { name: "Legacy", notes: "From an old build" } });
+  assert.equal(made.status, 200);
+  const folder = made.json.folder;
+  assert.deepEqual([folder.role, folder.owner.name, folder.members, folder.notes], ["owner", "Old Phone", [], "From an old build"]);
+  assert.ok((await api("GET", "/v1/folders", { token })).json.folders.some(f => f.id === folder.id));
+  // Adding a member the old way lets them write.
+  const withMate = (await api("POST", `/v1/folders/${folder.id}/members`, { token, body: { userId: mateId } })).json.folder;
+  assert.deepEqual(withMate.members, [{ id: mateId, name: "Old Mate" }]);
+  assert.equal((await api("GET", `/v1/projects/${folder.id}`, { token: mate })).json.project.access, "write");
+  // Chats speak both dialects.
+  const chat = (await api("POST", "/v1/chats", { token, body: { folderId: folder.id } })).json.chat;
+  assert.deepEqual([chat.folderId, chat.projectId], [folder.id, folder.id]);
+  const shared = (await api("PATCH", `/v1/chats/${chat.id}`, { token, body: { folderShared: true } })).json.chat;
+  assert.deepEqual([shared.folderShared, shared.projectShared], [true, true]);
+  const detail = (await api("GET", `/v1/folders/${folder.id}`, { token: mate })).json;
+  assert.deepEqual([detail.folder.role, detail.sharedChats.map(c => c.id)], ["member", [chat.id]]);
+  assert.equal((await api("PATCH", `/v1/chats/${chat.id}`, { token, body: { folderId: null } })).json.chat.folderId, undefined);
+  assert.equal((await api("DELETE", `/v1/folders/${folder.id}/members/me`, { token: mate })).status, 200);
+  assert.equal((await api("DELETE", `/v1/folders/${folder.id}`, { token })).status, 200);
 });
 
 test("vibe coding is an option for everyone: any member can pick it and gets a preview link", async () => {
   const token = await pair("member", "Remy Regular");
-  assert.equal((await api("GET", "/v1/projects", { token })).json.vibeCoder, false);
+  const offered = (await api("GET", "/v1/projects", { token })).json;
+  assert.deepEqual([offered.vibeCoder, offered.vibe], [false, true]);
   const chat = (await api("POST", "/v1/chats", { token, body: { mode: "vibe" } })).json.chat;
   assert.equal(chat.mode, "vibe");
   assert.equal(chat.project.id, "design-prototypes");
@@ -529,6 +620,8 @@ test("vibe coding is an option for everyone: any member can pick it and gets a p
   await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "a page about refunds" } });
   const stream = await waitFor(() => [...owner.calls, ...member.calls].find((c) => c.url.endsWith("/chat/stream") && c.body.message === "a page about refunds"));
   assert.ok(stream.body.system_message.includes(`PREVIEW: ${chat.previewUrl}`));
+  assert.match(stream.body.system_message, /- Public information and made-up sample data only/, "the project's rules come along");
+  assert.doesNotMatch(stream.body.system_message, /on their behalf/, "vibe coders build in their own folder whatever their repo access");
   // Not asking for it still gives a plain chat.
   assert.equal((await api("POST", "/v1/chats", { token, body: {} })).json.chat.mode, undefined);
 });
@@ -544,7 +637,7 @@ test("vibe coders: owners mark them; their chats build a prototype and show a pr
   assert.equal((await api("GET", "/v1/people", { token: boss })).json.people.find((p) => p.id === val).vibeCoder, true);
   assert.equal((await api("GET", "/v1/projects", { token })).json.vibeCoder, true);
   // Their chats ignore a requested project and always vibe-code the prototypes repo.
-  const chat = (await api("POST", "/v1/chats", { token, body: { project: "mac" } })).json.chat;
+  const chat = (await api("POST", "/v1/chats", { token, body: { projectId: "servant" } })).json.chat;
   assert.equal(chat.mode, "vibe");
   assert.equal(chat.project.id, "design-prototypes");
   assert.match(chat.previewUrl, /^https:\/\/taxpayer-services-and-online-accounts\.github\.io\/design-prototypes\/vibe-[a-z0-9]+\/$/);
@@ -1485,10 +1578,10 @@ test("the owner removes someone who left the team: signed out everywhere, gone f
   assert.ok(history.some(m => m.text === "Before I go"), "history kept");
   assert.ok(history.some(m => m.activity === "left" && /Leaving Lee left Servant/.test(m.text)), "#general says they left");
   assert.equal((await api("GET", `/v1/conversations/${dm.id}`, { token: stay })).status, 200, "Sam keeps the DM history");
-  // A link made for them before they left can't bring them back, and a folder can't take them.
+  // A link made for them before they left can't bring them back, and a project can't take them.
   assert.equal((await api("POST", "/v1/pair", { body: { terms: ACCEPT, code: staleInvite, device: "New phone" } })).status, 403);
-  const folder = (await api("POST", "/v1/folders", { token: owner, body: { name: "Team" } })).json.folder;
-  assert.equal((await api("POST", `/v1/folders/${folder.id}/members`, { token: owner, body: { userId: lee.id } })).status, 404, "can't add a removed person to a folder");
+  const project = (await api("POST", "/v1/projects", { token: owner, body: { name: "Team" } })).json.project;
+  assert.equal((await api("POST", `/v1/projects/${project.id}/people`, { token: owner, body: { userId: lee.id, level: "read" } })).status, 404, "can't add a removed person to a project");
 });
 
 test("ten wrong codes lock out pairing from that address; good pairings don't count", async () => {
