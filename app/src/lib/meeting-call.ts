@@ -27,8 +27,8 @@ export function callsSupported() {
   try { const r = rtc(); return !!r.RTCPeerConnection && !!r.mediaDevices?.getUserMedia; } catch { return false; }
 }
 
-export type Remote = { participantId: string; name: string; stream: Stream; hasVideo: boolean; /** Someone's shared screen rather than their camera. */ screen?: boolean };
-export type Person = { id: string; name: string; you: boolean; hasAudio: boolean; hasVideo: boolean };
+export type Remote = { participantId: string; name: string; stream: Stream; hasVideo: boolean; muted?: boolean; /** Someone's shared screen rather than their camera. */ screen?: boolean };
+export type Person = { id: string; name: string; you: boolean; hasAudio: boolean; hasVideo: boolean; muted: boolean };
 export type CallState = {
   status: "starting" | "connecting" | "live" | "ended" | "failed";
   error: string | null;
@@ -40,6 +40,10 @@ export type CallState = {
   cameraOff: boolean;
   /** Your own screen share, while it is on. */
   sharing: boolean;
+  /** When the call started, for the running time. */
+  startedAt?: number;
+  /** The conversation the call belongs to. */
+  conversationId?: string;
 };
 
 export type CallStep = "start" | "load" | "microphone" | "join" | "connect";
@@ -78,6 +82,10 @@ async function gathered(pc: Peer, timeoutMs = 3000) {
   });
 }
 
+// Voice processing: the browser's and the phone's own noise suppression, echo cancellation and
+// level control, with Chrome's stronger voice isolation where available (the Mac app is Chrome).
+const VOICE = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, voiceIsolation: true, googNoiseSuppression: true, googHighpassFilter: true } as any;
+
 export function createCall(account: Account, meetingId: string, onChange: (s: CallState) => void) {
   const state: CallState = { status: "starting", error: null, local: null, remotes: [], people: [], muted: false, cameraOff: false, sharing: false };
   const emit = () => onChange({ ...state, remotes: [...state.remotes], people: [...state.people] });
@@ -94,10 +102,10 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
 
   async function getMedia() {
     const { mediaDevices } = rtc();
-    try { return await mediaDevices.getUserMedia({ audio: true, video: { width: 640, height: 480, frameRate: 24 } }); }
+    try { return await mediaDevices.getUserMedia({ audio: VOICE, video: { width: 640, height: 480, frameRate: 24 } }); }
     catch {
       // No camera, or the camera was refused: join with audio only.
-      try { state.cameraOff = true; return await mediaDevices.getUserMedia({ audio: true, video: false }); }
+      try { state.cameraOff = true; return await mediaDevices.getUserMedia({ audio: VOICE, video: false }); }
       catch (e) { micError = e; return null; }
     }
   }
@@ -118,9 +126,10 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
       else {
         // The server sends bare RTP with no stream id, so phones get no stream either: build one
         // from the tracks, or the tile (and the voice) never shows up.
+        // A new stream per track: the phone's video view binds to a stream when it first draws, so a
+        // video track added later to the same stream never appears (you saw only yourself).
         const { MediaStream } = rtc();
-        remote.stream ??= new MediaStream();
-        remote.stream.addTrack(e.track);
+        remote.stream = new MediaStream([...(remote.stream?.getTracks?.() ?? []), e.track]);
       }
       if (!state.remotes.includes(remote)) state.remotes.push(remote);
       emit();
@@ -147,12 +156,13 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
     try {
       const m = await api.meeting(account, meetingId);
       if (m.status !== "live") { state.status = "ended"; emit(); await stop(false); return; }
-      state.people = m.participants.filter(p => !p.screen).map(p => ({ id: p.id, name: p.you ? "You" : p.user.name, you: p.you, hasAudio: p.hasAudio, hasVideo: p.hasVideo }))
+      state.startedAt = m.startedAt; state.conversationId = m.conversationId;
+      state.people = m.participants.filter(p => !p.screen).map(p => ({ id: p.id, name: p.you ? "You" : p.user.name, you: p.you, hasAudio: p.hasAudio, hasVideo: p.hasVideo, muted: !!p.muted || !p.hasAudio }))
         .sort((a, b) => Number(b.you) - Number(a.you));
       const others = m.participants.filter(p => !p.you && p.id !== participantId && p.publishing);
       for (const p of others) {
         const known = state.remotes.find(r => r.participantId === p.id);
-        if (known) known.hasVideo = p.hasVideo;
+        if (known) { known.hasVideo = p.hasVideo; known.muted = !!p.muted; }
         else void watch(m, p.id, p.user.name, p.hasVideo, !!p.screen);
       }
       for (const id of [...watching.keys()]) if (!others.some(p => p.id === id)) unwatch(id);
@@ -184,6 +194,7 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
       const joined = await api.joinMeeting(account, meetingId, pc.localDescription.sdp);
       participantId = joined.participantId;
       await pc.setRemoteDescription({ type: "answer", sdp: joined.sdp });
+      if (state.cameraOff) report();
       if (closed) { void api.leaveMeeting(account, meetingId, participantId); return; }
       void sync();
     } catch (e: any) {
@@ -236,6 +247,8 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
     if (id) await api.leaveMeeting(account, meetingId, id);
   }
 
+  const report = () => { if (participantId) void api.meetingState(account, meetingId, participantId, state.muted, state.cameraOff); };
+
   function stopTracks() { for (const t of state.local?.getTracks?.() ?? []) t.stop(); }
 
   async function stop(leave = true) {
@@ -258,6 +271,7 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
     toggleMute() {
       state.muted = !state.muted;
       for (const t of state.local?.getAudioTracks?.() ?? []) t.enabled = !state.muted;
+      report();
       emit();
     },
     toggleCamera() {
@@ -265,7 +279,10 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
       if (!tracks.length) return;
       state.cameraOff = !state.cameraOff;
       for (const t of tracks) t.enabled = !state.cameraOff;
+      report();
       emit();
     },
+    get state() { return state; },
+    meetingId,
   };
 }

@@ -224,3 +224,28 @@ test('screen sharing: a second video-only connection from someone in the call, w
     assert.equal(t.meetings.view(id, 'bo').participants.filter(p => p.screen).length, 0, 'leaving the call stops the share');
   } finally { await t.close(); }
 });
+
+test('mute and camera-off show for everyone; only you can set yours', async () => {
+  const t = await realMeetings();
+  try {
+    const general = t.messaging.ensureGeneral();
+    for (const u of Object.values(users)) t.messaging.joinDefaults(u.id);
+    const id = (await t.call('POST', '/v1/meetings', { conversationId: general.id })).body.meeting.id;
+    // One call per conversation: starting again from another person joins the same one.
+    assert.equal((await t.call('POST', '/v1/meetings', { conversationId: general.id }, users.bo)).body.meeting.id, id);
+    const pc = t.peer();
+    pc.addTransceiver('audio', { direction: 'sendonly' });
+    pc.addTransceiver('video', { direction: 'sendonly' });
+    const joined = await t.call('POST', `/v1/meetings/${id}/join`, { sdp: await t.offer(pc) });
+    await pc.setRemoteDescription({ type: 'answer', sdp: joined.body.sdp });
+    const pid = joined.body.participantId;
+    const me = () => t.meetings.view(id, 'bo').participants.find(p => p.id === pid);
+    assert.equal(me().muted, false);
+    assert.equal((await t.call('POST', `/v1/meetings/${id}/state`, { participantId: pid, muted: true, cameraOff: true }, users.bo)).status, 404, "Bo can't mute Ann");
+    assert.equal((await t.call('POST', `/v1/meetings/${id}/state`, { participantId: pid, muted: true, cameraOff: true })).status, 200);
+    assert.equal(me().muted, true);
+    assert.equal(me().hasVideo, false, 'camera off shows the initial');
+    await t.call('POST', `/v1/meetings/${id}/state`, { participantId: pid, muted: false, cameraOff: false });
+    assert.equal(me().muted, false);
+  } finally { await t.close(); }
+});

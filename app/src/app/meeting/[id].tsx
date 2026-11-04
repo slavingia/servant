@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
-import { useKeepAwake } from "expo-keep-awake";
+import { useCallAwake } from "../../lib/call-awake";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { CallPulse } from "../../components/CallPulse";
@@ -8,7 +8,9 @@ import { startRingSound } from "../../lib/ring-sound";
 import { CallVideo } from "../../components/CallVideo";
 import { useSession } from "../../lib/session";
 import { systemCalls } from "../../lib/servant-call";
-import { callsSupported, createCall, screenShareSupported, type CallState } from "../../lib/meeting-call";
+import { callsSupported, screenShareSupported, type CallState } from "../../lib/meeting-call";
+import { endCall, joinCall, leaveCall, useActiveCall } from "../../lib/active-call";
+import { useCallClock } from "../../lib/call-clock";
 import { radius, space, typography } from "../../lib/theme";
 
 const DARK = "#0B1220";
@@ -23,31 +25,34 @@ export default function MeetingScreen() {
 function Meeting() {
   const { id } = useLocalSearchParams<{ id: string }>();
   // The screen stays on for the whole call; it sleeps normally again when you leave.
-  useKeepAwake();
+  useCallAwake();
   const { account } = useSession();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const [state, setState] = useState<CallState>({ status: "starting", error: null, local: null, remotes: [], people: [], muted: false, cameraOff: false, sharing: false });
+  const [unsupported] = useState(() => !callsSupported());
   const [ending, setEnding] = useState(false);
   const [showPeople, setShowPeople] = useState(false);
-  const call = useRef<ReturnType<typeof createCall> | null>(null);
-
+  // The call lives outside this screen: going back or switching tabs keeps you in it (a bar on
+  // every screen brings you back). Only Leave or End takes you out.
+  const active = useActiveCall();
   useEffect(() => {
-    if (!account || !id) return;
-    if (!callsSupported()) { setState(s => ({ ...s, status: "failed", error: "This device or browser can't make calls. Use the Servant app or a current Chrome, Safari or Edge" })); return; }
+    if (!account || !id || unsupported) return;
     systemCalls.end(id);
-    const c = createCall(account, id, setState);
-    call.current = c;
-    void c.start();
-    return () => { void c.leave(); call.current = null; };
-  }, [account, id]);
+    joinCall(account, id);
+  }, [account, id, unsupported]);
+  const mine = active?.id === id ? active : null;
+  const call = { current: mine?.call ?? null };
+  const state: CallState = unsupported
+    ? { status: "failed", error: "This device or browser can't make calls. Use the Servant app or a current Chrome, Safari or Edge", local: null, remotes: [], people: [], muted: false, cameraOff: false, sharing: false }
+    : mine?.state ?? { status: "starting", error: null, local: null, remotes: [], people: [], muted: false, cameraOff: false, sharing: false };
+  const clock = useCallClock(state.status === "live" ? state.startedAt : undefined);
 
   // "Calling…" rings back until someone joins, so you know it's ringing on their end.
   const waiting = state.status === "live" && state.remotes.length === 0;
   useEffect(() => (waiting ? startRingSound("outgoing") : undefined), [waiting]);
 
   const close = () => { if (router.canGoBack()) router.back(); else router.replace("/"); };
-  const leave = async () => { await call.current?.leave(); close(); };
+  const leave = async () => { await leaveCall(); close(); };
   // Ending drops everyone, so it asks first; "Leave" is the safe exit and is the default choice.
   const confirmEnd = () => {
     const title = "End the call for everyone?";
@@ -60,7 +65,7 @@ function Meeting() {
   };
   const end = async () => {
     setEnding(true);
-    try { await call.current?.end(); } catch { /* the meeting may already be over */ }
+    try { await endCall(); } catch { /* the meeting may already be over */ }
     close();
   };
 
@@ -87,7 +92,11 @@ function Meeting() {
         <View accessible accessibilityRole="text" accessibilityLiveRegion="polite" style={styles.status}>
           {state.status === "live" ? <View style={styles.recDot} /> : null}
           <Text style={styles.statusText}>{statusLine}</Text>
+          {clock ? <Text testID="call-clock" accessibilityLabel={`Call time ${clock}`} style={styles.clock}>{clock}</Text> : null}
         </View>
+        {!done ? <Pressable accessibilityRole="button" accessibilityLabel="Back to the conversation; you stay on the call" onPress={close} hitSlop={10} style={styles.minimize}>
+          <Text style={styles.minimizeText}>Minimize</Text>
+        </Pressable> : null}
       </View>
       {state.status === "live" && !anyone ? (
         <View style={styles.calling}><CallPulse initial="…" /><Text style={styles.callingText}>Calling…</Text></View>
@@ -103,7 +112,7 @@ function Meeting() {
           <View key={r.participantId} style={[styles.tile, stage ? styles.tileSmall : { width: `${100 / columns - 2}%` as const }]}>
             {r.stream ? <CallVideo stream={r.stream} style={StyleSheet.absoluteFill} /> : null}
             {!r.hasVideo ? <View style={styles.noVideo}><Text style={styles.initial}>{r.name.slice(0, 1).toUpperCase()}</Text></View> : null}
-            <Text style={styles.name}>{r.name}</Text>
+            <Text style={styles.name}>{r.muted ? `${r.name} · Muted` : r.name}</Text>
           </View>
         ))}
       </ScrollView>
@@ -112,10 +121,10 @@ function Meeting() {
           <Text style={styles.peopleTitle}>{state.people.length === 1 ? "One person on the call" : `${state.people.length} people on the call`}</Text>
           <ScrollView style={{ maxHeight: 180 }}>
             {state.people.map(p => (
-              <View key={p.id} accessible accessibilityLabel={`${p.name}${p.hasAudio ? "" : ", muted"}`} style={styles.personRow}>
+              <View key={p.id} accessible accessibilityLabel={`${p.name}${p.muted ? ", muted" : ""}`} style={styles.personRow}>
                 <View style={styles.personDot}><Text style={styles.personInitial}>{p.name.slice(0, 1).toUpperCase()}</Text></View>
                 <Text style={styles.personName} numberOfLines={1}>{p.name}</Text>
-                {!p.hasAudio ? <Text style={styles.personMeta}>Muted</Text> : null}
+                {p.muted ? <Text style={styles.personMeta}>Muted</Text> : null}
               </View>
             ))}
           </ScrollView>
@@ -165,8 +174,11 @@ const styles = StyleSheet.create({
   personMeta: { ...typography.label, color: "#C9D3E0" },
   calling: { flex: 1, alignItems: "center", justifyContent: "center", gap: space.sm },
   callingText: { ...typography.bodyStrong, color: "#FFFFFF" },
-  top: { paddingHorizontal: 20, paddingBottom: space.sm },
-  status: { flexDirection: "row", alignItems: "center", gap: space.xs },
+  top: { paddingHorizontal: 20, paddingBottom: space.sm, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm },
+  clock: { ...typography.label, color: "#FFFFFF", fontVariant: ["tabular-nums"] },
+  minimize: { minHeight: 32, paddingHorizontal: space.sm, borderRadius: radius.pill, justifyContent: "center", backgroundColor: "#243045" },
+  minimizeText: { ...typography.label, color: "#FFFFFF" },
+  status: { flexDirection: "row", alignItems: "center", gap: space.xs, flexShrink: 1 },
   recDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#E5484D" },
   statusText: { ...typography.label, color: "#C9D3E0" },
   grid: { flexGrow: 1, flexDirection: "row", flexWrap: "wrap", justifyContent: "center", alignContent: "center", gap: space.xs, padding: space.xs },

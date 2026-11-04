@@ -211,7 +211,7 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
       iceServers: iceServers(),
       participants: call ? [...call.participants.values()].map(p => ({
         id: p.id, user: person(p.userId), publishing: p.tracks.size > 0, you: p.userId === userId, joinedAt: p.joinedAt,
-        hasVideo: p.kinds.has("video"), hasAudio: p.kinds.has("audio"), ...(p.screen ? { screen: true } : {}),
+        hasVideo: p.kinds.has("video") && !p.cameraOff, hasAudio: p.kinds.has("audio"), muted: !!p.muted, ...(p.screen ? { screen: true } : {}),
       })) : [],
       steps,
       transcript: m.status === "done" ? st.transcript.get(m.id)?.text || "" : null,
@@ -269,9 +269,13 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
   async function start(user, conversationId) {
     if (closed) throw httpError(503, "draining", "Server restarting. Try again shortly");
     requireMember(conversationId, user.id);
+    // One call per conversation: tapping Call while one is running joins it.
     const existing = st.live.get(conversationId);
     if (existing && calls.has(existing.id)) return existing;
     if (existing) await finish(existing.id, "replaced");
+    // Someone else may have started one while that finished.
+    const raced = st.live.get(conversationId);
+    if (raced && calls.has(raced.id)) return raced;
     const id = newId("meet");
     st.insert.run(id, conversationId, user.id, now(), process.pid);
     fs.mkdirSync(meetingDir(id), { recursive: true, mode: 0o700 });
@@ -537,6 +541,15 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
     const body = (await readBody(req)) || {};
     if (sub === "join") return send(res, 200, await join(user, id, body.sdp, { screenOf: body.screenOf })), true;
     if (sub === "watch") return send(res, 200, await watch(user, id, String(body.participantId || ""), String(body.publisherId || ""), body.sdp)), true;
+    // Mute and camera are switched off on the phone (the track keeps flowing, silent or black), so
+    // the server can't tell. Each person reports them; everyone sees "Muted" and their initial.
+    if (sub === "state") {
+      const call = calls.get(requireMeeting(id, user.id).id);
+      const p = call?.participants.get(String(body.participantId || ""));
+      if (!p || p.userId !== user.id) return fail(res, 404, "not_found", "You're not on this call"), true;
+      p.muted = !!body.muted; p.cameraOff = !!body.cameraOff;
+      return send(res, 200, { ok: true }), true;
+    }
     if (sub === "leave") {
       const m = requireMeeting(id, user.id);
       const call = calls.get(m.id);

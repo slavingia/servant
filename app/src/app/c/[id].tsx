@@ -12,6 +12,7 @@ import { mergeReadEvent } from "../../lib/read-receipts";
 import { latestMessageReceipts } from "../../lib/message-status";
 import { canCompactPost } from "../../lib/message-device";
 import { TypingLine, useTyping, useTypingPing } from "../../lib/typing";
+import { useActiveCall } from "../../lib/active-call";
 import { callErrorText, callsSupported } from "../../lib/meeting-call";
 import { api, ServerError, type Conversation, type Upload, type Post, type LiveEvent } from "../../lib/server";
 import { useLive } from "../../lib/live";
@@ -143,6 +144,7 @@ export default function ConversationScreen() {
   const receipts = useMemo(() => conv && conv.id === id && conv.kind === "dm"
     ? latestMessageReceipts(posts ?? [], account?.user.id ?? "", conv.members)
     : undefined, [posts, account?.user.id, conv, id]);
+  const activeCall = useActiveCall();
   if (!account) return null;
   const me = account.user.id;
   const isChannel = conv?.kind === "channel";
@@ -227,9 +229,12 @@ export default function ConversationScreen() {
   const openDetails = () => router.push({ pathname: "/channel-info", params: { id } });
   const openFiles = () => router.push({ pathname: "/files", params: { kind: "conversation", id, title } });
   const canCall = !!conv && joined && callsSupported();
+  const callLabel = activeCall?.state.conversationId === id ? "Return to call" : "Call";
   // One tap starts the meeting (or joins the one already running) and opens the call.
   const startCall = async () => {
     if (!account || calling) return;
+    // Already on this conversation's call: go back to it.
+    if (activeCall?.state.conversationId === id) { router.push({ pathname: "/meeting/[id]", params: { id: activeCall.id } }); return; }
     setCalling(true);
     try {
       const meeting = await api.startMeeting(account, id);
@@ -248,14 +253,14 @@ export default function ConversationScreen() {
           // Keep channel management quiet beside the conversation title.
           unstable_headerRightItems:
             conv && Platform.OS === "ios"
-              ? () => [...(canCall ? [{ ...headerButton, label: "Call", onPress: startCall }] : []), { ...headerButton, label: "Files", onPress: openFiles }, ...(isChannel ? [{ ...headerButton, label: "Details", onPress: openDetails }] : [])]
+              ? () => [...(canCall ? [{ ...headerButton, label: callLabel, onPress: startCall }] : []), { ...headerButton, label: "Files", onPress: openFiles }, ...(isChannel ? [{ ...headerButton, label: "Details", onPress: openDetails }] : [])]
               : undefined,
           headerRight:
             conv && Platform.OS !== "ios"
               ? () => (
                   <View style={styles.headerActions}>
-                    {canCall ? <Pressable testID="start-call" accessibilityRole="button" accessibilityLabel="Start a call" disabled={calling} onPress={startCall} style={styles.headerAction}>
-                      <Text style={styles.headerLink}>Call</Text>
+                    {canCall ? <Pressable testID="start-call" accessibilityRole="button" accessibilityLabel={callLabel === "Call" ? "Start a call" : callLabel} disabled={calling} onPress={startCall} style={styles.headerAction}>
+                      <Text style={styles.headerLink}>{callLabel}</Text>
                     </Pressable> : null}
                     <Pressable testID="open-files" accessibilityRole="button" onPress={openFiles} style={styles.headerAction}>
                       <Text style={styles.headerLink}>Files</Text>

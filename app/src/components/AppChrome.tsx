@@ -7,6 +7,8 @@ import { useWideLayout } from "../lib/layout";
 import { radius, createThemedStyles } from "../lib/theme";
 import { Omnibar } from "./Omnibar";
 import { Sidebar } from "./Sidebar";
+import { ActiveCallBar } from "./ActiveCallBar";
+
 
 const ChromeHeightContext = createContext(0);
 
@@ -31,7 +33,7 @@ export function AppChrome({ enabled, children }: { enabled: boolean; children: R
       <View style={styles.wideRoot}>
         {Platform.OS === "web" ? <style>{dragCss}</style> : null}
         <Sidebar key={`${account?.token ?? ""}:${account?.serverKey ?? ""}`} />
-        <View style={[styles.content, styles.widePane]}>{children}</View>
+        <View style={[styles.content, styles.widePane]}><ActiveCallBar />{children}</View>
       </View>
     );
   }
@@ -42,6 +44,7 @@ export function AppChrome({ enabled, children }: { enabled: boolean; children: R
       {isDesktop() ? <><style>{dragCss}</style><View {...({ dataSet: { servantDrag: "on" } } as object)} style={styles.titlebar} /></> : null}
       {enabled ? <View style={styles.header} onLayout={event => setBarHeight(event.nativeEvent.layout.height)}>
         <Omnibar key={`${account?.token ?? ""}:${account?.serverKey ?? ""}`} />
+        <ActiveCallBar />
       </View> : null}
       <ChromeHeightContext.Provider value={enabled ? barHeight : 0}>
         {/* The fixed bar has already consumed the top inset. Keep the bottom

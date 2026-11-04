@@ -79,7 +79,7 @@ export type Meeting = {
   title: string | null;
   error: string | null;
   iceServers: IceServer[];
-  participants: { id: string; user: { id: string; name: string }; publishing: boolean; you: boolean; joinedAt: number; hasVideo: boolean; hasAudio: boolean; screen?: boolean }[];
+  participants: { id: string; user: { id: string; name: string }; publishing: boolean; you: boolean; joinedAt: number; hasVideo: boolean; hasAudio: boolean; muted?: boolean; screen?: boolean }[];
   steps: MeetingStep[];
   transcript: string | null;
 };
@@ -436,6 +436,9 @@ export const api = {
     request(a, `/v1/meetings/${id}/watch`, { method: "POST", body: JSON.stringify({ participantId, publisherId, sdp }) }).then(json<{ sdp: string }>),
   leaveMeeting: (a: Account, id: string, participantId: string) =>
     request(a, `/v1/meetings/${id}/leave`, { method: "POST", body: JSON.stringify({ participantId }) }).catch(() => undefined),
+  /** Tell everyone you muted or turned your camera off. */
+  meetingState: (a: Account, id: string, participantId: string, muted: boolean, cameraOff: boolean) =>
+    request(a, `/v1/meetings/${id}/state`, { method: "POST", body: JSON.stringify({ participantId, muted, cameraOff }) }).catch(() => undefined),
   endMeeting: (a: Account, id: string) =>
     request(a, `/v1/meetings/${id}/end`, { method: "POST", body: "{}" }).then(json<{ meeting: Meeting }>).then((d) => d.meeting),
   meetingStep: (a: Account, id: string, n: number, action: "accept" | "skip") =>
