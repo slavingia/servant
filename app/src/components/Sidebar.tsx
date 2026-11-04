@@ -1,15 +1,17 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View, type PressableStateCallbackType } from "react-native";
 import { router, useGlobalSearchParams, usePathname, type Href } from "expo-router";
 import { type Conversation } from "../lib/server";
 import { isDesktop } from "../lib/desktop";
 import { useLive } from "../lib/live";
+import { refreshProjects, useProjects } from "../lib/projects-store";
 import { sortChannels, withPositions } from "../lib/channel-sort";
 import { useChannelSort } from "../lib/channel-sort-store";
 import { useSession } from "../lib/session";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 import { AppIcon, type AppIconName } from "./AppIcon";
 import { Avatar, dmPeer } from "./Messaging";
+import { NewProjectDialog } from "./NewProjectDialog";
 import { Omnibar } from "./Omnibar";
 
 export const SIDEBAR_WIDTH = 264;
@@ -49,8 +51,13 @@ export function Sidebar() {
   const params = useGlobalSearchParams<{ id?: string; conv?: string; kind?: string }>();
   const parentId = pathname === "/thread" ? params.conv : pathname === "/channel-info" || (pathname === "/files" && params.kind === "conversation") ? params.id : undefined;
   const isOpen = (c: Conversation) => pathname === `/c/${c.id}` || parentId === c.id;
+  const [projectsOpen, setProjectsOpen] = useState(true);
   const [channelsOpen, setChannelsOpen] = useState(true);
   const [dmsOpen, setDmsOpen] = useState(true);
+  const [naming, setNaming] = useState(false);
+  // Projects change rarely: re-read the list as you move around rather than on a timer.
+  const projects = useProjects();
+  useEffect(() => { if (account) void refreshProjects(account); }, [pathname, account]);
   if (!account) return null;
 
   const active = (conversations ?? []).filter(c => !c.archived);
@@ -77,6 +84,11 @@ export function Sidebar() {
         <NavItem icon="chat" label="Direct messages" count={unread.messages} selected={pathname === "/messages"} onPress={() => go(pathname, "/messages")} />
         <NavItem icon="people" label="People" selected={pathname === "/members" || pathname === "/invite"} onPress={() => go(pathname, "/members")} />
 
+        <Section title="Projects" open={projectsOpen} onToggle={() => setProjectsOpen(v => !v)} addLabel="New project" onAdd={() => setNaming(true)}>
+          {(projects?.list ?? []).map(p => <NavItem key={p.id} icon="project" label={p.name} selected={pathname === "/project" && params.id === p.id} onPress={() => go(pathname, { pathname: "/project", params: { id: p.id } })} />)}
+          {projects && !projects.list.length ? <NavItem quiet icon="plus" label="New project" onPress={() => setNaming(true)} /> : null}
+        </Section>
+
         <Section title="Channels" open={channelsOpen} onToggle={() => setChannelsOpen(v => !v)} addLabel="Create a channel" onAdd={() => go(pathname, "/new-channel")}>
           {channels.map(c => <ConversationItem key={c.id} c={c} selected={isOpen(c)} onPress={() => open(c)} />)}
           <NavItem quiet icon="plus" label="Browse channels" selected={pathname === "/browse"} onPress={() => go(pathname, "/browse")} />
@@ -99,6 +111,7 @@ export function Sidebar() {
           <Text numberOfLines={1} style={styles.footerRole}>{connected ? (account.user.role === "owner" ? "Owner" : "Member") : "Reconnecting…"}</Text>
         </View>
       </Pressable>
+      <NewProjectDialog visible={naming} onClose={() => setNaming(false)} onCreated={id => go(pathname, { pathname: "/project", params: { id } })} />
     </View>
   );
 }

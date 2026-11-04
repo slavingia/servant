@@ -25,6 +25,9 @@ export const lightColors = {
   blueSoft: "#E8F2FC",
   gold: "#FDB81E",
   green: "#2E8540",
+  // Done chips: dark green text on a pale green, like red on redSoft.
+  greenDark: "#1F6E35",
+  greenSoft: "#E7F4EA",
   onBrandMuted: "#DCEBFA",
   white: "#FFFFFF",
   red: "#D11242",
@@ -53,6 +56,8 @@ export const darkColors: ThemeColors = {
   subtle: "#252F3C",
   blueSoft: "#19344D",
   green: "#79D492",
+  greenDark: "#79D492",
+  greenSoft: "#1B3A26",
   red: "#FF8FA5",
   redSoft: "#3D202B",
   bubbleAgent: "#1B222C",

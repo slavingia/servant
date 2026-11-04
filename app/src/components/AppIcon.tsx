@@ -22,6 +22,8 @@ const paths = {
   search: "M10.5 3a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15Z m5.5 13 5 5",
   hash: "M5 8h15 M4 16h15 M10 3 6 21 M18 3l-4 18",
   folder: "M3 6a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6Z",
+  // A briefcase: projects in the sidebar, Home and the chat picker.
+  project: "M4 7h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Z M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2 M3 12h18 M12 11v3",
   archive: "M3 3h18v5H3V3Z M5 8v13h14V8 M10 12h4",
   compose: "M14 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-9 M17 3l4 4 M10 14l1-5 8-8 4 4-8 8-5 1Z",
   close: "m6 6 12 12 M18 6 6 18",

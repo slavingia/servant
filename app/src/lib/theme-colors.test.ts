@@ -38,6 +38,11 @@ test("both palettes keep text, actions, errors, and avatars readable", () => {
     assertContrast(colors.onBrand, colors.navy, "brand header");
     assertContrast(colors.white, colors.danger, "destructive button");
     assertContrast(colors.red, colors.redSoft, "error");
+    // Release stage chips: the status word must read on its tint.
+    assertContrast(colors.greenDark, colors.greenSoft, "done chip");
+    assertContrast(colors.blueDark, colors.blueSoft, "doing chip");
+    assertContrast(colors.red, colors.redSoft, "blocked chip");
+    assertContrast(colors.muted, colors.surface, "to do chip");
   }
   for (const tone of [...lightAvatarTones, ...darkAvatarTones]) {
     assertContrast(tone.foreground, tone.background, "avatar initials");

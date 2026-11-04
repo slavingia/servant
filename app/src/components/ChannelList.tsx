@@ -9,8 +9,10 @@ import { ReorderableList } from "./ReorderableList";
 import { ChannelSortSheet } from "./ChannelSortSheet";
 import { CHANNEL_SORTS, sortChannels, withPositions } from "../lib/channel-sort";
 import { setChannelSort, setPendingOrder, useChannelSort } from "../lib/channel-sort-store";
+import { NewProjectDialog } from "./NewProjectDialog";
+import { refreshProjects, useProjects } from "../lib/projects-store";
 import { api } from "../lib/server";
-import { type Conversation, type BrowseChannel } from "../lib/server";
+import { type Conversation, type BrowseChannel, type Project } from "../lib/server";
 import { useChannelDiscovery } from "../lib/channel-discovery";
 import { useLive } from "../lib/live";
 import { useSession } from "../lib/session";
@@ -20,8 +22,9 @@ type HomeRow =
   | { kind: "channel" | "dm"; id: string; conversation: Conversation }
   | { kind: "channels"; id: "channels"; channels: Conversation[] }
   | { kind: "other"; id: string; channel: BrowseChannel }
-  | { kind: "section"; id: "channels-section" | "dms-section" }
-  | { kind: "action"; id: "add-channels" | "new-message" | "archive-link" }
+  | { kind: "project"; id: string; project: Project }
+  | { kind: "section"; id: "projects-section" | "channels-section" | "dms-section" }
+  | { kind: "action"; id: "add-channels" | "new-message" | "archive-link" | "new-project" }
   | { kind: "note"; id: string; text: string }
   | { kind: "discovery"; id: "discovery-header" | "discovery-status" };
 
@@ -36,8 +39,11 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
   const reconnecting = !connected && conversations !== null;
   const [refreshing, setRefreshing] = useState(false);
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(true);
   const [channelsOpen, setChannelsOpen] = useState(true);
   const [dmsOpen, setDmsOpen] = useState(true);
+  const [naming, setNaming] = useState(false);
+  const projects = useProjects();
   const [discovering, setDiscovering] = useState(false);
   const discovery = useChannelDiscovery(!archived && discovering);
   const { openId, busyId, closeRow, rowProps, dialog, actionError } = useConversationActions(account, refresh);
@@ -69,7 +75,7 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
     try { await Promise.all([refresh(), discovery.refresh()]); }
     finally { setRefreshing(false); }
   };
-  useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
+  useFocusEffect(useCallback(() => { void refresh(); if (account) void refreshProjects(account); }, [refresh, account]));
   if (!account) return null;
 
   const channels = (conversations ?? []).filter(c => c.kind === "channel");
@@ -88,6 +94,15 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
     rows.push(...archivedChannels.map(c => ({ kind: "channel" as const, id: c.id, conversation: c })));
     rows.push(...archivedDms.map(c => ({ kind: "dm" as const, id: c.id, conversation: c })));
   } else if (conversations !== null) {
+    // Projects first: they hold the team's releases, chats, notes and files. Hidden with the Unread filter (nothing to count).
+    if (!unreadOnly) {
+      rows.push({ kind: "section", id: "projects-section" });
+      if (projectsOpen) {
+        rows.push(...(projects?.list ?? []).map(p => ({ kind: "project" as const, id: `project-${p.id}`, project: p })));
+        if (projects && !projects.list.length) rows.push({ kind: "note", id: "empty-projects", text: "A project holds a team's releases, chats, notes and files." });
+        rows.push({ kind: "action", id: "new-project" });
+      }
+    }
     rows.push({ kind: "section", id: "channels-section" });
     if (channelsOpen) {
       if (shownChannels.length) rows.push({ kind: "channels", id: "channels", channels: shownChannels });
@@ -115,7 +130,7 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
       <FlatList ref={scrollRef}
         data={rows}
         keyExtractor={item => item.id}
-        extraData={{ openId, busyId, channelsOpen, dmsOpen, discovering, reordering, sort }}
+        extraData={{ openId, busyId, projectsOpen, channelsOpen, dmsOpen, discovering, reordering, sort }}
         scrollEnabled={!lifted}
         onEndReached={() => { if (discovering && channelsOpen && !unreadOnly && !discovery.error) void discovery.more(); }}
         onEndReachedThreshold={0.4}
@@ -162,12 +177,17 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
             const c = item.conversation;
             return <SwipeChannelRow {...rowProps(c)} compact onPress={() => router.push({ pathname: "/c/[id]", params: { id: c.id } })} />;
           }
+          if (item.kind === "project") return <Pressable accessibilityRole="button" accessibilityLabel={item.project.name} onPress={() => { closeRow(); router.push({ pathname: "/project", params: { id: item.project.id } }); }} style={({ pressed }) => [styles.projectRow, pressed && styles.pressed]}>
+            <View style={styles.projectIcon}><AppIcon name="project" size={19} color={colors.muted} /></View>
+            <Text style={styles.projectName} numberOfLines={1}>{item.project.name}</Text>
+          </Pressable>;
           if (item.kind === "section") {
+            const isProjects = item.id === "projects-section";
             const isChannels = item.id === "channels-section";
-            const expanded = isChannels ? channelsOpen : dmsOpen;
-            const title = isChannels ? "Channels" : "Direct messages";
+            const expanded = isProjects ? projectsOpen : isChannels ? channelsOpen : dmsOpen;
+            const title = isProjects ? "Projects" : isChannels ? "Channels" : "Direct messages";
             return <View style={styles.section}>
-              <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ expanded }} onPress={() => { closeRow(); if (isChannels) setChannelsOpen(value => !value); else setDmsOpen(value => !value); }} style={styles.sectionToggle}>
+              <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ expanded }} onPress={() => { closeRow(); if (isProjects) setProjectsOpen(value => !value); else if (isChannels) setChannelsOpen(value => !value); else setDmsOpen(value => !value); }} style={styles.sectionToggle}>
                 <AppIcon name={expanded ? "chevronDown" : "chevronRight"} size={16} color={colors.muted} />
                 <Text style={styles.sectionTitle}>{title}</Text>
               </Pressable>
@@ -177,7 +197,7 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
                 <Text style={styles.sortText}>{CHANNEL_SORTS.find(s => s.value === sort)?.label}</Text>
                 <AppIcon name="chevronDown" size={14} color={colors.muted} />
               </Pressable> : null}
-              {isChannels && reordering ? null : <Pressable accessibilityRole="button" accessibilityLabel={isChannels ? "Create a channel" : "New direct message"} onPress={() => router.push(isChannels ? "/new-channel" : "/new-message")} style={styles.iconButton}>
+              {isChannels && reordering ? null : <Pressable accessibilityRole="button" accessibilityLabel={isProjects ? "New project" : isChannels ? "Create a channel" : "New direct message"} onPress={() => { if (isProjects) setNaming(true); else router.push(isChannels ? "/new-channel" : "/new-message"); }} style={styles.iconButton}>
                 <AppIcon name="plus" size={18} color={colors.muted} />
               </Pressable>}
             </View>;
@@ -190,9 +210,10 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
               {archivedCount ? <Text style={styles.quietCount}>{archivedCount}</Text> : null}
             </Pressable>;
             const addChannels = item.id === "add-channels";
-            return <Pressable accessibilityRole="button" accessibilityState={addChannels ? { expanded: discovering } : undefined} onPress={() => { closeRow(); if (addChannels) setDiscovering(value => !value); else router.push("/new-message"); }} style={({ pressed }) => [styles.actionRow, pressed && styles.pressed]}>
+            const label = item.id === "new-project" ? "New project" : addChannels ? "Add channels" : "New message";
+            return <Pressable accessibilityRole="button" accessibilityState={addChannels ? { expanded: discovering } : undefined} onPress={() => { closeRow(); if (item.id === "new-project") setNaming(true); else if (addChannels) setDiscovering(value => !value); else router.push("/new-message"); }} style={({ pressed }) => [styles.actionRow, pressed && styles.pressed]}>
               <View style={styles.actionIcon}><AppIcon name="plus" size={18} color={colors.muted} /></View>
-              <Text style={styles.actionLabel}>{addChannels ? "Add channels" : "New message"}</Text>
+              <Text style={styles.actionLabel}>{label}</Text>
             </Pressable>;
           }
           if (item.kind === "other") return <Pressable accessibilityRole="button" accessibilityLabel={`Preview #${item.channel.name}`} accessibilityHint="Read this public channel before joining"
@@ -216,6 +237,7 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
         contentContainerStyle={styles.content}
       />
       {dialog}
+      <NewProjectDialog visible={naming} onClose={() => setNaming(false)} />
       <ChannelSortSheet visible={sortOpen} value={sort} onClose={() => setSortOpen(false)} onChange={value => {
         setChannelSort(value);
         // Picking Custom also unlocks dragging; any other sort locks it again.
@@ -243,6 +265,10 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   doneText: { ...typography.bodyStrong, color: colors.blue },
   iconButton: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
   sectionNote: { ...typography.caption, color: colors.muted, paddingLeft: space.side + 38, paddingRight: space.side, paddingVertical: space.xs },
+  // Project rows match the compact channel rows: a glyph, then the name.
+  projectRow: { minHeight: 44, paddingHorizontal: space.side, paddingVertical: space.xxs, flexDirection: "row", alignItems: "center" },
+  projectIcon: { width: 26, height: 26, alignItems: "center", justifyContent: "center" },
+  projectName: { ...typography.body, flex: 1, minWidth: 0, color: colors.ink, marginLeft: space.sm },
   actionRow: { minHeight: 44, paddingHorizontal: space.side, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", gap: space.sm },
   actionIcon: { width: 26, alignItems: "center" },
   actionLabel: { ...typography.body, color: colors.muted, flexShrink: 1 },

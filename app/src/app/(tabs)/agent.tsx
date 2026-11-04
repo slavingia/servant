@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, AppState, FlatList, Modal, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, AppState, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect, useScrollToTop } from "expo-router";
 import { shortTime as when } from "../../lib/time-label";
 import { AppIcon } from "../../components/AppIcon";
@@ -8,7 +8,8 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { SwipeRow } from "../../components/SwipeChannelRow";
 import { ProjectSheet, VIBE_CHOICE } from "../../components/ProjectSheet";
 import { getItem, setItem } from "../../lib/storage";
-import { api, ServerError, type Chat, type Project } from "../../lib/server";
+import { refreshProjects, useProjects } from "../../lib/projects-store";
+import { api, ServerError, type Chat } from "../../lib/server";
 
 // The line under the title, like the last message in a DM list.
 function lastLine(chat: Chat, author: string, agent = "") {
@@ -37,12 +38,8 @@ export default function Chats() {
   const [refreshing, setRefreshing] = useState(false);
   const [starting, setStarting] = useState(false);
   const [picking, setPicking] = useState(false);
-  const [naming, setNaming] = useState(false);
-  const [projectName, setProjectName] = useState("");
-  const [projectBusy, setProjectBusy] = useState(false);
-  const [projectError, setProjectError] = useState<string | null>(null);
-  // The projects you're in, from the server (docs/projects.md); vibe says whether vibe coding is set up.
-  const [projects, setProjects] = useState<{ list: Project[]; vibeCoder: boolean; vibe: boolean } | null>(null);
+  // The projects you're in (docs/projects.md), for the New chat picker; vibe says whether vibe coding is set up.
+  const projects = useProjects();
   // The last project chosen sticks, so starting a chat is one tap.
   const [choice, setChoice] = useState<string | null>(null);
   const choiceKey = account ? `servant.project.${account.user.id}` : null;
@@ -66,7 +63,7 @@ export default function Chats() {
       setChats(mine);
       refreshAgent(mine);
       setShared(others);
-      api.projects(account).then(r => setProjects({ list: r.projects, vibeCoder: r.vibeCoder, vibe: r.vibe })).catch(() => {});
+      void refreshProjects(account);
       setError(null);
     } catch (e) {
       if (e instanceof ServerError && e.status === 401) {
@@ -108,18 +105,6 @@ export default function Chats() {
       busy.current = false;
       setBusyId(null);
     }
-  };
-  const createProject = async () => {
-    const name = projectName.trim();
-    if (!name || projectBusy) return;
-    setProjectBusy(true); setProjectError(null);
-    try {
-      const project = await api.createProject(account, { name });
-      setNaming(false); setProjectName("");
-      setProjects(p => p ? { ...p, list: [...p.list, project] } : p);
-      router.push({ pathname: "/project", params: { id: project.id } });
-    } catch (e) { setProjectError(e instanceof ServerError ? e.message : "Couldn't make the project"); }
-    finally { setProjectBusy(false); }
   };
   const active = (chats ?? []).filter(chat => !chat.archived);
   const archived = (chats ?? []).filter(chat => chat.archived);
@@ -186,26 +171,6 @@ export default function Chats() {
               <Text accessibilityRole="header" style={styles.inboxTitle}>Needs your approval</Text>
               {chats.filter(chat => chat.latestTurn?.status === 'waiting_for_approval').map(chat => <Pressable key={chat.id} accessibilityRole="button" accessibilityLabel={`Review action in ${chat.title}`} onPress={() => router.push({ pathname: '/chat/[id]', params: { id: chat.id, title: chat.title } })} style={styles.approvalRow}>
                 <Text style={styles.rowTitle}>{chat.title}</Text><Text numberOfLines={2} style={styles.approvalDetail}>{chat.latestTurn?.approval?.description || 'Review this action to continue.'}</Text><Text style={styles.review}>Review action →</Text>
-              </Pressable>)}
-            </View> : null}
-            {view === "active" ? <View>
-              <View style={styles.projectHead}>
-                <Text accessibilityRole="header" style={styles.projectTitle}>Projects</Text>
-                <Pressable accessibilityRole="button" accessibilityLabel="New project" onPress={() => { setProjectError(null); setNaming(true); }} hitSlop={8} style={styles.projectAction}>
-                  <Text style={styles.projectLink}>New project</Text>
-                </Pressable>
-              </View>
-              {projects && projects.list.length === 0 ? <Text style={styles.projectEmpty}>A project holds a team's chats, with shared notes, files and rules for how you work.</Text> : null}
-              {(projects?.list ?? []).map(project => <Pressable key={project.id} accessibilityRole="button" accessibilityLabel={`${project.name}${project.people.length > 1 ? ", shared" : ""}, ${project.chatCount} ${project.chatCount === 1 ? "chat" : "chats"}`}
-                onPress={() => router.push({ pathname: "/project", params: { id: project.id } })} style={({ pressed }) => [styles.projectRow, pressed && { backgroundColor: colors.surface }]}>
-                <View style={styles.agentIcon}><AppIcon name="folder" size={19} color={colors.blueDark} /></View>
-                <View style={styles.rowCopy}>
-                  <Text style={styles.rowTitle} numberOfLines={1}>{project.name}</Text>
-                  {project.description || project.repo ? <Text style={styles.preview} numberOfLines={1}>{project.description || project.repo}</Text> : null}
-                </View>
-                {project.people.length > 1 ? <AppIcon name="people" size={16} color={colors.muted} /> : null}
-                <Text style={styles.rowWhen}>{project.chatCount}</Text>
-                <AppIcon name="chevronRight" size={16} color={colors.muted} />
               </Pressable>)}
             </View> : null}
             <View accessibilityRole="tablist" style={styles.filters}>{VIEWS.map(({ key, label }) => <Pressable key={key} accessibilityRole="tab" accessibilityLabel={key === "archived" && archived.length ? `${label}, ${archived.length}` : label} accessibilityState={{ selected: view === key }} aria-selected={view === key} onPress={() => { closeRow(); setView(key); }} style={({ pressed }) => [styles.filter, view === key && styles.selectedFilter, pressed && { opacity: 0.7 }]}>
@@ -300,20 +265,6 @@ export default function Chats() {
         </View> : undefined}
         contentContainerStyle={{ paddingBottom: space.xxl }}
       />
-      <Modal visible={naming} transparent animationType="fade" onRequestClose={() => setNaming(false)}>
-        <Pressable accessibilityLabel="Close" style={styles.scrim} onPress={() => setNaming(false)}>
-          <Pressable accessibilityViewIsModal style={styles.card} onPress={() => {}}>
-            <Text accessibilityRole="header" style={styles.cardTitle}>New project</Text>
-            <TextInput accessibilityLabel="Project name" autoFocus value={projectName} onChangeText={setProjectName} onSubmitEditing={() => void createProject()} returnKeyType="done" maxLength={60}
-              placeholder="e.g. Refund tracker" placeholderTextColor={colors.muted} style={styles.cardInput} />
-            {projectError ? <Text accessibilityRole="alert" style={styles.error}>{projectError}</Text> : null}
-            <View style={styles.cardActions}>
-              <Button label="Cancel" kind="secondary" onPress={() => setNaming(false)} style={{ flex: 1 }} />
-              <Button label="Create" busy={projectBusy} disabled={!projectName.trim()} onPress={() => void createProject()} style={{ flex: 1 }} />
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
       <ConfirmDialog visible={!!deleting} title="Delete this conversation?"
         description="This permanently deletes your conversation with the agent and everything in it. This can't be undone."
         confirmLabel="Delete conversation" busy={busyId !== null} error={actionError}
@@ -362,17 +313,6 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   selectedFilter: { backgroundColor: colors.blueSoft },
   filterText: { ...typography.bodyStrong, color: colors.muted },
   selectedFilterText: { color: colors.blueDark },
-  projectHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingLeft: space.side, paddingRight: space.xs },
-  projectTitle: { ...typography.label, color: colors.muted },
-  projectAction: { minHeight: 44, paddingHorizontal: space.sm, justifyContent: "center" },
-  projectLink: { ...typography.bodyStrong, color: colors.blue },
-  projectEmpty: { ...typography.caption, color: colors.muted, paddingHorizontal: space.side, paddingBottom: space.sm },
-  projectRow: { minHeight: 56, paddingHorizontal: space.side, flexDirection: "row", alignItems: "center", gap: space.sm },
-  scrim: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: space.side, backgroundColor: "rgba(17,46,81,0.42)" },
-  card: { width: "100%", maxWidth: 420, backgroundColor: colors.background, borderRadius: radius.lg, padding: space.side },
-  cardTitle: { ...typography.heading, color: colors.ink, marginBottom: space.sm },
-  cardInput: { ...typography.body, color: colors.ink, minHeight: 48, paddingHorizontal: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line },
-  cardActions: { flexDirection: "row", gap: space.sm, marginTop: space.md },
   empty: { marginTop: space.xxl, alignItems: "center", paddingHorizontal: space.side },
   emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center", marginTop: space.md },
   emptyBody: { ...typography.body, marginTop: space.xs, color: colors.muted, textAlign: "center", maxWidth: 360 },
