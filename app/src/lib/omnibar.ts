@@ -2,7 +2,7 @@ export type Shortcut = { id: string; title: string; detail: string; path: "/new-
 
 const shortcuts: Shortcut[] = [
   { id: "new-message", title: "New message", detail: "Start a direct or group conversation", path: "/new-message", keywords: "create compose dm" },
-  { id: "new-channel", title: "New channel", detail: "Make a space for a team or topic", path: "/new-channel", keywords: "create team topic" },
+  { id: "new-channel", title: "New channel", detail: "Make a space for a team", path: "/new-channel", keywords: "create team" },
   { id: "agent", title: "Ask the agent", detail: "Open your private agent chats", path: "/agent", keywords: "assistant ai help" },
   { id: "members", title: "People", detail: "Browse everyone on your server", path: "/members", keywords: "people members directory" },
   { id: "archive", title: "Archived", detail: "Channels and messages you archived", path: "/archived-channels", keywords: "archive archived restore channels messages" },

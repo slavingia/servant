@@ -12,7 +12,8 @@ test("the command list shows while typing a slash at the start, filtered", () =>
 
 test("commands parse; paths and unknown words stay ordinary messages", () => {
   assert.deepEqual(parseSlash("/invite @maya @sam", true)?.args, "@maya @sam");
-  assert.equal(parseSlash("/TOPIC  Refund questions ", true)?.args, "Refund questions");
+  assert.equal(parseSlash("/RENAME  refund-desk ", true)?.args, "refund-desk");
+  assert.equal(parseSlash("/topic hi", true), null, "no topics");
   assert.equal(parseSlash("/leave", true)?.name, "leave");
   assert.equal(parseSlash("/leave", false), null, "channel-only in a DM is just text");
   assert.equal(parseSlash("/usr/local/bin is the path", true), null);

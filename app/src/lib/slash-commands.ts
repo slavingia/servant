@@ -1,11 +1,10 @@
-// Slack-style commands typed in the message box: "/invite @maya", "/topic Refund questions".
+// Slack-style commands typed in the message box: "/invite @maya", "/rename refund-desk".
 // The list shows while you type a "/" at the very start; Send runs the command instead of posting it.
 
 export type SlashCommand = { name: string; args: string; hint: string; description: string; channelOnly?: boolean };
 
 export const SLASH_COMMANDS: Omit<SlashCommand, "args">[] = [
   { name: "invite", hint: "@person …", description: "Add people to this channel", channelOnly: true },
-  { name: "topic", hint: "text", description: "Set the channel topic", channelOnly: true },
   { name: "rename", hint: "new-name", description: "Rename this channel", channelOnly: true },
   { name: "leave", hint: "", description: "Leave this channel", channelOnly: true },
   { name: "call", hint: "", description: "Start a call here (or join the one running)" },

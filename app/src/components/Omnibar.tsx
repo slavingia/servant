@@ -122,11 +122,11 @@ function SearchBar({ account, variant }: { account: Account; variant: "bar" | "s
 
   const groups = useMemo((): Group[] => {
     const existing = conversations ?? [];
-    const matches = existing.filter(c => (searchQuery || !c.archived) && matchesQuery(searchQuery, c.title, c.topic))
+    const matches = existing.filter(c => (searchQuery || !c.archived) && matchesQuery(searchQuery, c.title))
       .sort((a, b) => Number(a.archived) - Number(b.archived) || b.updatedAt - a.updatedAt);
     const conversationResult = (c: (typeof existing)[number]): Result => ({
       id: `conversation:${c.id}`, title: c.kind === "channel" ? `#${c.title}` : c.title,
-      detail: c.archived ? "Archived channel" : c.kind === "channel" ? c.topic || (c.private ? "Private channel" : "Channel") : "Direct message",
+      detail: c.archived ? "Archived channel" : c.kind === "channel" ? (c.private ? "Private channel" : "Channel") : "Direct message",
       glyph: c.kind === "channel" ? "#" : "@", archived: c.archived,
       href: { pathname: "/c/[id]", params: { id: c.id } },
     });
@@ -139,7 +139,7 @@ function SearchBar({ account, variant }: { account: Account; variant: "bar" | "s
     ];
     const known = new Set(existing.map(c => c.id));
     const discovered: Result[] = (currentResponse?.data?.channels ?? []).filter(c => !known.has(c.id)).map(c => ({
-      id: `channel:${c.id}`, title: `#${c.name}`, detail: c.archived ? "Archived channel" : c.topic || (c.joined ? "Channel" : "Public channel · Preview before joining"),
+      id: `channel:${c.id}`, title: `#${c.name}`, detail: c.archived ? "Archived channel" : (c.joined ? "Channel" : "Public channel · Preview before joining"),
       glyph: "#", archived: c.archived, href: { pathname: "/c/[id]", params: { id: c.id } },
     }));
     return [

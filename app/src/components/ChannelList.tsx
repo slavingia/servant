@@ -200,7 +200,7 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
             <AppIcon name="hash" size={18} color={colors.muted} />
             <View style={styles.otherContent}>
               <Text style={styles.otherName} numberOfLines={1}>{item.channel.name}</Text>
-              <Text style={styles.otherTopic} numberOfLines={1}>{item.channel.topic || `${item.channel.memberCount} ${item.channel.memberCount === 1 ? "member" : "members"}`}</Text>
+              <Text style={styles.otherTopic} numberOfLines={1}>{`${item.channel.memberCount} ${item.channel.memberCount === 1 ? "member" : "members"}`}</Text>
             </View>
             <AppIcon name="chevronRight" size={16} color={colors.muted} />
           </Pressable>;

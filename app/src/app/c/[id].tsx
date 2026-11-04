@@ -182,7 +182,6 @@ export default function ConversationScreen() {
           await api.addMembers(account, id, found.map(p => p.id));
           setError(null); void load(); return true;
         }
-        case "topic": await api.updateChannel(account, id, { topic: cmd.args }); setError(null); void load(); return true;
         case "rename": {
           if (!cmd.args) return need("a new name");
           await api.updateChannel(account, id, { name: cmd.args }); setError(null); void load(); return true;
@@ -348,7 +347,7 @@ export default function ConversationScreen() {
                   <Text accessibilityRole="header" style={styles.introTitle}>{title}</Text>
                   <Text style={styles.introBody}>
                     {isChannel
-                      ? conv.topic || `This is the start of ${title}`
+                      ? `This is the start of ${title}`
                       : `This is the start of your conversation with ${conv.title}`}
                   </Text>
                 </View>

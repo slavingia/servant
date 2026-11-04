@@ -17,7 +17,6 @@ export default function NewChannel() {
   const { refresh } = useLive();
   const [name, setName] = useState("");
   const [nameFocused, setNameFocused] = useState(false);
-  const [topic, setTopic] = useState("");
   const [priv, setPriv] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +25,7 @@ export default function NewChannel() {
     setBusy(true);
     setError(null);
     try {
-      const c = await api.createChannel(account, { name, topic, private: priv });
+      const c = await api.createChannel(account, { name, private: priv });
       refresh();
       router.replace({ pathname: "/c/[id]", params: { id: c.id } });
     } catch (e) {
@@ -36,7 +35,7 @@ export default function NewChannel() {
   };
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
-      <Text style={styles.intro}>Channels bring the right people together around a topic.</Text>
+      <Text style={styles.intro}>Channels bring the right people together.</Text>
       <Text style={styles.label}>Channel name</Text>
       <View style={[styles.nameBox, nameFocused && styles.nameBoxFocused]}>
         <AppIcon name={priv ? "lock" : "hash"} size={18} color={colors.muted} />
@@ -55,9 +54,6 @@ export default function NewChannel() {
         />
       </View>
       <Text style={styles.help}>Use lowercase letters, numbers, and hyphens.</Text>
-
-      <Text style={styles.label}>Topic <Text style={styles.optional}>(optional)</Text></Text>
-      <TextInput accessibilityLabel="Topic, optional" value={topic} onChangeText={setTopic} placeholder="What will you discuss here?" placeholderTextColor={colors.muted} style={styles.input} maxLength={250} multiline textAlignVertical="top" />
 
       <View style={styles.switchRow}>
         <View style={{ flex: 1, marginRight: space.sm }}>
@@ -78,12 +74,10 @@ const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create
   content: { padding: space.side, paddingBottom: space.xxl, width: "100%", maxWidth: 680, alignSelf: "center" },
   intro: { ...typography.caption, color: colors.muted, marginBottom: space.xs },
   label: { ...typography.label, marginTop: space.md, marginBottom: space.xs, color: colors.ink },
-  optional: { ...typography.caption, color: colors.muted },
   nameBox: { ...controls.input, paddingVertical: 0, flexDirection: "row", alignItems: "center", gap: space.xs },
   nameBoxFocused: { borderColor: colors.blue, boxShadow: `0 0 0 1px ${colors.blue}` },
   // The box draws the focus ring, so the inner field draws none.
   nameInput: { ...typography.body, flex: 1, minWidth: 0, minHeight: 44, paddingVertical: space.sm, color: colors.ink, ...(Platform.OS === "web" ? { outlineStyle: "none" } as object : {}) },
-  input: { ...controls.input, ...controls.inputMultiline, minHeight: 88 },
   help: { ...typography.caption, marginTop: space.xs, color: colors.muted },
   switchRow: { marginTop: space.lg, paddingVertical: space.md, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.line, flexDirection: "row", alignItems: "center" },
   switchLabel: { ...typography.bodyStrong, color: colors.ink },
