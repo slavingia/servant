@@ -901,6 +901,14 @@ test("profile photos: you set or remove yours, everyone on the server sees it li
   assert.equal((await api("PUT", "/v1/people/me/photo", { token: pia, body: { data: Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(1100 * 1024)]).toString("base64") } })).status, 413);
   assert.equal((await api("PUT", `/v1/people/${piaId}/photo`, { token: quinn, body: { data: jpeg } })).status, 404);
   assert.equal((await api("GET", `/v1/people/${piaId}/photo`)).status, 401);
+  // Names: change your own, unique, shown to everyone live.
+  const renamed = await api("PATCH", "/v1/people/me", { token: pia, body: { name: "  Pia   Ray " } });
+  assert.deepEqual([renamed.status, renamed.json.user.name], [200, "Pia Ray"]);
+  const nameUpdate = await waitFor(() => live.got.find((e) => e.event === "person.updated" && e.data.id === piaId && e.data.name === "Pia Ray"));
+  assert.ok(nameUpdate);
+  assert.equal((await api("PATCH", "/v1/people/me", { token: pia, body: { name: "  " } })).status, 400);
+  const quinnName = (await me(quinn)).people.find((p) => p.id !== piaId && p.name !== "Agent" && p.name !== "Pia Ray").name;
+  assert.equal((await api("PATCH", "/v1/people/me", { token: pia, body: { name: quinnName.toUpperCase() } })).status, 409);
   // Removing goes back to initials for everyone.
   assert.equal((await api("DELETE", "/v1/people/me/photo", { token: pia })).json.person.photo, undefined);
   await waitFor(() => live.got.some((e) => e.event === "person.updated" && e.data.id === piaId && !e.data.photo));

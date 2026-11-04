@@ -374,6 +374,7 @@ export const api = {
   people: (a: Account) => request(a, "/v1/people").then(json<{ people: Person[]; agent: Person; me: string }>),
   photo: (a: Account, userId: string) => request(a, `/v1/people/${encodeURIComponent(userId)}/photo`).then(json<{ mime: string; data: string; version: string }>),
   setPhoto: (a: Account, data: string) => request(a, "/v1/people/me/photo", { method: "PUT", body: JSON.stringify({ data }) }).then(json<{ person: Person }>),
+  rename: (a: Account, name: string) => request(a, "/v1/people/me", { method: "PATCH", body: JSON.stringify({ name }) }).then(json<{ user: Account["user"] }>),
   removePhoto: (a: Account) => request(a, "/v1/people/me/photo", { method: "DELETE" }).then(json<{ person: Person }>),
   conversations: (a: Account, m?: (a: Account) => void) =>
     request(a, "/v1/conversations?includeArchived=1", {}, m).then(json<{ conversations: Conversation[] }>).then((d) => d.conversations),

@@ -1,9 +1,9 @@
 import { type ComponentRef, useCallback, useRef, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { router, useFocusEffect, useScrollToTop } from "expo-router";
-import { api, ServerError, type Release } from "../../lib/server";
+import { api, saveAccount, ServerError, type Release } from "../../lib/server";
 import { usePhotos } from "../../lib/photos";
 import { PageTitle } from "../../components/Band";
 import { Avatar } from "../../components/Messaging";
@@ -35,7 +35,7 @@ export default function Settings() {
   // Tapping the tab you're already on scrolls back to the top.
   const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
   useScrollToTop(scrollRef);
-  const { account, signOut } = useSession();
+  const { account, setAccount, signOut } = useSession();
   const ota = useOtaCheck();
   const { colors } = useTheme();
   const styles = useStyles();
@@ -48,6 +48,10 @@ export default function Settings() {
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoMenu, setPhotoMenu] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [nameBusy, setNameBusy] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
   useFocusEffect(
     useCallback(() => {
       if (account) api.latestRelease(account).then(setRelease).catch(() => undefined);
@@ -90,6 +94,26 @@ export default function Settings() {
     finally { setPhotoBusy(false); }
   };
 
+  const saveName = async () => {
+    if (nameBusy) return;
+    const next = nameDraft.replace(/\s+/g, " ").trim();
+    if (!next) { setNameError("Enter a name"); return; }
+    if (next === account.user.name) { setEditingName(false); return; }
+    setNameBusy(true);
+    setNameError(null);
+    try {
+      const { user } = await api.rename(account, next);
+      const updated = { ...account, user: { ...account.user, name: user.name } };
+      await saveAccount(updated);
+      setAccount(updated);
+      setEditingName(false);
+    } catch (e) {
+      setNameError(e instanceof ServerError ? e.message : "Couldn't change your name. Try again.");
+    } finally {
+      setNameBusy(false);
+    }
+  };
+
   const leave = async () => {
     if (leaving) return;
     setLeaving(true);
@@ -129,6 +153,17 @@ export default function Settings() {
         </Pressable>
       </View> : null}
       {photoError ? <Text accessibilityRole="alert" style={styles.photoError}>{photoError}</Text> : null}
+      {editingName ? <View style={[styles.group, styles.nameEditor]}>
+        <TextInput testID="name-input" value={nameDraft} onChangeText={setNameDraft} autoFocus maxLength={40} autoCapitalize="words" autoCorrect={false}
+          accessibilityLabel="Your name" returnKeyType="done" onSubmitEditing={() => void saveName()} placeholder="Your name" placeholderTextColor={colors.muted} style={styles.nameInput} />
+        {nameError ? <Text accessibilityRole="alert" style={styles.photoError}>{nameError}</Text> : null}
+        <View style={styles.nameActions}>
+          <Pressable accessibilityRole="button" disabled={nameBusy} onPress={() => { setEditingName(false); setNameError(null); }}><Text style={styles.photoLink}>Cancel</Text></Pressable>
+          <Pressable testID="name-save" accessibilityRole="button" accessibilityState={{ busy: nameBusy }} disabled={nameBusy} onPress={() => void saveName()}><Text style={styles.photoLink}>{nameBusy ? "Saving…" : "Save"}</Text></Pressable>
+        </View>
+      </View> : <Pressable testID="change-name" accessibilityRole="button" onPress={() => { setNameDraft(account.user.name); setNameError(null); setEditingName(true); }} style={styles.changeName}>
+        <Text style={styles.photoLink}>Change name</Text>
+      </Pressable>}
       <Text accessibilityRole="header" style={styles.section}>Preferences</Text>
       <View style={styles.group}>
         <Row label="Notifications" onPress={() => router.push("/notifications")} />
@@ -186,6 +221,10 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   photoLink: { ...typography.captionStrong, color: colors.blue, marginTop: space.xxs },
   photoBadge: { position: "absolute", right: -2, bottom: -2, width: 22, height: 22, borderRadius: 11, backgroundColor: colors.primary, borderWidth: 2, borderColor: colors.groupedBackground, alignItems: "center", justifyContent: "center" },
   photoMenu: { marginTop: -space.sm },
+  changeName: { marginHorizontal: space.side, marginBottom: space.md },
+  nameEditor: { padding: space.md, gap: space.sm },
+  nameInput: { ...typography.body, color: colors.ink, minHeight: 44 },
+  nameActions: { flexDirection: "row", justifyContent: "flex-end", gap: space.lg },
   photoError: { ...typography.caption, color: colors.red, marginHorizontal: space.side, marginTop: -space.xs, marginBottom: space.md },
   section: { ...typography.label, marginHorizontal: space.side, marginTop: space.sm, marginBottom: space.xs, color: colors.muted },
   group: { backgroundColor: colors.groupedCard, marginHorizontal: space.side, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, overflow: "hidden", marginBottom: space.md },

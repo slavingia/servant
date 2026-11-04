@@ -939,6 +939,19 @@ async function handle(req, res, cfg) {
     if (name) noteIfLeft(true, parts[2], name);
     return send(res, 200, { ok: true });
   }
+  // Everyone changes their own name. Names stay unique so @mentions and the roster stay clear.
+  if (method === "PATCH" && parts[1] === "people" && parts[2] === "me" && parts.length === 3) {
+    const body = await readAuthorizedBody(req);
+    const name = typeof body.name === "string" ? body.name.replace(/\s+/g, " ").trim().slice(0, 40) : "";
+    if (!name) return fail(res, 400, "name_required", "Enter a name"), undefined;
+    mutateAuthenticated(req, (state, auth) => {
+      const clash = Object.values(state.users).find((u) => u.id !== auth.user.id && u.name.toLowerCase() === name.toLowerCase());
+      if (clash) throw requestError(409, "name_taken", "Someone already uses that name. Try another");
+      state.users[auth.user.id].name = name;
+    });
+    try { messaging?.personChanged(user.id); } catch (e) { console.error("[servant] person update", e); }
+    return send(res, 200, { user: { id: user.id, name, role: user.role } });
+  }
   if (method === "PATCH" && parts[1] === "people" && parts.length === 3 && parts[2] !== "me") {
     const body = await readAuthorizedBody(req);
     if (typeof body.vibeCoder !== "boolean") return fail(res, 400, "bad_request", "vibeCoder must be true or false");
