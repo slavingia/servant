@@ -64,11 +64,12 @@ export default function Messages() {
             </View>
             <View style={styles.filters}>{[false, true].map(value => <Pressable key={String(value)} accessibilityRole="button" accessibilityState={{ selected: unreadOnly === value }} onPress={() => setUnreadOnly(value)} style={({ pressed }) => [styles.filter, unreadOnly === value && styles.selectedFilter, pressed && { opacity: 0.7 }]}>
               <Text style={[styles.filterText, unreadOnly === value && styles.selectedFilterText]}>{value ? "Unread" : "All"}</Text>
-            </Pressable>)}</View>
+            </Pressable>)}
+            {/* Beside the filters, as on Home, so it never takes a line or moves the list. */}
+            <Text aria-hidden={!reconnecting} accessibilityLiveRegion="polite" style={[styles.status, { opacity: reconnecting ? 1 : 0 }]}>Reconnecting…</Text>
+            </View>
             {actionError ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
             {error && conversations ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-            {/* Keep the status line measured so reconnecting never moves the list. */}
-            <Text aria-hidden={!reconnecting} style={[styles.note, { opacity: reconnecting ? 1 : 0 }]}>Reconnecting…</Text>
           </View>
         }
         ListEmptyComponent={
@@ -97,14 +98,14 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   header: { minHeight: 60, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.xs },
   title: { ...typography.title, color: colors.ink, flexShrink: 1 },
   compose: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
-  filters: { flexDirection: "row", gap: space.xs, paddingHorizontal: space.side, paddingBottom: space.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  filters: { flexDirection: "row", gap: space.xs, paddingHorizontal: space.side, paddingVertical: space.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   filter: { minHeight: 44, paddingHorizontal: space.md, paddingVertical: space.sm, justifyContent: "center", borderRadius: radius.md },
   selectedFilter: { backgroundColor: colors.blueSoft },
   filterText: { ...typography.bodyStrong, color: colors.muted },
   selectedFilterText: { color: colors.blueDark },
   loading: { marginTop: space.xxl },
   error: { ...typography.caption, marginTop: space.xs, marginHorizontal: space.side, color: colors.red },
-  note: { ...typography.caption, marginTop: space.xs, marginHorizontal: space.side, color: colors.muted },
+  status: { ...typography.caption, marginLeft: "auto", alignSelf: "center", color: colors.muted },
   empty: { marginTop: space.xxl, alignItems: "center", paddingHorizontal: space.lg },
   emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center", marginTop: space.md },
   emptyBody: { ...typography.body, marginTop: space.xs, maxWidth: 320, color: colors.muted, textAlign: "center" },

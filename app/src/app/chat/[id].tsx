@@ -717,8 +717,7 @@ function ChatConversation() {
                   <View style={styles.messageMeta}>
                     <Text style={styles.author}>{mine ? account.user.name : "Agent"}</Text>
                     {!mine ? <Text style={styles.agentTag}>Agent</Text> : null}
-                    {Number.isFinite(timestamp) ? <Text style={styles.time}>{when(timestamp)}</Text> : null}
-                    {deviceLabel ? <Text testID={`message-device-${item.id}`} accessibilityLabel={`Sent from ${deviceLabel}`} style={styles.time}>· {deviceLabel}</Text> : null}
+                    {Number.isFinite(timestamp) || deviceLabel ? <Text style={styles.time}>{Number.isFinite(timestamp) ? when(timestamp) : null}{deviceLabel ? <Text testID={`message-device-${item.id}`} accessibilityLabel={`Sent from ${deviceLabel}`}>{Number.isFinite(timestamp) ? " · " : ""}{deviceLabel}</Text> : null}</Text> : null}
                   </View>
                   {mine && !working ? <ForwardedText item={item} /> : !working && item.text ? <ReplyText text={item.text} failed={item.failed} /> : null}
                   {!working && item.attachments?.length ? <Attachments files={item.attachments} /> : null}

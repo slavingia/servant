@@ -146,7 +146,7 @@ function ConversationItem({ c, selected, onPress }: { c: Conversation; selected:
       style={state => [styles.item, hovered(state) && styles.hovered, selected && styles.selected]}>
       <View style={styles.itemIcon}>
         {c.kind === "dm" ? <View>
-          <Avatar name={c.title} agent={c.agentDm} userId={dmPeer(c, account?.user.id)} size={18} />
+          <Avatar name={c.title} agent={c.agentDm} userId={dmPeer(c, account?.user.id)} size={18} onBrand />
           {peer ? <View style={[styles.dmStatus, { backgroundColor: colors.green }]} /> : null}
         </View> : <AppIcon name={c.private ? "lock" : "hash"} size={15} color={selected || bold ? colors.ink : colors.muted} />}
       </View>

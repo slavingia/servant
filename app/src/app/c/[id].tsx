@@ -6,7 +6,7 @@ import { Button } from "../../components/Button";
 import { Composer, MessageDate, PostRow } from "../../components/Messaging";
 import { MediaGalleryProvider } from "../../components/MediaGallery";
 import { mediaFromPosts } from "../../lib/media";
-import { PresenceLine } from "../../components/Presence";
+import { PresenceLine, usePresentPeers } from "../../components/Presence";
 import { useReadReceipts } from "../../lib/use-read-receipts";
 import { mergeReadEvent } from "../../lib/read-receipts";
 import { latestMessageReceipts } from "../../lib/message-status";
@@ -145,11 +145,12 @@ export default function ConversationScreen() {
     ? latestMessageReceipts(posts ?? [], account?.user.id ?? "", conv.members)
     : undefined, [posts, account?.user.id, conv, id]);
   const activeCall = useActiveCall();
+  const peers = conv?.kind === "dm" ? conv.members?.filter(person => person.id !== account?.user.id && !person.agent) ?? [] : [];
+  const shownPeers = usePresentPeers(peers);
   if (!account) return null;
   const me = account.user.id;
   const isChannel = conv?.kind === "channel";
   const title = conv ? (isChannel ? `#${conv.title}` : conv.title) : "Conversation";
-  const peers = conv?.kind === "dm" ? conv.members?.filter(person => person.id !== me && !person.agent) ?? [] : [];
 
   const older = async () => {
     if (!more || loadingOlder.current || !posts?.length) return;
@@ -273,10 +274,10 @@ export default function ConversationScreen() {
               : undefined,
         }}
       />
-      {peers.length ? <View style={styles.presence}>
-        {peers.map(person => <View key={person.id} style={styles.peer}>
+      {shownPeers.length ? <View style={styles.presence}>
+        {shownPeers.map(person => <View key={person.id} style={styles.peer}>
           {peers.length > 1 ? <Text style={styles.peerName}>{person.name}</Text> : null}
-          <PresenceLine person={person} showUnknown />
+          <PresenceLine person={person} />
         </View>)}
       </View> : null}
       <ConversationKeyboardView>

@@ -253,20 +253,23 @@ export default function Chats() {
                   onLongPress={bind.onLongPress}
                   accessibilityActions={bind.accessibilityActions}
                   onAccessibilityAction={bind.onAccessibilityAction}
-                  style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}
+                  style={({ pressed }) => [styles.row, bind.trailing ? styles.rowWithTrailing : null, pressed && { backgroundColor: colors.surface }]}
                 >
                   <View style={styles.agentIcon}><AppIcon name={item.mode === "vibe" ? "code" : "sparkles"} size={19} color={colors.blueDark} /></View>
-                  <View style={styles.rowCopy}><Text style={[styles.rowTitle, styles.readTitle, unread > 0 && styles.unreadTitle]} numberOfLines={1}>{title}</Text>
+                  <View style={styles.rowCopy}>
+                    <View style={styles.rowTop}>
+                      <Text style={[styles.rowTitle, styles.readTitle, unread > 0 && styles.unreadTitle]} numberOfLines={1}>{title}</Text>
+                      <Text style={[styles.rowWhen, unread > 0 && styles.unreadWhen]}>{when(item.updatedAt)}</Text>
+                    </View>
                     {item.mode === "vibe" || item.project || (item.folderId && folderNames.has(item.folderId)) ? <Text style={styles.projectTag} numberOfLines={1}>{[item.folderId ? folderNames.get(item.folderId) : null, item.mode === "vibe" ? "Vibe coding" : item.project?.name].filter(Boolean).join(" · ")}</Text> : null}
-                    {activeAgentTurn(item.latestTurn) ? <Text style={styles.turnLabel} numberOfLines={1}>{agentTurnLabel(item.latestTurn!)}</Text>
-                      : <View style={styles.privateTag}>
-                        {item.shared === true ? <AppIcon name="people" size={12} color={colors.muted} /> : null}
-                        <Text style={[styles.preview, unread > 0 && { color: colors.ink }]} numberOfLines={1}>{lastLine(item, "You") || (item.shared === true ? "Shared" : "")}</Text>
-                      </View>}
-                  </View>
-                  <View style={styles.rowEnd}>
-                    <Text style={[styles.rowWhen, unread > 0 && styles.unreadWhen]}>{when(item.updatedAt)}</Text>
-                    {unread > 0 ? <View style={styles.unreadBadge}><Text style={styles.unreadBadgeText}>{unread > 99 ? "99+" : unread}</Text></View> : null}
+                    <View style={styles.rowTop}>
+                      {activeAgentTurn(item.latestTurn) ? <Text style={styles.turnLabel} numberOfLines={1}>{agentTurnLabel(item.latestTurn!)}</Text>
+                        : <View style={styles.privateTag}>
+                          {item.shared === true ? <AppIcon name="people" size={12} color={colors.muted} /> : null}
+                          <Text style={[styles.preview, unread > 0 && { color: colors.ink }]} numberOfLines={1}>{lastLine(item, "You") || (item.shared === true ? "Shared" : "")}</Text>
+                        </View>}
+                      {unread > 0 ? <View style={styles.unreadBadge}><Text style={styles.unreadBadgeText}>{unread > 99 ? "99+" : unread}</Text></View> : null}
+                    </View>
                   </View>
                 </Pressable>
                 {/* Beside the row, not inside it: a button can't hold a button on the web. */}
@@ -284,13 +287,17 @@ export default function Chats() {
             style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}>
             <View style={styles.agentIcon}><AppIcon name="sparkles" size={19} color={colors.blueDark} /></View>
             <View style={styles.rowCopy}>
-              <Text style={[styles.rowTitle, styles.readTitle]} numberOfLines={1}>{item.title.replace(/`/g, "")}</Text>
-              <View style={styles.privateTag}>
-                {item.shared === false ? <AppIcon name="lock" size={12} color={colors.muted} /> : null}
-                <Text style={styles.preview} numberOfLines={1}>{lastLine(item, item.author?.name ?? "Someone", "Agent") || (item.author?.name ?? "Someone")}{item.shared === false ? " · Private (visible to admins)" : ""}</Text>
+              <View style={styles.rowTop}>
+                <Text style={[styles.rowTitle, styles.readTitle]} numberOfLines={1}>{item.title.replace(/`/g, "")}</Text>
+                <Text style={styles.rowWhen}>{when(item.updatedAt)}</Text>
+              </View>
+              <View style={styles.rowTop}>
+                <View style={styles.privateTag}>
+                  {item.shared === false ? <AppIcon name="lock" size={12} color={colors.muted} /> : null}
+                  <Text style={styles.preview} numberOfLines={1}>{lastLine(item, item.author?.name ?? "Someone", "Agent") || (item.author?.name ?? "Someone")}{item.shared === false ? " · Private (visible to admins)" : ""}</Text>
+                </View>
               </View>
             </View>
-            <Text style={styles.rowWhen}>{when(item.updatedAt)}</Text>
           </Pressable>)}
         </View> : undefined}
         contentContainerStyle={{ paddingBottom: space.xxl }}
@@ -322,7 +329,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   inbox: { marginHorizontal: space.side, marginBottom: space.md, padding: space.md, backgroundColor: colors.blueSoft, borderRadius: radius.lg },
   inboxTitle: { ...typography.bodyStrong, color: colors.brandText, marginBottom: space.xs },
   approvalRow: { paddingVertical: space.xs, gap: space.xxs }, approvalDetail: { ...typography.caption, color: colors.ink }, review: { ...typography.captionStrong, color: colors.blue },
-  rowCopy: { flex: 1 }, byline: { ...typography.meta, color: colors.muted, marginTop: space.xxs }, privateTag: { flexDirection: "row", alignItems: "center", gap: space.xxs, marginTop: space.xxs, marginRight: space.sm }, preview: { ...typography.caption, color: colors.muted, flexShrink: 1 }, turnLabel: { ...typography.meta, color: colors.blue, marginTop: space.xxs },
+  rowCopy: { flex: 1, minWidth: 0 }, rowTop: { flexDirection: "row", alignItems: "center" }, byline: { ...typography.meta, color: colors.muted, marginTop: space.xxs }, privateTag: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space.xxs, marginTop: space.xxs, marginRight: space.sm }, preview: { ...typography.caption, color: colors.muted, flexShrink: 1 }, turnLabel: { ...typography.meta, flex: 1, color: colors.blue, marginTop: space.xxs, marginRight: space.sm },
   header: { minHeight: 60, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.xs },
   title: { ...typography.title, color: colors.ink, flexShrink: 1 },
   compose: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
@@ -339,11 +346,12 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
+  // Same as the DM rows: the ••• button beside the row supplies the right inset.
+  rowWithTrailing: { paddingRight: space.xs },
   agentIcon: { width: 36, height: 36, marginRight: space.sm, alignItems: "center", justifyContent: "center", backgroundColor: colors.blueSoft, borderRadius: radius.sm },
   projectTag: { ...typography.meta, color: colors.blueDark, marginTop: 1 },
   rowTitle: { ...typography.bodyStrong, flex: 1, color: colors.ink, marginRight: space.sm },
   rowWhen: { ...typography.caption, color: colors.muted },
-  rowEnd: { alignItems: "flex-end", justifyContent: "center", gap: space.xxs, minHeight: 48 },
   // Telegram-style: only your own conversations with unread replies are bold. Other people's are always read.
   readTitle: { fontWeight: "400" },
   unreadTitle: { fontWeight: "700" },
@@ -351,7 +359,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   unreadBadge: { minWidth: 22, minHeight: 22, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
   unreadBadgeText: { ...typography.captionStrong, color: colors.onPrimary },
   // Same filter row as the DM tab.
-  filters: { flexDirection: "row", gap: space.xs, paddingHorizontal: space.side, paddingBottom: space.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  filters: { flexDirection: "row", gap: space.xs, paddingHorizontal: space.side, paddingVertical: space.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   filter: { minHeight: 44, paddingHorizontal: space.md, paddingVertical: space.sm, justifyContent: "center", borderRadius: radius.md },
   selectedFilter: { backgroundColor: colors.blueSoft },
   filterText: { ...typography.bodyStrong, color: colors.muted },

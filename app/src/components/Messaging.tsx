@@ -29,11 +29,11 @@ export const when = (ms: number) => shortTime(ms);
 // userId shows that person's photo. Add tapToMessage to make the avatar open your
 // DM with them, or, on the agent's avatar, a new private chat with the agent. It
 // stays a plain picture for you and in pickers.
-export function Avatar({ name, agent, size = 34, userId, tapToMessage }: { name: string; agent?: boolean; size?: number; userId?: string; tapToMessage?: boolean }) {
+export function Avatar({ name, agent, size = 34, userId, tapToMessage, onBrand }: { name: string; agent?: boolean; size?: number; userId?: string; tapToMessage?: boolean; onBrand?: boolean }) {
   const { account } = useSession();
   const [opening, setOpening] = useState(false);
   const tappable = !!tapToMessage && !!account && (agent || (!!userId && userId !== account.user.id));
-  if (!tappable) return <AvatarFace name={name} agent={agent} size={size} userId={userId} />;
+  if (!tappable) return <AvatarFace name={name} agent={agent} size={size} userId={userId} onBrand={onBrand} />;
   const open = async () => {
     if (opening || !account) return;
     setOpening(true);
@@ -59,11 +59,13 @@ export function Avatar({ name, agent, size = 34, userId, tapToMessage }: { name:
     onPress={() => void open()}
     style={({ pressed }) => ({ opacity: pressed || opening ? 0.6 : 1, borderRadius: agent ? radius.sm : size / 2 })}
   >
-    <AvatarFace name={name} agent={agent} size={size} userId={userId} />
+    <AvatarFace name={name} agent={agent} size={size} userId={userId} onBrand={onBrand} />
   </Pressable>;
 }
 
-function AvatarFace({ name, agent, size, userId }: { name: string; agent?: boolean; size: number; userId?: string }) {
+// On the navy band (onBrand) the agent's tile flips to white with navy letters,
+// like the workspace mark, instead of disappearing into the background.
+function AvatarFace({ name, agent, size, userId, onBrand }: { name: string; agent?: boolean; size: number; userId?: string; onBrand?: boolean }) {
   const styles = useStyles();
   const { colors, avatarTones } = useTheme();
   const photo = usePhotos()?.uri(agent ? undefined : userId);
@@ -79,9 +81,9 @@ function AvatarFace({ name, agent, size, userId }: { name: string; agent?: boole
     <View
       accessibilityElementsHidden
       importantForAccessibility="no"
-      style={[styles.avatar, { width: size, height: size, borderRadius: agent ? radius.sm : size / 2, backgroundColor: agent ? colors.navy : tone.background }]}
+      style={[styles.avatar, { width: size, height: size, borderRadius: agent ? radius.sm : size / 2, backgroundColor: agent ? (onBrand ? colors.onBrand : colors.navy) : tone.background }]}
     >
-      <Text style={[styles.avatarText, { fontSize: size * 0.4, color: agent ? colors.onBrand : tone.foreground }]}>{agent ? "AI" : initials || "?"}</Text>
+      <Text style={[styles.avatarText, { fontSize: size * 0.4, color: agent ? (onBrand ? colors.navy : colors.onBrand) : tone.foreground }]}>{agent ? "AI" : initials || "?"}</Text>
     </View>
   );
 }
@@ -247,8 +249,7 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
           <View style={styles.meta}>
             {!compact ? <Text style={styles.author}>{post.user.name}</Text> : null}
             {!compact && post.user.agent ? <Text style={styles.agentTag}>Agent</Text> : null}
-            <Text style={styles.time}>{when(post.createdAt)}</Text>
-            {deviceLabel ? <Text testID={`message-device-${post.id}`} accessibilityLabel={`Sent from ${deviceLabel}`} style={styles.time}>· {deviceLabel}</Text> : null}
+            <Text style={styles.time}>{when(post.createdAt)}{deviceLabel ? <Text testID={`message-device-${post.id}`} accessibilityLabel={`Sent from ${deviceLabel}`}> · {deviceLabel}</Text> : null}</Text>
           </View>
         ) : null}
         {post.deleted ? (

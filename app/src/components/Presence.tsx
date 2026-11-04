@@ -14,7 +14,14 @@ export function useStatusNow() {
   return now;
 }
 
-export function PresenceLine({ person, style }: { person: Person; style?: StyleProp<TextStyle>; showUnknown?: boolean }) {
+/** The people whose presence has something to say; a bar above a DM hides when nobody's does. */
+export function usePresentPeers(people: readonly Person[]) {
+  const { presence, connected } = useLive();
+  const now = useStatusNow();
+  return people.filter(person => !person.agent && presenceLabel(presence[person.id] ?? { ...person, online: false }, now, connected));
+}
+
+export function PresenceLine({ person, style }: { person: Person; style?: StyleProp<TextStyle> }) {
   const styles = useStyles();
   const { presence, connected } = useLive();
   const now = useStatusNow();
