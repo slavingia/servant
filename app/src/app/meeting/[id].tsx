@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { useKeepAwake } from "expo-keep-awake";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -48,6 +48,16 @@ function Meeting() {
 
   const close = () => { if (router.canGoBack()) router.back(); else router.replace("/"); };
   const leave = async () => { await call.current?.leave(); close(); };
+  // Ending drops everyone, so it asks first; "Leave" is the safe exit and is the default choice.
+  const confirmEnd = () => {
+    const title = "End the call for everyone?";
+    const body = "Everyone is disconnected. To go and keep the call running, choose Leave instead.";
+    if (Platform.OS === "web") { if (typeof window !== "undefined" && window.confirm(`${title}\n\n${body}`)) void end(); return; }
+    Alert.alert(title, body, [
+      { text: "Cancel", style: "cancel" },
+      { text: "End for all", style: "destructive", onPress: () => void end() },
+    ]);
+  };
   const end = async () => {
     setEnding(true);
     try { await call.current?.end(); } catch { /* the meeting may already be over */ }
@@ -128,7 +138,7 @@ function Meeting() {
             <Control label="People" active={showPeople} onPress={() => setShowPeople(v => !v)} />
             <Control label="Leave" onPress={leave} />
           </View>
-          <Control label={ending ? "Ending…" : "End for all"} danger disabled={ending} onPress={end} wide />
+          <Control label={ending ? "Ending…" : "End for all"} danger disabled={ending} onPress={confirmEnd} wide />
         </>}
       </View>
     </View>
