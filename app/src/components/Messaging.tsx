@@ -141,6 +141,11 @@ function ForwardedPost({ text, edited }: { text: string; edited: boolean }) {
   </>;
 }
 
+const MENTION_TOKEN = /(@[\p{L}\p{M}\p{N}_’'.-]+)/gu;
+const mentionParts = (text: string, names: Set<string>) =>
+  text.split(MENTION_TOKEN).map(t => ({ text: t, mention: t.startsWith("@") && names.has(t.toLowerCase().replace(/[.,;:!?)'’]+$/, "")) }));
+const hasMention = (text: string, names: Set<string>) => text.includes("@") && mentionParts(text, names).some(p => p.mention);
+
 function Rich({ text, style }: { text: string; style: object }) {
   const styles = useStyles();
   // Web links open in the browser; @mentions are highlighted.
@@ -436,9 +441,14 @@ export function Composer({
   const [selection, setSelection] = useState({ start: initial.length, end: initial.length });
   const [insertedSelection, setInsertedSelection] = useState<{ start: number; end: number }>();
   const [focused, setFocused] = useState(false);
+  const blurTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(blurTimer.current), []);
   const enterSends = useEnterSends();
   const match = focused && !busy ? activeMention(text, selection) : null;
   const suggestions = match ? mentionMatches(members, me, match.query, mentionAgent) : [];
+  // @names of people here (and @s) show in blue as you type: a colored copy of the text sits
+  // exactly under a see-through input (inputs can't color part of their text on the web).
+  const mentionNames = new Set([...members.map(p => mentionText(p.name).toLowerCase()), ...(mentionAgent ? ["@s", "@agent"] : [])]);
   const slash = commands && !busy && !onCancel ? slashMatches(text, commands.channel) : null;
   const latest = useRef({ text, selection });
   useLayoutEffect(() => { latest.current = { text, selection }; });
@@ -493,6 +503,7 @@ export function Composer({
     }
     finally { sending.current = false; setBusy(false); }
   };
+  const highlight = mentionNames.size > 0 && hasMention(text, mentionNames);
   const off = (!text.trim() && !files.length && !dictation.listening && !canSendEmpty) || busy || picking;
   // After swipe typing, iOS can cancel the first touch on Send before it
   // lifts, and the rendered text can trail the native box by a frame. So
@@ -537,6 +548,10 @@ export function Composer({
       ) : null}
       <View style={[styles.composer, wide && styles.composerWide, focused && (wide ? styles.composerWideFocused : styles.composerFocused)]}>
         {onCancel ? <Text style={styles.editingLabel}>Editing message</Text> : null}
+        <View>
+        {highlight ? <Text aria-hidden importantForAccessibility="no-hide-descendants" style={[styles.input, styles.inputMirror]}>
+          {mentionParts(text, mentionNames).map((part, i) => part.mention ? <Text key={i} style={styles.mention}>{part.text}</Text> : part.text)}{"\u200b"}
+        </Text> : null}
         <TextInput
           editable={!busy || clearNow}
           ref={input}
@@ -563,12 +578,16 @@ export function Composer({
             latest.current = { ...latest.current, selection: nativeEvent.selection };
             setSelection(nativeEvent.selection);
           }}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
+          onFocus={() => { clearTimeout(blurTimer.current); setFocused(true); }}
+          // Tapping a name in the mention list blurs the box first; keep the list long enough
+          // for that tap to land (otherwise it closes under the finger).
+          onBlur={() => { blurTimer.current = setTimeout(() => setFocused(false), 250); }}
           placeholder={placeholder}
           placeholderTextColor={colors.muted}
           multiline
-          style={styles.input}
+          style={[styles.input, highlight && styles.inputOverlay]}
+          cursorColor={colors.ink}
+          selectionColor={Platform.OS === "web" ? undefined : colors.blue}
           onKeyPress={enterSends ? (event) => {
             // Return sends (or picks the top mention); Shift+Return adds a line.
             const key = event as unknown as { key: string; shiftKey: boolean; nativeEvent: { isComposing?: boolean }; preventDefault(): void };
@@ -579,6 +598,7 @@ export function Composer({
           } : undefined}
           blurOnSubmit={false}
         />
+        </View>
         {files.length ? <DraftAttachments files={files} disabled={busy || picking} onRemove={i => setFiles(old => old.filter((_, index) => index !== i))} /> : null}
         {!onCancel && allowAttachments && attachmentMenu ? <View style={styles.attachmentMenu}>
           <Pressable accessibilityRole="button" accessibilityLabel="Attach photos or videos" accessibilityState={{ disabled: busy || picking }} disabled={busy || picking} onPress={() => pick(true)} style={styles.attachmentChoice}>
@@ -720,6 +740,10 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   composerHint: { ...typography.meta, color: colors.muted, flex: 1, paddingHorizontal: space.xs },
   editingLabel: { ...typography.captionStrong, color: colors.muted, paddingTop: space.xs, paddingHorizontal: space.sm },
   input: { ...typography.body, minHeight: 44, maxHeight: 144, paddingHorizontal: space.sm, paddingTop: space.sm, paddingBottom: space.xs, color: colors.ink, backgroundColor: colors.background },
+  // The colored copy behind the box, and the box made see-through over it (caret stays visible).
+  inputMirror: { position: "absolute", top: 0, left: 0, right: 0, color: colors.ink, backgroundColor: colors.background, overflow: "hidden" },
+  // The composer's border already shows focus; the browser's own ring would draw a line inside it.
+  inputOverlay: { color: "transparent", backgroundColor: "transparent", ...(Platform.OS === "web" ? { caretColor: colors.ink, outlineStyle: "none" } as object : {}) },
   send: { minHeight: 44, minWidth: 44, paddingHorizontal: space.sm, borderRadius: radius.sm, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   sendDisabled: { backgroundColor: colors.subtle },
   sendText: { ...typography.label, color: colors.onPrimary },
