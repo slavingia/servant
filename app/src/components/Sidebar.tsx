@@ -57,7 +57,8 @@ export function Sidebar() {
   const channels = sortChannels(withPositions(active.filter(c => c.kind === "channel"), pending), sort);
   const dms = active.filter(c => c.kind === "dm").sort((a, b) => b.updatedAt - a.updatedAt);
   const archivedCount = (conversations ?? []).filter(c => c.archived).length;
-  const open = (c: Conversation) => go(pathname, { pathname: "/c/[id]", params: { id: c.id } });
+  // Opening a channel or DM from the sidebar puts the cursor in its message box, ready to type.
+  const open = (c: Conversation) => go(pathname, { pathname: "/c/[id]", params: { id: c.id, compose: "1" } });
 
   return (
     <View style={styles.root}>
