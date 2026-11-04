@@ -11,9 +11,14 @@ import { useSession } from "../lib/session";
 import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
 export default function ChannelInfo() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  return <ChannelDetails id={id} />;
+}
+
+/** Channel details: a page on phones, a panel beside the channel on wide screens. */
+export function ChannelDetails({ id, panel = false, onClose }: { id: string; panel?: boolean; onClose?: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
-  const { id } = useLocalSearchParams<{ id: string }>();
   const { account } = useSession();
   const { refresh } = useLive();
   const [conv, setConv] = useState<Conversation | null>(null);
@@ -91,8 +96,12 @@ export default function ChannelInfo() {
   };
 
   return (
-    <View style={styles.root}>
-    <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+    <View testID={panel ? "details-panel" : undefined} style={[styles.root, panel && styles.panel]}>
+    {panel ? <View style={styles.panelBar}>
+      <Text accessibilityRole="header" style={styles.panelTitle}>Details</Text>
+      {onClose ? <Pressable accessibilityRole="button" accessibilityLabel="Hide details" hitSlop={8} onPress={onClose}><AppIcon name="close" size={18} color={colors.muted} /></Pressable> : null}
+    </View> : null}
+    <ScrollView style={styles.root} contentContainerStyle={[styles.content, panel && styles.panelContent]} keyboardShouldPersistTaps="handled">
       <View style={styles.identity}>
         <View style={styles.channelIcon}><AppIcon name={conv.private ? "lock" : "hash"} size={23} color={colors.ink} /></View>
         <Text accessibilityRole="header" style={styles.title}>{conv.title}</Text>
@@ -148,6 +157,11 @@ export default function ChannelInfo() {
 
 const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
+  // Beside the channel on wide screens: a fixed-width column with its own title bar.
+  panel: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 320, width: 320, borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colors.line },
+  panelBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 52, paddingHorizontal: space.side, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  panelTitle: { ...typography.bodyStrong, color: colors.ink },
+  panelContent: { maxWidth: undefined, paddingTop: space.md },
   content: { padding: space.side, paddingBottom: space.xxl, width: "100%", maxWidth: 680, alignSelf: "center" },
   loading: { padding: space.lg, alignItems: "center", justifyContent: "center", gap: space.lg },
   loadError: { ...typography.body, color: colors.red, textAlign: "center" },

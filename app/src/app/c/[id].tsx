@@ -19,6 +19,9 @@ import { useLive } from "../../lib/live";
 import { useSession } from "../../lib/session";
 import { askAgentAbout } from "../../lib/ask-agent";
 import { parseSlash, resolvePeople, splitDm } from "../../lib/slash-commands";
+import { ChannelDetails } from "../channel-info";
+import { useWideLayout } from "../../lib/layout";
+import { useDetailsPanelOpen } from "../../lib/details-panel";
 import { space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 import { groupActivity } from "../../lib/activity-groups";
 
@@ -148,6 +151,8 @@ export default function ConversationScreen() {
   const activeCall = useActiveCall();
   const peers = conv?.kind === "dm" ? conv.members?.filter(person => person.id !== account?.user.id && !person.agent) ?? [] : [];
   const shownPeers = usePresentPeers(peers);
+  const wide = useWideLayout();
+  const [detailsOpen, setDetailsOpen] = useDetailsPanelOpen();
   if (!account) return null;
   const me = account.user.id;
   const isChannel = conv?.kind === "channel";
@@ -273,7 +278,10 @@ export default function ConversationScreen() {
   // Joins and leaves close together read as one line ("Ann and Bo joined the channel").
   const data = groupActivity([...(posts ?? [])].reverse());
 
-  const openDetails = () => router.push({ pathname: "/channel-info", params: { id } });
+  // Wide screens (browser, Mac app) show Details beside the channel, open by default; Details
+  // toggles it. Phones open the Details page.
+  const sideDetails = wide && isChannel && detailsOpen;
+  const openDetails = () => wide ? setDetailsOpen(!detailsOpen) : router.push({ pathname: "/channel-info", params: { id } });
   const openFiles = () => router.push({ pathname: "/files", params: { kind: "conversation", id, title } });
   const canCall = !!conv && joined && callsSupported();
   const callLabel = activeCall?.state.conversationId === id ? "Return to call" : "Call";
@@ -293,7 +301,8 @@ export default function ConversationScreen() {
 
   return (
     <MediaGalleryProvider key={`${id}:${unavailable}`} scope={{ kind: "conversation", id }} items={media}>
-    <View style={styles.root}>
+    <View style={[styles.root, wide && styles.row]}>
+      <View style={styles.root}>
       <Stack.Screen
         options={{
           title,
@@ -388,6 +397,8 @@ export default function ConversationScreen() {
           <Composer autoFocus={compose === "1"} members={conv?.members} mentionAgent me={me} key="new" placeholder={conv ? `Message ${title}` : "Message"} onSend={send} onTyping={ping} commands={{ channel: isChannel }} />
         )}
       </ConversationKeyboardView>
+      </View>
+      {sideDetails ? <ChannelDetails key={id} id={id} panel onClose={() => setDetailsOpen(false)} /> : null}
     </View>
     </MediaGalleryProvider>
   );
@@ -395,6 +406,7 @@ export default function ConversationScreen() {
 
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
+  row: { flexDirection: "row" },
   presence: { paddingHorizontal: space.side, paddingBottom: space.xs, paddingTop: space.xxs, backgroundColor: colors.background, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   peer: { flexDirection: "row", flexWrap: "wrap", gap: space.xs, alignItems: "center" },
   peerName: { ...typography.captionStrong, color: colors.ink },
