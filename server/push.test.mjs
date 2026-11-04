@@ -209,3 +209,23 @@ test('previews join list items instead of running them together', () => {
   assert.equal(previewText('- one\n- two', 140), 'one · two');
   assert.equal(previewText('Plain text\nline two', 140), 'Plain text line two');
 });
+
+test('a call rings other members once, only while fresh, and a tap opens the call', () => {
+  const dir = tmp(); const people = { a: { id: 'a', name: 'Alice' }, b: { id: 'b', name: 'Bob' } };
+  const queued = [];
+  const m = createMessaging({ file: path.join(dir, 'messages.db'), users: () => people, agentName: () => 'Agent', askAgent: async () => '', onMessage: e => queued.push(e) });
+  try {
+    const ch = m.createChannel(people.a, { name: 'room', memberIds: ['b'] });
+    const card = m.agentPost(ch.id, 'Alice started a meeting', { call: { id: 'meet_abc', by: 'a' } });
+    assert.deepEqual(queued.at(-1).call, { id: 'meet_abc', by: 'a' });
+    const info = m.notificationFor(card.seq, people.b, queued.at(-1));
+    assert.equal(info.title, 'Alice is calling');
+    assert.equal(info.meetingId, 'meet_abc');
+    assert.equal(wantsNotification(info, { mode: 'mentions', pausedUntil: 0 }), true);
+    assert.equal(wantsNotification(info, { mode: 'none', pausedUntil: 0 }), false);
+    assert.equal(notificationPayload(info, people.b, 'd').data.meetingId, 'meet_abc');
+    assert.equal(m.notificationFor(card.seq, people.a, queued.at(-1)), null, 'not the caller');
+    m.db.prepare('UPDATE messages SET created_at = created_at - 60000 WHERE seq = ?').run(card.seq);
+    assert.equal(m.notificationFor(card.seq, people.b, queued.at(-1)), null, 'stale call no longer rings');
+  } finally { m.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});

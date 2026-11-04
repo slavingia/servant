@@ -42,7 +42,7 @@ export function notificationPayload(info, user, deviceId) {
     group: info.conversationId || info.chatId,
     badge: info.badge || 1,
     data: { userId: user.id, deviceId, ...(info.conversationId ? { conversationId: info.conversationId } : { chatId: info.chatId }),
-      ...(info.threadRoot ? { threadRoot: String(info.threadRoot) } : {}), ...(info.messageId ? { messageId: String(info.messageId) } : {}) },
+      ...(info.meetingId ? { meetingId: info.meetingId } : {}), ...(info.threadRoot ? { threadRoot: String(info.threadRoot) } : {}), ...(info.messageId ? { messageId: String(info.messageId) } : {}) },
   };
 }
 

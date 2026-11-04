@@ -13,3 +13,9 @@ test('notification taps route to conversations, threads and agent chats only for
   assert.equal(notificationRoute(base, 'u', 'other'), null);
   assert.equal(notificationRoute({ ...base, conversationId: 'https://example.com' }, 'u', 'd'), null);
 });
+test('a call notification opens the call', () => {
+  const base = { userId: 'u', deviceId: 'd', conversationId: 'ch_test', meetingId: 'meet_abc-1' };
+  assert.deepEqual(notificationRoute(base, 'u', 'd'), { pathname: '/meeting/[id]', params: { id: 'meet_abc-1' } });
+  assert.deepEqual(notificationRoute({ ...base, meetingId: 'x/../y' }, 'u', 'd'), { pathname: '/c/[id]', params: { id: 'ch_test' } });
+  assert.equal(notificationRoute(base, 'other', 'd'), null);
+});

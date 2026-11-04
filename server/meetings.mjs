@@ -279,7 +279,7 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
     calls.set(id, call);
     call.timer = setInterval(() => sweep(call), 5000);
     call.timer.unref?.();
-    const card = messaging.agentPost(conversationId, `${person(user.id).name} started a meeting\n\nThe agent records it and posts notes when it ends`);
+    const card = messaging.agentPost(conversationId, `${person(user.id).name} started a meeting\n\nThe agent records it and posts notes when it ends`, { call: { id, by: user.id } });
     st.setCard.run(card.seq, id);
     messaging.refreshMessage(card.seq);
     return st.get.get(id);

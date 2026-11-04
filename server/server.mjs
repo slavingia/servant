@@ -1425,7 +1425,7 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
     state: readState,
     mutate: mutateState,
     resolve: (event, user) => {
-      if (event.kind === "message") return serviceMessaging.notificationFor(event.messageId, user);
+      if (event.kind === "message") return serviceMessaging.notificationFor(event.messageId, user, event);
       const chat = readState().chats[event.chatId];
       if (event.userId !== user.id || !chat || chat.deletedAt || chat.userId !== user.id) return null;
       return { kind: "agent", chatId: chat.id, title: "Agent · " + chat.title, body: event.text };

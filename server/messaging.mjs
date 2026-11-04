@@ -26,6 +26,7 @@ const parseSuggestions = text => { try { return cleanSuggestions(JSON.parse(text
 export const WELCOME_SUGGESTIONS = ["Show me around", "Summarize a document", "Draft a message", "Plan my week"];
 const isAgentDm = conv => conv?.kind === "dm" && typeof conv.dm_key === "string" && conv.dm_key.startsWith("agent:");
 const MAX_TEXT = 8000;
+const CALL_PUSH_MS = 45_000; // matches how long the app rings
 // Every build's notes go here, one post per build, so testers can see what
 // changed and talk about it in that post's thread.
 export const RELEASES_CHANNEL = "whats-new";
@@ -237,8 +238,8 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     }
     return result;
   }
-  function notifyMessage(messageId) {
-    const event = { kind: 'message', messageId: String(messageId) };
+  function notifyMessage(messageId, call = null) {
+    const event = { kind: 'message', messageId: String(messageId), ...(call ? { call: { id: String(call.id), by: String(call.by) } } : {}) };
     db.prepare('INSERT OR IGNORE INTO notification_outbox VALUES (?, ?, ?)').run(`message:${messageId}`, JSON.stringify(event), now());
     if (!externalWorker) afterCommit(() => {
       onMessage(event);
@@ -619,7 +620,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
   }
 
   function post(...args) { return transaction(() => postInTransaction(...args)); }
-  function postInTransaction(conv, userId, text, threadRoot = null, { pending = false, attachments = [], queueAgent = externalWorker, device } = {}) {
+  function postInTransaction(conv, userId, text, threadRoot = null, { pending = false, attachments = [], queueAgent = externalWorker, device, call = null } = {}) {
     conv = userId === AGENT_ID ? st.conv.get(conv.id) : requireConversation(conv.id, userId, true);
     if (!conv || conv.archived_at) throw httpError(404, 'not_found', 'That conversation is gone');
     if (threadRoot) {
@@ -637,7 +638,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     const m = st.msg.get(seq);
     publish(conv.id, "message.created", msgView(m));
     if (threadRoot) publish(conv.id, "message.updated", msgView(st.msg.get(threadRoot)));
-    if (!pending) notifyMessage(m.seq);
+    if (!pending) notifyMessage(m.seq, call);
     if (queueAgent && externalWorker && userId !== AGENT_ID && wantsAgent(conv, m)) {
       db.prepare('INSERT OR IGNORE INTO agent_jobs (trigger_seq, created_at) VALUES (?, ?)').run(m.seq, now());
     }
@@ -901,15 +902,23 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     return c;
   }
 
-  function notificationFor(messageId, user) {
+  function notificationFor(messageId, user, event = null) {
     const m = st.msg.get(Number(messageId));
     if (!m || m.activity || m.pending || m.deleted_at || m.user_id === user.id) return null;
+    const call = event?.call;
+    // A call alert is only worth sending while it is ringing, and never to the person who started it.
+    if (call && (call.by === user.id || now() - m.created_at > CALL_PUSH_MS)) return null;
     const c = st.conv.get(m.conversation_id);
     const membership = c && st.member.get(c.id, user.id);
     if (!c || c.archived_at || !membership || membership.archived_at) return null;
     // No delayed push after the recipient has already read the top-level post.
-    if (!m.thread_root && membership.last_read_seq >= m.seq) return null;
+    if (!call && !m.thread_root && membership.last_read_seq >= m.seq) return null;
     const participant = !!m.thread_root && !!db.prepare("SELECT 1 FROM messages WHERE conversation_id = ? AND (seq = ? OR thread_root = ?) AND user_id = ? AND deleted_at IS NULL AND seq < ? LIMIT 1").get(c.id, m.thread_root, m.thread_root, user.id, m.seq);
+    if (call) {
+      const caller = person(call.by).name;
+      return { kind: c.kind, conversationId: c.id, meetingId: call.id, mentioned: true, participant: false, badge: Math.max(1, st.mine.all(user.id, 0).reduce((n, x) => n + x.unread, 0)),
+        title: `${caller} is calling`, body: c.kind === "channel" ? `In #${c.name}. Tap to join` : "Tap to join" };
+    }
     const sender = person(m.user_id).name;
     // New build notes reach everyone, like an @here.
     const release = !m.thread_root && st.releaseBySeq.get(m.seq);
@@ -1441,7 +1450,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     isMember: (conversationId, userId) => { const c = st.conv.get(conversationId); return !!c && !c.archived_at && canSee(c, userId) && !!st.member.get(conversationId, userId); },
     conversationInfo: (conversationId) => { const c = st.conv.get(conversationId); return c && { id: c.id, kind: c.kind, name: c.name || "" }; },
     roomsFor: (userId) => db.prepare("SELECT c.id, c.name FROM conversations c JOIN members m ON m.conversation_id = c.id AND m.user_id = ? WHERE c.kind = 'channel' AND c.archived_at IS NULL ORDER BY c.name").all(userId).map(c => ({ id: c.id, name: c.name })),
-    agentPost: (conversationId, text) => { const c = st.conv.get(conversationId); if (!c) throw httpError(404, 'not_found', 'That conversation is gone'); return post(c, AGENT_ID, text.slice(0, MAX_TEXT)); },
+    agentPost: (conversationId, text, opts = {}) => { const c = st.conv.get(conversationId); if (!c) throw httpError(404, 'not_found', 'That conversation is gone'); return post(c, AGENT_ID, text.slice(0, MAX_TEXT), null, opts.call ? { call: opts.call } : {}); },
     updateAgentMessage: (seq, text) => transaction(() => {
       const m = st.msg.get(seq);
       if (!m || m.deleted_at || m.user_id !== AGENT_ID) return;

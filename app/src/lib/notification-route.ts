@@ -1,6 +1,7 @@
-export type NotificationRoute = { pathname: '/c/[id]' | '/chat/[id]'; params: { id: string } } | { pathname: '/thread'; params: { conv: string; root: string; focus?: string; from?: 'push' } };
+export type NotificationRoute = { pathname: '/meeting/[id]'; params: { id: string } } | { pathname: '/c/[id]' | '/chat/[id]'; params: { id: string } } | { pathname: '/thread'; params: { conv: string; root: string; focus?: string; from?: 'push' } };
 export function notificationRoute(data: Record<string, unknown>, userId: string, deviceId: string): NotificationRoute | null {
   if (data.userId !== userId || data.deviceId !== deviceId) return null;
+  if (typeof data.meetingId === 'string' && /^meet_[A-Za-z0-9_-]{1,40}$/.test(data.meetingId)) return { pathname: '/meeting/[id]', params: { id: data.meetingId } };
   if (typeof data.conversationId === 'string' && /^(ch|dm)_[A-Za-z0-9_-]{1,80}$/.test(data.conversationId)) {
     if (typeof data.threadRoot === 'string' && /^\d{1,16}$/.test(data.threadRoot)) {
       // Land on the reply that was notified, not the top of the thread.

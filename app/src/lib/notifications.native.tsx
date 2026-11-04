@@ -86,7 +86,9 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       const data = n.request.content.data ?? {};
       const matches = !!account && data.userId === account.user.id && data.deviceId === deviceId;
       const visible = AppState.currentState === 'active' && conversation && (data.conversationId === conversation || data.chatId === conversation);
-      const show = !!matches && !visible && preferences.mode !== 'none' && preferences.pausedUntil <= Date.now();
+      // The open app rings with its own call screen; a banner on top would be a second alert.
+      const ringing = AppState.currentState === 'active' && typeof data.meetingId === 'string';
+      const show = !!matches && !visible && !ringing && preferences.mode !== 'none' && preferences.pausedUntil <= Date.now();
       // A delayed push must not overwrite the freshly fetched foreground count.
       return { shouldShowBanner: show, shouldShowList: show, shouldPlaySound: show, shouldSetBadge: show && AppState.currentState !== 'active' };
     } });
