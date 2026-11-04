@@ -1517,10 +1517,10 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     },
   };
 
-  return { ...meetingHooks, personChanged, handle, forwardSource, forwardInto, notificationFor, joinDefaults, welcomeFromAgent, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, close: () => { closeEvents(); db.close(); }, db };
+  function personChanged(userId) { publish('', 'person.updated', { userId }, Object.keys(users())); }
   return { ...meetingHooks, personChanged, handle, forwardSource, forwardInto, notificationFor, joinDefaults, joinEveryone, welcomeFromAgent, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, close: () => { closeEvents(); db.close(); }, db };
+}
 
 function httpError(status, code, message) {
   return Object.assign(new Error(message), { status, code });
-}
 }
