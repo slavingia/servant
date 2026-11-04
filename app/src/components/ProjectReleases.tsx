@@ -288,10 +288,10 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   content: { paddingBottom: space.xxl },
   error: { ...typography.caption, color: colors.red, marginTop: space.sm },
   hint: { ...typography.caption, color: colors.muted, marginHorizontal: space.side, marginTop: space.md },
-  // My to-dos: the cells assigned to you, soonest release first.
-  todos: { marginHorizontal: space.side, marginTop: space.md, paddingHorizontal: space.md, paddingVertical: space.sm, backgroundColor: colors.blueSoft, borderRadius: radius.lg },
+  // My to-dos: the cells assigned to you, soonest release first. A neutral card, so every status tint shows on it.
+  todos: { marginHorizontal: space.side, marginTop: space.md, paddingHorizontal: space.md, paddingVertical: space.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, borderRadius: radius.lg },
   todosTitle: { ...typography.bodyStrong, color: colors.brandText, paddingVertical: space.xxs },
-  todosEmpty: { ...typography.caption, color: colors.brandText, paddingVertical: space.xxs },
+  todosEmpty: { ...typography.caption, color: colors.muted, paddingVertical: space.xxs },
   todoRow: { minHeight: 40, flexDirection: "row", alignItems: "center", gap: space.sm },
   todoText: { ...typography.body, color: colors.ink, flex: 1, minWidth: 0 },
   sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: space.lg, paddingLeft: space.side, paddingRight: space.xs },
@@ -327,7 +327,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   empty: { marginTop: space.xl, alignItems: "center", paddingHorizontal: space.lg },
   emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center", marginTop: space.md },
   emptyBody: { ...typography.body, color: colors.muted, textAlign: "center", marginTop: space.xs, maxWidth: 360 },
-  emptyAction: { alignSelf: "stretch", maxWidth: 360, marginTop: space.lg },
+  emptyAction: { width: "100%", maxWidth: 360, marginTop: space.lg },
   // Editors: a centered card on every screen size.
   scrim: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: space.side, backgroundColor: "rgba(17,46,81,0.42)" },
   sheet: { width: "100%", maxWidth: 440, maxHeight: "90%", backgroundColor: colors.background, borderRadius: radius.lg, padding: space.side },
@@ -338,7 +338,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   input: { ...typography.body, color: colors.ink, minHeight: 48, paddingHorizontal: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line },
   readonly: { color: colors.muted, backgroundColor: colors.surface },
   choices: { flexDirection: "row", flexWrap: "wrap", gap: space.xs },
-  choice: { minHeight: 40, paddingHorizontal: space.md, justifyContent: "center", borderRadius: radius.pill, borderWidth: 1, borderColor: colors.borderStrong },
+  // Four of these fit one row on a phone.
+  choice: { minHeight: 40, paddingHorizontal: space.sm, justifyContent: "center", borderRadius: radius.pill, borderWidth: 1, borderColor: colors.borderStrong },
   choiceText: { ...typography.bodyStrong, color: colors.ink },
   personRow: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: space.sm },
   personName: { ...typography.body, color: colors.ink, flex: 1, minWidth: 0 },
