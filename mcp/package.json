@@ -1,0 +1,25 @@
+{
+  "name": "servant-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for a Servant workspace: read and post in channels and DMs, run agent chats. Build your own client on top of your team's Servant server.",
+  "license": "CC0-1.0",
+  "type": "module",
+  "bin": {
+    "servant-mcp": "src/index.ts"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node src/index.ts",
+    "link": "node src/index.ts link",
+    "test": "node --test src/*.test.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@noble/ciphers": "^2.4.0",
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
+    "zod": "^3.25.76"
+  }
+}

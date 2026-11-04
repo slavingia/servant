@@ -93,6 +93,12 @@ private conversations.
 - Crash diagnostics are sent to Google Firebase Crashlytics in native builds. Message encryption does not cover crash telemetry or the model provider. The [external-service inventory](docs/ato-data-flows.md) records those boundaries for security review.
 - Federal use needs an agency security review (ATO) before any real taxpayer data goes through Servant. Until then, use it only for non-sensitive work.
 
+## Build your own client (MCP)
+
+Anyone on a server can connect Claude, Codex, Cursor or their own vibe-coded app to it.
+The `mcp/` server signs in like the Mac app (you approve it on your phone) and uses the
+same encrypted API, with your permissions. See [MCP](docs/mcp.md).
+
 ## Layout
 
 For shared UI tokens, components, and navigation patterns, see the
@@ -108,6 +114,7 @@ deploy/    Mac installer (deploy/mac) and Linux installer and systemd units
 relay/     optional Cloudflare Worker relay (development tests use Miniflare)
 config/    reproducible restricted member profile and policy
 app/    Expo mobile app
+mcp/    MCP server and client library: build your own client (docs/mcp.md)
 docs/   design notes and captures
 ```
 
