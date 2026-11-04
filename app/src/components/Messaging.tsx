@@ -93,6 +93,20 @@ export function dmPeer(c: Conversation, me: string | undefined) {
   return others.length === 1 ? others[0]!.id : undefined;
 }
 
+// Group conversations: two overlapping person avatars on one tile, so a group never reads as one person.
+export function GroupAvatar({ people, size = 40 }: { people: { id: string; name: string }[]; size?: number }) {
+  const { colors } = useTheme();
+  const inner = Math.round(size * 0.6);
+  const a = people[0] ?? { id: "", name: "?" };
+  const b = people[1] ?? a;
+  return (
+    <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: size, height: size, borderRadius: radius.sm, backgroundColor: colors.surface, overflow: "hidden" }}>
+      <View style={{ position: "absolute", left: 0, top: 0, borderRadius: inner / 2, borderWidth: 1.5, borderColor: colors.surface }}><Avatar name={b.name} userId={b.id || undefined} size={inner} /></View>
+      <View style={{ position: "absolute", right: 0, bottom: 0, borderRadius: inner / 2, borderWidth: 1.5, borderColor: colors.surface }}><Avatar name={a.name} userId={a.id || undefined} size={inner} /></View>
+    </View>
+  );
+}
+
 export function MessageDate({ at }: { at: number }) {
   const styles = useStyles();
   const date = new Date(at);
@@ -562,6 +576,7 @@ export function ConversationRow({ c, onPress, onLongPress, longPressHint, access
   const me = useSession().account?.user.id;
   const last = c.lastMessage;
   const preview = last ? (last.deleted ? "Message deleted" : `${!last.activity && (c.kind === "channel" || (c.members?.length ?? 0) > 2) ? `${last.user.name}: ` : ""}${last.pending && last.user.agent ? "Working on it…" : last.text || (last.attachments?.length ? `${last.attachments.length} attachment${last.attachments.length === 1 ? "" : "s"}` : "Working on it…")}`) : c.topic || "No messages yet";
+  const groupPeople = (c.members ?? []).filter(p => !p.agent && p.id !== me);
   const bold = c.unread > 0 && !c.archived;
   const title = c.kind === "channel" ? `#${c.title}` : c.title;
   return (
@@ -576,7 +591,7 @@ export function ConversationRow({ c, onPress, onLongPress, longPressHint, access
         onAccessibilityAction={onAccessibilityAction}
         style={({ pressed }) => [styles.row, compact && styles.compactRow, trailing ? styles.rowWithTrailing : null, pressed && !lifted && { backgroundColor: colors.surface }]}
       >
-        {c.kind === "dm" ? <Avatar name={c.title} agent={c.agentDm} userId={dmPeer(c, me)} size={compact ? 26 : 40} /> : <View style={[styles.channelGlyph, compact && styles.compactChannelGlyph]}><AppIcon name={c.private ? "lock" : "hash"} size={compact ? 19 : 22} color={bold ? colors.ink : colors.muted} /></View>}
+        {c.kind === "dm" ? (groupPeople.length > 1 ? <GroupAvatar people={groupPeople} size={compact ? 26 : 40} /> : <Avatar name={c.title} agent={c.agentDm} userId={dmPeer(c, me)} size={compact ? 26 : 40} />) : <View style={[styles.channelGlyph, compact && styles.compactChannelGlyph]}><AppIcon name={c.private ? "lock" : "hash"} size={compact ? 19 : 22} color={bold ? colors.ink : colors.muted} /></View>}
         <View style={styles.rowCopy}>
           <View style={styles.rowTop}>
             <Text style={[styles.rowTitle, bold && styles.bold]} numberOfLines={1}>{c.title}</Text>
