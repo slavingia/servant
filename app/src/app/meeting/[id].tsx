@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { useKeepAwake } from "expo-keep-awake";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { CallPulse } from "../../components/CallPulse";
@@ -21,6 +22,8 @@ export default function MeetingScreen() {
 
 function Meeting() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  // The screen stays on for the whole call; it sleeps normally again when you leave.
+  useKeepAwake();
   const { account } = useSession();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
