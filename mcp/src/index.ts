@@ -12,8 +12,8 @@ import { call, link, loadAccount, parseWorkspace, streamAgent, accountFile, type
 const [cmd, arg, name] = process.argv.slice(2);
 if (cmd === "link") {
   if (!arg) { console.error('Usage: servant-mcp link "<invite or workspace link>" [device name]'); process.exit(2); }
-  await link(parseWorkspace(arg), name || "MCP client");
-  process.exit(0);
+  try { await link(parseWorkspace(arg), name || "MCP client"); process.exit(0); }
+  catch (e: any) { console.error(e?.code === "expired_device_link" ? "The sign-in code expired before it was approved. Run link again" : e?.message || String(e)); process.exit(1); }
 }
 
 function account(): Account {
