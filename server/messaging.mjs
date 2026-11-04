@@ -186,11 +186,16 @@ export function mentionsAgent(text, agentName = "") {
 // Mentioning the agent once is enough: it keeps listening to the rest of that
 // thread. A reply that @mentions only other people is a side conversation and
 // doesn't wake it.
-export function agentShouldReply(text, agentName = "", inAgentThread = false) {
-  if (mentionsAgent(text, agentName)) return true;
-  if (!inAgentThread) return false;
-  return !/(^|[^\w@])@[\p{L}\p{N}]/u.test(String(text));
+/** In channels and group DMs the agent is never a participant: it answers only when @mentioned. */
+export function agentShouldReply(text, agentName = "") {
+  return mentionsAgent(text, agentName);
 }
+
+// The agent sees the mention plus the message just before it. If that isn't enough, it can ask
+// for more once with this hidden line, and Servant sends the earlier messages.
+export const MORE_CONTEXT_TAG = /^\s*<servant-more-context\s*\/?>\s*$/;
+export const MORE_CONTEXT_INSTRUCTIONS = "You only see the message that mentioned you and the one before it. " +
+  "If you truly can't answer without more of the conversation, reply with exactly <servant-more-context/> and nothing else; you'll get the earlier messages.";
 
 /**
  * @param {object} o
@@ -713,7 +718,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
   }
   function wantsAgent(conv, m) {
     if (isAgentDm(conv)) return m.user_id !== AGENT_ID;
-    return m.user_id !== AGENT_ID && agentShouldReply(m.text, agentName(), inAgentThread(conv, m.thread_root));
+    return m.user_id !== AGENT_ID && agentShouldReply(m.text, agentName());
   }
 
   // The agent answers in a thread under the message that mentioned it, and
@@ -734,19 +739,22 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     let thread = st.agentThread.get(key);
     const sessionId = thread ? thread.hermes_session_id : `servant_${conv.id}_${direct ? "dm" : root}`;
     const seen = thread ? thread.last_seen_seq : 0;
-    const recent = st.since
+    const unseen = st.since
       .all(conv.id, seen, trigger.seq, trigger.thread_root ? root : null, root, root)
       .reverse()
       // In a private chat with the agent the first turn includes its own opening question, so the
       // answer makes sense. Later turns already have it in the running session.
       .filter((m) => m.user_id !== AGENT_ID || (direct && !thread));
+    // In channels and group DMs: only the mention and the message just before it (it can ask for more).
+    const recent = direct ? unseen : unseen.slice(-2);
     const where = direct ? `a private chat with ${person(trigger.user_id).name}` : conv.kind === "channel" ? `#${conv.name}` : "a direct message";
     const audience = direct ? "Only this person reads your reply." : "Several people can read your reply.";
     const transcript = recent.map((m) => `${m.user_id === AGENT_ID ? "You" : person(m.user_id).name}: ${m.text}`).join("\n");
     const work = startWorkChat && !direct ? ` ${WORK_CHAT_INSTRUCTIONS}` : "";
+    const more = !direct && unseen.length > recent.length ? ` ${MORE_CONTEXT_INSTRUCTIONS}` : "";
     const prompt =
-      `[Servant ${where}. ${audience} Answer the latest message, ` +
-      `clearly. Include images when useful.${work}]\n\n${transcript}`;
+      `[Servant ${where}. ${audience} Answer the latest message in a short reply in this thread, ` +
+      `clearly. Include images when useful.${work}${more}]\n\n${transcript}`;
     // If the agent lost this thread's session (for example after switching
     // agents), it starts over with the whole thread instead of failing.
     const fullThread = thread
@@ -799,14 +807,28 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
         attachments: images,
         onDelta: (d) => {
           text += d;
+          // A request for more context is never shown, even half-streamed.
+          if (more && "<servant-more-context/>".startsWith(text.trim().slice(0, 24))) return;
           saveReply(false);
         },
         onStatus: () => {},
       });
-      if (final && typeof final === "object") {
-        attachments = final.attachments || [];
-        text = final.text || (attachments.length ? "" : text || "I couldn't come up with an answer");
-      } else text = final || text || "I couldn't come up with an answer";
+      const read = f => f && typeof f === "object" ? { text: f.text || "", attachments: f.attachments || [] } : { text: f || "", attachments: [] };
+      let answer = read(final);
+      // Asked for more context: send the earlier messages it didn't see, once.
+      if (more && MORE_CONTEXT_TAG.test(answer.text)) {
+        text = "";
+        const earlier = unseen.slice(0, -recent.length).map((m) => `${m.user_id === AGENT_ID ? "You" : person(m.user_id).name}: ${m.text}`).join("\n");
+        answer = read(await askAgent({
+          onUsage: usage => { try { onUsage({ eventId: `channel:${trigger.seq}:more`, userId: trigger.user_id, source: "channel", text: trigger.text, usage }); } catch { /* stats only */ } },
+          sessionId, userId: trigger.user_id, sessionKey: `servant:${conv.id}`, fresh: false,
+          text: `[Earlier messages, oldest first. Now answer the message that mentioned you; don't ask again.]\n\n${earlier}`,
+          attachments: [], onDelta: (d) => { text += d; saveReply(false); }, onStatus: () => {},
+        }));
+        if (MORE_CONTEXT_TAG.test(answer.text)) answer.text = "";
+      }
+      attachments = answer.attachments;
+      text = answer.text || (attachments.length ? "" : text || "I couldn't come up with an answer");
       // Real work goes to a shared agent chat; the thread gets a link to it.
       const work = splitWorkChat(text);
       if (work.title && startWorkChat) {

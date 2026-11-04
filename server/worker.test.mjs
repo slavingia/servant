@@ -211,33 +211,59 @@ test('production worker entrypoint starts, processes durable work through config
   const release = acquireWorkerLock(dir); release();
 });
 
-test('one @agent mention keeps the agent listening to the rest of that thread', async t => {
+test('the agent is not a participant: in a thread it only wakes on an @mention', async t => {
   const dir = fixture(t);
   const m = messaging(dir);
   try {
     const c = channel(m);
     const queued = () => m.db.prepare('SELECT trigger_seq FROM agent_jobs ORDER BY trigger_seq').all().map(r => r.trigger_seq);
     const root = m.post(c, 'a', '@agent the keyboard covers the chat');
-    const followUp = m.post(c, 'b', 'Samsung keyboard, Fold 7', root.seq);
-    const aside = m.post(c, 'a', '@Bob can you send a screenshot?', root.seq);
+    m.post(c, 'b', 'Samsung keyboard, Fold 7', root.seq);
+    m.post(c, 'a', '@Bob can you send a screenshot?', root.seq);
     const both = m.post(c, 'a', '@Bob @agent try again', root.seq);
-    const elsewhere = m.post(c, 'b', 'unrelated channel message');
-    const otherThread = m.post(c, 'a', 'reply without a mention', elsewhere.seq);
-    assert.deepEqual(queued(), [root.seq, followUp.seq, both.seq]);
-    assert.ok(!queued().includes(aside.seq) && !queued().includes(otherThread.seq));
+    m.post(c, 'b', 'unrelated channel message');
+    assert.deepEqual(queued(), [root.seq, both.seq], 'only the two messages that mention it');
   } finally { m.close?.(); }
 });
 
-test('agentShouldReply wakes on a mention, or on any un-addressed reply in its thread', async () => {
+test('agentShouldReply wakes only on a mention, even in its own thread', async () => {
   const { agentShouldReply } = await import('./messaging.mjs');
   assert.equal(agentShouldReply('@agent hi'), true);
   // @s calls the agent; longer handles and email addresses don't.
   for (const text of ['@s hi', 'thanks @S', '(@s)', '@s, please']) assert.equal(agentShouldReply(text), true, text);
   for (const text of ['@sam hi', '@sahil', '@s-team', 'mail me@s.com']) assert.equal(agentShouldReply(text), false, text);
   assert.equal(agentShouldReply('hi'), false);
-  assert.equal(agentShouldReply('hi', '', true), true);
-  assert.equal(agentShouldReply('@Ash thanks', '', true), false);
-  assert.equal(agentShouldReply('mail me at a@b.com', '', true), true);
+  // Not a participant: replies in its own thread still need a mention.
+  assert.equal(agentShouldReply('hi', '', true), false);
+  assert.equal(agentShouldReply('@s and also this?', '', true), true);
+});
+
+test('context is the mention and the message before it; the agent can ask once for more', async t => {
+  const dir = fixture(t);
+  const calls = [];
+  let reply = ['<servant-more-context/>', 'With the history: landscape only, on the Fold'];
+  const m = messaging(dir, { askAgent: async args => { calls.push(args); return reply.shift() ?? 'Done'; } });
+  try {
+    const c = channel(m);
+    m.post(c, 'a', 'The keyboard covers the chat');
+    m.post(c, 'b', 'Samsung keyboard, Fold 7');
+    m.post(c, 'b', 'Only in landscape');
+    const ask = m.post(c, 'a', '@agent what is going on?');
+    assert.equal(await m.processAgentJob('worker'), true);
+    const first = calls[0].text.split('\n\n').at(-1);
+    assert.equal(first, 'Bob: Only in landscape\nAlice: @agent what is going on?', 'only the mention and the one before');
+    assert.match(calls[0].text, /<servant-more-context\/>/, 'told how to ask for more');
+    assert.match(calls[1].text, /Alice: The keyboard covers the chat\nBob: Samsung keyboard, Fold 7/, 'earlier messages on request');
+    assert.equal(calls[1].sessionId, calls[0].sessionId);
+    const answer = m.db.prepare("SELECT text, thread_root FROM messages WHERE user_id = 'agent' ORDER BY seq DESC").get();
+    assert.equal(answer.text, 'With the history: landscape only, on the Fold');
+    assert.equal(answer.thread_root, ask.seq, 'answers in a thread under the mention');
+    // A quick answer needs no second call.
+    reply = ['Sure'];
+    m.post(c, 'b', '@agent thanks');
+    assert.equal(await m.processAgentJob('worker'), true);
+    assert.equal(calls.length, 3);
+  } finally { m.close(); }
 });
 
 test('queued rapid follow-ups each send their own context once without consuming later messages', async t => {
@@ -247,8 +273,8 @@ test('queued rapid follow-ups each send their own context once without consuming
   try {
     const c = channel(m);
     const root = m.post(c, 'a', '@agent the keyboard covers the chat');
-    const followUp = m.post(c, 'b', 'Samsung keyboard, Fold 7', root.seq);
-    const detail = m.post(c, 'b', 'Only in landscape', root.seq);
+    const followUp = m.post(c, 'b', '@agent Samsung keyboard, Fold 7', root.seq);
+    const detail = m.post(c, 'b', '@agent Only in landscape', root.seq);
     m.post(c, 'a', '@Bob can you send a screenshot?', root.seq);
     for (const trigger of [root, followUp, detail]) {
       assert.equal(await m.processAgentJob('worker'), true);
@@ -258,8 +284,8 @@ test('queued rapid follow-ups each send their own context once without consuming
     assert.equal(await m.processAgentJob('worker'), false);
     assert.deepEqual(calls.map(call => call.text.split('\n\n').at(-1)), [
       'Alice: @agent the keyboard covers the chat',
-      'Bob: Samsung keyboard, Fold 7',
-      'Bob: Only in landscape',
+      'Bob: @agent Samsung keyboard, Fold 7',
+      'Bob: @agent Only in landscape',
     ]);
     assert.deepEqual(calls.map(call => call.fresh), [true, false, false]);
     assert.equal(new Set(calls.map(call => call.sessionId)).size, 1);
@@ -268,7 +294,7 @@ test('queued rapid follow-ups each send their own context once without consuming
   } finally { m.close(); }
 });
 
-test('a mention inside a human thread accepts follow-ups before and during its first answer', async t => {
+test('a mention inside a human thread: follow-ups that mention it queue before and during its first answer', async t => {
   const dir = fixture(t);
   const first = deferred();
   const calls = [];
@@ -280,9 +306,10 @@ test('a mention inside a human thread accepts follow-ups before and during its f
     const c = channel(m);
     const root = m.post(c, 'a', 'The keyboard covers the chat');
     const mention = m.post(c, 'b', '@agent please help', root.seq);
-    const queuedDetail = m.post(c, 'b', 'Samsung keyboard, Fold 7', root.seq);
+    const queuedDetail = m.post(c, 'b', '@agent Samsung keyboard, Fold 7', root.seq);
     const running = m.processAgentJob('worker');
-    const liveDetail = m.post(c, 'a', 'Only in landscape', root.seq);
+    m.post(c, 'a', 'Only in landscape (no mention: ignored)', root.seq);
+    const liveDetail = m.post(c, 'a', '@agent Only in landscape', root.seq);
     const queued = m.db.prepare("SELECT trigger_seq FROM agent_jobs WHERE status = 'queued' ORDER BY trigger_seq").all().map(row => row.trigger_seq);
     assert.deepEqual(queued, [queuedDetail.seq, liveDetail.seq]);
     first.resolve('First answer');
@@ -292,8 +319,9 @@ test('a mention inside a human thread accepts follow-ups before and during its f
     assert.equal(await m.processAgentJob('worker'), false);
     assert.deepEqual(calls.map(call => call.text.split('\n\n').at(-1)), [
       'Alice: The keyboard covers the chat\nBob: @agent please help',
-      'Bob: Samsung keyboard, Fold 7',
-      'Alice: Only in landscape',
+      'Bob: @agent Samsung keyboard, Fold 7',
+      // Not woken by the unmentioned line, but it reads the one message before the mention.
+      'Alice: Only in landscape (no mention: ignored)\nAlice: @agent Only in landscape',
     ]);
     assert.equal(m.db.prepare('SELECT status FROM agent_jobs WHERE trigger_seq = ?').get(mention.seq).status, 'done');
   } finally { first.resolve('Test cleanup'); await m.whenIdle(); m.close(); }
