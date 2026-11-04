@@ -54,7 +54,7 @@ test('a hosted meeting posts a live card, then notes with one-tap next steps rou
   try {
     const general = t.messaging.ensureGeneral();
     for (const u of Object.values(users)) t.messaging.joinDefaults(u.id);
-    const design = t.messaging.createChannel(users.ann, { name: 'design', memberIds: ['bo'] });
+    const design = t.messaging.createChannel(users.ann, { name: 'design', private: true, memberIds: ['bo'] }); // public channels include everyone
     const started = await t.call('POST', '/v1/meetings', { conversationId: general.id });
     assert.equal(started.status, 200);
     const id = started.body.meeting.id;

@@ -55,6 +55,13 @@ CREATE TABLE IF NOT EXISTS members (
   PRIMARY KEY (conversation_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS members_user ON members(user_id);
+-- Someone who leaves a public channel stays out: everyone-joins-everything skips them.
+CREATE TABLE IF NOT EXISTS channel_leaves (
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
+  left_at INTEGER NOT NULL,
+  PRIMARY KEY (conversation_id, user_id)
+);
 CREATE TABLE IF NOT EXISTS messages (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
   conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -334,6 +341,12 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     deleteConv: q("DELETE FROM conversations WHERE id = ?"),
     deleteAgentThreads: q("DELETE FROM agent_threads WHERE substr(key, 1, length(?) + 1) = ? || ':'"),
     publicChannels: q("SELECT id FROM conversations WHERE kind = 'channel' AND private = 0 AND archived_at IS NULL AND name = 'general'"),
+    // Every open public channel this person isn't in and hasn't left.
+    channelsToJoin: q(`SELECT * FROM conversations c WHERE c.kind = 'channel' AND c.private = 0 AND c.archived_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM members m WHERE m.conversation_id = c.id AND m.user_id = ?)
+      AND NOT EXISTS (SELECT 1 FROM channel_leaves l WHERE l.conversation_id = c.id AND l.user_id = ?)`),
+    noteLeave: q("INSERT OR REPLACE INTO channel_leaves VALUES (?, ?, ?)"),
+    clearLeave: q("DELETE FROM channel_leaves WHERE conversation_id = ? AND user_id = ?"),
     agentThread: q("SELECT * FROM agent_threads WHERE key = ?"),
     activeAgentThread: q(`SELECT 1 FROM messages m LEFT JOIN agent_jobs j ON j.trigger_seq = m.seq
       WHERE m.conversation_id = ? AND (m.seq = ? OR m.thread_root = ?) AND m.deleted_at IS NULL
@@ -562,6 +575,11 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       addChannelMember(c, userId);
       publish(c.id, "conversation.updated", { id: c.id });
     }
+    // Like Slack with everyone invited: every open public channel, quietly (no "joined" note),
+    // starting read so nobody gets a wall of unread history.
+    for (const c of st.channelsToJoin.all(userId, userId)) {
+      if (st.addMember.run(c.id, userId, now(), st.lastSeq.get(c.id).seq).changes) publish(c.id, "conversation.updated", { id: c.id }, [userId]);
+    }
   }
 
   const releaseView = (r) => {
@@ -615,6 +633,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
   function addChannelMember(...args) { return transaction(() => addChannelMemberInTransaction(...args)); }
   function addChannelMemberInTransaction(conv, userId, lastReadSeq = st.lastSeq.get(conv.id).seq) {
     const result = st.addMember.run(conv.id, userId, now(), lastReadSeq);
+    st.clearLeave.run(conv.id, userId);
     if (result.changes) channelActivity(conv, userId, "joined");
     return Number(result.changes);
   }
@@ -873,6 +892,8 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     st.insertConv.run(id, "channel", n, String(topic).slice(0, 250), priv ? 1 : 0, null, user.id, now());
     const people = users();
     for (const uid of new Set([user.id, ...memberIds])) if (people[uid]) addChannelMember(st.conv.get(id), uid, 0);
+    // Public channels include everyone on the server (they can leave).
+    if (!priv) for (const uid of Object.keys(people)) st.addMember.run(id, uid, now(), 0);
     publish(id, "conversation.updated", { id });
     return st.conv.get(id);
   }
@@ -1273,6 +1294,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
           const current = requireConversation(conv.id, user.id);
           if (current.name === 'general') throw httpError(400, 'protected_channel', 'Everyone stays in #general');
           if (st.removeMember.run(conv.id, user.id).changes) channelActivity(current, user.id, "left");
+          st.noteLeave.run(conv.id, user.id, now());
           publish(conv.id, "conversation.updated", { id: conv.id });
           publish(conv.id, "conversation.updated", { id: conv.id }, [user.id]);
         });

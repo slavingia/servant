@@ -111,6 +111,7 @@ test('invalid or cross-conversation receipt batches fail atomically and nonmembe
   }
   assert.equal((await f.read(f.first, c.id, [p.seq], 'outsider')).status, 404);
   const publicChannel = f.channel(false);
+  await f.route(f.first, 'outsider', 'POST', `/v1/conversations/${publicChannel.id}/leave`); // everyone starts in; outsider left
   const publicPost = f.first.post(publicChannel, 'owner', 'Public');
   assert.equal((await f.read(f.first, publicChannel.id, [publicPost.seq], 'outsider')).status, 403);
   assert.deepEqual((await f.getPosts(f.first, c.id)).find(m => m.id === String(p.seq)).readBy, []);

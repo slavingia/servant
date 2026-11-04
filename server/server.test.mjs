@@ -951,7 +951,9 @@ test("everyone lands in #general and can make channels, DMs and threads", async 
   assert.equal(ch.name, "refund-backlog");
   assert.equal((await api("POST", "/v1/conversations", { token: ben, body: { name: "refund backlog" } })).status, 409);
 
-  // Ben finds it in browse, can read but not post until he joins.
+  // Everyone starts in a new public channel. After leaving, Ben finds it in browse,
+  // can read but not post until he joins again.
+  await api("POST", `/v1/conversations/${ch.id}/leave`, { token: ben });
   const browse = await api("GET", "/v1/channels/browse", { token: ben });
   assert.ok(browse.json.channels.some((c) => c.id === ch.id));
   assert.equal((await api("POST", `/v1/conversations/${ch.id}/messages`, { token: ben, body: { text: "hi" } })).status, 403);
@@ -1086,6 +1088,7 @@ test("channel archive is personal, persistent, reversible, and still receives me
   const outsider = await pair("member", "Archive outsider");
   const ch = (await api("POST", "/v1/conversations", { token: a, body: { name: "archive-personal" } })).json.conversation;
   const route = `/v1/conversations/${ch.id}`;
+  await api("POST", route + "/leave", { token: outsider }); // everyone starts in; this person left
   await api("POST", route + "/join", { token: b });
   assert.equal((await api("POST", route + "/archive", { token: outsider })).status, 403);
   const liveA = await events(a);
@@ -1234,6 +1237,8 @@ test("channel membership activity is durable, quiet, immutable and emitted once 
   const bid = (await api("GET", "/v1/me", { token: b })).json.user.id;
   const ch = (await api("POST", "/v1/conversations", { token: a, body: { name: "activity-check" } })).json.conversation;
   const route = `/v1/conversations/${ch.id}`;
+  // Everyone starts in a public channel, quietly (no note). b leaves first, then the test runs.
+  await api("POST", route + "/leave", { token: b });
   const live = await events(a);
   try {
     await waitFor(() => live.got.some(e => e.event === "ready"));
@@ -1248,6 +1253,7 @@ test("channel membership activity is durable, quiet, immutable and emitted once 
     const messages = (await api("GET", route + "/messages", { token: a })).json.messages;
     assert.deepEqual(messages.map(m => [m.activity, m.text]), [
       ["joined", "Activity Creator joined the channel"],
+      ["left", "Activity Member left the channel"],
       ["joined", "Activity Member joined the channel"],
       ["left", "Activity Member left the channel"],
       ["joined", "Activity Member joined the channel"],
@@ -1338,6 +1344,8 @@ test("channel discovery pages without duplicates or skipping after a join, exclu
     assert.equal(r.status, 201); created.push(r.json.conversation.id);
   }
   const privateChannel = await api("POST", "/v1/conversations", { token: author, body: { name: "discovery-private", private: true } });
+  // Everyone starts in public channels; discovery lists the ones this person left.
+  for (const id of created) await api("POST", `/v1/conversations/${id}/leave`, { token: reader });
   const seen = []; let cursor = null; let pages = 0;
   do {
     const r = await api("GET", `/v1/channels/browse?limit=20${cursor ? `&after=${encodeURIComponent(cursor)}` : ""}`, { token: reader });
@@ -1395,6 +1403,7 @@ test("reactions persist, sync live, are idempotent and require membership", asyn
   const b = await pair("member", "Reaction reader");
   const ch = (await api("POST", "/v1/conversations", { token: a, body: { name: "reaction-check" } })).json.conversation;
   const route = `/v1/conversations/${ch.id}`;
+  await api("POST", route + "/leave", { token: b }); // everyone starts in; b left
   const root = (await api("POST", route + "/messages", { token: a, body: { text: "React here" } })).json.message;
   const endpoint = `/v1/messages/${root.id}/reactions`;
   const react = (token, emoji, active) => api("POST", endpoint, { token, body: { emoji, active } });

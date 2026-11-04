@@ -68,6 +68,8 @@ test('search requires encrypted, authenticated requests and bounds query length'
 test('search discovers active public channels but never private unjoined channels or outsider messages', async () => {
   const joined = await channel('searchscope-joined', { private: true, memberIds: ['member'] });
   const publicOther = await channel('searchscope-public', {}, 'outsider');
+  // Everyone starts in public channels; this person left it.
+  await api(`/v1/conversations/${publicOther.id}/leave`, { method: 'POST', body: {}, who: 'owner' });
   const privateOther = await channel('searchscope-private', { private: true }, 'outsider');
   const ownDm = (await api('/v1/conversations', { method: 'POST', body: { kind: 'dm', userIds: ['member'] } })).conversation;
   const outsiderDm = (await api('/v1/conversations', { who: 'outsider', method: 'POST', body: { kind: 'dm', userIds: ['member'] } })).conversation;
