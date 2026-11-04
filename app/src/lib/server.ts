@@ -82,7 +82,7 @@ export type Meeting = {
   title: string | null;
   error: string | null;
   iceServers: IceServer[];
-  participants: { id: string; user: { id: string; name: string }; publishing: boolean; you: boolean; joinedAt: number; hasVideo: boolean; hasAudio: boolean }[];
+  participants: { id: string; user: { id: string; name: string }; publishing: boolean; you: boolean; joinedAt: number; hasVideo: boolean; hasAudio: boolean; screen?: boolean }[];
   steps: MeetingStep[];
   transcript: string | null;
 };
@@ -432,8 +432,9 @@ export const api = {
   startMeeting: (a: Account, conversationId: string) =>
     request(a, "/v1/meetings", { method: "POST", body: JSON.stringify({ conversationId }) }).then(json<{ meeting: Meeting }>).then((d) => d.meeting),
   meeting: (a: Account, id: string) => request(a, `/v1/meetings/${id}`).then(json<{ meeting: Meeting }>).then((d) => d.meeting),
-  joinMeeting: (a: Account, id: string, sdp: string) =>
-    request(a, `/v1/meetings/${id}/join`, { method: "POST", body: JSON.stringify({ sdp }) }).then(json<{ participantId: string; sdp: string }>),
+  /** screenOf: your participant id, to share your screen as a second connection in the same call. */
+  joinMeeting: (a: Account, id: string, sdp: string, screenOf?: string) =>
+    request(a, `/v1/meetings/${id}/join`, { method: "POST", body: JSON.stringify({ sdp, ...(screenOf ? { screenOf } : {}) }) }).then(json<{ participantId: string; sdp: string }>),
   watchMeeting: (a: Account, id: string, participantId: string, publisherId: string, sdp: string) =>
     request(a, `/v1/meetings/${id}/watch`, { method: "POST", body: JSON.stringify({ participantId, publisherId, sdp }) }).then(json<{ sdp: string }>),
   leaveMeeting: (a: Account, id: string, participantId: string) =>

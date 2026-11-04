@@ -46,9 +46,11 @@ export function updateMode(team) {
 }
 
 // The app window may write copied text and, for meetings, use the camera and
-// microphone. Screen capture, clipboard reads and everything else stay off.
+// microphone and share a screen the person picks. Clipboard reads and everything else stay off.
 export function allowedPermission(permission, details = {}) {
   if (permission === 'clipboard-sanitized-write') return true;
+  // Only reached when the person chooses "Share screen" in a call; they then pick what to share.
+  if (permission === 'display-capture') return true;
   if (permission !== 'media') return false;
   const types = details.mediaTypes || (details.mediaType ? [details.mediaType] : []);
   return types.length > 0 && types.every(type => type === 'audio' || type === 'video');

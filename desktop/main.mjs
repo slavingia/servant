@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, protocol, safeStorage, session, shell } from 'electron';
+import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, Menu, nativeTheme, net, protocol, safeStorage, session, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -64,6 +64,12 @@ else {
     // microphone. No clipboard reading, screen capture or other device access.
     session.defaultSession.setPermissionCheckHandler((contents, permission, origin, details) => contents === window?.webContents && isAppUrl(origin) && allowedPermission(permission, details));
     session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => callback(contents === window?.webContents && isAppUrl(details.requestingUrl) && allowedPermission(permission, details)));
+    // "Share screen" in a call: macOS shows its own picker (screens and windows), and nothing is
+    // captured until the person chooses. If the system picker isn't available, offer the main screen.
+    session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+      if (request.frame?.top?.url && !isAppUrl(request.frame.top.url)) return callback({});
+      desktopCapturer.getSources({ types: ['screen'] }).then(sources => callback(sources[0] ? { video: sources[0] } : {}), () => callback({}));
+    }, { useSystemPicker: true });
     ipcMain.on('servant:config', event => { event.returnValue = validSender(event) ? { workspace } : {}; });
     ipcMain.on('servant:pending-invite', event => {
       event.returnValue = validSender(event) ? pendingInvite : null;

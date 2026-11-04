@@ -142,3 +142,85 @@ test('a restart finishes meetings an earlier process left behind', async () => {
     assert.equal(t.meetings.view(id, 'ann').status, 'done');
   } finally { await t.close(); }
 });
+
+// ---- screen sharing, over real WebRTC connections (the vendored werift stack as the client) ----
+async function realMeetings() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'servant-screen-'));
+  const messaging = createMessaging({ file: ':memory:', users: () => users, agentName: () => 'Agent', askAgent: async () => 'ok' });
+  const meetings = createMeetings({ dir, messaging, users: () => users, log: { error() {} }, summarize: async () => '{}', transcribe: async () => [] });
+  const w = await import('./werift.mjs');
+  const call = async (method, p, body, user = users.ann) => {
+    let result;
+    await meetings.handle({}, {}, { user, method, parts: p.split('/').filter(Boolean), send: (_r, status, b) => { result = { status, body: b }; }, fail: (_r, status, code) => { result = { status, code }; }, readBody: async () => body })
+      .catch(e => { result = { status: e.status || 500, code: e.code, message: e.message }; });
+    return result;
+  };
+  const clients = [];
+  const peer = () => { const pc = new w.RTCPeerConnection({ iceServers: [] }); clients.push(pc); return pc; };
+  const offer = async (pc) => { await pc.setLocalDescription(await pc.createOffer()); await new Promise(r => { if (pc.iceGatheringState === 'complete') return r(); const t = setTimeout(r, 2000); pc.iceGatheringStateChange.subscribe(s => { if (s === 'complete') { clearTimeout(t); r(); } }); }); return pc.localDescription.sdp; };
+  return { w, messaging, meetings, call, peer, offer, close: async () => { for (const c of clients) await c.close().catch(() => {}); await meetings.close(); messaging.close(); fs.rmSync(dir, { recursive: true, force: true }); } };
+}
+
+test('screen sharing: a second video-only connection from someone in the call, watched like a camera, gone when they leave', async () => {
+  const t = await realMeetings();
+  try {
+    const general = t.messaging.ensureGeneral();
+    for (const u of Object.values(users)) t.messaging.joinDefaults(u.id);
+    const id = (await t.call('POST', '/v1/meetings', { conversationId: general.id })).body.meeting.id;
+
+    // Ann joins with a microphone and camera.
+    const annPc = t.peer();
+    annPc.addTransceiver('audio', { direction: 'sendonly' });
+    annPc.addTransceiver('video', { direction: 'sendonly' });
+    const joined = await t.call('POST', `/v1/meetings/${id}/join`, { sdp: await t.offer(annPc) });
+    assert.equal(joined.status, 200, JSON.stringify(joined));
+    await annPc.setRemoteDescription({ type: 'answer', sdp: joined.body.sdp });
+    const annId = joined.body.participantId;
+
+    // She shares her screen: video only, tied to her own place in the call.
+    const screenPc = t.peer();
+    screenPc.addTransceiver('video', { direction: 'sendonly' });
+    const screenSdp = await t.offer(screenPc);
+    assert.equal((await t.call('POST', `/v1/meetings/${id}/join`, { sdp: screenSdp, screenOf: 'part_nobody' })).status, 409, 'needs a real place in the call');
+    assert.equal((await t.call('POST', `/v1/meetings/${id}/join`, { sdp: screenSdp, screenOf: annId }, users.bo)).status, 409, "can't share on someone else's behalf");
+    const shared = await t.call('POST', `/v1/meetings/${id}/join`, { sdp: screenSdp, screenOf: annId });
+    assert.equal(shared.status, 200, JSON.stringify(shared));
+    await screenPc.setRemoteDescription({ type: 'answer', sdp: shared.body.sdp });
+    const second = await t.call('POST', `/v1/meetings/${id}/join`, { sdp: await t.offer((() => { const p = t.peer(); p.addTransceiver('video', { direction: 'sendonly' }); return p; })()), screenOf: annId });
+    assert.equal(second.status, 409);
+    assert.equal(second.code, 'already_sharing', 'one screen at a time per person');
+
+    // The call lists it as a screen, separate from her camera, and it doesn't take a place.
+    const view = t.meetings.view(id, 'bo');
+    const screens = view.participants.filter(p => p.screen);
+    assert.equal(screens.length, 1);
+    assert.equal(screens[0].user.name, 'Ann');
+    assert.equal(view.participants.filter(p => !p.screen).length, 1);
+    assert.equal(screens[0].hasAudio, false);
+    // Never recorded: the transcript only ever hears people.
+    assert.equal(t.meetings.db.prepare('SELECT COUNT(*) AS n FROM recordings WHERE meeting_id = ?').get(id).n, 1);
+
+    // Bo watches it like any camera: a video slot, and no audio slot even if he asks for one.
+    const boJoin = t.peer(); boJoin.addTransceiver('audio', { direction: 'recvonly' });
+    const bo = await t.call('POST', `/v1/meetings/${id}/join`, { sdp: await t.offer(boJoin) }, users.bo);
+    const watchPc = t.peer();
+    watchPc.addTransceiver('audio', { direction: 'recvonly' });
+    watchPc.addTransceiver('video', { direction: 'recvonly' });
+    const watch = await t.call('POST', `/v1/meetings/${id}/watch`, { participantId: bo.body.participantId, publisherId: screens[0].id, sdp: await t.offer(watchPc) }, users.bo);
+    assert.equal(watch.status, 200, JSON.stringify(watch));
+    const sections = watch.body.sdp.split(/\r?\nm=/).slice(1);
+    assert.match(sections.find(s => s.startsWith('video')), /a=sendonly/, 'the screen comes to him');
+    assert.match(sections.find(s => s.startsWith('audio')), /a=inactive|^audio 0 /m, 'no audio comes with a screen');
+
+    // Stopping the share leaves Ann in the call; leaving the call takes any share with her.
+    const stop = await t.call('POST', `/v1/meetings/${id}/leave`, { participantId: screens[0].id });
+    assert.equal(stop.status, 200);
+    assert.equal(t.meetings.view(id, 'bo').participants.filter(p => p.screen).length, 0);
+    assert.equal(t.meetings.view(id, 'bo').participants.filter(p => p.user.name === 'Ann' && !p.screen).length, 1, 'still in the call');
+    const again = t.peer(); again.addTransceiver('video', { direction: 'sendonly' });
+    const reshared = await t.call('POST', `/v1/meetings/${id}/join`, { sdp: await t.offer(again), screenOf: annId });
+    assert.equal(reshared.status, 200, 'can share again');
+    await t.call('POST', `/v1/meetings/${id}/leave`, { participantId: annId });
+    assert.equal(t.meetings.view(id, 'bo').participants.filter(p => p.screen).length, 0, 'leaving the call stops the share');
+  } finally { await t.close(); }
+});

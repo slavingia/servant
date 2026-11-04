@@ -147,3 +147,7 @@ The owner removes them from **People**: tap **Remove** next to their name (or to
 
 On the Mac: `servant people` lists everyone, and `servant remove-person "Name"` does the same thing (use the id from the list if two people share a name). `servant revoke <deviceId>` still signs out one device without removing the person.
 
+## Screen sharing in calls
+
+In a call, tap **Share screen** (Mac app and the web). Mac asks which screen or window; the first time, allow Servant under System Settings > Privacy & Security > Screen Recording. Everyone in the call sees it large, with people in a small row below; phones can watch but not share. **Stop sharing** (or leaving the call) ends it. One person shares at a time per person, the share never takes a place in the call, and it carries no audio and isn't recorded, so notes come only from what people say. Test it end to end with `npm run prepare:web --prefix desktop && node desktop/screenshare-e2e.mjs`.
+

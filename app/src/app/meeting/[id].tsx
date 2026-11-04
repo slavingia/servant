@@ -6,7 +6,7 @@ import { CallPulse } from "../../components/CallPulse";
 import { CallVideo } from "../../components/CallVideo";
 import { useSession } from "../../lib/session";
 import { systemCalls } from "../../lib/servant-call";
-import { callsSupported, createCall, type CallState } from "../../lib/meeting-call";
+import { callsSupported, createCall, screenShareSupported, type CallState } from "../../lib/meeting-call";
 import { radius, space, typography } from "../../lib/theme";
 
 const DARK = "#0B1220";
@@ -23,7 +23,7 @@ function Meeting() {
   const { account } = useSession();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const [state, setState] = useState<CallState>({ status: "starting", error: null, local: null, remotes: [], muted: false, cameraOff: false });
+  const [state, setState] = useState<CallState>({ status: "starting", error: null, local: null, remotes: [], muted: false, cameraOff: false, sharing: false });
   const [ending, setEnding] = useState(false);
   const call = useRef<ReturnType<typeof createCall> | null>(null);
 
@@ -45,16 +45,21 @@ function Meeting() {
     close();
   };
 
-  const tiles = state.remotes;
+  // A shared screen takes the stage (it has to be readable); people sit in a row above your controls.
+  const stage = state.remotes.find(r => r.screen) ?? null;
+  const tiles = state.remotes.filter(r => r !== stage);
+  const anyone = state.remotes.length > 0;
   // Joined without a camera (none, or refused): there is nothing to turn on.
   const hasCamera = !!state.local?.getVideoTracks?.().length;
-  const columns = tiles.length <= 1 ? 1 : width > 700 ? 3 : 2;
+  const columns = stage ? Math.min(4, Math.max(1, tiles.length)) : tiles.length <= 1 ? 1 : width > 700 ? 3 : 2;
   const done = state.status === "ended" || state.status === "failed";
   const statusLine = state.status === "starting" ? "Starting your camera…"
     : state.status === "connecting" ? "Connecting…"
     : state.status === "ended" ? "This meeting has ended. Notes will appear in the conversation"
     : state.status === "failed" ? state.error || "Couldn't join the meeting"
-    : tiles.length ? "Recording for notes" : "Waiting for others · Recording for notes";
+    : state.sharing ? "You're sharing your screen · Recording for notes"
+    : stage ? `${stage.name} · Recording for notes`
+    : anyone ? "Recording for notes" : "Waiting for others · Recording for notes";
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + space.sm, paddingBottom: insets.bottom + space.md }]}>
@@ -65,12 +70,18 @@ function Meeting() {
           <Text style={styles.statusText}>{statusLine}</Text>
         </View>
       </View>
-      {state.status === "live" && !tiles.length ? (
+      {state.status === "live" && !anyone ? (
         <View style={styles.calling}><CallPulse initial="…" /><Text style={styles.callingText}>Calling…</Text></View>
       ) : null}
-      <ScrollView contentContainerStyle={styles.grid} style={state.status === "live" && !tiles.length ? { flex: 0 } : undefined}>
+      {stage ? (
+        <View testID="screen-stage" accessible accessibilityLabel={stage.name} style={styles.stage}>
+          {stage.stream ? <CallVideo stream={stage.stream} fit="contain" style={StyleSheet.absoluteFill} /> : null}
+          <Text style={styles.name}>{stage.name}</Text>
+        </View>
+      ) : null}
+      <ScrollView contentContainerStyle={styles.grid} style={stage ? styles.strip : state.status === "live" && !anyone ? { flex: 0 } : undefined} horizontal={false}>
         {tiles.map(r => (
-          <View key={r.participantId} style={[styles.tile, { width: `${100 / columns - 2}%` as const }]}>
+          <View key={r.participantId} style={[styles.tile, stage ? styles.tileSmall : { width: `${100 / columns - 2}%` as const }]}>
             {r.stream ? <CallVideo stream={r.stream} style={StyleSheet.absoluteFill} /> : null}
             {!r.hasVideo ? <View style={styles.noVideo}><Text style={styles.initial}>{r.name.slice(0, 1).toUpperCase()}</Text></View> : null}
             <Text style={styles.name}>{r.name}</Text>
@@ -90,6 +101,7 @@ function Meeting() {
           <View style={styles.controlRow}>
             <Control label={state.muted ? "Unmute" : "Mute"} active={state.muted} onPress={() => call.current?.toggleMute()} />
             {hasCamera ? <Control label={state.cameraOff ? "Camera on" : "Camera off"} active={state.cameraOff} onPress={() => call.current?.toggleCamera()} /> : null}
+            {screenShareSupported() && state.status === "live" ? <Control label={state.sharing ? "Stop sharing" : "Share screen"} active={state.sharing} onPress={() => void call.current?.toggleScreen()} /> : null}
             <Control label="Leave" onPress={leave} />
           </View>
           <Control label={ending ? "Ending…" : "End for all"} danger disabled={ending} onPress={end} wide />
@@ -117,6 +129,9 @@ const styles = StyleSheet.create({
   recDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#E5484D" },
   statusText: { ...typography.label, color: "#C9D3E0" },
   grid: { flexGrow: 1, flexDirection: "row", flexWrap: "wrap", justifyContent: "center", alignContent: "center", gap: space.xs, padding: space.xs },
+  stage: { flex: 1, minHeight: 200, marginHorizontal: space.xs, borderRadius: radius.lg, overflow: "hidden", backgroundColor: "#000" },
+  strip: { flexGrow: 0, maxHeight: 112 },
+  tileSmall: { width: 128, height: 96 },
   tile: { aspectRatio: 4 / 3, maxHeight: 560, borderRadius: radius.lg, overflow: "hidden", backgroundColor: "#1B2433" },
   noVideo: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center", backgroundColor: "#1B2433" },
   initial: { fontSize: 44, fontWeight: "700", color: "#FFFFFF" },

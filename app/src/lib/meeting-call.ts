@@ -18,11 +18,16 @@ function rtc(): Native {
   return native;
 }
 
+/** Only browsers and the Mac app can capture a screen; phones can watch one. */
+export function screenShareSupported() {
+  try { return Platform.OS === "web" && typeof (globalThis as any).navigator?.mediaDevices?.getDisplayMedia === "function"; } catch { return false; }
+}
+
 export function callsSupported() {
   try { const r = rtc(); return !!r.RTCPeerConnection && !!r.mediaDevices?.getUserMedia; } catch { return false; }
 }
 
-export type Remote = { participantId: string; name: string; stream: Stream; hasVideo: boolean };
+export type Remote = { participantId: string; name: string; stream: Stream; hasVideo: boolean; /** Someone's shared screen rather than their camera. */ screen?: boolean };
 export type CallState = {
   status: "starting" | "connecting" | "live" | "ended" | "failed";
   error: string | null;
@@ -30,6 +35,8 @@ export type CallState = {
   remotes: Remote[];
   muted: boolean;
   cameraOff: boolean;
+  /** Your own screen share, while it is on. */
+  sharing: boolean;
 };
 
 export type CallStep = "start" | "load" | "microphone" | "join" | "connect";
@@ -69,7 +76,7 @@ async function gathered(pc: Peer, timeoutMs = 3000) {
 }
 
 export function createCall(account: Account, meetingId: string, onChange: (s: CallState) => void) {
-  const state: CallState = { status: "starting", error: null, local: null, remotes: [], muted: false, cameraOff: false };
+  const state: CallState = { status: "starting", error: null, local: null, remotes: [], muted: false, cameraOff: false, sharing: false };
   const emit = () => onChange({ ...state, remotes: [...state.remotes] });
   let pc: Peer | null = null;
   let participantId: string | null = null;
@@ -77,6 +84,9 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
   let micError: any = null;
   let poll: ReturnType<typeof setTimeout> | null = null;
   const watching = new Map<string, Peer>();
+  let screenPc: Peer | null = null;
+  let screenId: string | null = null;
+  let screenStream: Stream | null = null;
   const iceConfig = (m: Meeting) => ({ iceServers: m.iceServers.length ? m.iceServers : [{ urls: "stun:stun.l.google.com:19302" }] });
 
   async function getMedia() {
@@ -91,14 +101,14 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
 
   // Video comes from the server's list: the watch connection always offers a
   // video slot, so a browser reports a video track even when nobody sends one.
-  async function watch(m: Meeting, publisherId: string, name: string, hasVideo: boolean) {
+  async function watch(m: Meeting, publisherId: string, name: string, hasVideo: boolean, screen = false) {
     if (closed || !participantId || watching.has(publisherId)) return;
     const { RTCPeerConnection } = rtc();
     const peer = new RTCPeerConnection(iceConfig(m));
     watching.set(publisherId, peer);
     peer.addTransceiver("audio", { direction: "recvonly" });
     peer.addTransceiver("video", { direction: "recvonly" });
-    const remote: Remote = { participantId: publisherId, name, stream: null, hasVideo };
+    const remote: Remote = { participantId: publisherId, name: screen ? `${name}'s screen` : name, stream: null, hasVideo, ...(screen ? { screen: true } : {}) };
     peer.addEventListener("track", (e: any) => {
       const stream = e.streams?.[0] ?? remote.stream ?? null;
       if (stream) remote.stream = stream;
@@ -132,7 +142,7 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
       for (const p of others) {
         const known = state.remotes.find(r => r.participantId === p.id);
         if (known) known.hasVideo = p.hasVideo;
-        else void watch(m, p.id, p.user.name, p.hasVideo);
+        else void watch(m, p.id, p.user.name, p.hasVideo, !!p.screen);
       }
       for (const id of [...watching.keys()]) if (!others.some(p => p.id === id)) unwatch(id);
       emit();
@@ -173,6 +183,48 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
     }
   }
 
+  // Share your screen as a second, video-only connection in the same call. The browser (or the Mac
+  // app) asks which screen or window; stopping from the system's own "Stop sharing" works too.
+  async function startScreen() {
+    if (closed || !participantId || screenPc || !screenShareSupported()) return;
+    const md = rtc().mediaDevices;
+    let stream: Stream;
+    try { stream = await md.getDisplayMedia({ video: { frameRate: 15 }, audio: false }); }
+    catch (e: any) {
+      // Cancelling the picker is not an error.
+      if (e?.name === "NotAllowedError" || e?.name === "AbortError") return;
+      state.error = "Couldn't share your screen. Allow screen recording for Servant in System Settings, then try again"; emit(); return;
+    }
+    const track = stream.getVideoTracks()[0];
+    if (!track) { for (const t of stream.getTracks()) t.stop(); return; }
+    try {
+      const { RTCPeerConnection } = rtc();
+      const pcs = new RTCPeerConnection(iceConfig(await api.meeting(account, meetingId)));
+      screenPc = pcs; screenStream = stream;
+      pcs.addTrack(track, stream);
+      track.addEventListener("ended", () => { void stopScreen(); });
+      await pcs.setLocalDescription(await pcs.createOffer());
+      await gathered(pcs);
+      const joined = await api.joinMeeting(account, meetingId, pcs.localDescription.sdp, participantId);
+      screenId = joined.participantId;
+      await pcs.setRemoteDescription({ type: "answer", sdp: joined.sdp });
+      state.sharing = true; state.error = null; emit();
+    } catch (e) {
+      await stopScreen();
+      state.error = e instanceof ServerError && e.code === "already_sharing" ? "You're already sharing your screen from another window" : "Couldn't share your screen. Try again";
+      emit();
+    }
+  }
+
+  async function stopScreen() {
+    const id = screenId, pcs = screenPc, stream = screenStream;
+    screenPc = null; screenId = null; screenStream = null;
+    for (const t of stream?.getTracks?.() ?? []) t.stop();
+    pcs?.close();
+    if (state.sharing) { state.sharing = false; emit(); }
+    if (id) await api.leaveMeeting(account, meetingId, id);
+  }
+
   function stopTracks() { for (const t of state.local?.getTracks?.() ?? []) t.stop(); }
 
   async function stop(leave = true) {
@@ -180,6 +232,7 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
     closed = true;
     if (poll) clearTimeout(poll);
     for (const id of [...watching.keys()]) unwatch(id);
+    await stopScreen();
     pc?.close();
     stopTracks();
     if (leave && participantId) await api.leaveMeeting(account, meetingId, participantId);
@@ -190,6 +243,7 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
     start,
     leave: () => stop(true),
     end: async () => { await stop(true); return api.endMeeting(account, meetingId); },
+    toggleScreen: () => (screenPc ? stopScreen() : startScreen()),
     toggleMute() {
       state.muted = !state.muted;
       for (const t of state.local?.getAudioTracks?.() ?? []) t.enabled = !state.muted;

@@ -211,7 +211,7 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
       iceServers: iceServers(),
       participants: call ? [...call.participants.values()].map(p => ({
         id: p.id, user: person(p.userId), publishing: p.tracks.size > 0, you: p.userId === userId, joinedAt: p.joinedAt,
-        hasVideo: p.kinds.has("video"), hasAudio: p.kinds.has("audio"),
+        hasVideo: p.kinds.has("video"), hasAudio: p.kinds.has("audio"), ...(p.screen ? { screen: true } : {}),
       })) : [],
       steps,
       transcript: m.status === "done" ? st.transcript.get(m.id)?.text || "" : null,
@@ -296,15 +296,23 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
     if ((call.emptySince && now() - call.emptySince > EMPTY_END_MS) || now() - m.started_at > MAX_MEETING_MS) void finish(call.id, "auto");
   }
 
-  async function join(user, meetingId, sdp) {
+  // A screen share is a second, video-only connection owned by someone already in the call.
+  // Everyone else watches it the way they watch a camera. It is never recorded (there is no
+  // speech in it) and doesn't take a place in the call.
+  async function join(user, meetingId, sdp, { screenOf } = {}) {
     const m = requireMeeting(meetingId, user.id);
     const call = calls.get(m.id);
     if (!call || m.status !== "live") throw httpError(409, "meeting_ended", "This meeting has ended");
-    if (call.participants.size >= MAX_PARTICIPANTS) throw httpError(409, "meeting_full", "This meeting is full");
+    const screen = screenOf !== undefined && screenOf !== null && screenOf !== "";
+    if (screen) {
+      const owner = call.participants.get(String(screenOf));
+      if (!owner || owner.userId !== user.id || owner.screen) throw httpError(409, "meeting_ended", "Join the meeting first");
+      if ([...call.participants.values()].some(x => x.screen && x.userId === user.id)) throw httpError(409, "already_sharing", "You're already sharing your screen");
+    } else if ([...call.participants.values()].filter(x => !x.screen).length >= MAX_PARTICIPANTS) throw httpError(409, "meeting_full", "This meeting is full");
     checkSdp(sdp);
-    const tracks = sentTrackCount(sdp);
+    const tracks = screen ? 0 : sentTrackCount(sdp);
     const { w, pc } = await newPeer();
-    const p = { id: newId("part"), userId: user.id, pc, tracks: new Map(), kinds: new Set(), recorder: null, joinedAt: now(), watchers: new Set(), pli: null };
+    const p = { id: newId("part"), userId: user.id, pc, tracks: new Map(), kinds: new Set(), recorder: null, joinedAt: now(), watchers: new Set(), pli: null, ...(screen ? { screen: true, ownerId: String(screenOf) } : {}) };
     if (tracks) {
       const file = path.join(meetingDir(m.id), `${p.id}.webm`);
       p.recorder = new w.MediaRecorder({ path: file, numOfTracks: tracks });
@@ -315,6 +323,8 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
       t.onTrack.subscribe(track => {
         p.tracks.set(track.kind, { track, transceiver: t });
         p.kinds.add(track.kind);
+        // Only the first video track counts for a screen share; audio is never forwarded.
+        if (p.screen && track.kind !== "video") return;
         p.recorder?.addTrack(track).catch?.(e => log.error("[servant] meeting record track:", e.message));
         if (track.kind === "video") p.pli ??= setInterval(() => t.receiver.sendRtcpPLI(track.ssrc).catch(() => {}), 2000);
         changed(m);
@@ -343,6 +353,7 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
     await pc.setRemoteDescription({ type: "offer", sdp });
     const subs = [];
     for (const t of pc.getTransceivers()) {
+      if (source.screen && t.kind === "audio") { t.setDirection("inactive"); continue; }
       t.setDirection("sendonly");
       const forward = (kind) => {
         const src = source.tracks.get(kind);
@@ -376,6 +387,8 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
     if (!p) return;
     call.participants.delete(participantId);
     clearInterval(p.pli);
+    // Leaving the call stops anything that person was sharing.
+    for (const other of [...call.participants.values()]) if (other.screen && other.ownerId === p.id) await leave(call, other.id);
     for (const w of p.watchers) w.close();
     await p.recorder?.stop().catch(e => log.error("[servant] meeting recorder stop:", e.message));
     await p.pc.close().catch(() => {});
@@ -522,7 +535,7 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
     if (method === "GET" && !sub) return send(res, 200, { meeting: view(requireMeeting(id, user.id), user.id) }), true;
     if (method !== "POST") return fail(res, 405, "method_not_allowed", "Not allowed"), true;
     const body = (await readBody(req)) || {};
-    if (sub === "join") return send(res, 200, await join(user, id, body.sdp)), true;
+    if (sub === "join") return send(res, 200, await join(user, id, body.sdp, { screenOf: body.screenOf })), true;
     if (sub === "watch") return send(res, 200, await watch(user, id, String(body.participantId || ""), String(body.publisherId || ""), body.sdp)), true;
     if (sub === "leave") {
       const m = requireMeeting(id, user.id);
