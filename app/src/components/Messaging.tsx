@@ -20,6 +20,8 @@ import { validateAttachmentSelection } from "../lib/media";
 import { Attachments, DraftAttachments, attachmentsFromFiles, pickAttachments, pickDocuments, type DraftAttachment } from "./Attachments";
 import { AppIcon } from "./AppIcon";
 import { MessageText } from "./MessageText";
+import { TweetEmbed } from "./TweetEmbed";
+import { tweetIds } from "../lib/tweet-embed";
 import { safeUrl } from "../lib/message-format";
 import { conversationPreview } from "../lib/conversation-preview";
 import { parseForward } from "../lib/forward";
@@ -265,6 +267,7 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
         ) : post.text ? (
           post.user.agent ? <MessageText text={post.text} /> : <ForwardedPost text={post.text} edited={!!post.editedAt} />
         ) : null}
+        {!post.deleted ? tweetIds(post.text).map(id => <TweetEmbed key={id} id={id} />) : null}
         {post.editedAt && !post.deleted ? <Text style={styles.edited}>Edited</Text> : null}
         {post.meeting && post.user.agent && !post.deleted ? <MeetingCard meeting={post.meeting} /> : null}
         </View>

@@ -11,6 +11,8 @@ import { MediaGalleryProvider } from "../../components/MediaGallery";
 import { mediaFromMessages } from "../../lib/media";
 import { Button } from "../../components/Button";
 import { MessageText } from "../../components/MessageText";
+import { TweetEmbed } from "../../components/TweetEmbed";
+import { tweetIds } from "../../lib/tweet-embed";
 import { AgentApprovalCard } from "../../components/AgentApprovalCard";
 import { activeAgentTurn, agentTurnLabel, canSteer, liveAgentLine, queuedBelow, splitTurns, type AgentTurn } from "../../lib/agent-turns";
 import { AgentProgress } from "../../components/AgentSteps";
@@ -720,6 +722,7 @@ function ChatConversation() {
                     {Number.isFinite(timestamp) || deviceLabel ? <Text style={styles.time}>{Number.isFinite(timestamp) ? when(timestamp) : null}{deviceLabel ? <Text testID={`message-device-${item.id}`} accessibilityLabel={`Sent from ${deviceLabel}`}>{Number.isFinite(timestamp) ? " · " : ""}{deviceLabel}</Text> : null}</Text> : null}
                   </View>
                   {mine && !working ? <ForwardedText item={item} /> : !working && item.text ? <ReplyText text={item.text} failed={item.failed} /> : null}
+                  {!working && !item.failed ? tweetIds(item.text || "").map(id => <TweetEmbed key={id} id={id} />) : null}
                   {!working && item.attachments?.length ? <Attachments files={item.attachments} /> : null}
                   {item.uploads?.length ? <PendingAttachments files={item.uploads} progress={item.pending ? uploadProgress : null} /> : null}
                   {working ? <View style={[styles.liveRow, styles.workingRow]}>
