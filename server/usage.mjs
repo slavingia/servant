@@ -55,8 +55,8 @@ export function createUsageStore(file, { limit = DAILY_TOKEN_LIMIT, clock = Date
     },
     limit,
     usedToday: userId => Number(db.prepare("SELECT COALESCE(SUM(total_tokens),0) AS n FROM token_usage WHERE user_id=? AND at>=?").get(String(userId), startOfDay(clock())).n),
-    // The owner is unlimited.
-    overLimit(user) { return !!user && user.role !== "owner" && this.usedToday(user.id) >= limit; },
+    // The owner is unlimited, and so is anyone flagged `unlimitedTokens` (bug reporters).
+    overLimit(user) { return !!user && user.role !== "owner" && !user.unlimitedTokens && this.usedToday(user.id) >= limit; },
     leaderboard({ since = 0 } = {}) {
       const rows = db.prepare(`SELECT user_id AS userId, SUM(input_tokens) AS input, SUM(output_tokens) AS output,
           SUM(total_tokens) AS total, COUNT(*) AS turns,

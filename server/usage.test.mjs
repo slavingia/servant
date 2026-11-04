@@ -42,6 +42,7 @@ test("members stop at one million tokens a day, the owner never does, and the da
   store.record({ eventId: "c", userId: "m", usage: { total_tokens: 1 }, at: now });
   assert.equal(store.overLimit(member), true);
   assert.equal(store.overLimit(owner), false);
+  assert.equal(store.overLimit({ ...member, unlimitedTokens: true }), false);
   assert.equal(store.overLimit({ id: "other", role: "member" }), false);
   now = new Date(2026, 10, 4, 0, 1).getTime();
   assert.equal(store.overLimit(member), false);
