@@ -13,6 +13,8 @@ import { createMessaging } from "./messaging.mjs";
 import { createStateStore } from "./state-store.mjs";
 import { createLiveEventDecoder } from "../app/src/lib/live-events.ts";
 import { testFetch } from "./encrypted-test-client.mjs";
+import { TERMS_VERSION, TERMS_ITEMS } from "./terms.mjs";
+const ACCEPT = { version: TERMS_VERSION, items: TERMS_ITEMS };
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "servant-test-"));
 // config.json is re-read per request; flip agent access for one test.
@@ -153,10 +155,28 @@ function parseSse(text) {
 
 async function pair(role, name) {
   const code = mod.createInvite({ name, role });
-  const r = await api("POST", "/v1/pair", { body: { code: code.toLowerCase(), device: "Test phone" } });
+  const r = await api("POST", "/v1/pair", { body: { terms: ACCEPT, code: code.toLowerCase(), device: "Test phone" } });
   assert.equal(r.status, 201, r.text);
   return r.json.token;
 }
+
+test("joining needs all three terms checks, and the acceptance is recorded", async () => {
+  const code = mod.createInvite({ name: "Terms Tester", role: "member" });
+  const join = terms => api("POST", "/v1/pair", { body: { code, device: "Test phone", ...(terms ? { terms } : {}) } });
+  for (const terms of [undefined, { version: TERMS_VERSION, items: ["terms", "ai"] }, { version: "old", items: TERMS_ITEMS }]) {
+    const r = await join(terms);
+    assert.equal(r.status, 400); assert.equal(r.json.error?.code ?? r.json.code, "terms_required");
+  }
+  const ok = await join(ACCEPT);
+  assert.equal(ok.status, 201, ok.text);
+  const saved = createStateStore({ directory: dataDir }).read();
+  const user = saved.users[ok.json.user.id];
+  assert.equal(user.termsAcceptances.length, 1);
+  assert.equal(user.termsAcceptances[0].version, TERMS_VERSION);
+  assert.deepEqual(user.termsAcceptances[0].items, TERMS_ITEMS);
+  assert.ok(user.termsAcceptances[0].acceptedAt);
+  assert.ok(Object.values(saved.devices).some(d => d.id === user.termsAcceptances[0].deviceId));
+});
 
 test("everything except health and pairing needs a token", async () => {
   assert.equal((await api("GET", "/health")).status, 200);
@@ -201,8 +221,8 @@ test("invites are single use and pair link carries the discovery URL", async () 
   const code = mod.createInvite({ name: "Ana", role: "member" });
   assert.match(code, /^[2-9A-HJ-NP-Z]{5}-[2-9A-HJ-NP-Z]{5}$/);
   assert.match(mod.pairLink(code), /^servant:\/\/pair\?code=.+&d=https%3A%2F%2Fexample.test%2Fhub.json$/);
-  assert.equal((await api("POST", "/v1/pair", { body: { code } })).status, 201);
-  const again = await api("POST", "/v1/pair", { body: { code } });
+  assert.equal((await api("POST", "/v1/pair", { body: { terms: ACCEPT, code } })).status, 201);
+  const again = await api("POST", "/v1/pair", { body: { terms: ACCEPT, code } });
   assert.equal(again.status, 403);
   assert.equal(again.json.error.message, "That invite link doesn't work. Ask for a new one");
 });
@@ -213,23 +233,23 @@ test("an owner invite signs the server's own Mac in with a loopback link and no 
   assert.equal(link.searchParams.get("server"), "http://127.0.0.1:8787");
   assert.equal(link.searchParams.get("d"), null, "a local link never depends on discovery");
   assert.match(link.searchParams.get("key"), /^(02|03)[0-9a-f]{64}$/);
-  const paired = await api("POST", "/v1/pair", { body: { code: first.code } });
+  const paired = await api("POST", "/v1/pair", { body: { terms: ACCEPT, code: first.code } });
   assert.equal(paired.status, 201);
   assert.equal(paired.json.user.role, "owner");
   const second = mod.ownerInvite();
   assert.equal(second.existing, true, "later owner invites add a device to the same owner");
-  const again = await api("POST", "/v1/pair", { body: { code: second.code } });
+  const again = await api("POST", "/v1/pair", { body: { terms: ACCEPT, code: second.code } });
   assert.equal(again.json.user.id, paired.json.user.id);
 });
 
 test("the join link works for many people, asks each for a name, and a fresh link retires it", async () => {
   const { code } = mod.joinLink();
   assert.equal(mod.joinLink().code, code, "same live link until replaced");
-  const noName = await api("POST", "/v1/pair", { body: { code } });
+  const noName = await api("POST", "/v1/pair", { body: { terms: ACCEPT, code } });
   assert.equal(noName.status, 400);
   assert.equal(noName.json.error.code, "name_required");
-  const a = await api("POST", "/v1/pair", { body: { code, name: "Gus" } });
-  const b = await api("POST", "/v1/pair", { body: { code, name: "Hana" } });
+  const a = await api("POST", "/v1/pair", { body: { terms: ACCEPT, code, name: "Gus" } });
+  const b = await api("POST", "/v1/pair", { body: { terms: ACCEPT, code, name: "Hana" } });
   assert.equal(a.status, 201);
   assert.equal(b.status, 201);
   assert.equal(a.json.user.role, "member");
@@ -237,8 +257,8 @@ test("the join link works for many people, asks each for a name, and a fresh lin
   assert.equal(b.json.user.name, "Hana");
   const next = mod.joinLink({ fresh: true }).code;
   assert.notEqual(next, code);
-  assert.equal((await api("POST", "/v1/pair", { body: { code, name: "Ivy" } })).status, 403);
-  assert.equal((await api("POST", "/v1/pair", { body: { code: next, name: "Ivy" } })).status, 201);
+  assert.equal((await api("POST", "/v1/pair", { body: { terms: ACCEPT, code, name: "Ivy" } })).status, 403);
+  assert.equal((await api("POST", "/v1/pair", { body: { terms: ACCEPT, code: next, name: "Ivy" } })).status, 201);
 });
 
 // config.json is re-read per request; set work hours for one test.
@@ -798,7 +818,7 @@ test("a second-device invite pairs as the same person", async () => {
   const first = await pair("member", "Two Devices");
   const me = (await api("GET", "/v1/me", { token: first })).json;
   const code = mod.createInvite({ userId: me.user.id });
-  const r = await api("POST", "/v1/pair", { body: { code, device: "iPad" } });
+  const r = await api("POST", "/v1/pair", { body: { terms: ACCEPT, code, device: "iPad" } });
   assert.equal(r.status, 201, r.text);
   assert.equal(r.json.user.id, me.user.id);
   assert.notEqual(r.json.token, first);
@@ -1397,9 +1417,9 @@ test("reactions persist, sync live, are idempotent and require membership", asyn
 test("ten wrong codes lock out pairing from that address; good pairings don't count", async () => {
   // Earlier tests already used one wrong code from this address.
   const statuses = [];
-  for (let i = 0; i < 10; i++) statuses.push((await api("POST", "/v1/pair", { body: { code: "WRONG-CODE" + i } })).status);
+  for (let i = 0; i < 10; i++) statuses.push((await api("POST", "/v1/pair", { body: { terms: ACCEPT, code: "WRONG-CODE" + i } })).status);
   assert.equal(statuses[0], 403);
   assert.equal(statuses.at(-1), 429);
   const code = mod.createInvite({ name: "Late" });
-  assert.equal((await api("POST", "/v1/pair", { body: { code } })).status, 429);
+  assert.equal((await api("POST", "/v1/pair", { body: { terms: ACCEPT, code } })).status, 429);
 });

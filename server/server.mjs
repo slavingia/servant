@@ -36,6 +36,7 @@ import { withCloseInstructions } from "./close-marker.mjs";
 import { supportsDurableRuns, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
 import { MAX_FOLDERS, MAX_MEMBERS, accessibleFolders, cleanName, cleanNotes, createFolderFiles, folderAccess, folderInstructions, folderSharedWith, folderView, locateFolder, newFolder, validFolderId } from "./folders.mjs";
 import { availableProjects, chatInstructions, projectById, vibeFolder, VIBE_PROJECT } from "./projects.mjs";
+import { validTermsAcceptance } from "./terms.mjs";
 import { verifyMemberUpstream } from "./member-policy.mjs";
 import { composeForward } from "./forward.mjs";
 import { stepDetail, THINKING_LINE, toolStatusLine, WRITING_LINE } from "./agent-status.mjs";
@@ -609,14 +610,19 @@ async function handle(req, res, cfg) {
       }
       const name = invite.reusable ? String(body.name || "").trim().slice(0, 80) : invite.name;
       if (!name) throw requestError(400, "name_required", "Enter your name");
+      const terms = validTermsAcceptance(body.terms);
+      if (!terms) throw requestError(400, "terms_required", "Agree to the terms to join");
       if (invite.reusable) invite.uses += 1;
       else invite.usedAt = now();
       const existing = invite.userId && state.users[invite.userId];
       const user = existing || { id: id("usr"), name, role: invite.role, createdAt: now() };
       const token = crypto.randomBytes(32).toString("base64url");
+      const deviceId = id("dev");
+      // Every acceptance is kept: who, which version, which checks, when, on which device.
+      user.termsAcceptances = [...(user.termsAcceptances || []), { ...terms, acceptedAt: now(), deviceId }];
       state.users[user.id] = user;
       state.devices[sha256(token)] = {
-        id: id("dev"), userId: user.id, label: String(body.device || "Phone").slice(0, 80),
+        id: deviceId, userId: user.id, label: String(body.device || "Phone").slice(0, 80),
         createdAt: now(), lastSeenAt: now(),
       };
       return { token, user, isNew: !existing };

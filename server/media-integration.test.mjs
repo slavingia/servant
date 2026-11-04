@@ -10,6 +10,8 @@ import os from "node:os";
 import path from "node:path";
 import { testFetch } from "./encrypted-test-client.mjs";
 import { createStateStore } from "./state-store.mjs";
+import { TERMS_VERSION, TERMS_ITEMS } from "./terms.mjs";
+const ACCEPT = { version: TERMS_VERSION, items: TERMS_ITEMS };
 
 const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=";
 const uri = `data:image/png;base64,${png}`;
@@ -103,7 +105,7 @@ async function api(method, route, token, body) {
   return { status: res.status, text, json };
 }
 async function pair(name) {
-  const response = await api("POST", "/v1/pair", undefined, { code: mod.createInvite({ name, role: "member" }), device: "Media test" });
+  const response = await api("POST", "/v1/pair", undefined, { terms: ACCEPT, code: mod.createInvite({ name, role: "member" }), device: "Media test" });
   assert.equal(response.status, 201, response.text);
   return response.json.token;
 }

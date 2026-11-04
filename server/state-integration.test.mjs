@@ -11,6 +11,8 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import { createStateStore } from './state-store.mjs';
 import { testFetch } from './encrypted-test-client.mjs';
+import { TERMS_VERSION, TERMS_ITEMS } from "./terms.mjs";
+const ACCEPT = { version: TERMS_VERSION, items: TERMS_ITEMS };
 
 const serverFile = new URL('./server.mjs', import.meta.url).pathname;
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
@@ -128,7 +130,7 @@ test('two API processes consume one single-use invite once and both see CLI revo
     };
   });
   const paired = await Promise.all([0, 1].map(index => f.api(index, '/v1/pair', {
-    method: 'POST', body: { code, device: `Test phone ${index}` },
+    method: 'POST', body: { terms: ACCEPT, code, device: `Test phone ${index}` },
   })));
   assert.deepEqual(paired.map(result => result.status).sort(), [201, 403]);
   const token = paired.find(result => result.status === 201).body.token;
@@ -153,7 +155,7 @@ test('concurrent CLI invites and API pairings retain every independently created
   assert.equal(new Set(codes).size, 8);
   assert.equal(Object.keys(f.store.read().invites).length, 8);
   const results = await Promise.all(codes.map((code, index) => f.api(index % 2, '/v1/pair', {
-    method: 'POST', body: { code, device: `Phone ${index}` },
+    method: 'POST', body: { terms: ACCEPT, code, device: `Phone ${index}` },
   })));
   for (const result of results) assert.equal(result.status, 201, JSON.stringify(result.body));
   const snapshot = f.store.read();

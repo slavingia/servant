@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { createStateStore } from './state-store.mjs';
 import { testFetch } from './encrypted-test-client.mjs';
+import { TERMS_VERSION, TERMS_ITEMS } from "./terms.mjs";
+const ACCEPT = { version: TERMS_VERSION, items: TERMS_ITEMS };
 
 // Never inherit an owner's upstream, push service, discovery, or data path.
 for (const key of Object.keys(process.env)) if (/^(SERVANT_|HERMES_)/.test(key) || key === 'API_SERVER_KEY') delete process.env[key];
@@ -22,7 +24,7 @@ async function api(method, route, body, token) {
   return { status: response.status, body: await response.json() };
 }
 async function phone() {
-  const result = await api('POST', '/v1/pair', { code: mod.createInvite({ name: 'QR teammate', role: 'member' }), device: 'Test phone' });
+  const result = await api('POST', '/v1/pair', { terms: ACCEPT, code: mod.createInvite({ name: 'QR teammate', role: 'member' }), device: 'Test phone' });
   assert.equal(result.status, 201);
   return result.body;
 }
@@ -103,7 +105,7 @@ test('one person can keep four independent devices; revoking one preserves all o
     devices.push(result.body);
   }
   const invite = mod.createInvite({ userId: first.user.id });
-  const extra = await api('POST', '/v1/pair', { code: invite, device: 'Browser' });
+  const extra = await api('POST', '/v1/pair', { terms: ACCEPT, code: invite, device: 'Browser' });
   assert.equal(extra.status, 201); devices.push(extra.body);
   assert.equal(new Set(devices.map(device => device.token)).size, 4);
   for (const device of devices) {
