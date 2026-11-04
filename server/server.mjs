@@ -33,7 +33,7 @@ import { createChatMediaStore } from "./chat-media.mjs";
 import { createUsageStore, limitMessage } from "./usage.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { supportsDurableRuns, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
-import { MAX_PEOPLE, MAX_PROJECTS, VIBE_PROJECT, accessOf, accessibleProjects, cleanDescription, cleanLevel, cleanLogin, cleanName, cleanNotes, cleanPath, cleanRepo, cleanRules, cleanUrl, cleanWorkflow, createProjectFiles, createProjectStore, expandPath, migrateFolders, needsMigration, newProject, projectInstructions, projectPeople, projectSharedWith, projectView, removeAccess, setAccess, validProjectId, vibeFolder, vibePreview } from "./projects.mjs";
+import { MAX_ITEMS, MAX_PEOPLE, MAX_PROJECTS, MAX_RELEASES, VIBE_PROJECT, accessOf, accessibleProjects, cleanDate, cleanDescription, cleanLevel, cleanLogin, cleanName, cleanNotes, cleanPath, cleanReleaseName, cleanRepo, cleanRules, cleanStage, cleanStages, cleanTitle, cleanUrl, cleanWorkflow, createProjectFiles, createProjectStore, expandPath, migrateFolders, needsMigration, newItem, newProject, newRelease, patchCell, projectInstructions, projectPeople, projectSharedWith, projectView, removeAccess, setAccess, validProjectId, vibeFolder, vibePreview } from "./projects.mjs";
 import { validTermsAcceptance } from "./terms.mjs";
 import { verifyMemberUpstream } from "./member-policy.mjs";
 import { composeForward } from "./forward.mjs";
@@ -589,7 +589,7 @@ function chatContext(chat) {
   const access = accessOf(project, users[chat.userId], users, data.people);
   // Whoever started the chat must still be in the project; otherwise the chat carries no project context.
   if (chat.mode !== "vibe" && !access.visible) return "";
-  return projectInstructions(project, { chat, asker: users[chat.userId], level: access.level, files: projectFiles(), full: agentRole(chat.role, loadConfig()) === "owner" });
+  return projectInstructions(project, { chat, asker: users[chat.userId], level: access.level, files: projectFiles(), full: agentRole(chat.role, loadConfig()) === "owner", users });
 }
 const documents = () => documentStore ??= createDocumentStore(path.join(DATA_DIR, "chat-files"));
 let usageDb;
@@ -894,7 +894,7 @@ async function handle(req, res, cfg) {
       if (method === "PATCH" && parts.length === 3) {
         const body = await readAuthorizedBody(req);
         // Notes are for anyone who can write; the rest is the owners' call.
-        const settings = { name: cleanName, description: cleanDescription, repo: cleanRepo, path: cleanPath, pages: cleanUrl, workflow: cleanWorkflow, rules: cleanRules };
+        const settings = { name: cleanName, description: cleanDescription, repo: cleanRepo, path: cleanPath, pages: cleanUrl, workflow: cleanWorkflow, rules: cleanRules, stages: cleanStages };
         const changing = Object.keys(settings).filter(k => body[k] !== undefined);
         projects().mutate(data => {
           const p = within(data, pid, changing.length ? "edit" : "write");
@@ -945,6 +945,43 @@ async function handle(req, res, cfg) {
         // Their chats stay theirs but leave the project and stop being shared with it.
         if (users()[target]) mutateAuthenticated(req, state => { for (const c of Object.values(state.chats)) if (c.userId === target && c.projectId === pid) { delete c.projectId; delete c.projectShared; } });
         return send(res, 200, leaving ? { ok: true } : wrap(true, view(pid)));
+      }
+      // Releases: the project's dated drops, each a list of items that move through the project's
+      // stages (docs/projects.md). Writers add, rename and remove; a stage cell (status, owner, note)
+      // is also the business of whoever it is assigned to.
+      if (parts[3] === "releases") {
+        const body = method === "DELETE" ? {} : await readAuthorizedBody(req);
+        const inRelease = p => { const r = p.releases.find(x => x.id === parts[4]); if (!r) throw requestError(404, "not_found", "No such release"); r.updatedAt = now(); return r; };
+        const inItem = r => { const i = r.items.find(x => x.id === parts[6]); if (!i) throw requestError(404, "not_found", "No such item"); return i; };
+        const items = parts[5] === "items";
+        if (method === "POST" && parts.length === 4) projects().mutate(data => {
+          const p = within(data, pid, "write");
+          if (p.releases.length >= MAX_RELEASES) throw requestError(409, "limit", `A project holds up to ${MAX_RELEASES} releases`);
+          p.releases.push(newRelease(body, now()));
+        });
+        else if (method === "PATCH" && parts.length === 5) projects().mutate(data => {
+          const r = inRelease(within(data, pid, "write"));
+          if (body.name !== undefined) r.name = cleanReleaseName(body.name);
+          if (body.date !== undefined) r.date = cleanDate(body.date);
+        });
+        else if (method === "DELETE" && parts.length === 5) projects().mutate(data => { const p = within(data, pid, "write"); inRelease(p); p.releases = p.releases.filter(r => r.id !== parts[4]); });
+        else if (method === "POST" && items && parts.length === 6) projects().mutate(data => {
+          const r = inRelease(within(data, pid, "write"));
+          if (r.items.length >= MAX_ITEMS) throw requestError(409, "limit", `A release holds up to ${MAX_ITEMS} items`);
+          r.items.push(newItem(body));
+        });
+        else if (method === "PATCH" && items && parts.length === 7) projects().mutate(data => { inItem(inRelease(within(data, pid, "write"))).title = cleanTitle(body.title); });
+        else if (method === "DELETE" && items && parts.length === 7) projects().mutate(data => { const r = inRelease(within(data, pid, "write")); inItem(r); r.items = r.items.filter(i => i.id !== parts[6]); });
+        else if (method === "PATCH" && items && parts[7] === "stages" && parts.length === 8) projects().mutate(data => {
+          const { project: p, access } = found(data, pid);
+          const stage = cleanStage(p, body.stage);
+          const item = inItem(inRelease(p));
+          if (!access.canWrite && item.stages[stage]?.owner !== user.id) throw requestError(403, "forbidden", "Only the person this is assigned to, or someone who can write, can change it");
+          patchCell(p, item, stage, body, users(), data.people);
+          p.updatedAt = now();
+        });
+        else return fail(res, 404, "not_found", "Not found");
+        return send(res, 200, wrap(true, view(pid)));
       }
       if (method === "POST" && parts[3] === "files" && parts.length === 4) {
         const body = await readAuthorizedBody(req, MAX_UPLOAD_BODY);

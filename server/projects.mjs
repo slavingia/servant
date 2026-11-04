@@ -2,8 +2,10 @@
 // reference files every chat in it sees, an optional GitHub repo and the path
 // where the agent works on it, rules people and the agent both follow (the
 // workflow: straight to main or pull requests, plus free-text rules) and who
-// can read, write or merge. Projects live in projects.json beside the server
-// data (docs/projects.md); the repo ships none. Files live on disk.
+// can read, write or merge. A project can also plan releases: dated drops whose
+// items move through the project's stages, each stage owned by someone (the
+// per-person to-dos). Projects live in projects.json beside the server data
+// (docs/projects.md); the repo ships none. Files live on disk.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -16,6 +18,12 @@ export const MAX_PROJECT_FILE = 20 * 1024 * 1024;
 export const MAX_NOTES = 8000;
 export const MAX_RULES = 30;
 export const MAX_PEOPLE = 100;
+export const MAX_STAGES = 10;
+export const MAX_RELEASES = 50;
+export const MAX_ITEMS = 50;
+// What one stage of one release item can be. The words people see are in the app.
+export const STATUSES = ["todo", "doing", "done", "blocked"];
+const STATUS_WORDS = { todo: "to do", doing: "doing", done: "done", blocked: "blocked" };
 // Each level includes the ones before it: merge ⊃ write ⊃ read.
 export const LEVELS = ["read", "write", "merge"];
 export const WORKFLOWS = ["main", "pr"];
@@ -27,6 +35,8 @@ const TEXT = /\.(txt|md|markdown|csv|json|html?|css|js|ts|tsx|yml|yaml)$/i;
 const HOME = os.homedir();
 
 const fault = (status, code, message) => Object.assign(new Error(message), { status, code });
+const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const newId = prefix => `${prefix}_${crypto.randomBytes(6).toString("base64url")}`;
 export const validProjectId = id => typeof id === "string" && /^[a-z0-9][a-z0-9-]{0,47}$/.test(id);
 export const rank = level => LEVELS.indexOf(level);
 const lower = s => String(s).toLowerCase();
@@ -74,6 +84,45 @@ export function cleanLogin(value) {
   return login;
 }
 
+export function cleanStages(value) {
+  if (!Array.isArray(value) || value.some(s => typeof s !== "string")) throw fault(400, "bad_request", "Stages are a list of names");
+  const stages = value.map(s => text(s, 30)).filter(Boolean);
+  if (stages.length > MAX_STAGES) throw fault(413, "bad_request", `Keep it to ${MAX_STAGES} stages`);
+  if (new Set(stages.map(lower)).size !== stages.length) throw fault(400, "bad_request", "Each stage needs a different name");
+  return stages;
+}
+export function cleanReleaseName(value) {
+  const name = text(value, 60);
+  if (!name) throw fault(400, "bad_request", "Name the release");
+  return name;
+}
+/** A plain calendar day, YYYY-MM-DD, that exists. */
+export function cleanDate(value) {
+  const m = typeof value === "string" ? DATE.exec(value) : null;
+  if (!m || !new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toISOString().startsWith(value)) throw fault(400, "bad_request", "Dates look like 2026-11-17");
+  return value;
+}
+export function cleanTitle(value) {
+  const title = text(value, 80);
+  if (!title) throw fault(400, "bad_request", "Give the item a name");
+  return title;
+}
+export function cleanStatus(value) {
+  if (!STATUSES.includes(value)) throw fault(400, "bad_request", "Status is todo, doing, done or blocked");
+  return value;
+}
+export function cleanStage(project, value) {
+  if (!project.stages.includes(value)) throw fault(400, "bad_request", "That isn't one of this project's stages");
+  return value;
+}
+/** A stage cell's owner is someone who can see the project (admins count), or nobody. */
+export function cleanOwner(project, value, users, people) {
+  if (value === null) return null;
+  const user = typeof value === "string" ? users[value] : null;
+  if (!user || user.removedAt || user.revokedAt || !accessOf(project, user, users, people).visible) throw fault(404, "not_found", "That person isn't in this project");
+  return user.id;
+}
+
 /** A readable id from the name: "Refund tracker" → "refund-tracker", numbered when taken. */
 export function slugId(name, taken = new Set()) {
   const base = lower(name).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "project";
@@ -86,8 +135,8 @@ export function newProject(body, ownerId, taken, now = Date.now()) {
   const name = cleanName(body.name);
   return { id: slugId(name, taken), name, description: cleanDescription(body.description), notes: cleanNotes(body.notes ?? ""),
     repo: cleanRepo(body.repo), path: cleanPath(body.path), workflow: body.workflow === undefined ? "main" : cleanWorkflow(body.workflow),
-    rules: body.rules === undefined ? [] : cleanRules(body.rules), owners: [ownerId], access: { merge: [ownerId], write: [], read: [] },
-    files: [], createdAt: now, updatedAt: now };
+    rules: body.rules === undefined ? [] : cleanRules(body.rules), stages: body.stages === undefined ? [] : cleanStages(body.stages), releases: [],
+    owners: [ownerId], access: { merge: [ownerId], write: [], read: [] }, files: [], createdAt: now, updatedAt: now };
 }
 
 // ---------- the file ----------
@@ -99,7 +148,10 @@ function normalize(data) {
     projects: list.filter(p => p && validProjectId(p.id)).map(p => ({ ...p, name: text(p.name, 60) || p.id, notes: typeof p.notes === "string" ? p.notes : "",
       workflow: WORKFLOWS.includes(p.workflow) ? p.workflow : "main", rules: Array.isArray(p.rules) ? p.rules.filter(r => typeof r === "string") : [],
       owners: Array.isArray(p.owners) ? p.owners.map(String) : [], access: Object.fromEntries(LEVELS.map(l => [l, Array.isArray(p.access?.[l]) ? p.access[l].map(String) : []])),
-      files: Array.isArray(p.files) ? p.files : [] })) };
+      files: Array.isArray(p.files) ? p.files : [],
+      stages: Array.isArray(p.stages) ? p.stages.filter(s => typeof s === "string").map(s => text(s, 30)).filter(Boolean).slice(0, MAX_STAGES) : [],
+      releases: Array.isArray(p.releases) ? p.releases.filter(r => r && typeof r.id === "string").map(r => ({ ...r, name: text(r.name, 60) || "Release", date: typeof r.date === "string" && DATE.test(r.date) ? r.date : "",
+        items: Array.isArray(r.items) ? r.items.filter(i => i && typeof i.id === "string").map(i => ({ ...i, title: text(i.title, 80) || i.id, stages: i.stages && typeof i.stages === "object" ? i.stages : {} })) : [] })) : [] })) };
 }
 
 /**
@@ -196,6 +248,7 @@ export function projectView(project, access, viewer, users, people, chats = []) 
   const owner = list.find(p => p.owner && p.id) || null;
   return { id: project.id, name: project.name, description: project.description || "", notes: project.notes, repo: project.repo || "", path: project.path || "",
     pages: project.pages || "", workflow: project.workflow, rules: project.rules, files: project.files.map(({ id, name, size }) => ({ id, name, size })),
+    stages: project.stages, releases: sortedReleases(project).map(r => releaseView(r, project, users)),
     people: list.map(({ key, id, name, github, level, owner: isOwner }) => ({ key, ...(id ? { id } : {}), name, ...(github ? { github } : {}), level, owner: isOwner })),
     access: access.level, canEdit: access.canEdit, canWrite: access.canWrite,
     chatCount: inProject.filter(c => c.userId === viewer.id).length,
@@ -230,6 +283,55 @@ export function createProjectFiles(directory) {
     pathOf: fileFor,
     read(projectId, file) { return fs.readFileSync(fileFor(projectId, file)); },
   };
+}
+
+// ---------- releases ----------
+
+const EMPTY_CELL = { status: "todo", owner: null };
+export function newRelease(body, now = Date.now()) {
+  return { id: newId("rel"), name: cleanReleaseName(body.name), date: cleanDate(body.date), items: [], createdAt: now, updatedAt: now };
+}
+// Cells appear as stages are set; a missing cell reads as "to do, nobody yet".
+export const newItem = body => ({ id: newId("itm"), title: cleanTitle(body.title), stages: {} });
+/** Change one stage of one item: any of status, owner (a user id or null) and note. */
+export function patchCell(project, item, stage, body, users, people) {
+  const cell = item.stages[stage] ??= { ...EMPTY_CELL };
+  if (body.status !== undefined) cell.status = cleanStatus(body.status);
+  if (body.owner !== undefined) cell.owner = cleanOwner(project, body.owner, users, people);
+  if (body.note !== undefined) {
+    if (body.note !== null && typeof body.note !== "string") throw fault(400, "bad_request", "A note is text");
+    const note = text(body.note ?? "", 200);
+    if (note) cell.note = note; else delete cell.note;
+  }
+  return cell;
+}
+const cellOf = (item, stage) => item.stages[stage] || EMPTY_CELL;
+const sortedReleases = project => [...project.releases].sort((a, b) => a.date.localeCompare(b.date) || (a.createdAt || 0) - (b.createdAt || 0));
+function cellView(cell, users) {
+  const owner = cell.owner ? users[cell.owner] : null;
+  return { status: STATUSES.includes(cell.status) ? cell.status : "todo", owner: owner ? owner.id : null, ownerName: owner ? owner.name : "", ...(cell.note ? { note: cell.note } : {}) };
+}
+/** A release as the app sees it: every item has a cell for every one of the project's stages. */
+export function releaseView(release, project, users) {
+  return { id: release.id, name: release.name, date: release.date,
+    items: release.items.map(i => ({ id: i.id, title: i.title, stages: Object.fromEntries(project.stages.map(s => [s, cellView(cellOf(i, s), users)])) })) };
+}
+/** Today as YYYY-MM-DD where the server runs. */
+export const localDate = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+/**
+ * The next few releases for the agent: each item's unfinished stages and who owns
+ * them, so a chat in the project knows "11/17: Trump accounts, SAT blocked (Josh)".
+ */
+export function releaseLines(project, users, today = localDate()) {
+  const upcoming = sortedReleases(project).filter(r => r.date >= today).slice(0, 5);
+  if (!upcoming.length) return "";
+  const who = cell => `${cell.owner && users[cell.owner] ? users[cell.owner].name : "nobody yet"}${cell.note ? `: ${cell.note}` : ""}`;
+  const item = i => {
+    const open = project.stages.filter(s => cellOf(i, s).status !== "done");
+    const state = !project.stages.length ? "no stages" : !open.length ? "all done" : open.map(s => `${s} ${STATUS_WORDS[cellOf(i, s).status] || "to do"} (${who(cellOf(i, s))})`).join(", ");
+    return `${i.title}: ${state}`;
+  };
+  return `Upcoming releases (today is ${today}), with what isn't done yet and who owns it:\n${upcoming.map(r => `- ${r.name} (${r.date}): ${r.items.length ? r.items.map(item).join("; ") : "no items yet"}`).join("\n")}`;
 }
 
 // ---------- what the agent is told ----------
@@ -269,9 +371,9 @@ export function accessText(name, level) {
 /**
  * Instructions sent with every turn of a chat in a project (never saved in the
  * transcript): where the code is, how the team works, the rules, what the
- * person asking may do, then the shared notes and files.
+ * person asking may do, the upcoming releases, then the shared notes and files.
  */
-export function projectInstructions(project, { chat, asker, level, files, full }) {
+export function projectInstructions(project, { chat, asker, level, files, full, users = {}, today }) {
   if (!project) return "";
   const vibe = chat?.mode === "vibe";
   const repo = project.repo || project.path;
@@ -282,6 +384,8 @@ export function projectInstructions(project, { chat, asker, level, files, full }
   if (repo) lines.push(WORKFLOW_TEXT[project.workflow]);
   if (project.rules.length) lines.push(`Rules for this project, for you and for the people in it:\n${project.rules.map(r => `- ${r}`).join("\n")}`);
   if (repo && !vibe) lines.push(accessText(asker?.name || "The person asking", level));
+  const releases = vibe ? "" : releaseLines(project, users, today);
+  if (releases) lines.push(releases);
   if (project.notes.trim()) lines.push(`Project notes from the team:\n${project.notes.trim()}`);
   const list = project.files;
   if (list.length && full) {
@@ -324,7 +428,7 @@ export function migrateFolders(state, store, files, folderFilesDir) {
         const id = slugId(f.name, taken);
         taken.add(id);
         ids[f.id] = id;
-        data.projects.push({ id, name: f.name, description: "", notes: f.notes || "", repo: "", path: "", workflow: "main", rules: [],
+        data.projects.push({ id, name: f.name, description: "", notes: f.notes || "", repo: "", path: "", workflow: "main", rules: [], stages: [], releases: [],
           owners: [owner.id], access: { merge: [owner.id], write: [...(f.members || [])], read: [] }, files: f.files || [], createdAt: f.createdAt, updatedAt: f.updatedAt });
       }
     });

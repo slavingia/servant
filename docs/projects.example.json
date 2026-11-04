@@ -62,6 +62,60 @@
         "Never enable a feature flag just because the fixture tests pass.",
         "Follow AGENTS.md in the repo."
       ],
+      "stages": ["Build", "Design", "Functional/508 QA", "SAT", "Content"],
+      "releases": [
+        {
+          "id": "rel_november-17",
+          "name": "November 17",
+          "date": "2026-11-17",
+          "items": [
+        {
+          "id": "itm_trump-accounts",
+          "title": "Trump accounts",
+          "stages": {
+            "Build": { "status": "todo", "owner": null },
+            "Design": { "status": "todo", "owner": null },
+            "Functional/508 QA": { "status": "todo", "owner": null },
+            "SAT": { "status": "todo", "owner": null },
+            "Content": { "status": "todo", "owner": null }
+          }
+        },
+        {
+          "id": "itm_dmaf",
+          "title": "DMAF",
+          "stages": {
+            "Build": { "status": "todo", "owner": null },
+            "Design": { "status": "todo", "owner": null },
+            "Functional/508 QA": { "status": "todo", "owner": null },
+            "SAT": { "status": "todo", "owner": null },
+            "Content": { "status": "todo", "owner": null }
+          }
+        },
+        {
+          "id": "itm_dut",
+          "title": "DUT",
+          "stages": {
+            "Build": { "status": "todo", "owner": null },
+            "Design": { "status": "todo", "owner": null },
+            "Functional/508 QA": { "status": "todo", "owner": null },
+            "SAT": { "status": "todo", "owner": null },
+            "Content": { "status": "todo", "owner": null }
+          }
+        },
+        {
+          "id": "itm_guest-mode",
+          "title": "Guest mode",
+          "stages": {
+            "Build": { "status": "todo", "owner": null },
+            "Design": { "status": "todo", "owner": null },
+            "Functional/508 QA": { "status": "todo", "owner": null },
+            "SAT": { "status": "todo", "owner": null },
+            "Content": { "status": "todo", "owner": null }
+          }
+        }
+          ]
+        }
+      ],
       "owners": ["slavingia"],
       "access": {
         "merge": ["slavingia", "JoshStruble"],

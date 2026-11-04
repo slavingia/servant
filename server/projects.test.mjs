@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { accessOf, accessibleProjects, cleanLogin, cleanRepo, createProjectFiles, createProjectStore, expandPath, migrateFolders, needsMigration, newProject, projectInstructions, projectPeople, projectSharedWith, projectView, removeAccess, resolvePerson, setAccess, slugId } from "./projects.mjs";
+import { accessOf, accessibleProjects, cleanDate, cleanLogin, cleanOwner, cleanRepo, cleanStage, cleanStages, cleanStatus, createProjectFiles, createProjectStore, expandPath, migrateFolders, needsMigration, newItem, newProject, newRelease, patchCell, projectInstructions, projectPeople, projectSharedWith, projectView, releaseLines, releaseView, removeAccess, resolvePerson, setAccess, slugId } from "./projects.mjs";
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "servant-projects-"));
 const users = {
@@ -188,4 +188,91 @@ test("ids and cleaning: readable slugs, repos as owner/name, GitHub usernames", 
   assert.throws(() => newProject({ name: "P", workflow: "trunk" }, "usr_a", new Set()), /"main" or "pr"/);
   assert.throws(() => newProject({ name: "P", rules: "one" }, "usr_a", new Set()), /list of lines/);
   assert.deepEqual(newProject({ name: "P", rules: [" keep it short ", ""] }, "usr_a", new Set()).rules, ["keep it short"]);
+});
+
+test("releases: the example's November 17 drop, cells default to \"to do, nobody yet\", and the file round-trips", () => {
+  const file = path.join(tmp(), "projects.json");
+  fs.writeFileSync(file, JSON.stringify(example));
+  const store = createProjectStore(file);
+  const irs = store.byId("expo-irs");
+  assert.deepEqual(irs.stages, ["Build", "Design", "Functional/508 QA", "SAT", "Content"]);
+  assert.deepEqual(irs.releases.map(r => [r.name, r.date, r.items.map(i => i.title)]), [["November 17", "2026-11-17", ["Trump accounts", "DMAF", "DUT", "Guest mode"]]]);
+  const view = projectView(irs, accessOf(irs, users.usr_josh, users, example.people), users.usr_josh, users, example.people);
+  assert.deepEqual(view.stages, irs.stages);
+  assert.deepEqual(view.releases[0].items[0].stages["SAT"], { status: "todo", owner: null, ownerName: "" });
+  // Items keep no cell until someone sets one; the view still shows every stage, and unknown ones are dropped.
+  const item = newItem({ title: " Guest mode " });
+  assert.equal(item.title, "Guest mode");
+  assert.deepEqual(item.stages, {});
+  item.stages.Old = { status: "done", owner: "usr_ana" };
+  const shown = releaseView({ id: "rel_x", name: "Dec 1", date: "2026-12-01", items: [item] }, irs, users);
+  assert.deepEqual(Object.keys(shown.items[0].stages), irs.stages);
+  // A cell carries status, owner and an optional note; the view names the owner.
+  patchCell(irs, item, "SAT", { status: "blocked", owner: "usr_josh", note: "  Waiting on test accounts " }, users, example.people);
+  assert.deepEqual(item.stages.SAT, { status: "blocked", owner: "usr_josh", note: "Waiting on test accounts" });
+  patchCell(irs, item, "SAT", { note: "" }, users, example.people);
+  assert.equal(item.stages.SAT.note, undefined);
+  assert.deepEqual(releaseView({ id: "r", name: "n", date: "2026-12-01", items: [item] }, irs, users).items[0].stages.SAT, { status: "blocked", owner: "usr_josh", ownerName: "Josh Struble" });
+  // Saved releases come back as written; releases are listed soonest first whatever order the file has.
+  store.mutate(data => { const p = data.projects.find(x => x.id === "expo-irs"); p.releases.unshift(newRelease({ name: "December 15", date: "2026-12-15" }, 5)); p.releases[1].items.push(item); });
+  const again = projectView(store.byId("expo-irs"), { level: "merge", canEdit: true, canWrite: true }, users.usr_sahil, users, example.people);
+  assert.deepEqual(again.releases.map(r => r.name), ["November 17", "December 15"]);
+  assert.equal(again.releases[0].items[4].stages.SAT.ownerName, "Josh Struble");
+  // Hand-written files: bad entries are dropped or defaulted, never crash the store.
+  fs.writeFileSync(file, JSON.stringify({ projects: [{ id: "p", stages: ["Build", 3, ""], releases: [{ id: "r1", name: "", date: "soon", items: [{ id: "i1" }, "junk"] }, { name: "no id" }, null] }] }));
+  const p = store.byId("p");
+  assert.deepEqual(p.stages, ["Build"]);
+  assert.deepEqual(p.releases, [{ id: "r1", name: "Release", date: "", items: [{ id: "i1", title: "i1", stages: {} }] }]);
+});
+
+test("releases: cleaning stages, dates, titles, statuses and owners", () => {
+  assert.deepEqual(cleanStages([" Build ", "QA", ""]), ["Build", "QA"]);
+  assert.throws(() => cleanStages("Build"), /list of names/);
+  assert.throws(() => cleanStages(["Build", "build"]), /different name/);
+  assert.throws(() => cleanStages(Array.from({ length: 11 }, (_, i) => `S${i}`)), /10 stages/);
+  assert.equal(cleanDate("2026-11-17"), "2026-11-17");
+  for (const bad of ["11/17/2026", "2026-13-01", "2026-02-30", "2026-11-17T00:00", 20261117, ""]) assert.throws(() => cleanDate(bad), /2026-11-17/, String(bad));
+  assert.throws(() => newRelease({ name: " ", date: "2026-11-17" }), /Name the release/);
+  assert.throws(() => newRelease({ name: "Nov", date: "next week" }), /Dates look like/);
+  assert.throws(() => newItem({ title: "" }), /Give the item a name/);
+  assert.throws(() => cleanStatus("waiting"), /todo, doing, done or blocked/);
+  const project = { ...newProject({ name: "P", stages: ["Build", "SAT"] }, "usr_sahil", new Set()), access: { merge: ["usr_sahil"], write: ["usr_josh"], read: [] } };
+  assert.equal(cleanStage(project, "SAT"), "SAT");
+  assert.throws(() => cleanStage(project, "QA"), /one of this project's stages/);
+  assert.equal(cleanOwner(project, null, users, {}), null);
+  assert.equal(cleanOwner(project, "usr_josh", users, {}), "usr_josh");
+  assert.throws(() => cleanOwner(project, "usr_ana", users, {}), /isn't in this project/, "not in the project");
+  assert.throws(() => cleanOwner(project, "usr_gone", users, {}), /isn't in this project/, "removed");
+  assert.throws(() => cleanOwner(project, "usr_nobody", users, {}), /isn't in this project/);
+  const item = newItem({ title: "DUT" });
+  assert.throws(() => patchCell(project, item, "SAT", { note: 7 }, users, {}), /note is text/);
+  assert.throws(() => patchCell(project, item, "SAT", { status: "later" }, users, {}), /todo, doing/);
+  assert.deepEqual(item.stages.SAT, { status: "todo", owner: null }, "nothing changes when the change is bad");
+});
+
+test("what the agent is told about releases: the next drops, each item's open stages and their owners", () => {
+  const file = path.join(tmp(), "projects.json");
+  fs.writeFileSync(file, JSON.stringify(example));
+  const irs = createProjectStore(file).byId("expo-irs");
+  const [trump, dmaf, dut, guest] = irs.releases[0].items;
+  patchCell(irs, trump, "SAT", { status: "blocked", owner: "usr_josh", note: "Waiting on test accounts" }, users, example.people);
+  patchCell(irs, trump, "Build", { status: "done", owner: "usr_sahil" }, users, example.people);
+  patchCell(irs, trump, "Design", { status: "doing", owner: "usr_sahil" }, users, example.people);
+  for (const s of irs.stages) patchCell(irs, dmaf, s, { status: "done", owner: "usr_josh" }, users, example.people);
+  const lines = releaseLines(irs, users, "2026-11-04");
+  assert.match(lines, /^Upcoming releases \(today is 2026-11-04\), with what isn't done yet and who owns it:\n- November 17 \(2026-11-17\): /);
+  assert.match(lines, /Trump accounts: Design doing \(Sahil Lavingia\), Functional\/508 QA to do \(nobody yet\), SAT blocked \(Josh Struble: Waiting on test accounts\), Content to do \(nobody yet\); DMAF: all done; DUT: Build to do/);
+  assert.doesNotMatch(lines, /Build done/, "finished stages are left out");
+  // Past releases are left out; with nothing coming up there is no block at all. A project without stages says so.
+  assert.equal(releaseLines(irs, users, "2026-11-18"), "");
+  irs.releases.push(newRelease({ name: "Spring", date: "2027-03-01" }));
+  assert.match(releaseLines(irs, users, "2026-11-18"), /^Upcoming releases.*\n- Spring \(2027-03-01\): no items yet$/);
+  assert.match(releaseLines({ ...irs, stages: [] }, users, "2026-11-04"), /Trump accounts: no stages; DMAF: no stages/);
+  // It sits in every project chat's instructions, after the access line and before the notes; vibe chats skip it.
+  const tell = asker => projectInstructions(irs, { chat: {}, asker, level: "write", files, full: true, users, today: "2026-11-04" });
+  const sys = tell(users.usr_josh);
+  assert.ok(sys.indexOf("can write but not merge") < sys.indexOf("Upcoming releases"), "after the access line");
+  assert.match(sys, /SAT blocked \(Josh Struble: Waiting on test accounts\)/);
+  assert.doesNotMatch(projectInstructions({ ...irs, pages: "https://example.test/" }, { chat: { mode: "vibe", vibeFolder: "vibe-1" }, asker: users.usr_josh, level: null, files, full: true, users, today: "2026-11-04" }), /Upcoming releases/);
+  void [dut, guest];
 });

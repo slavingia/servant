@@ -584,6 +584,83 @@ test("shared projects: people in a project share its notes and files, never each
   for (let last = -1, n = owner.calls.length + member.calls.length; n !== last; await new Promise(r => setTimeout(r, 400))) { last = n; n = owner.calls.length + member.calls.length; }
 });
 
+test("releases: items move through the project's stages; writers plan, whoever owns a cell moves it along, the agent hears what's open", async () => {
+  const lead = await pair("member", "Lee Lead");
+  const dev = await pair("member", "Dev Doer");
+  const ro = await pair("member", "Rae Reader");
+  const out = await pair("member", "Out Sider");
+  const idOf = async token => (await api("GET", "/v1/people", { token })).json.me;
+  const [devId, roId, outId] = [await idOf(dev), await idOf(ro), await idOf(out)];
+  // Dates relative to today, so "upcoming" stays upcoming whenever this runs.
+  const inDays = n => { const d = new Date(Date.now() + n * 86400000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  const stages = ["Build", "Design", "Functional/508 QA", "SAT", "Content"];
+  const project = (await api("POST", "/v1/projects", { token: lead, body: { name: "IRS app", repo: "example/expo-irs", path: "~/expo-irs", stages } })).json.project;
+  assert.deepEqual([project.stages, project.releases], [stages, []]);
+  const P = `/v1/projects/${project.id}`;
+  await api("POST", `${P}/people`, { token: lead, body: { userId: devId, level: "write" } });
+  await api("POST", `${P}/people`, { token: lead, body: { userId: roId, level: "read" } });
+  // Stages are the owner's call, like the rules.
+  assert.equal((await api("PATCH", P, { token: dev, body: { stages: ["Build"] } })).status, 403);
+  assert.equal((await api("PATCH", P, { token: lead, body: { stages: ["Build", "build"] } })).status, 400);
+  // Writers add releases and items; readers can't, and outsiders don't see the project at all.
+  const nov = inDays(13);
+  assert.equal((await api("POST", `${P}/releases`, { token: ro, body: { name: "November 17", date: nov } })).status, 403);
+  assert.equal((await api("POST", `${P}/releases`, { token: out, body: { name: "November 17", date: nov } })).status, 404);
+  assert.equal((await api("POST", `${P}/releases`, { token: dev, body: { name: "November 17", date: "17 Nov" } })).status, 400);
+  assert.equal((await api("POST", `${P}/releases`, { token: dev, body: { name: "", date: nov } })).status, 400);
+  let view = (await api("POST", `${P}/releases`, { token: dev, body: { name: "November 17", date: nov } })).json.project;
+  const rel = view.releases[0];
+  assert.deepEqual([rel.name, rel.date, rel.items], ["November 17", nov, []]);
+  const R = `${P}/releases/${rel.id}`;
+  assert.equal((await api("POST", `${R}/items`, { token: ro, body: { title: "Trump accounts" } })).status, 403);
+  assert.equal((await api("POST", `${R}/items`, { token: dev, body: { title: " " } })).status, 400);
+  for (const title of ["Trump accounts", "DMAF", "DUT", "Guest mode"]) view = (await api("POST", `${R}/items`, { token: dev, body: { title } })).json.project;
+  const items = view.releases[0].items;
+  assert.deepEqual(items.map(i => i.title), ["Trump accounts", "DMAF", "DUT", "Guest mode"]);
+  assert.deepEqual(items[0].stages, Object.fromEntries(stages.map(s => [s, { status: "todo", owner: null, ownerName: "" }])), "every stage starts as to do, nobody yet");
+  const trump = `${R}/items/${items[0].id}`;
+  // One cell: a known stage, a real status, an owner who is in the project.
+  const cell = (token, body) => api("PATCH", `${trump}/stages`, { token, body });
+  assert.equal((await cell(dev, { stage: "QA", status: "doing" })).status, 400);
+  assert.equal((await cell(dev, { stage: "SAT", status: "soon" })).status, 400);
+  assert.equal((await cell(dev, { stage: "SAT", owner: outId })).status, 404);
+  assert.equal((await cell(dev, { stage: "SAT", owner: "usr_nobody" })).status, 404);
+  assert.equal((await cell(ro, { stage: "SAT", status: "doing" })).status, 403, "a reader who doesn't own the cell");
+  view = (await cell(dev, { stage: "SAT", owner: roId, status: "doing" })).json.project;
+  assert.deepEqual(view.releases[0].items[0].stages.SAT, { status: "doing", owner: roId, ownerName: "Rae Reader" });
+  // Now it's Rae's to-do: she can move it along and note it, but still can't touch other cells.
+  view = (await cell(ro, { stage: "SAT", status: "blocked", note: "Waiting on test accounts" })).json.project;
+  assert.deepEqual(view.releases[0].items[0].stages.SAT, { status: "blocked", owner: roId, ownerName: "Rae Reader", note: "Waiting on test accounts" });
+  assert.equal((await cell(ro, { stage: "Build", status: "done" })).status, 403);
+  assert.equal((await api("GET", P, { token: ro })).json.project.releases[0].items[0].stages.SAT.note, "Waiting on test accounts", "readers see release data");
+  assert.equal((await api("GET", P, { token: out })).status, 404);
+  // Every chat in the project tells the agent what's coming, what's open and who owns it.
+  const chat = (await api("POST", "/v1/chats", { token: dev, body: { projectId: project.id } })).json.chat;
+  await api("POST", `/v1/chats/${chat.id}/messages`, { token: dev, body: { text: "what's left for the 17th?" } });
+  const stream = await waitFor(() => [...owner.calls, ...member.calls].find(c => c.url.endsWith("/chat/stream") && c.body.message === "what's left for the 17th?"));
+  assert.match(stream.body.system_message, new RegExp(`Upcoming releases \\(today is \\d{4}-\\d{2}-\\d{2}\\), with what isn't done yet and who owns it:\\n- November 17 \\(${nov}\\): Trump accounts: Build to do \\(nobody yet\\), Design to do \\(nobody yet\\), Functional/508 QA to do \\(nobody yet\\), SAT blocked \\(Rae Reader: Waiting on test accounts\\), Content to do \\(nobody yet\\); DMAF: Build to do`));
+  // Taking a stage out hides its column; the cells are kept and come back with it.
+  assert.deepEqual(Object.keys((await api("PATCH", P, { token: lead, body: { stages: ["Build", "SAT"] } })).json.project.releases[0].items[0].stages), ["Build", "SAT"]);
+  assert.equal((await api("PATCH", P, { token: lead, body: { stages } })).json.project.releases[0].items[0].stages.SAT.status, "blocked");
+  // Rename or move a release or an item; take them out. Readers can't.
+  assert.equal((await api("PATCH", R, { token: ro, body: { name: "Nov" } })).status, 403);
+  view = (await api("PATCH", R, { token: dev, body: { name: "November 18", date: inDays(14) } })).json.project;
+  assert.deepEqual([view.releases[0].name, view.releases[0].date], ["November 18", inDays(14)]);
+  assert.equal((await api("PATCH", R, { token: dev, body: { date: "2026-02-30" } })).status, 400);
+  assert.equal((await api("PATCH", trump, { token: dev, body: { title: "Trump Accounts" } })).json.project.releases[0].items[0].title, "Trump Accounts");
+  assert.equal((await api("DELETE", trump, { token: ro })).status, 403);
+  assert.deepEqual((await api("DELETE", `${R}/items/${items[3].id}`, { token: dev })).json.project.releases[0].items.map(i => i.title), ["Trump Accounts", "DMAF", "DUT"]);
+  assert.equal((await api("DELETE", `${R}/items/itm_nope`, { token: dev })).status, 404);
+  assert.equal((await api("PATCH", `${P}/releases/rel_nope`, { token: dev, body: { name: "x" } })).status, 404);
+  // The server lists releases by date; the app splits upcoming from past.
+  view = (await api("POST", `${P}/releases`, { token: lead, body: { name: "Last month", date: inDays(-30) } })).json.project;
+  assert.deepEqual(view.releases.map(r => r.name), ["Last month", "November 18"]);
+  assert.equal((await api("DELETE", R, { token: ro })).status, 403);
+  assert.deepEqual((await api("DELETE", R, { token: dev })).json.project.releases.map(r => r.name), ["Last month"]);
+  // Let this test's agent turn finish so it doesn't land in the next test's window.
+  for (let last = -1, n = owner.calls.length + member.calls.length; n !== last; await new Promise(r => setTimeout(r, 400))) { last = n; n = owner.calls.length + member.calls.length; }
+});
+
 test("old builds: /v1/folders is projects under another name", async () => {
   const token = await pair("member", "Old Phone");
   const mate = await pair("member", "Old Mate");
