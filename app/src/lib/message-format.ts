@@ -24,7 +24,7 @@ const unescape = (text: string) => text.replace(/\\([\\`*_{}[\]()#+\-.!|~>])/g, 
 // Order matters: code wins over everything, links over emphasis.
 const INLINE = new RegExp([
   /(`+)([^`\n]+?)\1/.source,                                   // 1,2 code
-  /!?\[((?:[^\][\n]|\[[^\][\n]*\])+)\]\(\s*<?([^()\s<>]+(?:\([^()\s]*\)[^()\s<>]*)*)>?(?:\s+"[^"\n]*")?\s*\)/.source, // 3,4 link or image
+  /!?\[((?:[^\][\n]|\[[^\][\n]*\])+)\][ \t]?\(\s*<?([^()\s<>]+(?:\([^()\s]*\)[^()\s<>]*)*)>?(?:\s+"[^"\n]*")?\s*\)/.source, // 3,4 link or image
   /(https?:\/\/[^\s<>"'`]*[^\s<>"'`.,;:!?)\]}*_~])/.source,      // 5 bare url
   /\*\*(?=\S)([^\n]*?\S)\*\*/.source,                          // 6 strong
   /(?<![\w_])__(?=\S)([^\n]*?\S)__(?![\w_])/.source,           // 7 strong
@@ -43,6 +43,8 @@ function parse(text: string, style: Style, out: Inline[]) {
     if (m[3] !== undefined) {
       const url = safeUrl(m[4]!);
       if (!url) continue; // javascript: and friends stay as typed
+      // Models sometimes write "[title] (/chat/cht_x)"; forgive the space for in-app links only.
+      if (/^!?\[[^\n]*\][ \t]\(/.test(m[0]) && !url.startsWith('/chat/')) continue;
       plain(text.slice(start, at));
       parse(m[3], { ...style, url }, out);
     } else {

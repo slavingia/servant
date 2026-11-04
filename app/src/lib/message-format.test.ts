@@ -68,3 +68,10 @@ test('agent chat links the server writes are allowed, nothing else relative', ()
   assert.equal(safeUrl('/chat/cht_abc-12'), '/chat/cht_abc-12');
   for (const u of ['/chat/cht_a/../x', '/other', '/chat/', '//evil.example']) assert.equal(safeUrl(u), undefined);
 });
+
+test('in-app chat link tolerates a stray space before the parenthesis', () => {
+  const parts = inlineMessage('in [Fix it] (/chat/cht_abc123). Go');
+  assert.equal(parts.find(p => p.url)?.url, '/chat/cht_abc123');
+  assert.equal(inlineMessage('[a] (https://x.com)').some(p => p.url), false);
+  assert.equal(inlineMessage('[a](/chat/cht_FWKLlgGGBFxV)').some(p => p.url), true);
+});
