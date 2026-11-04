@@ -163,6 +163,18 @@ export function channelName(input) {
     .slice(0, 40);
 }
 
+// When @s is asked for real work in a channel or DM, the agent opens a shared agent chat for it
+// instead of working in the thread. It says so with this hidden line, which Servant replaces
+// with a link to the new chat.
+export const WORK_CHAT_TAG = /\n?<servant-chat>([\s\S]{1,200}?)<\/servant-chat>\s*$/;
+export const WORK_CHAT_INSTRUCTIONS = "If this needs real work (several steps, running tools, changing code or files, or research longer than a quick answer), " +
+  "don't do it here. Reply with one short sentence saying you'll take it to a shared agent chat, then end with a line exactly " +
+  "<servant-chat>Short title of the work</servant-chat>. Quick questions: just answer, with no tag.";
+export function splitWorkChat(text) {
+  const m = String(text || "").match(WORK_CHAT_TAG);
+  return m ? { text: String(text).slice(0, m.index).trimEnd(), title: m[1].replace(/\s+/g, " ").trim().slice(0, 80) } : { text: String(text || ""), title: null };
+}
+
 export function mentionsAgent(text, agentName = "") {
   const t = String(text);
   // @s is how people call the agent; @agent from older messages still works.
@@ -187,7 +199,7 @@ export function agentShouldReply(text, agentName = "", inAgentThread = false) {
  * @param {() => string} o.agentName
  * @param {(o:{sessionId:string, sessionKey:string, text:string, attachments:Array, onDelta:(t:string)=>void, onStatus:(t:string)=>void}) => Promise<string|{text:string,attachments:Array}>} o.askAgent
  */
-export function createMessaging({ file, users, agentName, askAgent, onMessage = () => {}, externalWorker = false, onUsage = () => {}, messageExtras = () => null }) {
+export function createMessaging({ file, users, agentName, askAgent, onMessage = () => {}, externalWorker = false, onUsage = () => {}, messageExtras = () => null, startWorkChat = null }) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(file);
   db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON');
@@ -731,9 +743,10 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     const where = direct ? `a private chat with ${person(trigger.user_id).name}` : conv.kind === "channel" ? `#${conv.name}` : "a direct message";
     const audience = direct ? "Only this person reads your reply." : "Several people can read your reply.";
     const transcript = recent.map((m) => `${m.user_id === AGENT_ID ? "You" : person(m.user_id).name}: ${m.text}`).join("\n");
+    const work = startWorkChat && !direct ? ` ${WORK_CHAT_INSTRUCTIONS}` : "";
     const prompt =
       `[Servant ${where}. ${audience} Answer the latest message, ` +
-      `clearly. Include images when useful.]\n\n${transcript}`;
+      `clearly. Include images when useful.${work}]\n\n${transcript}`;
     // If the agent lost this thread's session (for example after switching
     // agents), it starts over with the whole thread instead of failing.
     const fullThread = thread
@@ -742,7 +755,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       : transcript;
     const restartPrompt =
       `[Servant ${where}. ${audience} Answer the latest message, ` +
-      `clearly. Include images when useful. This is the whole thread so far.]\n\n${fullThread}`;
+      `clearly. Include images when useful.${work} This is the whole thread so far.]\n\n${fullThread}`;
     // Bound recent visual context to the same total upload budget. Prefer the
     // latest images so an old thread cannot crowd out the triggering message.
     const images = [];
@@ -794,6 +807,17 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
         attachments = final.attachments || [];
         text = final.text || (attachments.length ? "" : text || "I couldn't come up with an answer");
       } else text = final || text || "I couldn't come up with an answer";
+      // Real work goes to a shared agent chat; the thread gets a link to it.
+      const work = splitWorkChat(text);
+      if (work.title && startWorkChat) {
+        text = work.text;
+        try {
+          const chat = await startWorkChat({ userId: trigger.user_id, deviceId: trigger.source_device_id, title: work.title, where, transcript: fullThread });
+          text = `${text ? text + "\n\n" : ""}Working on it in [${chat.title}](/chat/${chat.id}). Anyone can follow along there`;
+        } catch (e) {
+          text = `${text ? text + "\n\n" : ""}I couldn't open a shared chat for this (${e?.message || "error"}). Ask me again, or start an agent chat`;
+        }
+      } else if (work.title) text = work.text;
     } catch {
       text = text || "I hit a problem. Try asking again";
     }

@@ -1465,6 +1465,28 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
     // server is set to "agentAccess": "limited".
     onUsage: recordUsage,
     messageExtras: m => meetings?.messageExtras(m),
+    // @s in a channel or DM asked for real work: open a shared agent chat for the person who
+    // asked, with the conversation as its first message, and start the agent on it.
+    startWorkChat: async ({ userId, deviceId, title, where, transcript }) => {
+      const cfg = fixedCfg || loadConfig();
+      const state = readState();
+      const user = state.users[userId];
+      if (!user) throw new Error("that person is gone");
+      const device = Object.values(state.devices).find(d => d.id === deviceId && d.userId === userId && !d.revokedAt)
+        ?? Object.values(state.devices).find(d => d.userId === userId && !d.revokedAt);
+      if (!device) throw new Error("no signed-in device");
+      const up = upstreamFor(user, cfg);
+      if (!up) throw new Error("the agent isn't set up");
+      const chatId = id("cht"), hermesSessionId = `servant_${user.id}_${chatId}`;
+      const made = await hermes(up, "POST", "/api/sessions", { id: hermesSessionId, title: `Servant · ${user.name} · ${chatId.slice(-6)}` });
+      if (!made.ok) throw new Error(`agent ${made.status}`);
+      const chat = { id: chatId, userId: user.id, role: user.role, hermesSessionId, title: title.slice(0, 80), shared: true,
+        startedAt: now(), createdAt: now(), updatedAt: now(), fromConversation: where };
+      mutateState(s => { s.chats[chatId] = chat; });
+      const text = `${user.name} asked for this in ${where}. Do the work here; others can follow along.\n\n${transcript}`.slice(0, INLINE_MESSAGE_CHARS);
+      serviceTurns.enqueue({ chat, user, device, text, attachments: [] });
+      return chat;
+    },
     askAgent: async ({ sessionId, sessionKey: key, fresh, text, restartText, attachments, onDelta, onUsage = () => {}, userId }) => {
       if (usageStore().overLimit(readState().users[userId])) return limitMessage(usageStore().limit);
       const cfg = fixedCfg || loadConfig();

@@ -63,3 +63,8 @@ test('indented fences inside lists still become code', () => {
     { kind: 'list', depth: 0, marker: '•', text: 'config:' }, { kind: 'code', language: 'json', text: '{"a":1}' },
   ]);
 });
+
+test('agent chat links the server writes are allowed, nothing else relative', () => {
+  assert.equal(safeUrl('/chat/cht_abc-12'), '/chat/cht_abc-12');
+  for (const u of ['/chat/cht_a/../x', '/other', '/chat/', '//evil.example']) assert.equal(safeUrl(u), undefined);
+});

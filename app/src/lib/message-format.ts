@@ -12,7 +12,8 @@ export type Block =
 
 type Style = Omit<Inline, 'text'>;
 
-const SAFE_URL = /^(https?:\/\/|mailto:)[^\s<>"]+$/i;
+// In-app links the server writes (an agent chat opened for a @s request) are allowed too.
+const SAFE_URL = /^(https?:\/\/|mailto:|\/chat\/cht_[\w-]+$)[^\s<>"]*$/i;
 export function safeUrl(url: string): string | undefined {
   const trimmed = url.trim().replace(/^<(.*)>$/, '$1');
   return SAFE_URL.test(trimmed) ? trimmed : undefined;

@@ -1,11 +1,14 @@
 import { memo, type ReactNode } from 'react';
 import { Linking, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { router } from 'expo-router';
 import { inlineMessage, messageBlocks, type Inline } from '../lib/message-format';
 import { radius, space, typography, createThemedStyles } from '../lib/theme';
 
 type Styles = ReturnType<typeof useStyles>;
 
 function open(url: string) {
+  // An agent chat link (from @s handing work to a shared chat) opens inside the app.
+  if (url.startsWith('/chat/')) { router.push({ pathname: '/chat/[id]', params: { id: url.slice(6) } }); return; }
   void Linking.openURL(url).catch(() => {});
 }
 

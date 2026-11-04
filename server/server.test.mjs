@@ -67,7 +67,8 @@ function fakeHermes(key, label) {
       return;
     }
     if (req.method === "POST" && m[2] === "/chat/stream") {
-      const reply = `${label} heard: ${body.message}`;
+      // A request containing WORKCHAT gets the hand-off to a shared agent chat.
+      const reply = /WORKCHAT/.test(body.message) ? "Taking this to a shared chat.\n<servant-chat>Refund script update</servant-chat>" : `${label} heard: ${body.message}`;
       const msgs = sessions.get(sid);
       msgs.push({ id: msgs.length + 1, role: "user", content: body.message });
       msgs.push({ id: msgs.length + 2, role: "tool", content: "secret tool output" });
@@ -262,6 +263,27 @@ test("the join link works for many people, asks each for a name, and a fresh lin
 });
 
 // config.json is re-read per request; set work hours for one test.
+test("@s with real work opens a shared agent chat with the request, linked from the thread", async () => {
+  const ana = await pair("owner", "Work Ana");
+  const ch = (await api("POST", "/v1/conversations", { token: ana, body: { name: "work-handoff" } })).json.conversation;
+  const route = `/v1/conversations/${ch.id}`;
+  const ask = (await api("POST", route + "/messages", { token: ana, body: { text: "@s WORKCHAT update the refund script" } })).json.message;
+  let link;
+  for (let i = 0; i < 150 && !link; i++) {
+    const thread = (await api("GET", `${route}/threads/${ask.id}`, { token: ana })).json;
+    link = (thread.replies || thread.messages || []).map(m => m.text).find(t => /\(\/chat\/cht_/.test(t || ""));
+    if (!link) await new Promise(r => setTimeout(r, 100));
+  }
+  assert.doesNotMatch(link, /servant-chat/);
+  const chatId = link.match(/\/chat\/(cht_[\w-]+)/)[1];
+  const chat = (await api("GET", `/v1/chats/${chatId}`, { token: ana })).json.chat;
+  assert.equal(chat.title, "Refund script update");
+  assert.equal(chat.shared, true, "shared with the server so anyone can follow");
+  const turns = (await api("GET", `/v1/chats/${chatId}/turns`, { token: ana })).json.turns;
+  assert.ok(turns.length >= 1, "the agent was started on it");
+  assert.match(turns.at(-1).text, /asked for this in #work-handoff/);
+});
+
 test("agent chats: swipe to archive, restore, and a new message un-archives; only the owner can", async () => {
   const token = await pair("member", "Arlo");
   const other = await pair("member", "Bea");
@@ -1478,3 +1500,4 @@ test("ten wrong codes lock out pairing from that address; good pairings don't co
   const code = mod.createInvite({ name: "Late" });
   assert.equal((await api("POST", "/v1/pair", { body: { terms: ACCEPT, code } })).status, 429);
 });
+
