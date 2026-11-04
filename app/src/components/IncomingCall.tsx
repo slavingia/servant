@@ -9,6 +9,7 @@ import { api } from "../lib/server";
 import { systemCalls } from "../lib/servant-call";
 import { callsSupported } from "../lib/meeting-call";
 import { RING_MS, shouldRing } from "../lib/incoming-call";
+import { startRingSound } from "../lib/ring-sound";
 import { radius, space, typography } from "../lib/theme";
 
 type Ring = { id: string; name: string; conversation: string; until: number };
@@ -46,8 +47,9 @@ export function IncomingCall() {
     const buzz = () => { void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {}); };
     buzz();
     const tick = setInterval(buzz, 1500);
+    const sound = startRingSound("incoming");
     const stop = setTimeout(() => setRing(null), Math.max(0, ring.until - Date.now()));
-    return () => { clearInterval(tick); clearTimeout(stop); };
+    return () => { clearInterval(tick); clearTimeout(stop); sound(); };
   }, [ring]);
 
   const hide = () => { if (ring) { dismissed.current.add(ring.id); systemCalls.end(ring.id); } setRing(null); };

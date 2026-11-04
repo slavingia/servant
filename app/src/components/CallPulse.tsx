@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Animated, Easing, StyleSheet, Text, View } from "react-native";
+import { Animated, Easing, Platform, StyleSheet, Text, View } from "react-native";
 
 /** Three rings that swell and fade around a centred initial: the call is ringing, even with the phone silent. */
 export function CallPulse({ initial, size = 112 }: { initial: string; size?: number }) {
@@ -7,7 +7,7 @@ export function CallPulse({ initial, size = 112 }: { initial: string; size?: num
   useEffect(() => {
     const loops = rings.map((v, i) => Animated.loop(Animated.sequence([
       Animated.delay(i * 600),
-      Animated.timing(v, { toValue: 1, duration: 1800, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.timing(v, { toValue: 1, duration: 1800, easing: Easing.out(Easing.quad), useNativeDriver: Platform.OS !== "web" }),
     ])));
     loops.forEach(l => l.start());
     return () => loops.forEach(l => l.stop());

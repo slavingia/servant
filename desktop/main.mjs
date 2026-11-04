@@ -1,4 +1,4 @@
-import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, Menu, nativeTheme, net, protocol, safeStorage, session, shell } from 'electron';
+import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, Menu, nativeTheme, net, protocol, safeStorage, session, shell, systemPreferences } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -63,7 +63,21 @@ else {
     // Copy actions may write plain text, and meetings may use the camera and
     // microphone. No clipboard reading, screen capture or other device access.
     session.defaultSession.setPermissionCheckHandler((contents, permission, origin, details) => contents === window?.webContents && isAppUrl(origin) && allowedPermission(permission, details));
-    session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => callback(contents === window?.webContents && isAppUrl(details.requestingUrl) && allowedPermission(permission, details)));
+    session.defaultSession.setPermissionRequestHandler(async (contents, permission, callback, details) => {
+      if (!(contents === window?.webContents && isAppUrl(details.requestingUrl) && allowedPermission(permission, details))) return callback(false);
+      // macOS keeps its own camera and microphone permission. Without asking it here, a call
+      // quietly joins with no video (others hear you but can't see you).
+      if (permission === 'media' && process.platform === 'darwin') {
+        const types = details.mediaTypes || (details.mediaType ? [details.mediaType] : []);
+        for (const type of new Set(types.map(t => (t === 'video' ? 'camera' : 'microphone')))) {
+          if (systemPreferences.getMediaAccessStatus(type) !== 'granted' && !(await systemPreferences.askForMediaAccess(type).catch(() => false))) {
+            // Audio-only still works; video can be retried after allowing it in System Settings.
+            if (type === 'microphone') return callback(false);
+          }
+        }
+      }
+      callback(true);
+    });
     // "Share screen" in a call: macOS shows its own picker (screens and windows), and nothing is
     // captured until the person chooses. If the system picker isn't available, offer the main screen.
     session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {

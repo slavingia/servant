@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } fr
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { CallPulse } from "../../components/CallPulse";
+import { startRingSound } from "../../lib/ring-sound";
 import { CallVideo } from "../../components/CallVideo";
 import { useSession } from "../../lib/session";
 import { systemCalls } from "../../lib/servant-call";
@@ -36,6 +37,10 @@ function Meeting() {
     void c.start();
     return () => { void c.leave(); call.current = null; };
   }, [account, id]);
+
+  // "Calling…" rings back until someone joins, so you know it's ringing on their end.
+  const waiting = state.status === "live" && state.remotes.length === 0;
+  useEffect(() => (waiting ? startRingSound("outgoing") : undefined), [waiting]);
 
   const close = () => { if (router.canGoBack()) router.back(); else router.replace("/"); };
   const leave = async () => { await call.current?.leave(); close(); };
