@@ -643,6 +643,11 @@ test("vibe coders: owners mark them; their chats build a prototype and show a pr
   assert.equal((await api("GET", "/v1/people", { token: boss })).json.people.find((p) => p.id === val).unlimitedTokens, true);
   assert.equal((await api("PATCH", `/v1/people/${val}`, { token: boss, body: { unlimitedTokens: "yes" } })).status, 400);
   assert.equal((await api("PATCH", `/v1/people/${val}`, { token: boss, body: { unlimitedTokens: false } })).json.person.unlimitedTokens, false);
+  // Owners fix a misspelled name; members can't, and names stay unique.
+  assert.equal((await api("PATCH", `/v1/people/${val}`, { token, body: { name: "Val Vibez" } })).status, 403);
+  assert.equal((await api("PATCH", `/v1/people/${val}`, { token: boss, body: { name: "  Val   Vibez " } })).json.person.name, "Val Vibez");
+  assert.equal((await api("PATCH", `/v1/people/${val}`, { token: boss, body: { name: "Vi Owner" } })).status, 409);
+  assert.equal((await api("GET", "/v1/me", { token })).json.user.name, "Val Vibez");
   // Their chats ignore a requested project and always vibe-code the prototypes repo.
   const chat = (await api("POST", "/v1/chats", { token, body: { projectId: "servant" } })).json.chat;
   assert.equal(chat.mode, "vibe");

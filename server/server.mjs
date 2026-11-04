@@ -710,6 +710,21 @@ async function handle(req, res, cfg) {
     return local && !!cfg.adminKey && key.length === cfg.adminKey.length && crypto.timingSafeEqual(Buffer.from(key), Buffer.from(cfg.adminKey));
   };
   // `servant remove-person` on this Mac: same as the owner removing them in the app.
+  if (method === "POST" && url.pathname === "/admin/people/rename") {
+    if (!adminAllowed()) return fail(res, 403, "forbidden", "Not allowed");
+    const body = await readBody(req);
+    const name = String(body.name || "").replace(/\s+/g, " ").trim().slice(0, 40);
+    if (!name) return fail(res, 400, "name_required", "Enter a name");
+    const done = mutateState(state => {
+      const target = state.users[String(body.userId || "")];
+      if (!target) throw requestError(404, "not_found", "No such person");
+      if (Object.values(state.users).some(u => u.id !== target.id && u.name.toLowerCase() === name.toLowerCase())) throw requestError(409, "name_taken", "Someone already uses that name");
+      target.name = name;
+      return target.id;
+    });
+    try { messaging?.personChanged(done); } catch (e) { console.error("[servant] person update", e); }
+    return send(res, 200, { ok: true, name });
+  }
   if (method === "POST" && url.pathname === "/admin/people/remove") {
     if (!adminAllowed()) return fail(res, 403, "forbidden", "Not allowed");
     const body = await readBody(req);
@@ -976,15 +991,20 @@ async function handle(req, res, cfg) {
   }
   if (method === "PATCH" && parts[1] === "people" && parts.length === 3 && parts[2] !== "me") {
     const body = await readAuthorizedBody(req);
-    // Owners only (the `true` below): vibe coder, and unlimited agent tokens (no daily cap).
+    // Owners only (the `true` below): vibe coder, unlimited agent tokens (no daily cap), and
+    // fixing someone's name (a typo at invite time).
     const flags = ["vibeCoder", "unlimitedTokens"].filter(k => k in body);
-    if (!flags.length || flags.some(k => typeof body[k] !== "boolean")) return fail(res, 400, "bad_request", "Send vibeCoder and/or unlimitedTokens as true or false");
+    const rename = typeof body.name === "string" ? body.name.replace(/\s+/g, " ").trim().slice(0, 40) : null;
+    if ((!flags.length && !rename) || flags.some(k => typeof body[k] !== "boolean") || rename === "") return fail(res, 400, "bad_request", "Send a name, or vibeCoder/unlimitedTokens as true or false");
     const person = mutateAuthenticated(req, (state) => {
       const target = state.users[parts[2]];
       if (!target) throw requestError(404, "not_found", "No such person");
+      if (rename && Object.values(state.users).some(u => u.id !== target.id && u.name.toLowerCase() === rename.toLowerCase())) throw requestError(409, "name_taken", "Someone already uses that name. Try another");
+      if (rename) target.name = rename;
       for (const k of flags) if (body[k]) target[k] = true; else delete target[k];
       return { id: target.id, name: target.name, vibeCoder: !!target.vibeCoder, unlimitedTokens: !!target.unlimitedTokens };
     }, true);
+    if (rename) try { messaging?.personChanged(parts[2]); } catch (e) { console.error("[servant] person update", e); }
     return send(res, 200, { person });
   }
   if (!meetings && parts[1] === "meetings") return fail(res, 503, "calls_unavailable", "Calls aren't running on this server right now. Ask your admin to restart it"), undefined;
@@ -1771,6 +1791,15 @@ if (isMain) {
       if (!r.ok) { console.error(`Couldn't remove them (${r.status}): ${data.error?.message || "server not running?"}`); process.exit(1); }
       console.log(data.removed ? `Removed ${data.name}. Their devices are signed out and #general says they left.` : `${found[0].name} was already removed`);
     }
+  } else if (cmd === "rename") {
+    // server.mjs rename "<name or id>" "<new name>" — fix someone's name; everyone's app updates live.
+    const [query, next] = [process.argv[3], (process.argv[4] || "").replace(/\s+/g, " ").trim().slice(0, 40)];
+    if (!query || !next) { console.error('usage: server.mjs rename "<name or id>" "<new name>"'); process.exit(2); }
+    const found = Object.values(readState().users).filter(u => u.id === query || u.name.toLowerCase() === query.toLowerCase());
+    if (found.length !== 1) { console.error("No one (or more than one person) by that name. List people with: server.mjs people"); process.exit(1); }
+    const { r, data } = await adminPost("/admin/people/rename", { userId: found[0].id, name: next });
+    if (!r.ok) { console.error(`Couldn't rename (${r.status}): ${data.error?.message || "server not running?"}`); process.exit(1); }
+    console.log(`Renamed ${found[0].name} to ${data.name}`);
   } else if (cmd === "tokens") {
     // server.mjs tokens <name or id> unlimited|limited — lift or restore someone's daily agent cap.
     const mode = process.argv.at(-1), query = process.argv.slice(3, -1).join(" ").trim();
