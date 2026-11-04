@@ -27,10 +27,7 @@ export type Project = { id: string; name: string; description?: string };
 // mode "vibe": a vibe-coding chat that builds a prototype with a preview link.
 // role: "owner" made the folder and manages people; "member" was added. chatCount is your own chats; sharedCount is teammates' chats they shared with the folder.
 export type Folder = { role: "owner" | "member"; owner: { id: string; name: string }; members: { id: string; name: string }[]; sharedCount: number; id: string; name: string; notes: string; files: { id: string; name: string; size: number }[]; chatCount: number; createdAt: number; updatedAt: number };
-export type Chat = { folderId?: string; folderShared?: boolean; project?: { id: string; name: string }; mode?: "vibe"; previewUrl?: string; files?: boolean; id: string; title: string; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; closed?: ChatClosed; latestTurn?: AgentTurn | null };
-// Agent chats close like issues: by you, by the agent when it's done, or by
-// the closer after a quiet day. A new message reopens it.
-export type ChatClosed = { by: "you" | "agent" | "closer"; reason: string | null; at: number };
+export type Chat = { folderId?: string; folderShared?: boolean; project?: { id: string; name: string }; mode?: "vibe"; previewUrl?: string; files?: boolean; id: string; title: string; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; latestTurn?: AgentTurn | null };
 export type Message = { id: string; role: "user" | "assistant"; text: string; at?: number | string | null; attachments?: Attachment[]; pending?: boolean; interrupted?: boolean; sourceDevice?: SourceDevice };
 
 // ----- token leaderboard -----

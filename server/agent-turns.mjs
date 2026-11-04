@@ -53,8 +53,7 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
     // Every progress step so far ([{ label, detail?, at }]), for the expanded view.
     if (!columns.has('steps')) db.exec("ALTER TABLE private_turns ADD COLUMN steps TEXT NOT NULL DEFAULT '[]'");
     if (!columns.has('started_at')) db.exec('ALTER TABLE private_turns ADD COLUMN started_at INTEGER');
-    // Issue-style closing: who closed the chat at this reply (agent|closer), why,
-    // and when the closer last judged it (so each reply is judged once).
+    // Unused since conversations stopped closing themselves; kept so older journals open unchanged.
     for (const column of ['closed_by', 'closed_reason']) if (!columns.has(column)) db.exec(`ALTER TABLE private_turns ADD COLUMN ${column} TEXT`);
     for (const column of ['closed_at', 'closer_checked_at']) if (!columns.has(column)) db.exec(`ALTER TABLE private_turns ADD COLUMN ${column} INTEGER`);
     // Earlier journals allowed one queued-or-running turn per chat. Messages now
@@ -125,12 +124,11 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
       if (name === 'approval' || name === 'approval_resolved') event(id, 'turn', { turn: view(row(id)) });
     });
   }
-  function finish(id, status, message, notification, closeReason) {
+  function finish(id, status, message, notification) {
     tx(() => {
       const t = row(id);
       if (!t || !active(t.status)) return;
       db.prepare('UPDATE private_turns SET status=?,payload=\'{}\',approval=NULL,approval_choice=NULL,updated_at=? WHERE id=?').run(status, clock(), id);
-      if (status === 'completed' && closeReason) db.prepare("UPDATE private_turns SET closed_by='agent',closed_reason=?,closed_at=? WHERE id=?").run(String(closeReason).slice(0, 200), clock(), id);
       if (message) event(id, 'error', { message });
       event(id, 'turn', { turn: view(row(id)) });
       event(id, 'done', { status });
@@ -272,7 +270,7 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
         controlError: message => emit(t.id, 'error', { message }),
       });
       for (const id of result?.unreadSteers || []) requeueSteer(id);
-      finish(t.id, result?.status || 'completed', undefined, result?.notification, result?.closeReason);
+      finish(t.id, result?.status || 'completed', undefined, result?.notification);
       return true;
     }).catch(error => {
       finish(t.id, error?.code === 'run_lost' ? 'interrupted' : 'failed', error?.code === 'agent_error' ? "The agent didn't answer. Try again" : 'The agent connection ended before the answer finished');
@@ -302,39 +300,7 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
     `msg_${crypto.createHash('sha256').update(`${t.chat_id}:user:${t.id}`).digest('hex').slice(0, 32)}`,
     t.source_device_kind,
   ]));
-  // The reply a chat currently ends on. Steered messages were folded into the
-  // reply before them, so they never reopen it on their own.
-  const lastReply = chatId => db.prepare("SELECT t.*, r.read_at FROM private_turns t LEFT JOIN private_reply_reads r ON r.turn_id=t.id WHERE t.chat_id=? AND t.status<>'steered' ORDER BY t.seq DESC LIMIT 1").get(chatId);
-  // Closed = the last reply finished, said it was done, and its author has read it.
-  function closure(chatId) {
-    const t = lastReply(chatId);
-    if (!t || t.status !== 'completed' || !t.closed_by || t.read_at == null) return null;
-    return { by: t.closed_by, reason: t.closed_reason || 'Done', at: Math.max(t.closed_at || 0, t.read_at) };
-  }
-  // Read replies the closer hasn't judged yet: finished, idle since `before`,
-  // nothing queued or running after them.
-  function closerCandidates({ before, limit = 10 }) {
-    return db.prepare(`SELECT t.* FROM private_turns t JOIN private_reply_reads r ON r.turn_id=t.id
-      WHERE t.status='completed' AND t.closed_by IS NULL AND t.closer_checked_at IS NULL AND MAX(t.updated_at, r.read_at)<? AND t.message_id IS NOT NULL
-        AND t.seq=(SELECT MAX(o.seq) FROM private_turns o WHERE o.chat_id=t.chat_id AND o.status<>'steered')
-      ORDER BY t.updated_at LIMIT ?`).all(before, limit).map(t => ({ id: t.id, chatId: t.chat_id, userId: t.user_id, role: t.role, updatedAt: t.updated_at }));
-  }
-  // Judged turns are never judged again; a new message makes a new turn.
-  function closerJudged(id, reason) {
-    return tx(() => {
-      const t = row(id);
-      if (!t || t.status !== 'completed' || t.closed_by) return false;
-      const last = lastReply(t.chat_id);
-      if (last?.id !== id) return false; // someone wrote in the meantime
-      db.prepare('UPDATE private_turns SET closer_checked_at=? WHERE id=?').run(clock(), id);
-      if (reason) db.prepare("UPDATE private_turns SET closed_by='closer',closed_reason=?,closed_at=? WHERE id=?").run(String(reason).slice(0, 200), clock(), id);
-      return !!reason;
-    });
-  }
-  // The conversation the closer reads: recent messages, oldest first.
-  const transcript = (chatId, count = 6) => db.prepare("SELECT text, assistant_text FROM private_turns WHERE chat_id=? AND status IN ('completed','steered') ORDER BY seq DESC LIMIT ?")
-    .all(chatId, count).reverse().flatMap(t => [{ role: 'user', text: t.text }, ...(t.assistant_text ? [{ role: 'assistant', text: t.assistant_text }] : [])]);
-  return { closure, closerCandidates, closerJudged, transcript, unreadByChat, markChatRead, enqueue, replay, processNext, recoverInterrupted, requestStop, requestApproval, requestSteer, markSteered, requeueSteer, drainOutbox,
+return { unreadByChat, markChatRead, enqueue, replay, processNext, recoverInterrupted, requestStop, requestApproval, requestSteer, markSteered, requeueSteer, drainOutbox,
     messageSources: chatId => sourceMap(db.prepare('SELECT id,chat_id,source_device_kind FROM private_turns WHERE chat_id=?').all(chatId)),
     turnMessageSources: id => sourceMap(db.prepare('SELECT id,chat_id,source_device_kind FROM private_turns WHERE id=?').all(id)),
     get: id => view(row(id)),

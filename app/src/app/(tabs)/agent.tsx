@@ -8,7 +8,7 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { SwipeRow } from "../../components/SwipeChannelRow";
 import { ProjectSheet, VIBE_CHOICE } from "../../components/ProjectSheet";
 import { getItem, setItem } from "../../lib/storage";
-import { api, ServerError, type Chat, type ChatClosed, type Folder, type Project } from "../../lib/server";
+import { api, ServerError, type Chat, type Folder, type Project } from "../../lib/server";
 
 // The line under the title, like the last message in a DM list.
 function lastLine(chat: Chat, author: string, agent = "") {
@@ -21,15 +21,6 @@ import { useSession } from "../../lib/session";
 import { useLive } from "../../lib/live";
 import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 import { activeAgentTurn, agentTurnLabel } from '../../lib/agent-turns';
-
-// Agent chats work like issues: Close files one away, a new message reopens it.
-const CLOSE_LABELS = { archive: "Close", restore: "Reopen" };
-// "Agent: Fixed the export bug" / "Closed by the closer: Nothing pending" / "Closed by you"
-function closedLine(closed: ChatClosed) {
-  if (closed.by === "you") return "Closed by you";
-  const who = closed.by === "agent" ? "Agent" : "Closed by the closer";
-  return closed.reason ? `${who}: ${closed.reason}` : closed.by === "agent" ? "Agent finished" : who;
-}
 
 
 export default function Chats() {
@@ -65,8 +56,8 @@ export default function Chats() {
     if (!choiceKey) return;
     void getItem(choiceKey).then(v => { if (v !== null) setChoice(v || null); }).catch(() => {});
   }, [choiceKey]);
-  // Like the DM tab's All/Unread: Active (everything not closed) and Closed.
-  const [view, setView] = useState<"active" | "closed">("active");
+  // Like the DM tab: Active and Archived. Only you archive a conversation.
+  const [view, setView] = useState<"active" | "archived">("active");
   const [openId, setOpenId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const busy = useRef(false);
@@ -139,8 +130,8 @@ export default function Chats() {
   const folderNames = new Map(folders.map(f => [f.id, f.name]));
   const active = (chats ?? []).filter(chat => !chat.archived);
   const archived = (chats ?? []).filter(chat => chat.archived);
-  const rows = view === "closed" ? archived : active;
-  const VIEWS = [{ key: "active", label: "Active" }, { key: "closed", label: "Closed" }] as const;
+  const rows = view === "archived" ? archived : active;
+  const VIEWS = [{ key: "active", label: "Active" }, { key: "archived", label: "Archived" }] as const;
 
   const choiceName = choice === VIBE_CHOICE ? "Vibe coding" : (choice && projects?.list.find(p => p.id === choice)?.name) || "Just the agent";
   const start = async (project?: string | null) => {
@@ -219,7 +210,7 @@ export default function Chats() {
                 <AppIcon name="chevronRight" size={16} color={colors.muted} />
               </Pressable>)}
             </View> : null}
-            <View accessibilityRole="tablist" style={styles.filters}>{VIEWS.map(({ key, label }) => <Pressable key={key} accessibilityRole="tab" accessibilityLabel={key === "closed" && archived.length ? `${label}, ${archived.length}` : label} accessibilityState={{ selected: view === key }} aria-selected={view === key} onPress={() => { closeRow(); setView(key); }} style={({ pressed }) => [styles.filter, view === key && styles.selectedFilter, pressed && { opacity: 0.7 }]}>
+            <View accessibilityRole="tablist" style={styles.filters}>{VIEWS.map(({ key, label }) => <Pressable key={key} accessibilityRole="tab" accessibilityLabel={key === "archived" && archived.length ? `${label}, ${archived.length}` : label} accessibilityState={{ selected: view === key }} aria-selected={view === key} onPress={() => { closeRow(); setView(key); }} style={({ pressed }) => [styles.filter, view === key && styles.selectedFilter, pressed && { opacity: 0.7 }]}>
               <Text style={[styles.filterText, view === key && styles.selectedFilterText]}>{label}</Text>
             </Pressable>)}</View>
           </View>
@@ -228,8 +219,8 @@ export default function Chats() {
           chats !== null && view !== "active" ? (
             <View style={styles.empty}>
               <AppIcon name="archive" size={32} color={colors.muted} />
-              <Text accessibilityRole="header" style={styles.emptyTitle}>No closed conversations</Text>
-              <Text style={styles.emptyBody}>Conversations you or the agent close will appear here.</Text>
+              <Text accessibilityRole="header" style={styles.emptyTitle}>No archived conversations</Text>
+              <Text style={styles.emptyBody}>Conversations you archive will appear here.</Text>
               <Button label="Show active conversations" kind="secondary" onPress={() => setView("active")} style={styles.emptyAction} />
             </View>
           ) : chats === null ? (
@@ -247,13 +238,13 @@ export default function Chats() {
           const unread = item.unread ?? 0;
           const title = item.title.replace(/`/g, "");
           return (
-            <SwipeRow name={title} kind="conversation" archived={!!item.archived} labels={CLOSE_LABELS} open={openId === item.id} busy={busyId !== null} canDelete
+            <SwipeRow name={title} kind="conversation" archived={!!item.archived} open={openId === item.id} busy={busyId !== null} canDelete
               onOpen={() => setOpenId(item.id)} onClose={closeRow} onArchive={() => { void act(item); }} onDelete={() => { setActionError(null); setDeleting(item); }}>
               {(bind) => (
                 <View style={styles.rowWrap}>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`${title}${unread ? `, ${unread} unread ${unread === 1 ? "reply" : "replies"}` : ""}${item.shared === true ? ", shared with everyone" : ""}${item.closed ? `. ${closedLine(item.closed)}` : lastLine(item, "You") ? `. ${lastLine(item, "You")}` : ""}`}
+                  accessibilityLabel={`${title}${unread ? `, ${unread} unread ${unread === 1 ? "reply" : "replies"}` : ""}${item.shared === true ? ", shared with everyone" : ""}${lastLine(item, "You") ? `. ${lastLine(item, "You")}` : ""}`}
                   onPress={() => bind.onPress(() => {
                     // Clear the badge right away; the chat screen tells the server.
                     if (unread) setChats(list => list?.map(chat => chat.id === item.id ? { ...chat, unread: 0 } : chat) ?? list);
@@ -268,7 +259,6 @@ export default function Chats() {
                   <View style={styles.rowCopy}><Text style={[styles.rowTitle, styles.readTitle, unread > 0 && styles.unreadTitle]} numberOfLines={1}>{title}</Text>
                     {item.mode === "vibe" || item.project || (item.folderId && folderNames.has(item.folderId)) ? <Text style={styles.projectTag} numberOfLines={1}>{[item.folderId ? folderNames.get(item.folderId) : null, item.mode === "vibe" ? "Vibe coding" : item.project?.name].filter(Boolean).join(" · ")}</Text> : null}
                     {activeAgentTurn(item.latestTurn) ? <Text style={styles.turnLabel} numberOfLines={1}>{agentTurnLabel(item.latestTurn!)}</Text>
-                      : item.closed ? <Text style={styles.preview} numberOfLines={1}>{closedLine(item.closed)}</Text>
                       : <View style={styles.privateTag}>
                         {item.shared === true ? <AppIcon name="people" size={12} color={colors.muted} /> : null}
                         <Text style={[styles.preview, unread > 0 && { color: colors.ink }]} numberOfLines={1}>{lastLine(item, "You") || (item.shared === true ? "Shared" : "")}</Text>

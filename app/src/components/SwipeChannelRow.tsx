@@ -108,10 +108,8 @@ type RowBindings = {
 
 // Swipe left to reveal Archive (or Restore) and Delete. Long press and the
 // VoiceOver actions open the same choices; on web a "⋯" button does.
-export function SwipeRow({ name, kind, archived, open, busy, canDelete, locked = false, labels, onOpen, onClose, onArchive, onDelete, children }: {
+export function SwipeRow({ name, kind, archived, open, busy, canDelete, locked = false, onOpen, onClose, onArchive, onDelete, children }: {
   name: string;
-  // Agent chats say Close/Reopen, like issues.
-  labels?: { archive: string; restore: string };
   locked?: boolean;
   kind: string;
   archived: boolean;
@@ -128,7 +126,7 @@ export function SwipeRow({ name, kind, archived, open, busy, canDelete, locked =
   const { colors } = useTheme();
   const [x] = useState(() => new Animated.Value(0));
   const width = canDelete ? 184 : 96;
-  const archiveLabel = archived ? labels?.restore ?? "Restore" : labels?.archive ?? "Archive";
+  const archiveLabel = archived ? "Restore" : "Archive";
   useEffect(() => {
     const animation = Animated.timing(x, { toValue: open ? -width : 0, duration: 180, useNativeDriver: true });
     animation.start();

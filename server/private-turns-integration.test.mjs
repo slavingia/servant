@@ -16,11 +16,10 @@ async function until(check) {
   for (let i = 0; i < 300; i++) { const value = await check(); if (value) return value; await sleep(20); }
   throw new Error('Timed out waiting for private turn');
 }
-async function fixture(t, { durable = true, restricted = false, closer = null } = {}) {
+async function fixture(t, { durable = true, restricted = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'servant-turn-api-'));
   const children = [], runs = new Map(), histories = new Map([['session', []]]), approvals = [];
   let historyOffline = false, pollsOffline = 0, controlsOffline = 0, startCount = 0;
-  const closerCalls = [];
   const emit = (run, event, body = {}) => {
     const payload = { event, ...body };
     if (run.response && !run.response.destroyed) run.response.write(`data: ${JSON.stringify(payload)}\n\n`);
@@ -41,10 +40,6 @@ async function fixture(t, { durable = true, restricted = false, closer = null } 
       histories.get('session').push({ id: `user_${startCount}`, role: 'user', content: body.message });
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       return res.end('event: assistant.completed\ndata: {"content":"Read exact input"}\n\n');
-    }
-    if (req.url === '/v1/chat/completions' && req.method === 'POST') {
-      closerCalls.push(body.messages);
-      return json(200, { choices: [{ message: { role: 'assistant', content: closer?.verdict ?? '{"done": false}' } }] });
     }
     if (req.url === '/api/sessions/session/messages') return json(historyOffline ? 503 : 200, { data: histories.get('session') });
     if (req.url === '/api/sessions' && req.method === 'POST') { histories.set(body.id, []); return json(201, { id: body.id }); }
@@ -91,7 +86,7 @@ async function fixture(t, { durable = true, restricted = false, closer = null } 
   let apiChild, workerChild, base;
   const start = async name => {
     const child = spawn(process.execPath, [new URL(`./${name}.mjs`, import.meta.url).pathname], {
-      env: { ...process.env, SERVANT_DATA_DIR: dir, SERVANT_PORT: '0', SERVANT_WORKER_MODE: 'external', SERVANT_CLOSER_MS: closer ? '100' : '', SERVANT_CLOSER_IDLE_MS: closer ? '0' : '' }, stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, SERVANT_DATA_DIR: dir, SERVANT_PORT: '0', SERVANT_WORKER_MODE: 'external' }, stdio: ['ignore', 'pipe', 'pipe'],
     });
     const item = { child, closed: once(child, 'close'), output: '' }; children.push(item);
     child.stdout.on('data', b => { item.output += b; }); child.stderr.on('data', b => { item.output += b; });
@@ -107,7 +102,7 @@ async function fixture(t, { durable = true, restricted = false, closer = null } 
   const api = (route, method = 'GET', body, user = 'owner') => testFetch(dir, base + route, { method,
     headers: { Authorization: `Bearer ${user}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
   const latest = async () => (await (await api('/v1/chats/chat/turns')).json()).turns[0];
-  return { dir, api, latest, runs, approvals, closerCalls, startCount: () => startCount, setVerdict: v => { closer.verdict = v; },
+  return { dir, api, latest, runs, approvals, startCount: () => startCount,
     disconnectEvents: run => run.response?.destroy(),
     offlineHistory: value => { historyOffline = value; }, offlinePolls: count => { pollsOffline = count; },
     offlineControls: count => { controlsOffline = count; },
@@ -397,75 +392,32 @@ test('legacy owner delivery uses an exact private file for text above its inline
   assert.equal(fs.existsSync(file), false);
 });
 
-test('a chat the agent says is done closes once the reply is read, and a new message reopens it', { timeout: 15000 }, async t => {
+test('conversations never close themselves: only the person archives, and a new message brings it back', { timeout: 15000 }, async t => {
   const f = await fixture(t);
   const chat = async () => (await (await f.api('/v1/chats')).json()).chats.find(c => c.id === 'chat');
-  const ask = async (text, i) => {
-    const response = await f.api('/v1/chats/chat/messages', 'POST', { text, requestId: `request_close_${i}` });
-    await until(async () => f.runs.size === i + 1 && (await f.latest())?.accepted);
-    return response;
-  };
-  const first = await ask('Rename the files', 0);
+  const response = await f.api('/v1/chats/chat/messages', 'POST', { text: 'Rename the files', requestId: 'request_close_0' });
+  await until(async () => f.runs.size === 1 && (await f.latest())?.accepted);
   const run = [...f.runs.values()][0];
-  // Every run carries the same standing instruction about the done line.
-  assert.match(run.instructions, /<servant-done>/);
+  // The agent is no longer told to file the conversation away.
+  assert.doesNotMatch(String(run.instructions || ''), /servant-done|issue/);
+  // An older session may still send the hidden line: it is never shown, and it closes nothing.
   f.emit(run, 'Renamed all three.\n\n<servant-do'); f.emit(run, 'ne>Renamed the files</servant-done>');
   f.finish(run, 'Renamed all three.\n\n<servant-done>Renamed the files</servant-done>');
-  const streamed = await first.text();
+  const streamed = await response.text();
   assert.doesNotMatch(streamed, /servant-do/);
   await until(async () => (await f.latest()).status === 'completed');
-  const messages = (await (await f.api('/v1/chats/chat/messages')).json()).messages;
-  assert.equal(messages.at(-1).text, 'Renamed all three.');
-  assert.equal((await f.latest()).assistantText, 'Renamed all three.');
-  // Unread: still open, so the person sees the answer before it's filed away.
-  assert.equal((await chat()).archived, false);
+  assert.equal((await (await f.api('/v1/chats/chat/messages')).json()).messages.at(-1).text, 'Renamed all three.');
   await f.api('/v1/chats/chat/read', 'POST', {});
-  const closed = await chat();
-  assert.equal(closed.archived, true);
-  assert.deepEqual([closed.closed.by, closed.closed.reason], ['agent', 'Renamed the files']);
-  assert.equal(closed.lastMessage.text, 'Renamed all three.');
-  // Commenting on a closed issue reopens it, before the reply even arrives.
-  const second = await ask('One more: add a date', 1);
-  await second.body.cancel();
+  await sleep(500);
+  const open = await chat();
+  assert.equal(open.archived, false, 'read and finished, still not closed');
+  assert.equal(open.closed, undefined);
+  // Swipe left to archive; sending a message brings it back.
+  const archived = (await (await f.api('/v1/chats/chat/archive', 'POST', {})).json()).chat;
+  assert.equal(archived.archived, true);
+  assert.equal(archived.closed, undefined);
+  const next = await f.api('/v1/chats/chat/messages', 'POST', { text: 'One more thing', requestId: 'request_close_1' });
+  await next.body.cancel();
   assert.equal((await chat()).archived, false);
-  f.finish([...f.runs.values()][1], 'Which date format?');
-  await until(async () => (await f.latest()).status === 'completed');
-  await f.api('/v1/chats/chat/read', 'POST', {});
-  assert.equal((await chat()).archived, false, 'a question for the person keeps it open');
-  // Restore beats the agent's close; Close by hand still works.
-  assert.equal((await (await f.api('/v1/chats/chat/archive', 'POST', {})).json()).chat.closed.by, 'you');
   assert.equal((await (await f.api('/v1/chats/chat/restore', 'POST', {})).json()).chat.archived, false);
-});
-
-test('the closer closes a quiet finished chat, never an unread, running or questioning one', { timeout: 20000 }, async t => {
-  const f = await fixture(t, { closer: { verdict: '{"done": false, "reason": "Asked which format"}' } });
-  const chat = async () => (await (await f.api('/v1/chats')).json()).chats.find(c => c.id === 'chat');
-  const response = await f.api('/v1/chats/chat/messages', 'POST', { text: 'Ship the fix', requestId: 'request_closer_1' });
-  await until(async () => (await f.latest())?.accepted);
-  f.finish([...f.runs.values()][0], 'Shipped. Want release notes too?');
-  await response.text();
-  await until(async () => (await f.latest()).status === 'completed');
-  // Unread replies are never judged.
-  await sleep(400);
-  assert.equal(f.closerCalls.length, 0);
-  await f.api('/v1/chats/chat/read', 'POST', {});
-  await until(() => f.closerCalls.length === 1);
-  assert.match(f.closerCalls[0].at(-1).content, /Person: Ship the fix[\s\S]*Agent: Shipped/);
-  // Said no: it stays open and that reply is never asked about again.
-  f.setVerdict('{"done": true, "reason": "Fix shipped, nothing pending"}');
-  await sleep(400);
-  assert.equal(f.closerCalls.length, 1);
-  assert.equal((await chat()).archived, false);
-  // A new reply gets its own judgement; a running turn is left alone.
-  const next = await f.api('/v1/chats/chat/messages', 'POST', { text: 'No thanks', requestId: 'request_closer_2' });
-  await until(async () => f.runs.size === 2 && (await f.latest())?.accepted);
-  await sleep(300);
-  assert.equal(f.closerCalls.length, 1);
-  f.finish([...f.runs.values()][1], 'Okay, all done.');
-  await next.text();
-  await until(async () => (await f.latest()).status === 'completed');
-  await f.api('/v1/chats/chat/read', 'POST', {});
-  const closed = await until(async () => { const c = await chat(); return c.archived && c; });
-  assert.deepEqual([closed.closed.by, closed.closed.reason], ['closer', 'Fix shipped, nothing pending']);
-  assert.equal(f.closerCalls.length, 2);
 });
