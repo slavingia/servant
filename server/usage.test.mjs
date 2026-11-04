@@ -59,3 +59,20 @@ test("a conversation's running total is kept per chat", () => {
   assert.equal(store.chatTotals("none").turns, 0);
   store.close();
 });
+
+test("tokens are labelled by survey theme, and the report sets them against survey comments", async () => {
+  const { classifyTopic } = await import("./usage-topics.mjs");
+  assert.deepEqual(classifyTopic("Payment plan: user is not able to save the changes to the scheduled payment"), { theme: "MANAGE_MODIFY_OR_REINSTATE", kind: "technical_bug" });
+  assert.equal(classifyTopic("Round search box more pill shape").theme, "NOT_IRS_APP");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "servant-usage-"));
+  const store = createUsageStore(path.join(dir, "usage.db"));
+  store.record({ eventId: "a", userId: "u", usage: { total_tokens: 900 }, text: "Fix the payment plan cancel flow" });
+  store.record({ eventId: "b", userId: "u", usage: { total_tokens: 100 }, text: "Add a pill search box" });
+  store.record({ eventId: "c", userId: "u", usage: { total_tokens: 50 } });
+  const r = store.topics();
+  assert.equal(r.irsAppTokens, 900); assert.equal(r.otherTokens, 100); assert.equal(r.unlabelledTurns, 1);
+  assert.equal(r.themes[0].id, "STATUS_CANCELLATION_OR_DEFAULT"); assert.equal(r.themes[0].bugTokens, 900);
+  assert.equal(store.backfillTopics({ c: "x", b: "again" }), 1);
+  assert.equal(store.topics().unlabelledTurns, 0);
+  store.close(); fs.rmSync(dir, { recursive: true, force: true });
+});
