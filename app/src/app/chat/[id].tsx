@@ -16,6 +16,7 @@ import { activeAgentTurn, agentTurnLabel, canSteer, liveAgentLine, queuedBelow, 
 import { AgentProgress } from "../../components/AgentSteps";
 import { bufferAgentReply } from "../../lib/agent-events";
 import { messageDeviceLabel } from "../../lib/message-device";
+import { estimateCost, formatCost, formatTokens } from "../../lib/token-format";
 import { api, sendMessage, ServerError, uploadPost, type Chat, type Folder, type Message, type Upload } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { useLive } from "../../lib/live";
@@ -284,6 +285,8 @@ function ChatConversation() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [chatUsage, setChatUsage] = useState<Chat["usage"] | null>(null);
+  const refreshUsage = useCallback(() => { if (account && id) api.chat(account, String(id)).then(c => setChatUsage(c.usage ?? null)).catch(() => {}); }, [account, id]);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const uploaded = useRef(new Map<string, string>());
   const [turn, setTurn] = useState<AgentTurn | null>(null);
@@ -313,6 +316,7 @@ function ChatConversation() {
     api.chat(account, id).then(c => {
       if (!live) return;
       if (c.title && c.title !== "New chat") setHeading(h => h === "New chat" ? c.title : h);
+      setChatUsage(c.usage ?? null);
       setShared(c.shared !== false);
       setFolderId(c.folderId ?? null);
       setFolderShared(c.folderShared === true);
@@ -558,7 +562,7 @@ function ChatConversation() {
             setSendError(e.message);
             update((r) => ({ ...r, pending: false, failed: true }));
           }
-          else if (e.type === "done") update((r) => ({ ...r, pending: false }));
+          else if (e.type === "done") { update((r) => ({ ...r, pending: false })); setTimeout(refreshUsage, 1500); }
         }),
         controller.signal,
         setAccount,
@@ -743,6 +747,7 @@ function ChatConversation() {
           />
         )}
         {forwarding ? <ForwardSheet target={forwarding} onClose={() => setForwarding(null)} /> : null}
+        {chatUsage?.total ? <Text accessibilityLabel={`This conversation has used ${formatTokens(chatUsage.total)} tokens, about ${formatCost(estimateCost(chatUsage.input, chatUsage.output))} estimated`} style={styles.usageLine}>{formatTokens(chatUsage.total)} tokens · about {formatCost(estimateCost(chatUsage.input, chatUsage.output))}</Text> : null}
         {sendError ? <Text accessibilityRole="alert" style={styles.sendError}>{sendError}</Text> : null}
         {turn?.approval && turn.status === 'waiting_for_approval' && account.user.role === 'owner'
           ? <AgentApprovalCard approval={turn.approval} busy={actionBusy} error={actionError} onAnswer={choice => { void answer(choice); }} /> : null}
@@ -886,6 +891,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   unconfirmed: { opacity: 0.9 },
   text: { ...typography.body, color: colors.ink },
   failedText: { color: colors.red },
+  usageLine: { ...typography.caption, color: colors.muted, textAlign: "center", paddingVertical: 2 },
   sendError: { ...typography.caption, color: colors.red, backgroundColor: colors.redSoft, paddingHorizontal: space.side, paddingVertical: space.xs },
   typing: { ...typography.body, color: colors.muted, fontStyle: "italic" },
   empty: { alignItems: "center", marginTop: space.xxl, paddingHorizontal: space.side, paddingBottom: space.lg },

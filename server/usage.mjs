@@ -37,14 +37,21 @@ export function createUsageStore(file, { limit = DAILY_TOKEN_LIMIT, clock = Date
     );
     CREATE INDEX IF NOT EXISTS token_usage_at ON token_usage(at);
     CREATE INDEX IF NOT EXISTS token_usage_user ON token_usage(user_id, at);`);
-  const insert = db.prepare(`INSERT OR IGNORE INTO token_usage(event_id,user_id,source,input_tokens,output_tokens,total_tokens,at)
-    VALUES (?,?,?,?,?,?,?)`);
+  if (!db.prepare("PRAGMA table_info(token_usage)").all().some(c => c.name === "chat_id")) db.exec("ALTER TABLE token_usage ADD COLUMN chat_id TEXT");
+  db.exec("CREATE INDEX IF NOT EXISTS token_usage_chat ON token_usage(chat_id)");
+  const insert = db.prepare(`INSERT OR IGNORE INTO token_usage(event_id,user_id,source,input_tokens,output_tokens,total_tokens,at,chat_id)
+    VALUES (?,?,?,?,?,?,?,?)`);
   return {
     // eventId makes a retried/recovered turn count once.
-    record({ eventId, userId, source, usage, at = Date.now() }) {
+    record({ eventId, userId, source, usage, chatId, at = Date.now() }) {
       const u = normalizeUsage(usage);
       if (!u || !userId) return false;
-      return insert.run(eventId ?? null, String(userId), source === "channel" ? "channel" : "chat", u.input, u.output, u.total, at).changes > 0;
+      return insert.run(eventId ?? null, String(userId), source === "channel" ? "channel" : "chat", u.input, u.output, u.total, at, chatId ? String(chatId) : null).changes > 0;
+    },
+    // What one conversation has used so far, for the line above its composer.
+    chatTotals(chatId) {
+      const r = db.prepare("SELECT COALESCE(SUM(input_tokens),0) AS input, COALESCE(SUM(output_tokens),0) AS output, COALESCE(SUM(total_tokens),0) AS total, COUNT(*) AS turns FROM token_usage WHERE chat_id=?").get(String(chatId));
+      return { input: Number(r.input), output: Number(r.output), total: Number(r.total), turns: Number(r.turns) };
     },
     limit,
     usedToday: userId => Number(db.prepare("SELECT COALESCE(SUM(total_tokens),0) AS n FROM token_usage WHERE user_id=? AND at>=?").get(String(userId), startOfDay(clock())).n),

@@ -47,3 +47,14 @@ test("members stop at one million tokens a day, the owner never does, and the da
   assert.equal(store.overLimit(member), false);
   store.close();
 });
+
+test("a conversation's running total is kept per chat", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "servant-usage-"));
+  const store = createUsageStore(path.join(dir, "usage.db"));
+  store.record({ eventId: "a", userId: "u1", source: "chat", chatId: "c1", usage: { input_tokens: 100, output_tokens: 20 } });
+  store.record({ eventId: "b", userId: "u1", source: "chat", chatId: "c1", usage: { input_tokens: 50, output_tokens: 10 } });
+  store.record({ eventId: "c", userId: "u1", source: "chat", chatId: "c2", usage: { input_tokens: 5, output_tokens: 5 } });
+  assert.deepEqual(store.chatTotals("c1"), { input: 150, output: 30, total: 180, turns: 2 });
+  assert.equal(store.chatTotals("none").turns, 0);
+  store.close();
+});

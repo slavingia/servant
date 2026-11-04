@@ -538,6 +538,7 @@ function chatView(chat, viewer, users = {}) {
     ...(chat.folderId ? { folderId: chat.folderId, ...(chat.folderShared ? { folderShared: true } : {}) } : {}),
     ...(chat.project ? { project: { id: chat.project, name: projectById(chat.project)?.name || chat.project } } : {}),
     ...(chat.mode === "vibe" ? { mode: "vibe", previewUrl: `${projectById(VIBE_PROJECT).pages}${chat.vibeFolder}/` } : {}) };
+  try { const u = usageStore().chatTotals(chat.id); if (u.turns) view.usage = u; } catch { /* stats never block a chat */ }
   if (viewer && chat.userId === viewer.id) {
     view.archived = !!chat.archivedAt;
   }
@@ -1411,7 +1412,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
     };
     result = await runDurableHermes({ up, sessionId: turn.session_id, input, sessionKey: sessionKey(user, turn.chat_id), instructions: chatContext(chat), runId: turn.run_id,
       onAccepted, onEvent, checkpoint: hooks.checkpoint, controls: hooks.controls, steered, canSteer });
-    if (result.usage) recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", usage: result.usage });
+    if (result.usage) recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", chatId: turn.chat_id, usage: result.usage });
     // Run output is resolved by the bridge, while history contains its original
     // MEDIA source. Bind the cache record to that source for later galleries.
     if (assistantMessage) {
@@ -1423,7 +1424,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
     }
   } else {
     const answer = await streamTurn(up, turn.session_id, input, sessionKey(user, turn.chat_id), onEvent, () => false, onAccepted,
-      usage => recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", usage }), chatContext(chat));
+      usage => recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", chatId: turn.chat_id, usage }), chatContext(chat));
     if (!assistantMessage && answer) saveAssistant(answer);
     result = { status: "completed" };
   }
