@@ -4,6 +4,7 @@ import { router, useFocusEffect, useScrollToTop } from "expo-router";
 import { PageTitle } from "../../components/Band";
 import { Avatar } from "../../components/Messaging";
 import { Button } from "../../components/Button";
+import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { AppIcon } from "../../components/AppIcon";
 import { useStatusNow } from "../../components/Presence";
 import { api, ServerError, type Person } from "../../lib/server";
@@ -25,6 +26,9 @@ export default function Members() {
   const [refreshing, setRefreshing] = useState(false);
   const [opening, setOpening] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<Person | null>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
   const load = useCallback(async () => {
     if (!account) return;
     try {
@@ -49,6 +53,17 @@ export default function Members() {
     } catch (e) {
       setError(e instanceof ServerError ? e.message : "Couldn't change that. Try again");
     } finally { setOpening(null); }
+  };
+  const remove = async () => {
+    if (!removing || removeBusy) return;
+    setRemoveBusy(true); setRemoveError(null);
+    try {
+      await api.removePerson(account, removing.id);
+      setDirectory(d => d && { ...d, people: d.people.filter(p => p.id !== removing.id) });
+      setRemoving(null);
+    } catch (e) {
+      setRemoveError(e instanceof ServerError ? e.message : "Couldn't remove them. Try again");
+    } finally { setRemoveBusy(false); }
   };
   const message = async (person: Person) => {
     if (opening) return;
@@ -79,7 +94,9 @@ export default function Members() {
       renderItem={({ item }) => {
         const self = item.id === account.user.id;
         const status = self ? "" : presenceLabel(presence[item.id] ?? { ...item, online: false }, now, connected);
-        return <Pressable accessibilityRole={self ? undefined : "button"} accessibilityLabel={`${item.name}${self ? ", you" : ""}, ${item.owner ? "owner" : "member"}${status ? `, ${status}` : ""}`} accessibilityHint={self ? undefined : "Open direct message"} disabled={self || !!opening} onPress={() => void message(item)} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}>
+        return <Pressable accessibilityRole={self ? undefined : "button"} accessibilityLabel={`${item.name}${self ? ", you" : ""}, ${item.owner ? "owner" : "member"}${status ? `, ${status}` : ""}`} accessibilityHint={self ? undefined : "Open direct message"} disabled={self || !!opening} onPress={() => void message(item)} onLongPress={owner && !self && !item.owner ? () => { setRemoveError(null); setRemoving(item); } : undefined}
+          accessibilityActions={owner && !self && !item.owner ? [{ name: "remove", label: `Remove ${item.name} from ${account.serverName}` }] : undefined}
+          onAccessibilityAction={e => { if (e.nativeEvent.actionName === "remove") { setRemoveError(null); setRemoving(item); } }} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}>
           <Avatar name={item.name} userId={item.id} size={36} />
           <View style={styles.copy}><Text style={styles.name}>{item.name}{self ? <Text style={styles.you}> · You</Text> : null}</Text><Text style={[styles.role, status === "Online" && styles.online]}>{item.owner ? "Workspace owner" : !owner && item.vibeCoder ? "Vibe coder" : "Member"}{status ? ` · ${status}` : ""}</Text></View>
           {opening === item.id ? <ActivityIndicator color={colors.blue} /> : <>
@@ -88,12 +105,20 @@ export default function Members() {
               style={({ pressed }) => [styles.vibeChip, item.vibeCoder && styles.vibeChipOn, pressed && { opacity: 0.7 }]}>
               <Text style={[styles.vibeChipText, item.vibeCoder && styles.vibeChipTextOn]}>{item.vibeCoder ? "Vibe coder ✓" : "Vibe coder"}</Text>
             </Pressable> : null}
+            {owner && !self && !item.owner ? <Pressable testID={`remove-${item.id}`} accessibilityRole="button" accessibilityLabel={`Remove ${item.name}`} hitSlop={8}
+              onPress={() => { setRemoveError(null); setRemoving(item); }} style={({ pressed }) => [styles.removeLink, pressed && { opacity: 0.6 }]}>
+              <Text style={styles.removeText}>Remove</Text>
+            </Pressable> : null}
             {!self ? <AppIcon name="chat" size={18} color={colors.muted} /> : null}
           </>}
         </Pressable>;
       }}
       contentContainerStyle={styles.content}
     />
+    <ConfirmDialog visible={!!removing} title={removing ? `Remove ${removing.name}?` : ""}
+      description={`They're signed out of every device right away and can't use ${account.serverName} again unless you invite them back. Their messages stay, and #general notes that they left.`}
+      confirmLabel="Remove" busy={removeBusy} error={removeError}
+      onCancel={() => { setRemoving(null); setRemoveError(null); }} onConfirm={() => void remove()} />
   </View>;
 }
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
@@ -110,6 +135,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   vibeChipOn: { backgroundColor: colors.blueSoft, borderColor: colors.blueSoft },
   vibeChipText: { ...typography.meta, color: colors.muted },
   vibeChipTextOn: { color: colors.blueDark, fontWeight: "600" },
+  removeLink: { minHeight: 32, paddingHorizontal: space.xs, justifyContent: "center", marginRight: space.xs },
+  removeText: { ...typography.meta, color: colors.red },
   error: { ...typography.caption, marginHorizontal: space.side, marginVertical: space.xs, color: colors.red },
   loading: { marginTop: space.xxl },
   empty: { marginTop: space.xxl, paddingHorizontal: space.lg, alignItems: "center" },

@@ -60,3 +60,8 @@ It listens on authenticated `127.0.0.1:8643`. The owner's standalone bridge uses
 The bridge is an application-level control running on the owner's Mac, not an OS sandbox. The upstream API key, source checkout, host user, installed plugins, and model provider remain trusted. A compromised Mac or modified Hermes installation is outside this boundary. For stronger isolation, run the member bridge under a separate OS account or container with only its own profile and approved provider access.
 
 Hermes source references: [agent initialization](https://github.com/NousResearch/hermes-agent/blob/v0.22.5/agent/agent_init.py), [API adapter](https://github.com/NousResearch/hermes-agent/blob/v0.22.5/gateway/platforms/api_server.py), and [toolset resolution](https://github.com/NousResearch/hermes-agent/blob/v0.22.5/hermes_cli/tools_config.py).
+
+## Removing a person
+
+`DELETE /v1/people/<id>` (owner only; `servant remove-person "Name"` on the Mac) sets `removedAt` on the person and revokes every device they have. From that moment `authenticate` refuses their tokens (401), live event streams end, and they drop out of the people list, search, mentions, new channels and DMs, folder membership and pairing (an invite made for them before they left returns 403). Their record stays so old messages keep their name and the chats and folders they made are not orphaned. The owner can't be removed and nobody can remove themselves. Removing twice is harmless. Reversal is a new invite, which makes a new person.
+

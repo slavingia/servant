@@ -1424,6 +1424,56 @@ test("reactions persist, sync live, are idempotent and require membership", asyn
   } finally { live.close(); }
 });
 
+test("the owner removes someone who left the team: signed out everywhere, gone from the server, history kept", async () => {
+  const owner = await pair("owner", "Remover Rae");
+  const stay = await pair("member", "Staying Sam");
+  const leaver = await pair("member", "Leaving Lee");
+  const people = async token => (await api("GET", "/v1/people", { token })).json.people;
+  const lee = (await people(owner)).find(p => p.name === "Leaving Lee");
+  const secondInvite = mod.createInvite({ userId: lee.id });   // Lee's iPad, paired before they left
+  const second = (await api("POST", "/v1/pair", { body: { terms: ACCEPT, code: secondInvite, device: "Second phone" } })).json.token;
+  assert.equal((await api("GET", "/v1/chats", { token: second })).status, 200);
+  const staleInvite = mod.createInvite({ userId: lee.id });   // a link nobody used yet
+  const sam = (await people(owner)).find(p => p.name === "Staying Sam");
+  // Lee has history: a channel post, a DM with Sam, an agent chat.
+  const general = (await api("GET", "/v1/conversations", { token: leaver })).json.conversations.find(c => c.name === "general");
+  assert.equal((await api("POST", `/v1/conversations/${general.id}/messages`, { token: leaver, body: { text: "Before I go" } })).status, 201);
+  const dm = (await api("POST", "/v1/conversations", { token: stay, body: { kind: "dm", userIds: [lee.id] } })).json.conversation;
+  assert.equal((await api("POST", "/v1/chats", { token: leaver, body: {} })).status, 201);
+
+  // Only the owner can do it, never to the owner or themselves.
+  assert.equal((await api("DELETE", `/v1/people/${lee.id}`, { token: stay })).status, 403);
+  const rae = (await people(owner)).find(p => p.name === "Remover Rae");
+  assert.equal((await api("DELETE", `/v1/people/${rae.id}`, { token: owner })).status, 400, "can't remove yourself");
+  assert.equal((await api("DELETE", "/v1/people/usr_nobody", { token: owner })).status, 404);
+  assert.equal((await api("GET", "/v1/chats", { token: leaver })).status, 200, "still signed in until removed");
+
+  const removed = await api("DELETE", `/v1/people/${lee.id}`, { token: owner });
+  assert.equal(removed.status, 200, removed.text);
+  assert.equal((await api("DELETE", `/v1/people/${lee.id}`, { token: owner })).status, 200, "removing twice is harmless");
+
+  // Every device is signed out at once.
+  for (const token of [leaver, second]) {
+    assert.equal((await api("GET", "/v1/chats", { token })).status, 401);
+    assert.equal((await api("GET", "/v1/conversations", { token })).status, 401);
+    assert.equal((await api("GET", "/v1/people", { token })).status, 401);
+  }
+  // Gone from the people list, from search, and from new conversations; nobody else is affected.
+  assert.ok(!(await people(stay)).some(p => p.id === lee.id));
+  assert.ok(!(await api("GET", "/v1/search?q=Leaving", { token: stay })).json.people.some(p => p.id === lee.id));
+  assert.equal((await api("GET", "/v1/chats", { token: stay })).status, 200);
+  assert.ok((await people(stay)).some(p => p.id === sam.id));
+  // Their old words stay, and #general says they left.
+  const history = (await api("GET", `/v1/conversations/${general.id}/messages`, { token: stay })).json.messages;
+  assert.ok(history.some(m => m.text === "Before I go"), "history kept");
+  assert.ok(history.some(m => m.activity === "left" && /Leaving Lee left Servant/.test(m.text)), "#general says they left");
+  assert.equal((await api("GET", `/v1/conversations/${dm.id}`, { token: stay })).status, 200, "Sam keeps the DM history");
+  // A link made for them before they left can't bring them back, and a folder can't take them.
+  assert.equal((await api("POST", "/v1/pair", { body: { terms: ACCEPT, code: staleInvite, device: "New phone" } })).status, 403);
+  const folder = (await api("POST", "/v1/folders", { token: owner, body: { name: "Team" } })).json.folder;
+  assert.equal((await api("POST", `/v1/folders/${folder.id}/members`, { token: owner, body: { userId: lee.id } })).status, 404, "can't add a removed person to a folder");
+});
+
 test("ten wrong codes lock out pairing from that address; good pairings don't count", async () => {
   // Earlier tests already used one wrong code from this address.
   const statuses = [];

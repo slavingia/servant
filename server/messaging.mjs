@@ -604,10 +604,10 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
   }
   // Someone's last device signed out or was removed: they've left Servant.
   // Note it in #general so the team sees it (owner, 10/31).
-  function noteMemberLeft(userId) {
+  function noteMemberLeft(userId, name) {
     return transaction(() => {
       const general = ensureGeneral();
-      const result = st.insertActivity.run(general.id, userId, `${person(userId).name} left Servant`, now(), "left");
+      const result = st.insertActivity.run(general.id, userId, `${name || person(userId).name} left Servant`, now(), "left");
       publish(general.id, "message.created", msgView(st.msg.get(Number(result.lastInsertRowid))));
       publish(general.id, "conversation.updated", { id: general.id });
     });

@@ -10,6 +10,7 @@
 //   node server/server.mjs invite --name Me --role owner   one-time invite for a named person
 //   node server/server.mjs devices             list paired devices
 //   node server/server.mjs revoke <deviceId>   revoke a device
+//   node server/server.mjs people | remove-person <name or id>   list people / remove someone who left
 //   node server/server.mjs release <build> <notes.md>   post a build's notes to #whats-new
 
 import http from "node:http";
@@ -147,6 +148,41 @@ export function loadConfig() {
 let stateStore;
 const store = () => stateStore ??= createStateStore({ directory: DATA_DIR });
 const readState = () => store().read();
+// The stable ingress deliberately blocks administrative routes. Discover
+// the private active API port through the operator-only control socket.
+async function activeAdminPort() {
+  const defaultRuntime = path.join(os.homedir(), ".local/share/servant");
+  const runtimeDir = process.env.SERVANT_RUNTIME_DIR ??
+    (fs.existsSync(path.join(defaultRuntime, "control.sock")) ? defaultRuntime : null);
+  let adminPort = loadConfig().port;
+  if (runtimeDir !== null) {
+    try {
+      if (!runtimeDir.trim()) throw new Error("SERVANT_RUNTIME_DIR must be a directory");
+      const { controlRequest } = await import("./deploy.mjs");
+      const status = await controlRequest(runtimeDir, "/status");
+      if (status.stopping || !status.active?.ready || !Number.isInteger(status.active.port) ||
+          status.active.port < 1 || status.active.port > 65535) throw new Error("No active API is ready");
+      adminPort = status.active.port;
+    } catch (error) {
+      console.error(`Couldn't locate the active API: ${error.message}`);
+      process.exit(1);
+    }
+  }
+  return adminPort;
+}
+async function adminPost(route, payload) {
+  const adminPort = await activeAdminPort();
+  const raw = loadJson(CONFIG_FILE, {});
+  if (!raw.adminKey) saveJson(CONFIG_FILE, { ...raw, adminKey: crypto.randomBytes(24).toString("base64url") });
+  const cfg = loadConfig();
+  const r = await fetch(`http://127.0.0.1:${adminPort}${route}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Servant-Admin": cfg.adminKey },
+    body: JSON.stringify(payload),
+  }).catch((e) => ({ ok: false, status: 0, json: async () => ({ error: { message: e.message } }) }));
+  return { r, data: await r.json().catch(() => ({})) };
+}
+
 const mutateState = fn => store().mutate(fn);
 
 const id = (prefix) => `${prefix}_${crypto.randomBytes(9).toString("base64url")}`;
@@ -294,7 +330,7 @@ function authenticate(req, state) {
   const device = state.devices[sha256(header.slice(7).trim())];
   if (!device || device.revokedAt) return null;
   const user = state.users[device.userId];
-  if (!user) return null;
+  if (!user || isRemoved(user)) return null;
   return { device, user };
 }
 
@@ -322,13 +358,34 @@ function revokeDevice(device) {
   delete device.ringsCalls;
   delete device.pushPresence;
 }
+// A removed person keeps their record (name on old messages, their folders and chats) but is
+// no longer a member: every device signed out, and they vanish from people, search, mentions
+// and new conversations. Everything that asks "who is on this server" goes through this.
+const isRemoved = user => !!user?.removedAt;
+function activeUsers(state) {
+  const all = state.users;
+  return Object.values(all).some(isRemoved) ? Object.fromEntries(Object.entries(all).filter(([, u]) => !isRemoved(u))) : all;
+}
+// Sign a person out everywhere and take them off the server. Returns their name, or null when
+// they were already removed. The owner can't be removed, and nobody can remove themselves.
+function removePerson(state, targetId) {
+  const target = state.users[targetId];
+  if (!target) throw requestError(404, "not_found", "No such person");
+  if (target.role === "owner") throw requestError(400, "bad_request", "The owner can't be removed");
+  if (isRemoved(target)) return null;
+  target.removedAt = now();
+  for (const d of Object.values(state.devices)) if (d.userId === targetId && !d.revokedAt) revokeDevice(d);
+  // Out of everyone's folders; the folders they made stay with their record.
+  for (const u of Object.values(state.users)) for (const f of Object.values(u.folders || {})) if (f.members?.includes(targetId)) f.members = f.members.filter(m => m !== targetId);
+  return target.name;
+}
 // True when this was the person's last active device, i.e. they've left.
 function leftServer(state, userId) {
   return !Object.values(state.devices).some((d) => d.userId === userId && !d.revokedAt);
 }
-function noteIfLeft(left, userId) {
+function noteIfLeft(left, userId, name) {
   if (!left || !messaging) return;
-  try { messaging.noteMemberLeft(userId); } catch (e) { console.error("[servant] left note", e); }
+  try { messaging.noteMemberLeft(userId, name); } catch (e) { console.error("[servant] left note", e); }
 }
 
 // ---------- upstream (Hermes API server) ----------
@@ -616,6 +673,7 @@ async function handle(req, res, cfg) {
       if (!terms) throw requestError(400, "terms_required", "Agree to the terms to join");
       if (invite.reusable) invite.uses += 1;
       else invite.usedAt = now();
+      if (invite.userId && isRemoved(state.users[invite.userId])) throw requestError(403, "invalid_invite", "That invite link doesn't work. Ask for a new one");
       const existing = invite.userId && state.users[invite.userId];
       const user = existing || { id: id("usr"), name, role: invite.role, createdAt: now() };
       const token = crypto.randomBytes(32).toString("base64url");
@@ -637,11 +695,21 @@ async function handle(req, res, cfg) {
 
   // Build scripts on this Mac post release notes. Tunnel traffic always carries
   // cf-connecting-ip, so it can't reach this even with the key.
-  if (method === "POST" && url.pathname === "/admin/releases") {
+  const adminAllowed = () => {
     const local = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress) && !req.headers["cf-connecting-ip"];
     const key = String(req.headers["x-servant-admin"] || "");
-    const ok = cfg.adminKey && key.length === cfg.adminKey.length && crypto.timingSafeEqual(Buffer.from(key), Buffer.from(cfg.adminKey));
-    if (!local || !ok) return fail(res, 403, "forbidden", "Not allowed");
+    return local && !!cfg.adminKey && key.length === cfg.adminKey.length && crypto.timingSafeEqual(Buffer.from(key), Buffer.from(cfg.adminKey));
+  };
+  // `servant remove-person` on this Mac: same as the owner removing them in the app.
+  if (method === "POST" && url.pathname === "/admin/people/remove") {
+    if (!adminAllowed()) return fail(res, 403, "forbidden", "Not allowed");
+    const body = await readBody(req);
+    const name = mutateState(state => removePerson(state, String(body.userId || "")));
+    if (name) noteIfLeft(true, String(body.userId), name);
+    return send(res, 200, { ok: true, removed: !!name, name });
+  }
+  if (method === "POST" && url.pathname === "/admin/releases") {
+    if (!adminAllowed()) return fail(res, 403, "forbidden", "Not allowed");
     const body = await readBody(req);
     const owner = Object.values(readState().users).find((u) => u.role === "owner");
     if (!owner) return fail(res, 409, "no_owner", "Pair the owner first");
@@ -826,7 +894,7 @@ async function handle(req, res, cfg) {
         mutateAuthenticated(req, (state, auth) => {
           const f = within(state, auth, parts[2], true);
           const target = state.users[body.userId];
-          if (!target || target.revokedAt) throw requestError(404, "not_found", "No such person");
+          if (!target || target.revokedAt || isRemoved(target)) throw requestError(404, "not_found", "No such person");
           if (target.id === auth.user.id) throw requestError(400, "bad_request", "You already own this folder");
           f.members ??= [];
           if (f.members.includes(target.id)) return;
@@ -880,6 +948,15 @@ async function handle(req, res, cfg) {
     return fail(res, 404, "not_found", "Not found");
   }
   // Owners mark people as vibe coders (not programmers).
+  // Owner: remove someone who has left the team. Their devices sign out at once.
+  if (method === "DELETE" && parts[1] === "people" && parts.length === 3 && parts[2] !== "me") {
+    const name = mutateAuthenticated(req, (state, auth) => {
+      if (parts[2] === auth.user.id) throw requestError(400, "bad_request", "You can't remove yourself");
+      return removePerson(state, parts[2]);
+    }, true);
+    if (name) noteIfLeft(true, parts[2], name);
+    return send(res, 200, { ok: true });
+  }
   if (method === "PATCH" && parts[1] === "people" && parts.length === 3 && parts[2] !== "me") {
     const body = await readAuthorizedBody(req);
     if (typeof body.vibeCoder !== "boolean") return fail(res, 400, "bad_request", "vibeCoder must be true or false");
@@ -1387,7 +1464,7 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
   const serviceMessaging = createMessaging({
     file: path.join(DATA_DIR, "messages.db"),
     externalWorker,
-    users: () => readState().users,
+    users: () => activeUsers(readState()),
     onMessage: event => servicePush.enqueue(event),
     agentName: () => (fixedCfg || loadConfig()).agentName || "Agent",
     workHours: () => (fixedCfg || loadConfig()).workHours,
@@ -1525,13 +1602,13 @@ export function startServer(fixedCfg) {
   secureTransport ??= createSecureTransport(DATA_DIR);
   feedback ??= createFeedback({ file: path.join(DATA_DIR, "feedback.db"), interval: 0, recover: false });
   messaging.ensureGeneral();
-  for (const uid of Object.keys(readState().users)) messaging.joinDefaults(uid);
+  for (const uid of Object.keys(activeUsers(readState()))) messaging.joinDefaults(uid);
   if (!meetings) {
     // The API process hosts calls even when a separate worker runs agent turns.
     meetings = createMeetings({
       dir: path.join(DATA_DIR, "meetings"),
       messaging,
-      users: () => readState().users,
+      users: () => activeUsers(readState()),
       config: () => (fixedCfg || loadConfig()).meetings,
       summarize: meetingNotes,
     });
@@ -1665,25 +1742,7 @@ if (isMain) {
       console.error("usage: server.mjs release <build> <notes.md>");
       process.exit(2);
     }
-    // The stable ingress deliberately blocks administrative routes. Discover
-    // the private active API port through the operator-only control socket.
-    const defaultRuntime = path.join(os.homedir(), ".local/share/servant");
-    const runtimeDir = process.env.SERVANT_RUNTIME_DIR ??
-      (fs.existsSync(path.join(defaultRuntime, "control.sock")) ? defaultRuntime : null);
-    let adminPort = loadConfig().port;
-    if (runtimeDir !== null) {
-      try {
-        if (!runtimeDir.trim()) throw new Error("SERVANT_RUNTIME_DIR must be a directory");
-        const { controlRequest } = await import("./deploy.mjs");
-        const status = await controlRequest(runtimeDir, "/status");
-        if (status.stopping || !status.active?.ready || !Number.isInteger(status.active.port) ||
-            status.active.port < 1 || status.active.port > 65535) throw new Error("No active API is ready");
-        adminPort = status.active.port;
-      } catch (error) {
-        console.error(`Couldn't locate the active API: ${error.message}`);
-        process.exit(1);
-      }
-    }
+    const adminPort = await activeAdminPort();
     const raw = loadJson(CONFIG_FILE, {});
     if (!raw.adminKey) saveJson(CONFIG_FILE, { ...raw, adminKey: crypto.randomBytes(24).toString("base64url") });
     const cfg = loadConfig();
@@ -1703,6 +1762,18 @@ if (isMain) {
     for (const d of Object.values(state.devices).filter((x) => !x.revokedAt)) {
       const u = state.users[d.userId] || {};
       console.log(`${d.id}  ${u.role || "?"}  ${u.name || "?"}  ${d.label}  last seen ${new Date(d.lastSeenAt).toISOString()}`);
+    }
+  } else if (cmd === "remove-person" || cmd === "people") {
+    const query = process.argv.slice(3).join(" ").trim();
+    if (cmd === "people" || !query) {
+      for (const u of Object.values(readState().users)) console.log(`${u.id}  ${u.role}  ${u.name}${isRemoved(u) ? "  (removed)" : ""}`);
+      if (cmd === "remove-person") { console.error("usage: server.mjs remove-person <name or id>"); process.exit(2); }
+    } else {
+      const found = Object.values(readState().users).filter(u => u.id === query || u.name.toLowerCase() === query.toLowerCase());
+      if (found.length !== 1) { console.error(found.length ? "More than one person has that name. Use the id from: server.mjs people" : "No one by that name. List people with: server.mjs people"); process.exit(1); }
+      const { r, data } = await adminPost("/admin/people/remove", { userId: found[0].id });
+      if (!r.ok) { console.error(`Couldn't remove them (${r.status}): ${data.error?.message || "server not running?"}`); process.exit(1); }
+      console.log(data.removed ? `Removed ${data.name}. Their devices are signed out and #general says they left.` : `${found[0].name} was already removed`);
     }
   } else if (cmd === "revoke") {
     const revoked = mutateState(state => {

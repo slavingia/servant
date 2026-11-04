@@ -140,3 +140,10 @@ To roll out this change:
 3. Keep `server/data/transport-key` (or the configured data directory's equivalent) private and backed up. Losing or replacing it requires fresh trusted invites. Do not publish it with the discovery file.
 
 The protocol uses per-request ephemeral P-256 ECDH, HKDF-SHA-256, and separate AES-256-GCM request/response keys. Ordered encrypted response frames include an authenticated end marker; timestamp checks and a durable replay database prevent replayed writes. The protocol has not undergone an independent security audit and does not provide forward secrecy against later compromise of the server's long-term key. It does not encrypt server storage; native push alerts omit message previews. A web build must be served from a trusted origin because its JavaScript can read plaintext. See [the protocol and verification notes](docs/encryption.md).
+
+## When someone leaves the team
+
+The owner removes them from **People**: tap **Remove** next to their name (or touch and hold the row), then confirm. They are signed out of every phone and Mac straight away, disappear from People, search, @mentions and new messages, and can't use an old invite to come back. Their past messages stay, and #general notes that they left. Other people's shared chats, the owner's view of every chat, and the folders they made are untouched. To let them back, send a new invite.
+
+On the Mac: `servant people` lists everyone, and `servant remove-person "Name"` does the same thing (use the id from the list if two people share a name). `servant revoke <deviceId>` still signs out one device without removing the person.
+

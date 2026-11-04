@@ -5,6 +5,7 @@
 #   servant invite --name "X" [--role owner]   one-time named invite
 #   (add --local for a link that only works on this Mac)
 #   servant devices | revoke <id>
+#   servant people | remove-person "Name"   take someone who left off the server
 #   servant ota publish [--note "…"]       send an app update to phones over the air
 #   servant ota status | rollback --runtime V
 #   servant status | rollback              API release selection
@@ -27,8 +28,8 @@ case "$cmd" in
     cd "$SERVANT_RUNTIME_DIR/releases/$(active)"
     exec "$NODE" server.mjs ota "$@" ;;
   logs) exec tail -n 50 -F "$SERVANT_RUNTIME_DIR"/logs/*.log ;;
-  invite|devices|revoke|release)
+  invite|devices|revoke|release|people|remove-person)
     cd "$SERVANT_RUNTIME_DIR/releases/$(active)"
     exec "$NODE" server.mjs "$cmd" "$@" ;;
-  *) sed -n 2,11p "$0"; exit 2 ;;
+  *) sed -n 2,12p "$0"; exit 2 ;;
 esac
