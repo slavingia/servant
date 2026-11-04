@@ -18,6 +18,7 @@ import { api, ServerError, type Conversation, type Upload, type Post, type LiveE
 import { useLive } from "../../lib/live";
 import { useSession } from "../../lib/session";
 import { askAgentAbout } from "../../lib/ask-agent";
+import { parseSlash, resolvePeople, splitDm } from "../../lib/slash-commands";
 import { space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 import { groupActivity } from "../../lib/activity-groups";
 
@@ -166,7 +167,53 @@ export default function ConversationScreen() {
     } finally { loadingOlder.current = false; }
   };
 
-  const send = async (text: string, attachments: Upload[] = []) => {
+  // Slack-style commands. Returns true when handled (the box clears), false to keep the draft.
+  const runCommand = async (text: string): Promise<boolean | null> => {
+    const cmd = parseSlash(text, isChannel);
+    if (!cmd) return null;
+    const need = (what: string) => { setError(`Add ${what}: /${cmd.name} ${cmd.hint}`); return false; };
+    try {
+      switch (cmd.name) {
+        case "invite": {
+          if (!cmd.args) return need("who to invite");
+          const { people } = await api.people(account);
+          const { found, unknown } = resolvePeople(cmd.args, people.filter(p => !p.agent && p.id !== me));
+          if (unknown.length) { setError(`Couldn't find ${unknown.join(", ")}. Use their @name`); return false; }
+          await api.addMembers(account, id, found.map(p => p.id));
+          setError(null); void load(); return true;
+        }
+        case "topic": await api.updateChannel(account, id, { topic: cmd.args }); setError(null); void load(); return true;
+        case "rename": {
+          if (!cmd.args) return need("a new name");
+          await api.updateChannel(account, id, { name: cmd.args }); setError(null); void load(); return true;
+        }
+        case "leave": await api.leave(account, id); router.replace("/"); return true;
+        case "call": void startCall(); return true;
+        case "files": openFiles(); return true;
+        case "agent": return cmd.args ? send(`@s ${cmd.args}`) : need("a question");
+        case "shrug": return send(`${cmd.args ? cmd.args + " " : ""}¯\\_(ツ)_/¯`);
+        case "me": return cmd.args ? send(`_${account.user.name} ${cmd.args}_`) : need("what you're doing");
+        case "dm": {
+          const { who, message } = splitDm(cmd.args);
+          if (!who) return need("who to message");
+          const { people } = await api.people(account);
+          const { found, unknown } = resolvePeople(who, people.filter(p => !p.agent && p.id !== me));
+          if (unknown.length || !found.length) { setError(`Couldn't find ${unknown.join(", ") || who}. Use their @name`); return false; }
+          const dm = await api.openDm(account, found.map(p => p.id));
+          if (message) await api.post(account, dm.id, message);
+          router.push({ pathname: "/c/[id]", params: { id: dm.id } });
+          return true;
+        }
+      }
+    } catch (e) { setError(errorText(e, `Couldn't run /${cmd.name}`)); return false; }
+    return null;
+  };
+
+  const send = async (text: string, attachments: Upload[] = []): Promise<boolean> => {
+    if (!attachments.length && text.startsWith("/")) {
+      const handled = await runCommand(text);
+      if (handled !== null) return handled;
+    }
     try {
       const p = await api.post(account, id, text, undefined, attachments);
       applyPosts([p]);
@@ -339,7 +386,7 @@ export default function ConversationScreen() {
         ) : editing ? (
           <Composer members={conv?.members} mentionAgent me={me} key={`edit-${editing.id}`} placeholder="Edit message" initial={editing.text} sendLabel="Save" onSend={saveEdit} onCancel={() => setEditing(null)} />
         ) : (
-          <Composer autoFocus={compose === "1"} members={conv?.members} mentionAgent me={me} key="new" placeholder={conv ? `Message ${title}` : "Message"} onSend={send} onTyping={ping} />
+          <Composer autoFocus={compose === "1"} members={conv?.members} mentionAgent me={me} key="new" placeholder={conv ? `Message ${title}` : "Message"} onSend={send} onTyping={ping} commands={{ channel: isChannel }} />
         )}
       </ConversationKeyboardView>
     </View>

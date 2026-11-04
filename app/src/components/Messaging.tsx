@@ -9,6 +9,7 @@ import { api, ServerError, type Conversation, type Person, type Post, type Uploa
 import { useDictation } from "../lib/dictation";
 import { insertDictation } from "../lib/dictation-text";
 import { activeMention, insertMention, mentionMatches, mentionText } from "../lib/mentions";
+import { slashMatches } from "../lib/slash-commands";
 import type { MessageReceipt } from "../lib/message-status";
 import { messageDeviceLabel } from "../lib/message-device";
 import { useSession } from "../lib/session";
@@ -351,6 +352,7 @@ export function Composer({
   clearOnSend = false,
   mentionAgent = false,
   canSendEmpty = false,
+  commands,
 }: {
   placeholder: string;
   onSend: (text: string, attachments?: Upload[]) => Promise<boolean>;
@@ -371,6 +373,8 @@ export function Composer({
   mentionAgent?: boolean;
   // Something else is attached (a forwarded message), so an empty box can send.
   canSendEmpty?: boolean;
+  /** Slack-style "/" commands: the list shows while typing "/…" at the start. channel = channel-only ones too. */
+  commands?: { channel: boolean };
 }) {
   const styles = useStyles();
   const wide = useWideLayout();
@@ -435,6 +439,7 @@ export function Composer({
   const enterSends = useEnterSends();
   const match = focused && !busy ? activeMention(text, selection) : null;
   const suggestions = match ? mentionMatches(members, me, match.query, mentionAgent) : [];
+  const slash = commands && !busy && !onCancel ? slashMatches(text, commands.channel) : null;
   const latest = useRef({ text, selection });
   useLayoutEffect(() => { latest.current = { text, selection }; });
   const choose = (person: Person) => {
@@ -446,6 +451,14 @@ export function Composer({
     latest.current = { text: next.text, selection: caret };
     setSelection(caret);
     setInsertedSelection(caret);
+    input.current?.focus();
+  };
+  const chooseCommand = (name: string) => {
+    const next = `/${name} `;
+    setText(next); onTyping?.(next);
+    const caret = { start: next.length, end: next.length };
+    latest.current = { text: next, selection: caret };
+    setSelection(caret); setInsertedSelection(caret);
     input.current?.focus();
   };
   const dictation = useDictation((spoken) => {
@@ -499,6 +512,19 @@ export function Composer({
   return (
     <View style={[styles.composerWrap, wide && styles.composerWrapWide, { paddingBottom: wide ? space.md : keyboard ? space.xs : Math.max(insets.bottom, space.xs) }]}>
       {fileError || dictation.error ? <Text accessibilityRole="alert" style={styles.composerError}>{fileError || dictation.error}</Text> : null}
+      {slash?.length ? (
+        <ScrollView keyboardShouldPersistTaps="always" style={styles.suggestions} accessibilityLabel="Commands">
+          {slash.map(c => (
+            <Pressable key={c.name} testID={`command-${c.name}`} accessibilityRole="button" accessibilityLabel={`/${c.name}: ${c.description}`} onPress={() => chooseCommand(c.name)}
+              style={({ pressed }) => [styles.suggestion, pressed && { backgroundColor: colors.surface }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.suggestionName}>/{c.name}{c.hint ? <Text style={styles.suggestionHandle}> {c.hint}</Text> : null}</Text>
+                <Text style={styles.suggestionHandle}>{c.description}</Text>
+              </View>
+            </Pressable>
+          ))}
+        </ScrollView>
+      ) : null}
       {match ? (
         <ScrollView keyboardShouldPersistTaps="always" style={styles.suggestions} accessibilityLabel="Mention suggestions">
           {suggestions.length ? suggestions.map(person => (
