@@ -262,28 +262,6 @@ test("the join link works for many people, asks each for a name, and a fresh lin
 });
 
 // config.json is re-read per request; set work hours for one test.
-async function withWorkHours(value, fn) {
-  const file = path.join(dataDir, "config.json");
-  const before = fs.readFileSync(file, "utf8");
-  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(before), workHours: value }));
-  try { return await fn(); } finally { fs.writeFileSync(file, before); }
-}
-
-test("work hours: posting stays open; the app gets a Teams reminder to show", async () => {
-  const token = await pair("member", "Wren");
-  const chat = (await api("POST", "/v1/chats", { token, body: {} })).json.chat;
-  const general = (await api("GET", "/v1/conversations", { token })).json.conversations.find((c) => c.name === "general");
-  const allDay = { start: "00:00", end: "24:00", days: [0, 1, 2, 3, 4, 5, 6] };
-  await withWorkHours(allDay, async () => {
-    const notice = await api("GET", "/v1/work-hours", { token });
-    assert.equal(notice.status, 200);
-    assert.match(notice.json.notice.message, /use Microsoft Teams for official business\.$/);
-    assert.ok([200, 201, 202].includes((await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "during work" } })).status), "agent chats still send");
-    assert.equal((await api("POST", `/v1/conversations/${general.id}/messages`, { token, body: { text: "during work" } })).status, 201, "channels still post");
-  });
-  assert.equal((await api("GET", "/v1/work-hours", { token })).json.notice, null, "no reminder outside work hours");
-});
-
 test("agent chats: swipe to archive, restore, and a new message un-archives; only the owner can", async () => {
   const token = await pair("member", "Arlo");
   const other = await pair("member", "Bea");

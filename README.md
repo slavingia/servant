@@ -70,18 +70,6 @@ Agent images and videos delivered as inline data URLs are saved for later viewin
 
 The attachment picker and sharing modules require a new native app build for existing installations.
 
-## Work hours
-
-An instance can remind people that official business belongs in Microsoft Teams. During the configured hours every text box (channels, direct messages, threads and agent chats) shows "Work hours (8:30 am to 4:30 pm on weekdays): use Microsoft Teams for official business." above it, before anyone types. Posting stays open. The app reads the reminder from `GET /v1/work-hours`.
-
-Set it in the server's `config.json` (read on every request, so no restart is needed):
-
-```json
-"workHours": { "start": "08:30", "end": "16:30", "timeZone": "America/New_York", "days": [1, 2, 3, 4, 5] }
-```
-
-`days` uses 0 for Sunday. Leave `workHours` out, or set `"enabled": false`, to turn the reminder off.
-
 ## Roles
 
 - **Owner**: the person whose computer runs the agent. Full agent.

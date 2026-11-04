@@ -14,7 +14,6 @@
 //   node server/server.mjs release <build> <notes.md>   post a build's notes to #whats-new
 
 import http from "node:http";
-import { workHoursConfig, workHoursNotice } from "./work-hours.mjs";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -127,8 +126,6 @@ export function loadConfig() {
     // "full" (default): everyone's agent has full Hermes access. "limited":
     // non-owners use the restricted member bridge (docs/member-security.md).
     agentAccess: cfg.agentAccess === "limited" ? "limited" : "full",
-    // Optional "workHours": a reminder to use Teams for official business.
-    workHours: workHoursConfig(cfg.workHours),
     // Where the server can be reached from phones. Filled in by the tunnel script.
     publicUrl: process.env.SERVANT_PUBLIC_URL || cfg.publicUrl || "",
     // Stable URL that always returns {"url": "<current publicUrl>"}.
@@ -731,10 +728,6 @@ async function handle(req, res, cfg) {
     return fail(res, 404, "not_found", "Not found");
   }
 
-  // The reminder the app shows above every text box during work hours.
-  if (method === "GET" && url.pathname === "/v1/work-hours") {
-    return send(res, 200, { notice: workHoursNotice(cfg.workHours) });
-  }
 
   if (method === "GET" && url.pathname === "/v1/me") {
     mutateAuthenticated(req, (_state, current) => { current.device.lastSeenAt = now(); });
@@ -1455,7 +1448,6 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
     users: () => activeUsers(readState()),
     onMessage: event => servicePush.enqueue(event),
     agentName: () => (fixedCfg || loadConfig()).agentName || "Agent",
-    workHours: () => (fixedCfg || loadConfig()).workHours,
     // Channels use the same agent as private chats: full access unless the
     // server is set to "agentAccess": "limited".
     onUsage: recordUsage,
@@ -1541,7 +1533,7 @@ export function startServer(fixedCfg) {
   secureTransport ??= createSecureTransport(DATA_DIR);
   feedback ??= createFeedback({ file: path.join(DATA_DIR, "feedback.db"), interval: 0, recover: false });
   messaging.ensureGeneral();
-  for (const uid of Object.keys(activeUsers(readState()))) messaging.joinDefaults(uid);
+  messaging.joinEveryone(Object.keys(activeUsers(readState())));
   if (!meetings) {
     // The API process hosts calls even when a separate worker runs agent turns.
     meetings = createMeetings({

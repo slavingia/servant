@@ -55,6 +55,8 @@ CREATE TABLE IF NOT EXISTS members (
   PRIMARY KEY (conversation_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS members_user ON members(user_id);
+-- One-time notices already posted (so a restart never repeats them).
+CREATE TABLE IF NOT EXISTS messaging_notes (name TEXT PRIMARY KEY);
 -- Someone who leaves a public channel stays out: everyone-joins-everything skips them.
 CREATE TABLE IF NOT EXISTS channel_leaves (
   conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -185,7 +187,7 @@ export function agentShouldReply(text, agentName = "", inAgentThread = false) {
  * @param {() => string} o.agentName
  * @param {(o:{sessionId:string, sessionKey:string, text:string, attachments:Array, onDelta:(t:string)=>void, onStatus:(t:string)=>void}) => Promise<string|{text:string,attachments:Array}>} o.askAgent
  */
-export function createMessaging({ file, users, agentName, askAgent, onMessage = () => {}, externalWorker = false, workHours = () => null, onUsage = () => {}, messageExtras = () => null }) {
+export function createMessaging({ file, users, agentName, askAgent, onMessage = () => {}, externalWorker = false, onUsage = () => {}, messageExtras = () => null }) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(file);
   db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON');
@@ -570,16 +572,40 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
   }
 
   function joinDefaults(...args) { return transaction(() => joinDefaultsInTransaction(...args)); }
+  /** Startup backfill: everyone into every public channel, then one note in #general. */
+  function joinEveryone(userIds) {
+    return transaction(() => {
+      const added = Object.fromEntries(userIds.map(u => [u, joinDefaultsInTransaction(u)]));
+      // The first run after this change: people were already added quietly and never told.
+      if (db.prepare("INSERT OR IGNORE INTO messaging_notes VALUES ('channel_invites_v1')").run().changes) {
+        const all = db.prepare("SELECT name FROM conversations WHERE kind = 'channel' AND private = 0 AND archived_at IS NULL AND name NOT IN ('general', ?)").all(RELEASES_CHANNEL).map(c => c.name);
+        for (const u of userIds) added[u] = [...new Set([...(added[u] || []), ...all])];
+      }
+      return announceChannelInvites(added);
+    });
+  }
   function joinDefaultsInTransaction(userId) {
     for (const c of [ensureGeneral(), ensureReleases()]) {
       addChannelMember(c, userId);
       publish(c.id, "conversation.updated", { id: c.id });
     }
-    // Like Slack with everyone invited: every open public channel, quietly (no "joined" note),
-    // starting read so nobody gets a wall of unread history.
+    // Like Slack with everyone invited: every open public channel, starting read so nobody gets a
+    // wall of old history. The channel shows "<name> joined the channel".
+    const added = [];
     for (const c of st.channelsToJoin.all(userId, userId)) {
-      if (st.addMember.run(c.id, userId, now(), st.lastSeq.get(c.id).seq).changes) publish(c.id, "conversation.updated", { id: c.id }, [userId]);
+      if (addChannelMember(c, userId)) { added.push(c.name); publish(c.id, "conversation.updated", { id: c.id }, [userId]); }
     }
+    return added;
+  }
+  // One visible note in #general when people were added to channels they didn't know about.
+  function announceChannelInvites(addedByUser) {
+    const names = [...new Set(Object.values(addedByUser).flat())].sort();
+    if (!names.length) return null;
+    const who = Object.keys(addedByUser).filter(u => addedByUser[u].length).map(u => person(u).name);
+    const list = names.map(n => `#${n}`).join(", ");
+    const text = `${who.length === 1 ? `${who[0]} was` : "Everyone was"} added to ${names.length === 1 ? "a channel" : "every public channel"}: ${list}\n\nLeave any you don't need from the channel's Details`;
+    const general = ensureGeneral();
+    return post(general, AGENT_ID, text.slice(0, MAX_TEXT), null, { queueAgent: false });
   }
 
   const releaseView = (r) => {
@@ -1491,7 +1517,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     },
   };
 
-  return { ...meetingHooks, handle, forwardSource, forwardInto, notificationFor, joinDefaults, welcomeFromAgent, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, close: () => { closeEvents(); db.close(); }, db };
+  return { ...meetingHooks, handle, forwardSource, forwardInto, notificationFor, joinDefaults, joinEveryone, welcomeFromAgent, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, close: () => { closeEvents(); db.close(); }, db };
 }
 
 function httpError(status, code, message) {
