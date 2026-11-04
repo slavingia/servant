@@ -8,10 +8,10 @@ import { api, ServerError, type Account, type Meeting } from "./server";
 type Stream = any;
 type Peer = any;
 
-type Native = { RTCPeerConnection: any; mediaDevices: any };
+type Native = { RTCPeerConnection: any; mediaDevices: any; MediaStream?: any };
 let native: Native | null = null;
 function rtc(): Native {
-  if (Platform.OS === "web") return { RTCPeerConnection: (globalThis as any).RTCPeerConnection, mediaDevices: (globalThis as any).navigator?.mediaDevices };
+  if (Platform.OS === "web") return { RTCPeerConnection: (globalThis as any).RTCPeerConnection, mediaDevices: (globalThis as any).navigator?.mediaDevices, MediaStream: (globalThis as any).MediaStream };
   // Loaded lazily so the web bundle never pulls in the native module.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   native ??= require("react-native-webrtc") as Native;
@@ -112,7 +112,13 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
     peer.addEventListener("track", (e: any) => {
       const stream = e.streams?.[0] ?? remote.stream ?? null;
       if (stream) remote.stream = stream;
-      else if (Platform.OS === "web") { remote.stream ??= new (globalThis as any).MediaStream(); remote.stream.addTrack(e.track); }
+      else {
+        // The server sends bare RTP with no stream id, so phones get no stream either: build one
+        // from the tracks, or the tile (and the voice) never shows up.
+        const { MediaStream } = rtc();
+        remote.stream ??= new MediaStream();
+        remote.stream.addTrack(e.track);
+      }
       if (!state.remotes.includes(remote)) state.remotes.push(remote);
       emit();
     });
