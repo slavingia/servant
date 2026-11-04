@@ -132,7 +132,10 @@ test("migration: folders become projects (owner merges, members write), chats an
   const dir = tmp();
   const store = createProjectStore(path.join(dir, "projects.json"));
   // A file written by hand before the upgrade keeps its projects; folders are added after them.
-  store.mutate(data => { data.projects.push({ id: "design-prototypes", name: "Design prototypes", path: "~/d", pages: "https://x/", workflow: "main", rules: [], owners: [], access: { merge: [], write: [], read: [] }, files: [] }); });
+  store.mutate(data => {
+    data.projects.push({ id: "design-prototypes", name: "Design prototypes", path: "~/d", pages: "https://x/", workflow: "main", rules: [], owners: [], access: { merge: [], write: [], read: [] }, files: [] });
+    data.projects.push({ id: "expo-irs", name: "The IRS app", path: "~/e", workflow: "pr", rules: [], owners: [], access: { merge: [], write: [], read: [] }, files: [] });
+  });
   const projectFiles = createProjectFiles(path.join(dir, "project-files"));
   const folderFiles = path.join(dir, "folder-files");
   fs.mkdirSync(path.join(folderFiles, "fld_aaaaaaaaaaaa"), { recursive: true });
@@ -150,13 +153,14 @@ test("migration: folders become projects (owner merges, members write), chats an
       c3: { id: "c3", userId: "usr_josh", folderId: "fld_gone" },
       c4: { id: "c4", userId: "usr_ana", project: "design-prototypes", mode: "vibe" },
       c5: { id: "c5", userId: "usr_ana", project: "mac" },
+      c6: { id: "c6", userId: "usr_ana", project: "expo" },
     },
   };
   assert.equal(needsMigration(state), true);
   assert.equal(migrateFolders(state, store, projectFiles, folderFiles), 2);
   const data = store.read();
-  assert.deepEqual(data.projects.map(p => p.id), ["design-prototypes", "refund-tracker", "refund-tracker-2"]);
-  const tracker = data.projects[1];
+  assert.deepEqual(data.projects.map(p => p.id), ["design-prototypes", "expo-irs", "refund-tracker", "refund-tracker-2"]);
+  const tracker = data.projects[2];
   assert.deepEqual([tracker.owners, tracker.access, tracker.notes, tracker.files.length], [["usr_ana"], { merge: ["usr_ana"], write: ["usr_josh"], read: [] }, "Plain words.", 1]);
   assert.equal(accessOf(tracker, state.users.usr_josh, state.users, {}).level, "write");
   assert.deepEqual(state.chats.c1, { id: "c1", userId: "usr_ana", projectId: "refund-tracker", projectShared: true });
@@ -164,11 +168,12 @@ test("migration: folders become projects (owner merges, members write), chats an
   assert.deepEqual(state.chats.c3, { id: "c3", userId: "usr_josh" }, "a folder that no longer exists is simply dropped");
   assert.deepEqual(state.chats.c4, { id: "c4", userId: "usr_ana", projectId: "design-prototypes", mode: "vibe" }, "old hard-coded project ids stay when the file knows them");
   assert.deepEqual(state.chats.c5, { id: "c5", userId: "usr_ana" }, "ids the file doesn't know (mac) go");
+  assert.deepEqual(state.chats.c6, { id: "c6", userId: "usr_ana", projectId: "expo-irs" }, "the old 'expo' id maps to expo-irs");
   assert.equal(state.users.usr_ana.folders, undefined);
   assert.equal(fs.readFileSync(projectFiles.pathOf("refund-tracker", { id: "fil_1" }), "utf8"), "spec");
   assert.equal(needsMigration(state), false);
   assert.equal(migrateFolders(state, store, projectFiles, folderFiles), 0, "running again changes nothing");
-  assert.equal(store.read().projects.length, 3);
+  assert.equal(store.read().projects.length, 4);
 });
 
 test("ids and cleaning: readable slugs, repos as owner/name, GitHub usernames", () => {
