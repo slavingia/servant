@@ -284,7 +284,7 @@ export default function Chats() {
             style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}>
             <View style={styles.agentIcon}><AppIcon name="sparkles" size={19} color={colors.blueDark} /></View>
             <View style={styles.rowCopy}>
-              <Text style={styles.rowTitle} numberOfLines={1}>{item.title.replace(/`/g, "")}</Text>
+              <Text style={[styles.rowTitle, styles.readTitle]} numberOfLines={1}>{item.title.replace(/`/g, "")}</Text>
               <View style={styles.privateTag}>
                 {item.shared === false ? <AppIcon name="lock" size={12} color={colors.muted} /> : null}
                 <Text style={styles.preview} numberOfLines={1}>{lastLine(item, item.author?.name ?? "Someone", "Agent") || (item.author?.name ?? "Someone")}{item.shared === false ? " · Private (visible to admins)" : ""}</Text>
@@ -344,7 +344,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   rowTitle: { ...typography.bodyStrong, flex: 1, color: colors.ink, marginRight: space.sm },
   rowWhen: { ...typography.caption, color: colors.muted },
   rowEnd: { alignItems: "flex-end", justifyContent: "center", gap: space.xxs, minHeight: 48 },
-  // Telegram-style: only conversations with unread replies are bold.
+  // Telegram-style: only your own conversations with unread replies are bold. Other people's are always read.
   readTitle: { fontWeight: "400" },
   unreadTitle: { fontWeight: "700" },
   unreadWhen: { color: colors.blue },
