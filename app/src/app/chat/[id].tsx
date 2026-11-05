@@ -432,6 +432,9 @@ function ChatConversation() {
   }, [load, account, id]);
 
   const media = useMemo(() => mediaFromMessages(messages ?? [], account?.user.name ?? "You", "Agent"), [messages, account?.user.name]);
+  // Backing out of a chat that never got a message deletes it (set below), so no empty "New chat" is left behind.
+  const discardable = useRef(false);
+  useEffect(() => () => { if (discardable.current && account) void api.deleteChat(account, String(id)).catch(() => {}); }, [account, id]);
   if (!account) return null;
 
   const refreshTurns = async () => {
@@ -694,6 +697,7 @@ function ChatConversation() {
   // Nothing sent yet: the choice sits right above the message box, and goes once the first message is on its way.
   const fresh = messages !== null && messages.length === 0 && !loadError && !firstRow && !turn && waiting.length === 0;
   const showAbout = fresh && !!projects && !projects.vibeCoder;
+  discardable.current = fresh && compose === "1";
   const pickAbout = async (next: string | null) => {
     setChoosing(false);
     if (next === about || switching) return;
