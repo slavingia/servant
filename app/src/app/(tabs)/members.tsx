@@ -118,12 +118,12 @@ export default function Members() {
               <Pressable testID={`vibe-${item.id}`} accessibilityRole="switch" accessibilityState={{ checked: !!item.vibeCoder, disabled: !!opening }} accessibilityLabel={`Vibe coder: ${item.name}`}
                 accessibilityHint="Their agent chats build prototypes with a preview link" hitSlop={4} onPress={() => void toggleVibe(item)}
                 style={({ pressed }) => [styles.chip, item.vibeCoder && styles.chipOn, pressed && { opacity: 0.7 }]}>
-                <Text style={[styles.chipText, item.vibeCoder && styles.chipTextOn]}>{item.vibeCoder ? "Vibe coder ✓" : "Vibe coder"}</Text>
+                <Text style={[styles.chipText, item.vibeCoder && styles.chipTextOn]}>Vibe coder</Text>
               </Pressable>
               <Pressable testID={`tokens-${item.id}`} accessibilityRole="switch" accessibilityState={{ checked: !!item.unlimitedTokens, disabled: !!opening }} accessibilityLabel={`No token limit: ${item.name}`}
                 accessibilityHint="Lifts their daily agent limit" hitSlop={4} onPress={() => void toggleTokens(item)}
                 style={({ pressed }) => [styles.chip, item.unlimitedTokens && styles.chipOn, pressed && { opacity: 0.7 }]}>
-                <Text style={[styles.chipText, item.unlimitedTokens && styles.chipTextOn]}>{item.unlimitedTokens ? "No token limit ✓" : "No token limit"}</Text>
+                <Text style={[styles.chipText, item.unlimitedTokens && styles.chipTextOn]}>No token limit</Text>
               </Pressable>
               {!self ? <Pressable testID={`remove-${item.id}`} accessibilityRole="button" accessibilityLabel={`Remove ${item.name}`} hitSlop={4}
                 onPress={() => { setRemoveError(null); setRemoving(item); }} style={({ pressed }) => [styles.removeLink, pressed && { opacity: 0.6 }]}>
@@ -131,7 +131,7 @@ export default function Members() {
               </Pressable> : null}
             </View> : null}
           </View>
-          <View style={owner && !item.owner ? styles.trailingTall : undefined}>{opening === item.id ? <ActivityIndicator color={colors.blue} /> : !self ? <AppIcon name="chat" size={18} color={colors.muted} /> : null}</View>
+          <View style={[styles.trailing, owner && !item.owner && styles.trailingTall]}>{opening === item.id ? <ActivityIndicator color={colors.blue} /> : !self ? <AppIcon name="chat" size={18} color={colors.muted} /> : null}</View>
         </Pressable>;
       }}
       contentContainerStyle={styles.content}
@@ -149,19 +149,20 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   row: { minHeight: 64, paddingHorizontal: space.side, paddingVertical: space.sm, flexDirection: "row", alignItems: "center" },
   // With controls under the name the row is three lines tall: line the avatar and the chat glyph up with the name.
   rowTall: { alignItems: "flex-start" },
-  trailingTall: { marginTop: 2, minHeight: 36, justifyContent: "center" },
+  trailing: { width: 36, minHeight: 36, alignItems: "center", justifyContent: "center" },
+  trailingTall: { marginTop: 2 },
   copy: { flex: 1, minWidth: 0, marginLeft: space.sm, marginRight: space.xs },
   name: { ...typography.bodyStrong, color: colors.ink },
   you: { ...typography.body, color: colors.muted },
   role: { ...typography.caption, marginTop: 2, color: colors.muted },
   online: { color: colors.blueDark },
-  controls: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.xs, marginTop: space.xs },
+  controls: { flexDirection: "row", alignItems: "center", gap: space.xs, marginTop: space.xs },
   // 36pt chips with 4pt hit slop: a 44pt target without a tall row.
-  chip: { minHeight: 36, paddingHorizontal: space.xs + 2, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, justifyContent: "center" },
+  chip: { minHeight: 36, flexShrink: 0, paddingHorizontal: space.xs + 2, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, justifyContent: "center" },
   chipOn: { backgroundColor: colors.blueSoft, borderColor: colors.blueSoft },
   chipText: { ...typography.meta, color: colors.muted },
   chipTextOn: { color: colors.blueDark, fontWeight: "600" },
-  removeLink: { minHeight: 36, paddingHorizontal: space.xs, justifyContent: "center" },
+  removeLink: { minHeight: 36, paddingHorizontal: space.xs, justifyContent: "center", marginLeft: "auto" },
   removeText: { ...typography.meta, color: colors.red },
   error: { ...typography.caption, marginHorizontal: space.side, marginVertical: space.xs, color: colors.red },
   loading: { marginTop: space.xxl },
