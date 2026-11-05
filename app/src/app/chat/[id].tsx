@@ -932,7 +932,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   // Stop stays beside the live line when the steps are open below it.
   workingRow: { alignItems: 'flex-start' },
   live: { ...typography.body, color: colors.muted, flexShrink: 1 },
-  stop: { paddingHorizontal: space.xs, minHeight: 22, justifyContent: 'center' }, stopText: { ...typography.captionStrong, color: colors.red }, dim: { opacity: 0.5 },
+  stop: { paddingHorizontal: space.xs, minHeight: 22, justifyContent: 'center' }, stopText: { ...typography.captionStrong, fontSize: typography.body.fontSize, lineHeight: typography.body.lineHeight, color: colors.red }, dim: { opacity: 0.5 },
   queuedMessage: { opacity: 0.85 },
   queuedDetail: { ...typography.meta, color: colors.muted, flexShrink: 1 },
   steer: { minHeight: 28, minWidth: 64, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.sm, borderRadius: 14, borderWidth: 1, borderColor: colors.blue },
