@@ -69,7 +69,7 @@ export function FeedbackPrompt({ children }: { children: ReactNode }) {
       <Modal visible={!!reason} transparent animationType="fade" onRequestClose={close} statusBarTranslucent>
         <Pressable style={styles.scrim} onPress={close} accessibilityLabel="Dismiss" accessibilityRole="button" />
         <View
-          style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, space.md) + space.xs }]}
+          style={[styles.sheet, { marginBottom: Math.max(insets.bottom, space.md) }]}
           accessibilityViewIsModal
           testID="feedback-prompt"
         >
@@ -91,10 +91,10 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   scrim: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)" },
   sheet: {
     backgroundColor: colors.background,
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
+    borderRadius: radius.xl,
+    marginHorizontal: space.md,
     paddingHorizontal: space.side,
-    paddingTop: space.lg,
+    paddingVertical: space.lg,
     gap: space.sm,
   },
   title: { ...typography.title, color: colors.ink },
