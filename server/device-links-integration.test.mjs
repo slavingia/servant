@@ -120,3 +120,21 @@ test('one person can keep four independent devices; revoking one preserves all o
   assert.equal(Object.values(state.devices).filter(device => device.userId === first.user.id && !device.revokedAt).length, 3);
   store.close();
 });
+
+test('sign-in link: made on a signed-in phone, pasted on a computer, signs in as the same person once', async () => {
+  const paired = await phone();
+  assert.equal((await api('POST', '/v1/sign-in-links', {})).status, 401);
+  const made = await api('POST', '/v1/sign-in-links', {}, paired.token);
+  assert.equal(made.status, 200);
+  assert.match(made.body.link, /^servant:\/\/pair\?code=/);
+  const redeemed = await api('POST', '/v1/pair', { terms: ACCEPT, code: made.body.code, device: 'Browser' });
+  assert.equal(redeemed.status, 201);
+  assert.equal(redeemed.body.user.id, paired.user.id);
+  assert.notEqual(redeemed.body.token, paired.token);
+  assert.equal((await api('GET', '/v1/me', undefined, paired.token)).status, 200, 'phone stays signed in');
+  assert.equal((await api('POST', '/v1/pair', { terms: ACCEPT, code: made.body.code, device: 'Browser' })).status, 403, 'works once');
+  const first = await api('POST', '/v1/sign-in-links', {}, paired.token);
+  const second = await api('POST', '/v1/sign-in-links', {}, paired.token);
+  assert.equal((await api('POST', '/v1/pair', { terms: ACCEPT, code: first.body.code, device: 'Browser' })).status, 403, 'a new link replaces the old one');
+  assert.equal((await api('POST', '/v1/pair', { terms: ACCEPT, code: second.body.code, device: 'Browser' })).status, 201);
+});

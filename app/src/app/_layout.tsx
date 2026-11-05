@@ -105,6 +105,7 @@ function SessionNavigation() {
       {/* Startup redirects should reveal the landing screen in place. */}
       <Stack.Screen name="index" options={{ headerShown: false, animation: "none" }} />
       <Stack.Screen name="scan" options={{ title: "Scan QR code" }} />
+      <Stack.Screen name="link-computer" options={{ title: "Link a computer" }} />
       <Stack.Screen name="link-device" options={{ title: "Link a computer" }} />
       <Stack.Protected guard={!paired} redirectTo="/channels">
         <Stack.Screen name="welcome" options={{ headerShown: false, animation: "none" }} />

@@ -28,7 +28,7 @@ import { createPushService, preferences, previewText, updatePushRegistration, up
 import { createPushTransport } from "./push-transport.mjs";
 import { createSecureTransport, serverIdentity } from "./secure-transport.mjs";
 import { createStateStore } from "./state-store.mjs";
-import { createDeviceLink, previewDeviceLink, approveDeviceLink, denyDeviceLink, pollDeviceLink } from "./device-links.mjs";
+import { createDeviceLink, previewDeviceLink, approveDeviceLink, denyDeviceLink, pollDeviceLink, createSignInLink } from "./device-links.mjs";
 import { privateMessageView } from "./source-device.mjs";
 import { createChatMediaStore } from "./chat-media.mjs";
 import { createUsageStore, limitMessage, agentTierOf, AGENT_TIERS } from "./usage.mjs";
@@ -817,6 +817,11 @@ async function handle(req, res, cfg) {
   }
 
   // ----- owner-only admin -----
+  if (method === "POST" && parts[1] === "sign-in-links" && parts.length === 2) {
+    await readBody(req);
+    const { code, expiresAt } = mutateAuthenticated(req, (state, auth) => createSignInLink(state, auth, inviteCode, c => sha256(normalizeCode(c))));
+    return send(res, 200, { code, link: pairLink(code, cfg), expiresAt });
+  }
   if (parts[1] === "invites" || parts[1] === "devices") {
     if (user.role !== "owner") return fail(res, 403, "forbidden", "Only the owner can do that");
     if (method === "POST" && parts[1] === "invites" && parts.length === 2) {

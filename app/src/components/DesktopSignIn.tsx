@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
+import * as Clipboard from "expo-clipboard";
 import QRCode from "react-native-qrcode-svg";
 import { Band } from "./Band";
 import { Button } from "./Button";
@@ -25,6 +26,7 @@ function DesktopSignInAttempt({ workspace, onUseInvite, onRetry }: { workspace: 
   const [connection, setConnection] = useState<string | null>(null);
   const [completing, setCompleting] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [copied, setCopied] = useState(false);
   const { server, serverKey, discovery } = workspace;
 
   useEffect(() => {
@@ -90,6 +92,7 @@ function DesktopSignInAttempt({ workspace, onUseInvite, onRetry }: { workspace: 
             </View>
             <Text style={styles.codeLabel}>Match this code on your phone</Text>
             <Text selectable style={styles.code}>{session.code}</Text>
+            <Button label={copied ? "Link copied" : "Copy link for your phone"} kind="link" onPress={() => void Clipboard.setStringAsync(deviceLinkUrl({ id: session.id, serverKey })).then(ok => setCopied(ok), () => {})} />
             <Text style={styles.expiry}>Expires in {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}</Text>
           </> : error || expired ? <>
             <Text accessibilityRole="alert" style={styles.error}>{error || "This QR code expired. Get a new code to sign in."}</Text>
@@ -101,7 +104,7 @@ function DesktopSignInAttempt({ workspace, onUseInvite, onRetry }: { workspace: 
         </View>
         <View style={styles.steps}>
           <Text style={styles.step}>1. Open Servant on your phone.</Text>
-          <Text style={styles.step}>2. Go to You → Link a computer and scan this code.</Text>
+          <Text style={styles.step}>2. Go to You → Link a computer and scan this code, or paste the link.</Text>
           <Text style={styles.step}>3. Check the matching number, then tap Sign in on Mac.</Text>
         </View>
         <Text accessibilityLiveRegion="polite" style={styles.status}>{connection || (session && !error && !expired && !completing ? "Waiting for approval on your phone…" : "")}</Text>

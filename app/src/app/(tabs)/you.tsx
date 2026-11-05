@@ -170,7 +170,7 @@ export default function Settings() {
       <Text accessibilityRole="header" style={styles.section}>Preferences</Text>
       <View style={styles.group}>
         <Row label="Notifications" onPress={() => router.push("/notifications")} />
-        {Platform.OS !== "web" ? <Row label="Link a computer" onPress={() => router.push({ pathname: "/scan", params: { mode: "computer" } })} /> : null}
+        <Row label="Link a computer" onPress={() => router.push("/link-computer")} />
       </View>
 
       <Text accessibilityRole="header" style={styles.section}>Workspace</Text>

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createStateStore } from './state-store.mjs';
-import { createDeviceLink, previewDeviceLink, approveDeviceLink, denyDeviceLink, pollDeviceLink, DEVICE_LINK_TTL_MS, DEVICE_LINK_IP_LIMIT, DEVICE_LINK_LIMIT } from './device-links.mjs';
+import { createSignInLink, SIGN_IN_LINK_TTL_MS, createDeviceLink, previewDeviceLink, approveDeviceLink, denyDeviceLink, pollDeviceLink, DEVICE_LINK_TTL_MS, DEVICE_LINK_IP_LIMIT, DEVICE_LINK_LIMIT } from './device-links.mjs';
 
 const at = 1000000;
 const digest = value => crypto.createHash('sha256').update(value).digest('hex');
@@ -109,4 +109,20 @@ test('approval survives reopening account storage and redemption remains single 
     fails(() => second.mutate(state => pollDeviceLink(state, link.id, link.secret, at + 2)), 'used_device_link');
     assert.equal(Object.keys(second.read().devices).length, 2);
   } finally { second?.close(); store.close(); fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('sign-in link is one live invite for the same person and replaces the last', () => {
+  const { state, auth } = fixture();
+  let n = 0;
+  const make = () => 'CODE' + (++n) + '-AAAAA', h = c => 'h:' + c;
+  const a = createSignInLink(state, auth, make, h, at);
+  assert.equal(a.expiresAt, at + SIGN_IN_LINK_TTL_MS);
+  const rec = state.invites[h(a.code)];
+  assert.equal(rec.userId, auth.user.id);
+  assert.equal(rec.role, 'member');
+  const b = createSignInLink(state, auth, make, h, at + 1);
+  assert.ok(state.invites[h(a.code)].revokedAt, 'old link revoked');
+  assert.ok(!state.invites[h(b.code)].revokedAt);
+  auth.device.revokedAt = at;
+  fails(() => createSignInLink(state, auth, make, h, at + 2), 'unauthorized');
 });

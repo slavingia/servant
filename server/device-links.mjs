@@ -102,3 +102,19 @@ export function pollDeviceLink(state, id, secret, at = Date.now()) {
   // disclosed to the approving phone, and a second redemption cannot mint one.
   return { status: 'approved', token, user: { id: user.id, name: user.name, role: user.role } };
 }
+
+// A one-time sign-in link a signed-in device makes for itself: paste it into the
+// web app (or the Mac app) to sign in as the same person with no QR code. It is
+// an ordinary invite for the existing user, so pairing, terms and revocation
+// work as for any new device. One live link per person; a new one replaces it.
+export const SIGN_IN_LINK_TTL_MS = 10 * 60 * 1000;
+export function createSignInLink(state, auth, makeCode, hashCode, at = Date.now()) {
+  if (!activeUser(state.users[auth.user.id]) || auth.device.revokedAt) throw error(401, 'unauthorized', 'This phone is no longer signed in');
+  for (const entry of Object.values(state.invites)) {
+    if (entry.kind === 'sign-in-link' && entry.userId === auth.user.id && !entry.usedAt && !entry.revokedAt) entry.revokedAt = at;
+  }
+  const code = makeCode();
+  const user = state.users[auth.user.id];
+  state.invites[hashCode(code)] = { kind: 'sign-in-link', name: user.name, role: user.role, userId: user.id, createdAt: at, expiresAt: at + SIGN_IN_LINK_TTL_MS };
+  return { code, expiresAt: at + SIGN_IN_LINK_TTL_MS };
+}
