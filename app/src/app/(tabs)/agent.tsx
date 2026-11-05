@@ -13,7 +13,8 @@ import { api, ServerError, type Chat } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { useLive } from "../../lib/live";
 import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
-import { activeAgentTurn, agentTurnLabel } from '../../lib/agent-turns';
+import { activeAgentTurn, agentTurnLabel, liveAgentLine } from '../../lib/agent-turns';
+import { LiveStatus } from "../../components/LiveStatus";
 
 // The line under the title, like the last message in a DM list.
 function lastLine(chat: Chat, author: string, agent = "") {
@@ -211,7 +212,9 @@ export default function Chats() {
                     </View>
                     {item.mode === "vibe" || item.project ? <Text style={styles.projectTag} numberOfLines={1}>{[item.project?.name, item.mode === "vibe" ? "Vibe coding" : null].filter(Boolean).join(" · ")}</Text> : null}
                     <View style={styles.rowTop}>
-                      {activeAgentTurn(item.latestTurn) ? <Text style={styles.turnLabel} numberOfLines={1}>{agentTurnLabel(item.latestTurn!)}</Text>
+                      {activeAgentTurn(item.latestTurn) ? <View style={styles.turnLive}>{item.latestTurn!.status === 'running'
+                          ? <LiveStatus text={liveAgentLine(item.latestTurn)} style={styles.turnLiveText} />
+                          : <Text style={styles.turnLabel} numberOfLines={1}>{agentTurnLabel(item.latestTurn!)}</Text>}</View>
                         : <View style={styles.privateTag}>
                           {item.shared === true ? <AppIcon name="people" size={12} color={colors.muted} /> : null}
                           <Text style={[styles.preview, unread > 0 && { color: colors.ink }]} numberOfLines={1}>{lastLine(item, "You") || (item.shared === true ? "Shared" : "")}</Text>
@@ -263,7 +266,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   inbox: { marginHorizontal: space.side, marginBottom: space.md, padding: space.md, backgroundColor: colors.blueSoft, borderRadius: radius.lg },
   inboxTitle: { ...typography.bodyStrong, color: colors.brandText, marginBottom: space.xs },
   approvalRow: { paddingVertical: space.xs, gap: space.xxs }, approvalDetail: { ...typography.caption, color: colors.ink }, review: { ...typography.captionStrong, color: colors.blue },
-  rowCopy: { flex: 1, minWidth: 0 }, rowTop: { flexDirection: "row", alignItems: "center" }, byline: { ...typography.meta, color: colors.muted, marginTop: space.xxs }, privateTag: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space.xxs, marginTop: space.xxs, marginRight: space.sm }, preview: { ...typography.caption, color: colors.muted, flexShrink: 1 }, turnLabel: { ...typography.meta, flex: 1, color: colors.blue, marginTop: space.xxs, marginRight: space.sm },
+  rowCopy: { flex: 1, minWidth: 0 }, rowTop: { flexDirection: "row", alignItems: "center" }, byline: { ...typography.meta, color: colors.muted, marginTop: space.xxs }, privateTag: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space.xxs, marginTop: space.xxs, marginRight: space.sm }, preview: { ...typography.caption, color: colors.muted, flexShrink: 1 }, turnLive: { flex: 1, minWidth: 0, marginTop: space.xxs, marginRight: space.sm }, turnLiveText: { ...typography.meta, color: colors.blue }, turnLabel: { ...typography.meta, flex: 1, color: colors.blue, marginTop: space.xxs, marginRight: space.sm },
   header: { minHeight: 60, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.xs },
   title: { ...typography.title, color: colors.ink, flexShrink: 1 },
   compose: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
