@@ -48,7 +48,7 @@ export type Leaderboard = { period: LeaderboardPeriod; since: number; topics?: T
 // ----- channels, direct messages, threads -----
 export type Presence = { userId: string; online: boolean; lastSeenAt: number | null };
 // photo: version of their profile photo, when they have one.
-export type Person = { vibeCoder?: boolean; unlimitedTokens?: boolean; id: string; name: string; agent?: boolean; owner?: boolean; online?: boolean; lastSeenAt?: number | null; photo?: string | null };
+export type Person = { agentTier?: number; vibeCoder?: boolean; unlimitedTokens?: boolean; id: string; name: string; agent?: boolean; owner?: boolean; online?: boolean; lastSeenAt?: number | null; photo?: string | null };
 export type Attachment = { id: string; name: string; mime: string; size: number };
 // Documents skip base64: `document` points at the local file until it's
 // uploaded in chunks, then `upload` names the server copy.
@@ -380,6 +380,7 @@ export const api = {
   /** Owner only: take someone who left the team off the server. Signs out all their devices. */
   removePerson: (a: Account, userId: string) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "DELETE" }).then(json<{ ok: true }>),
   setUnlimitedTokens: (a: Account, userId: string, unlimitedTokens: boolean) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ unlimitedTokens }) }).then(json<{ person: Person }>),
+  setAgentTier: (a: Account, userId: string, agentTier: number) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ agentTier }) }).then(json<{ person: Person }>),
   setVibeCoder: (a: Account, userId: string, vibeCoder: boolean) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ vibeCoder }) }).then(json<{ person: Person }>),
   deleteChat: (a: Account, id: string) => request(a, `/v1/chats/${id}`, { method: "DELETE" }),
   archiveChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/archive`, { method: "POST", body: "{}" }),

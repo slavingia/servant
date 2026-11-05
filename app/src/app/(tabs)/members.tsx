@@ -14,6 +14,13 @@ import { presenceLabel } from "../../lib/message-status";
 import { useSession } from "../../lib/session";
 import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 
+const TIERS = [
+  { tier: 0, label: "No agent", hint: "They can't use the agent" },
+  { tier: 1, label: "Bug reporter", hint: "Their agent only files GitHub issues" },
+  { tier: 2, label: "Vibe coder", hint: "Their agent builds design prototypes with a preview link" },
+  { tier: 3, label: "Design engineer", hint: "Their agent has full access" },
+];
+
 export default function Members() {
   const styles = useStyles();
   // Tapping the tab you're already on scrolls back to the top.
@@ -44,13 +51,13 @@ export default function Members() {
   if (!account) return null;
   const people = directory?.token === account.token ? directory.people : null;
   const owner = account.user.role === "owner";
-  // Owners mark people who aren't programmers: their agent chats become vibe coding.
-  const toggleVibe = async (person: Person) => {
-    if (opening) return;
+  // Owners choose what each person's agent may do: none, file bug reports, build prototypes, or everything.
+  const setTier = async (person: Person, tier: number) => {
+    if (opening || (person.agentTier ?? 0) === tier) return;
     setOpening(person.id); setError(null);
     try {
-      const { person: updated } = await api.setVibeCoder(account, person.id, !person.vibeCoder);
-      setDirectory(d => d && { ...d, people: d.people.map(p => p.id === updated.id ? { ...p, vibeCoder: updated.vibeCoder } : p) });
+      const { person: updated } = await api.setAgentTier(account, person.id, tier);
+      setDirectory(d => d && { ...d, people: d.people.map(p => p.id === updated.id ? { ...p, agentTier: updated.agentTier, vibeCoder: updated.vibeCoder } : p) });
     } catch (e) {
       setError(e instanceof ServerError ? e.message : "Couldn't change that. Try again");
     } finally { setOpening(null); }
@@ -112,14 +119,14 @@ export default function Members() {
           <Avatar name={item.name} userId={item.id} size={36} />
           <View style={styles.copy}>
             <Text style={styles.name}>{item.name}{self ? <Text style={styles.you}> · You</Text> : null}</Text>
-            <Text style={[styles.role, status === "Online" && styles.online]}>{item.owner ? "Workspace owner" : !owner && item.vibeCoder ? "Vibe coder" : "Member"}{status ? ` · ${status}` : ""}</Text>
+            <Text style={[styles.role, status === "Online" && styles.online]}>{item.owner ? "Workspace owner" : !owner && item.agentTier ? TIERS[item.agentTier]?.label ?? "Member" : "Member"}{status ? ` · ${status}` : ""}</Text>
             {/* Owner controls go under the name: beside it they squeezed names to a syllable per line on phones. */}
             {owner && !item.owner ? <View style={styles.controls}>
-              <Pressable testID={`vibe-${item.id}`} accessibilityRole="switch" accessibilityState={{ checked: !!item.vibeCoder, disabled: !!opening }} accessibilityLabel={`Vibe coder: ${item.name}`}
-                accessibilityHint="Their agent chats build prototypes with a preview link" hitSlop={4} onPress={() => void toggleVibe(item)}
-                style={({ pressed }) => [styles.chip, item.vibeCoder && styles.chipOn, pressed && { opacity: 0.7 }]}>
-                <Text style={[styles.chipText, item.vibeCoder && styles.chipTextOn]}>Vibe coder</Text>
-              </Pressable>
+              {TIERS.map(t => <Pressable key={t.tier} testID={`tier-${t.tier}-${item.id}`} accessibilityRole="radio" accessibilityState={{ checked: (item.agentTier ?? 0) === t.tier, disabled: !!opening }} accessibilityLabel={`${t.label}: ${item.name}`}
+                accessibilityHint={t.hint} hitSlop={4} onPress={() => void setTier(item, t.tier)}
+                style={({ pressed }) => [styles.chip, (item.agentTier ?? 0) === t.tier && styles.chipOn, pressed && { opacity: 0.7 }]}>
+                <Text style={[styles.chipText, (item.agentTier ?? 0) === t.tier && styles.chipTextOn]}>{t.label}</Text>
+              </Pressable>)}
               <Pressable testID={`tokens-${item.id}`} accessibilityRole="switch" accessibilityState={{ checked: !!item.unlimitedTokens, disabled: !!opening }} accessibilityLabel={`No token limit: ${item.name}`}
                 accessibilityHint="Lifts their daily agent limit" hitSlop={4} onPress={() => void toggleTokens(item)}
                 style={({ pressed }) => [styles.chip, item.unlimitedTokens && styles.chipOn, pressed && { opacity: 0.7 }]}>
@@ -156,7 +163,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   you: { ...typography.body, color: colors.muted },
   role: { ...typography.caption, marginTop: 2, color: colors.muted },
   online: { color: colors.blueDark },
-  controls: { flexDirection: "row", alignItems: "center", gap: space.xs, marginTop: space.xs },
+  controls: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.xs, marginTop: space.xs },
   // 36pt chips with 4pt hit slop: a 44pt target without a tall row.
   chip: { minHeight: 36, flexShrink: 0, paddingHorizontal: space.xs + 2, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, justifyContent: "center" },
   chipOn: { backgroundColor: colors.blueSoft, borderColor: colors.blueSoft },
