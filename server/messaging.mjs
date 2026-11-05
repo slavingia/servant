@@ -1,3 +1,4 @@
+import { agentTierOf } from "./usage.mjs";
 // Channels, direct messages and threads. People talk to each other here; the
 // agent joins in when someone mentions @s.
 //
@@ -1140,7 +1141,7 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     if (method === "GET" && r === "people" && parts.length === 2) {
       expirePresence();
       const list = Object.values(users())
-        .map((u) => ({ ...person(u.id), owner: u.role === "owner", ...(u.vibeCoder ? { vibeCoder: true } : {}), ...(u.unlimitedTokens ? { unlimitedTokens: true } : {}) }))
+        .map((u) => ({ ...person(u.id), owner: u.role === "owner", agentTier: agentTierOf(u), ...(u.vibeCoder ? { vibeCoder: true } : {}), ...(u.unlimitedTokens ? { unlimitedTokens: true } : {}) }))
         .sort((a, b) => a.name.localeCompare(b.name));
       send(res, 200, { people: list, agent: person(AGENT_ID), me: user.id });
       return true;

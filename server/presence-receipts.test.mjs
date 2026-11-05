@@ -175,7 +175,7 @@ test('presence leases persist, combine multiple sessions, and expire without cha
   t.mock.method(Date, 'now', () => at);
   const presence = (m, sessionId, active = true) => f.route(m, 'member', 'POST', '/v1/presence', { sessionId, active });
   const person = async m => (await f.route(m, 'owner', 'GET', '/v1/people')).data.people.find(p => p.id === 'member');
-  assert.deepEqual(await person(f.first), { id: 'member', name: 'Member', lastSeenAt: null, online: false, owner: false });
+  assert.deepEqual(await person(f.first), { id: 'member', agentTier: 1, name: 'Member', lastSeenAt: null, online: false, owner: false });
   await presence(f.first, 'session-one');
   const second = f.open();
   assert.equal((await person(second)).online, true);

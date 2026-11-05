@@ -102,6 +102,7 @@ before(async () => {
     path.join(dataDir, "config.json"),
     JSON.stringify({
       port: 0,
+      defaultAgentTier: 3,
       name: "Test server",
       discoveryUrl: "https://example.test/hub.json",
       upstreams: {
@@ -1671,6 +1672,27 @@ test("the owner removes someone who left the team: signed out everywhere, gone f
   assert.equal((await api("POST", "/v1/pair", { body: { terms: ACCEPT, code: staleInvite, device: "New phone" } })).status, 403);
   const project = (await api("POST", "/v1/projects", { token: owner, body: { name: "Team" } })).json.project;
   assert.equal((await api("POST", `/v1/projects/${project.id}/people`, { token: owner, body: { userId: lee.id, level: "read" } })).status, 404, "can't add a removed person to a project");
+});
+
+test("agent tiers: new people have no agent; 1 bug reporter, 2 vibe coder, 3 design engineer", async () => {
+  const cfgFile = path.join(dataDir, "config.json");
+  const before = fs.readFileSync(cfgFile, "utf8");
+  fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(before), defaultAgentTier: 0 }));
+  try {
+    const boss = await pair("owner", "Tier Owner");
+    const token = await pair("member", "Tess Tier");
+    const me = (await api("GET", "/v1/people", { token: boss })).json.people.find((p) => p.name === "Tess Tier");
+    assert.equal(me.agentTier, 0);
+    const none = await api("POST", "/v1/chats", { token, body: {} });
+    assert.deepEqual([none.status, none.json.error?.code ?? none.json.code], [403, "no_agent"]);
+    assert.equal((await api("PATCH", `/v1/people/${me.id}`, { token, body: { agentTier: 1 } })).status, 403);
+    assert.equal((await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 9 } })).status, 400);
+    assert.equal((await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 1 } })).json.person.agentTier, 1);
+    assert.equal((await api("POST", "/v1/chats", { token, body: {} })).status, 201);
+    const t2 = await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 2 } });
+    assert.deepEqual([t2.json.person.agentTier, t2.json.person.vibeCoder], [2, true]);
+    assert.equal((await api("POST", "/v1/chats", { token, body: {} })).json.chat.mode, "vibe");
+  } finally { fs.writeFileSync(cfgFile, before); }
 });
 
 test("ten wrong codes lock out pairing from that address; good pairings don't count", async () => {

@@ -76,3 +76,18 @@ test("tokens are labelled by survey theme, and the report sets them against surv
   assert.equal(store.topics().unlabelledTurns, 0);
   store.close(); fs.rmSync(dir, { recursive: true, force: true });
 });
+
+import { agentTierOf, TIER_TOKEN_LIMITS } from './usage.mjs';
+test('agent tiers scale the daily limit and tier 0 has no agent', () => {
+  const store = createUsageStore(':memory:');
+  assert.equal(agentTierOf({ role: 'owner' }), 3);
+  assert.equal(agentTierOf({ role: 'member', agentTier: 0 }), 0);
+  assert.equal(agentTierOf({ role: 'member' }), 1);
+  assert.equal(agentTierOf({ role: 'member', vibeCoder: true }), 2);
+  assert.ok(TIER_TOKEN_LIMITS[1] < TIER_TOKEN_LIMITS[2] && TIER_TOKEN_LIMITS[2] < TIER_TOKEN_LIMITS[3]);
+  assert.equal(store.overLimit({ id: 'x', role: 'member', agentTier: 0 }), true);
+  assert.equal(store.limitFor({ role: 'member', agentTier: 2 }), TIER_TOKEN_LIMITS[2]);
+  store.record({ userId: 'u', source: 'chat', usage: { total_tokens: 1_500_000 } });
+  assert.equal(store.overLimit({ id: 'u', role: 'member', agentTier: 1 }), true);
+  assert.equal(store.overLimit({ id: 'u', role: 'member', agentTier: 2 }), false);
+});

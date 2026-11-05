@@ -19,6 +19,17 @@ export function normalizeUsage(raw) {
 
 // Everyone but the owner may use up to this many tokens a day (server-local day).
 export const DAILY_TOKEN_LIMIT = 1_000_000;
+// Daily limits scale with the agent tier (see agentTierOf): 1 bug reporter, 2 vibe coder, 3 design engineer.
+export const TIER_TOKEN_LIMITS = { 0: 0, 1: 1_000_000, 2: 5_000_000, 3: 20_000_000 };
+export const AGENT_TIERS = { 0: "No agent", 1: "Bug reporter", 2: "Vibe coder", 3: "Design engineer" };
+// Owners are tier 3. People who joined before tiers keep what they had (vibe coder = 2, otherwise 1);
+// everyone who joins now starts at 0 (agentTier is written when they join).
+export function agentTierOf(user) {
+  if (!user) return 0;
+  if (user.role === "owner") return 3;
+  if (Number.isInteger(user.agentTier) && user.agentTier >= 0 && user.agentTier <= 3) return user.agentTier;
+  return user.vibeCoder ? 2 : 1;
+}
 export const startOfDay = (at = Date.now()) => { const d = new Date(at); d.setHours(0, 0, 0, 0); return d.getTime(); };
 export const limitMessage = (limit = DAILY_TOKEN_LIMIT) =>
   `You've reached today's limit of ${limit.toLocaleString("en-US")} tokens. It resets at midnight`;
@@ -58,9 +69,10 @@ export function createUsageStore(file, { limit = DAILY_TOKEN_LIMIT, clock = Date
       return { input: Number(r.input), output: Number(r.output), total: Number(r.total), turns: Number(r.turns) };
     },
     limit,
+    limitFor(user) { return limit === DAILY_TOKEN_LIMIT ? TIER_TOKEN_LIMITS[agentTierOf(user)] : limit * (TIER_TOKEN_LIMITS[agentTierOf(user)] / DAILY_TOKEN_LIMIT); },
     usedToday: userId => Number(db.prepare("SELECT COALESCE(SUM(total_tokens),0) AS n FROM token_usage WHERE user_id=? AND at>=?").get(String(userId), startOfDay(clock())).n),
     // The owner is unlimited, and so is anyone flagged `unlimitedTokens` (bug reporters).
-    overLimit(user) { return !!user && user.role !== "owner" && !user.unlimitedTokens && this.usedToday(user.id) >= limit; },
+    overLimit(user) { return !!user && (agentTierOf(user) === 0 || (user.role !== "owner" && !user.unlimitedTokens)) && this.usedToday(user.id) >= this.limitFor(user); },
     leaderboard({ since = 0 } = {}) {
       const rows = db.prepare(`SELECT user_id AS userId, SUM(input_tokens) AS input, SUM(output_tokens) AS output,
           SUM(total_tokens) AS total, COUNT(*) AS turns,

@@ -86,7 +86,7 @@ before(async () => {
     owner: { url: `http://127.0.0.1:${upstream.address().port}`, key: "test-key" },
     member: { url: `http://127.0.0.1:${upstream.address().port}`, key: "test-key" },
   } };
-  fs.writeFileSync(path.join(dataDir, "config.json"), JSON.stringify(cfg));
+  fs.writeFileSync(path.join(dataDir, "config.json"), JSON.stringify({ defaultAgentTier: 3, ...cfg }));
   mod = await import("./server.mjs");
   server = await mod.startServer();
   base = `http://127.0.0.1:${server.address().port}`;

@@ -31,7 +31,7 @@ import { createStateStore } from "./state-store.mjs";
 import { createDeviceLink, previewDeviceLink, approveDeviceLink, denyDeviceLink, pollDeviceLink } from "./device-links.mjs";
 import { privateMessageView } from "./source-device.mjs";
 import { createChatMediaStore } from "./chat-media.mjs";
-import { createUsageStore, limitMessage } from "./usage.mjs";
+import { createUsageStore, limitMessage, agentTierOf, AGENT_TIERS } from "./usage.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { supportsDurableRuns, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
 import { MAX_ITEMS, MAX_PEOPLE, MAX_PROJECTS, MAX_RELEASES, VIBE_PROJECT, accessOf, accessibleProjects, cleanDate, cleanDescription, cleanLevel, cleanLogin, cleanName, cleanNotes, cleanPath, cleanReleaseName, cleanRepo, cleanRules, cleanStage, cleanStages, cleanTitle, cleanUrl, cleanWorkflow, createProjectFiles, createProjectStore, expandPath, migrateFolders, needsMigration, newItem, newProject, newRelease, patchCell, projectInstructions, projectPeople, projectSharedWith, projectView, removeAccess, setAccess, validProjectId, vibeFolder, vibePreview } from "./projects.mjs";
@@ -126,6 +126,8 @@ export function loadConfig() {
     // "full" (default): everyone's agent has full Hermes access. "limited":
     // non-owners use the restricted member bridge (docs/member-security.md).
     agentAccess: cfg.agentAccess === "limited" ? "limited" : "full",
+    // Where new people start: 0 = no agent until an owner sets a tier (1 bug reporter, 2 vibe coder, 3 design engineer).
+    defaultAgentTier: [0, 1, 2, 3].includes(cfg.defaultAgentTier) ? cfg.defaultAgentTier : 0,
     // Where the server can be reached from phones. Filled in by the tunnel script.
     publicUrl: process.env.SERVANT_PUBLIC_URL || cfg.publicUrl || "",
     // Stable URL that always returns {"url": "<current publicUrl>"}.
@@ -582,7 +584,13 @@ function migrateProjects() {
   });
 }
 // The chat's project (repo, workflow, rules, what the asker may do, notes and files), sent with every turn.
+const BUG_REPORTER_RULES = "This person is a bug reporter. The only thing you do for them is file GitHub issues (with gh) in the project's repo: ask what happened, what they expected and the steps, then open one clear issue and share the link. Don't change code, push, or do any other work, and say so kindly if asked.";
 function chatContext(chat) {
+  const tier1 = agentTierOf(readState().users[chat.userId]) === 1 ? BUG_REPORTER_RULES : "";
+  const base = chatContextBase(chat);
+  return [base, tier1].filter(Boolean).join("\n\n");
+}
+function chatContextBase(chat) {
   const data = projects().read();
   const project = chat.projectId ? data.projects.find(p => p.id === chat.projectId) : null;
   if (!project) return "";
@@ -600,6 +608,10 @@ let workChatStarter = null;
 let otaServer;
 const ota = () => otaServer ??= createOta({ dir: path.join(DATA_DIR, "ota") });
 const usageStore = () => usageDb ??= createUsageStore(path.join(DATA_DIR, "usage.db"));
+// Tier 0 has no agent; otherwise the message names this person's own daily limit.
+const limitText = user => agentTierOf(user) === 0 ? noAgentMessage : limitMessage(usageStore().limitFor(user));
+const noAgentMessage = "You don't have agent access yet. Ask an owner to turn it on";
+const noAgent = user => !!user && agentTierOf(user) === 0;
 const recordUsage = entry => { try { usageStore().record(entry); } catch (error) { console.error("[servant] usage", error.message); } };
 
 async function handle(req, res, cfg) {
@@ -687,7 +699,7 @@ async function handle(req, res, cfg) {
       else invite.usedAt = now();
       if (invite.userId && isRemoved(state.users[invite.userId])) throw requestError(403, "invalid_invite", "That invite link doesn't work. Ask for a new one");
       const existing = invite.userId && state.users[invite.userId];
-      const user = existing || { id: id("usr"), name, role: invite.role, createdAt: now() };
+      const user = existing || { id: id("usr"), name, role: invite.role, createdAt: now(), ...(invite.role === "owner" ? {} : { agentTier: loadConfig().defaultAgentTier ?? 0 }) };
       const token = crypto.randomBytes(32).toString("base64url");
       const deviceId = id("dev");
       // Every acceptance is kept: who, which version, which checks, when, on which device.
@@ -873,7 +885,7 @@ async function handle(req, res, cfg) {
       const data = projects().read();
       const chats = allChats();
       const list = accessibleProjects(data, user, users()).map(({ project, access }) => projectView(project, access, user, users(), data.people, chats));
-      return send(res, 200, { ...wrap(false, list), vibeCoder: !!users()[user.id]?.vibeCoder, vibe: !!vibeProject() });
+      return send(res, 200, { ...wrap(false, list), vibeCoder: agentTierOf(users()[user.id]) === 2, agentTier: agentTierOf(users()[user.id]), vibe: !!vibeProject() });
     }
     if (method === "POST" && parts.length === 2) {
       const body = await readAuthorizedBody(req);
@@ -1034,15 +1046,19 @@ async function handle(req, res, cfg) {
     // Owners only (the `true` below): vibe coder, unlimited agent tokens (no daily cap), and
     // fixing someone's name (a typo at invite time).
     const flags = ["vibeCoder", "unlimitedTokens"].filter(k => k in body);
+    const tierSet = "agentTier" in body;
+    if (tierSet && (!Number.isInteger(body.agentTier) || body.agentTier < 0 || body.agentTier > 3)) return fail(res, 400, "bad_request", "agentTier is 0 (no agent), 1 (bug reporter), 2 (vibe coder) or 3 (design engineer)"), undefined;
     const rename = typeof body.name === "string" ? body.name.replace(/\s+/g, " ").trim().slice(0, 40) : null;
-    if ((!flags.length && !rename) || flags.some(k => typeof body[k] !== "boolean") || rename === "") return fail(res, 400, "bad_request", "Send a name, or vibeCoder/unlimitedTokens as true or false");
+    if ((!flags.length && !rename && !tierSet) || flags.some(k => typeof body[k] !== "boolean") || rename === "") return fail(res, 400, "bad_request", "Send a name, or vibeCoder/unlimitedTokens as true or false");
     const person = mutateAuthenticated(req, (state) => {
       const target = state.users[parts[2]];
       if (!target) throw requestError(404, "not_found", "No such person");
       if (rename && Object.values(state.users).some(u => u.id !== target.id && u.name.toLowerCase() === rename.toLowerCase())) throw requestError(409, "name_taken", "Someone already uses that name. Try another");
       if (rename) target.name = rename;
+      if (tierSet) { target.agentTier = body.agentTier; if (body.agentTier === 2) target.vibeCoder = true; else delete target.vibeCoder; }
+      if (!tierSet && "vibeCoder" in body) target.agentTier = body.vibeCoder ? 2 : Math.min(agentTierOf(target), 1);
       for (const k of flags) if (body[k]) target[k] = true; else delete target[k];
-      return { id: target.id, name: target.name, vibeCoder: !!target.vibeCoder, unlimitedTokens: !!target.unlimitedTokens };
+      return { id: target.id, name: target.name, agentTier: agentTierOf(target), vibeCoder: !!target.vibeCoder, unlimitedTokens: !!target.unlimitedTokens };
     }, true);
     if (rename) try { messaging?.personChanged(parts[2]); } catch (e) { console.error("[servant] person update", e); }
     return send(res, 200, { person });
@@ -1122,7 +1138,9 @@ async function handle(req, res, cfg) {
     const chatId = id("cht");
     // Vibe coders always build prototypes. Anyone else may start the chat in a project
     // they're in, or ask for vibe coding (a prototype with a preview link) from the list.
-    const vibe = !!readState().users[creator.id]?.vibeCoder || body.mode === "vibe";
+    const tier = agentTierOf(readState().users[creator.id]);
+    if (tier === 0) return fail(res, 403, "no_agent", noAgentMessage);
+    const vibe = tier === 2 || (tier === 3 && body.mode === "vibe");
     if (vibe && !vibeProject()) return fail(res, 503, "vibe_unavailable", "Vibe coding isn't set up on this server");
     // Old builds send folderId, or project with ids this server may no longer know.
     const wanted = body.projectId ?? body.folderId ?? (projects().byId(body.project) ? body.project : null);
@@ -1368,7 +1386,7 @@ async function handle(req, res, cfg) {
     if (text.length > limit) return fail(res, 413, "too_long", "That message is too long");
     const prior = agentTurns.replay({ chat, text, attachments, requestId: body.requestId });
     if (prior) return streamPrivateTurn(req, res, prior.id, () => ownTurn(prior.id));
-    if (usageStore().overLimit(user)) return fail(res, 429, "usage_limit", limitMessage(usageStore().limit));
+    if (usageStore().overLimit(user)) return fail(res, 429, "usage_limit", limitText(user));
     // Establish history before the worker records new accepted deliveries.
     await syncChatHistory();
     const turn = mutateAuthenticated(req, (state, current) => {
@@ -1443,7 +1461,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
   if (!up) throw requestError(502, "agent_error", "The agent is unavailable");
   const full = agentRole(turn.role, cfg) === "owner";
   if (!full) await verifyMemberUpstream(up);
-  if (!turn.run_id && usageStore().overLimit(user)) throw requestError(429, "usage_limit", limitMessage(usageStore().limit));
+  if (!turn.run_id && usageStore().overLimit(user)) throw requestError(429, "usage_limit", limitText(user));
   const durable = !!turn.run_id || await supportsDurableRuns(up);
   // Legacy owner agents can read the exact saved input instead of receiving
   // altered chunks. Restricted agents never receive a local-file fallback.
@@ -1578,7 +1596,7 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
       return chat;
     },
     askAgent: async ({ sessionId, sessionKey: key, fresh, text, restartText, attachments, onDelta, onUsage = () => {}, userId }) => {
-      if (usageStore().overLimit(readState().users[userId])) return limitMessage(usageStore().limit);
+      if (usageStore().overLimit(readState().users[userId])) return limitText(readState().users[userId]);
       const cfg = fixedCfg || loadConfig();
       const up = upstreamFor({ role: "member" }, cfg);
       if (!up) return "The agent isn't set up on this server yet";
