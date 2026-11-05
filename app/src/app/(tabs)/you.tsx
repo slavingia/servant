@@ -143,7 +143,12 @@ export default function Settings() {
         <View style={styles.profileCopy}>
           <Text style={styles.profileName}>{account.user.name}</Text>
           <Text style={styles.profileRole}>{account.serverName} · {owner ? "Workspace owner" : "Member"}</Text>
-          <Text style={styles.photoLink}>{photoBusy ? "Saving photo…" : hasPhoto ? "Change photo" : "Add a photo"}</Text>
+          <View style={styles.linkRow}>
+            <Text style={styles.photoLink}>{photoBusy ? "Saving photo…" : hasPhoto ? "Change photo" : "Add a photo"}</Text>
+            <Pressable testID="change-name" accessibilityRole="button" hitSlop={8} onPress={() => { setNameDraft(account.user.name); setNameError(null); setEditingName(true); }}>
+              <Text style={styles.photoLink}>Change name</Text>
+            </Pressable>
+          </View>
         </View>
       </Pressable>
       {photoMenu && hasPhoto ? <View style={[styles.group, styles.photoMenu]}>
@@ -161,9 +166,7 @@ export default function Settings() {
           <Pressable accessibilityRole="button" disabled={nameBusy} onPress={() => { setEditingName(false); setNameError(null); }} style={styles.nameAction}><Text style={styles.photoLink}>Cancel</Text></Pressable>
           <Pressable testID="name-save" accessibilityRole="button" accessibilityState={{ busy: nameBusy }} disabled={nameBusy} onPress={() => void saveName()} style={styles.nameAction}><Text style={styles.photoLink}>{nameBusy ? "Saving…" : "Save"}</Text></Pressable>
         </View>
-      </View> : <Pressable testID="change-name" accessibilityRole="button" onPress={() => { setNameDraft(account.user.name); setNameError(null); setEditingName(true); }} style={styles.changeName}>
-        <Text style={styles.photoLink}>Change name</Text>
-      </Pressable>}
+      </View> : null}
       <Text accessibilityRole="header" style={styles.section}>Preferences</Text>
       <View style={styles.group}>
         <Row label="Notifications" onPress={() => router.push("/notifications")} />
@@ -218,6 +221,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   profileCopy: { flex: 1, minWidth: 0 },
   profileName: { ...typography.heading, color: colors.ink },
   profileRole: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
+  linkRow: { flexDirection: "row", flexWrap: "wrap", columnGap: space.lg },
   photoLink: { ...typography.captionStrong, color: colors.blue, marginTop: space.xxs },
   photoBadge: { position: "absolute", right: -2, bottom: -2, width: 22, height: 22, borderRadius: 11, backgroundColor: colors.primary, borderWidth: 2, borderColor: colors.groupedBackground, alignItems: "center", justifyContent: "center" },
   photoMenu: { marginTop: -space.xxs },
