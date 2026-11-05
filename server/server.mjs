@@ -20,6 +20,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createMessaging } from "./messaging.mjs";
 import { createOta } from "./ota.mjs";
+import { createRecordings } from "./recordings.mjs";
 import { createMeetings, NOTES_PROMPT as MEETING_NOTES_PROMPT } from "./meetings.mjs";
 import os from "node:os";
 import { createFeedback, feedbackPrompt, feedbackResult } from "./feedback.mjs";
@@ -594,6 +595,8 @@ function chatContext(chat) {
 const documents = () => documentStore ??= createDocumentStore(path.join(DATA_DIR, "chat-files"));
 let usageDb;
 let meetings = null;
+let recordings = null;
+let workChatStarter = null;
 let otaServer;
 const ota = () => otaServer ??= createOta({ dir: path.join(DATA_DIR, "ota") });
 const usageStore = () => usageDb ??= createUsageStore(path.join(DATA_DIR, "usage.db"));
@@ -1045,6 +1048,7 @@ async function handle(req, res, cfg) {
     return send(res, 200, { person });
   }
   if (!meetings && parts[1] === "meetings") return fail(res, 503, "calls_unavailable", "Calls aren't running on this server right now. Ask your admin to restart it"), undefined;
+  if (recordings && parts[1] === "recordings" && (await recordings.handle(req, res, { user, device, method, parts, send, fail, readBody: readAuthorizedBody }))) return undefined;
   if (meetings && parts[1] === "meetings" && (await meetings.handle(req, res, { user, method, parts, send, fail, readBody: readAuthorizedBody }))) return undefined;
   if (messaging && (await messaging.handle(req, res, { user, device, method, parts, url, send, fail, readBody: readAuthorizedBody, cors: CORS,
     isAuthorized: () => authenticate(req, readState())?.user.id === user.id,
@@ -1553,7 +1557,7 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
     messageExtras: m => meetings?.messageExtras(m),
     // @s in a channel or DM asked for real work: open a shared agent chat for the person who
     // asked, with the conversation as its first message, and start the agent on it.
-    startWorkChat: async ({ userId, deviceId, title, where, transcript }) => {
+    startWorkChat: workChatStarter = async ({ userId, deviceId, title, where, transcript }) => {
       const cfg = fixedCfg || loadConfig();
       const state = readState();
       const user = state.users[userId];
@@ -1667,6 +1671,16 @@ export function startServer(fixedCfg) {
     });
     meetings.recover();
   }
+  if (!recordings) {
+    recordings = createRecordings({
+      dir: path.join(DATA_DIR, "recordings"),
+      users: () => activeUsers(readState()),
+      config: () => (fixedCfg || loadConfig()).meetings,
+      summarize: meetingNotes,
+      startWork: o => workChatStarter(o),
+    });
+    recordings.recover();
+  }
   let draining = false;
   const requests = new Set();
   const server = http.createServer((req, res) => {
@@ -1700,6 +1714,7 @@ export function startServer(fixedCfg) {
     await agentTurns?.whenIdle();
     agentTurns?.drainOutbox(event => push.enqueue(event));
     await meetings?.close().catch(err => console.error("[servant] meetings shutdown", err)); meetings = null;
+    await recordings?.close().catch(err => console.error("[servant] recordings shutdown", err)); recordings = null;
     await messaging?.whenIdle();
     await push?.shutdown();
     push = null;
