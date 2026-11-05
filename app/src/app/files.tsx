@@ -147,7 +147,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   content: { padding: space.side, paddingBottom: space.xxl, width: "100%", maxWidth: 960, alignSelf: "center" },
   header: { marginBottom: space.md },
   tabs: { flexDirection: "row", backgroundColor: colors.surface, borderRadius: radius.md, padding: 3, width: "100%", maxWidth: 400, alignSelf: "center" },
-  tab: { flex: 1, minHeight: 36, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, paddingHorizontal: space.xs },
+  tab: { flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, paddingHorizontal: space.xs },
   tabOn: { backgroundColor: colors.background, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
   tabText: { ...typography.captionStrong, color: colors.muted },
   tabTextOn: { color: colors.ink },

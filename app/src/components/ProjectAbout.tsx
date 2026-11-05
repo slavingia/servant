@@ -115,7 +115,7 @@ export function ProjectAbout({ account, project, onChange }: { account: Account;
   const teammates = project.people.filter(p => p.id && p.id !== account.user.id).length > 0;
   const repoUrl = project.repo ? `https://github.com/${project.repo}` : "";
   return (
-    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: space.xxl }}>
+    <ScrollView keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets contentContainerStyle={{ paddingBottom: space.xxl }}>
       {error && !adding && !editing && !confirmLeave && !confirmDelete ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
       <Text style={styles.label}>Name</Text>
       <TextInput accessibilityLabel="Project name" editable={canEdit} value={fields.name} onChangeText={field("name")} onBlur={saveText("name")} maxLength={60} placeholderTextColor={colors.muted} style={[styles.input, !canEdit && styles.readonly]} />

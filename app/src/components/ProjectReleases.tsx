@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { AppIcon } from "./AppIcon";
 import { Button } from "./Button";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -176,6 +176,7 @@ function CellEditor({ account, project, target, onClose, onChange }: { account: 
   const saveNote = () => { if (canChange && note.trim() !== (cell?.note ?? "")) set({ note: note.trim() }); };
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.fill}>
       <Pressable accessibilityLabel="Close" style={styles.scrim} onPress={onClose}>
         <Pressable accessibilityViewIsModal style={styles.sheet} onPress={() => {}}>
           <ScrollView keyboardShouldPersistTaps="handled">
@@ -208,6 +209,7 @@ function CellEditor({ account, project, target, onClose, onChange }: { account: 
           </ScrollView>
         </Pressable>
       </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -230,6 +232,7 @@ function ReleaseDialog({ account, project, release, onClose, onChange }: { accou
   const remove = async () => { if (!adding && await run(() => api.deleteRelease(account, project.id, release.id), "Couldn't delete the release")) onClose(); };
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.fill}>
       <Pressable accessibilityLabel="Close" style={styles.scrim} onPress={onClose}>
         <Pressable accessibilityViewIsModal style={styles.sheet} onPress={() => {}}>
           <Text accessibilityRole="header" style={styles.sheetTitle}>{adding ? "Add release" : "Release"}</Text>
@@ -248,6 +251,7 @@ function ReleaseDialog({ account, project, release, onClose, onChange }: { accou
             onCancel={() => setConfirm(false)} onConfirm={() => void remove()} />
         </Pressable>
       </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -266,6 +270,7 @@ function ItemDialog({ account, project, release, item, onClose, onChange }: { ac
   const remove = async () => { if (item && await run(() => api.deleteReleaseItem(account, project.id, release.id, item.id), "Couldn't remove the item")) onClose(); };
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.fill}>
       <Pressable accessibilityLabel="Close" style={styles.scrim} onPress={onClose}>
         <Pressable accessibilityViewIsModal style={styles.sheet} onPress={() => {}}>
           <Text accessibilityRole="header" style={styles.sheetTitle}>{item ? "Item" : "Add item"}</Text>
@@ -280,6 +285,7 @@ function ItemDialog({ account, project, release, item, onClose, onChange }: { ac
           </View>
         </Pressable>
       </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -329,6 +335,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   emptyBody: { ...typography.body, color: colors.muted, textAlign: "center", marginTop: space.xs, maxWidth: 360 },
   emptyAction: { width: "100%", maxWidth: 360, marginTop: space.lg },
   // Editors: a centered card on every screen size.
+  fill: { flex: 1 },
   scrim: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: space.side, backgroundColor: "rgba(17,46,81,0.42)" },
   sheet: { width: "100%", maxWidth: 440, maxHeight: "90%", backgroundColor: colors.background, borderRadius: radius.lg, padding: space.side },
   sheetTitle: { ...typography.heading, color: colors.ink },

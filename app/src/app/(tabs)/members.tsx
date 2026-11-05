@@ -12,7 +12,7 @@ import { api, ServerError, type Person } from "../../lib/server";
 import { useLive } from "../../lib/live";
 import { presenceLabel } from "../../lib/message-status";
 import { useSession } from "../../lib/session";
-import { space, typography, useTheme, createThemedStyles } from "../../lib/theme";
+import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 
 export default function Members() {
   const styles = useStyles();
@@ -88,7 +88,7 @@ export default function Members() {
     } finally { setOpening(null); }
   };
   return <View style={styles.root}>
-    <FlatList ref={scrollRef}
+    <FlatList ref={scrollRef} contentInsetAdjustmentBehavior="automatic"
       data={people ?? []}
       keyExtractor={person => person.id}
       keyboardShouldPersistTaps="handled"
@@ -108,26 +108,30 @@ export default function Members() {
         const status = self ? "" : presenceLabel(presence[item.id] ?? { ...item, online: false }, now, connected);
         return <Pressable accessibilityRole={self ? undefined : "button"} accessibilityLabel={`${item.name}${self ? ", you" : ""}, ${item.owner ? "owner" : "member"}${status ? `, ${status}` : ""}`} accessibilityHint={self ? undefined : "Open direct message"} disabled={self || !!opening} onPress={() => void message(item)} onLongPress={owner && !self && !item.owner ? () => { setRemoveError(null); setRemoving(item); } : undefined}
           accessibilityActions={owner && !self && !item.owner ? [{ name: "remove", label: `Remove ${item.name} from ${account.serverName}` }] : undefined}
-          onAccessibilityAction={e => { if (e.nativeEvent.actionName === "remove") { setRemoveError(null); setRemoving(item); } }} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}>
+          onAccessibilityAction={e => { if (e.nativeEvent.actionName === "remove") { setRemoveError(null); setRemoving(item); } }} style={({ pressed }) => [styles.row, owner && !item.owner && styles.rowTall, pressed && { backgroundColor: colors.surface }]}>
           <Avatar name={item.name} userId={item.id} size={36} />
-          <View style={styles.copy}><Text style={styles.name}>{item.name}{self ? <Text style={styles.you}> · You</Text> : null}</Text><Text style={[styles.role, status === "Online" && styles.online]}>{item.owner ? "Workspace owner" : !owner && item.vibeCoder ? "Vibe coder" : "Member"}{status ? ` · ${status}` : ""}</Text></View>
-          {opening === item.id ? <ActivityIndicator color={colors.blue} /> : <>
-            {owner && !item.owner ? <Pressable testID={`vibe-${item.id}`} accessibilityRole="switch" accessibilityState={{ checked: !!item.vibeCoder }} accessibilityLabel={`Vibe coder: ${item.name}`}
-              accessibilityHint="Their agent chats build prototypes with a preview link" onPress={() => void toggleVibe(item)}
-              style={({ pressed }) => [styles.vibeChip, item.vibeCoder && styles.vibeChipOn, pressed && { opacity: 0.7 }]}>
-              <Text style={[styles.vibeChipText, item.vibeCoder && styles.vibeChipTextOn]}>{item.vibeCoder ? "Vibe coder ✓" : "Vibe coder"}</Text>
-            </Pressable> : null}
-            {owner && !item.owner ? <Pressable testID={`tokens-${item.id}`} accessibilityRole="switch" accessibilityState={{ checked: !!item.unlimitedTokens }} accessibilityLabel={`No token limit: ${item.name}`}
-              accessibilityHint="Lifts their daily agent limit" onPress={() => void toggleTokens(item)}
-              style={({ pressed }) => [styles.vibeChip, item.unlimitedTokens && styles.vibeChipOn, pressed && { opacity: 0.7 }]}>
-              <Text style={[styles.vibeChipText, item.unlimitedTokens && styles.vibeChipTextOn]}>{item.unlimitedTokens ? "No limit ✓" : "No limit"}</Text>
-            </Pressable> : null}
-            {owner && !self && !item.owner ? <Pressable testID={`remove-${item.id}`} accessibilityRole="button" accessibilityLabel={`Remove ${item.name}`} hitSlop={8}
-              onPress={() => { setRemoveError(null); setRemoving(item); }} style={({ pressed }) => [styles.removeLink, pressed && { opacity: 0.6 }]}>
-              <Text style={styles.removeText}>Remove</Text>
-            </Pressable> : null}
-            {!self ? <AppIcon name="chat" size={18} color={colors.muted} /> : null}
-          </>}
+          <View style={styles.copy}>
+            <Text style={styles.name}>{item.name}{self ? <Text style={styles.you}> · You</Text> : null}</Text>
+            <Text style={[styles.role, status === "Online" && styles.online]}>{item.owner ? "Workspace owner" : !owner && item.vibeCoder ? "Vibe coder" : "Member"}{status ? ` · ${status}` : ""}</Text>
+            {/* Owner controls go under the name: beside it they squeezed names to a syllable per line on phones. */}
+            {owner && !item.owner ? <View style={styles.controls}>
+              <Pressable testID={`vibe-${item.id}`} accessibilityRole="switch" accessibilityState={{ checked: !!item.vibeCoder, disabled: !!opening }} accessibilityLabel={`Vibe coder: ${item.name}`}
+                accessibilityHint="Their agent chats build prototypes with a preview link" hitSlop={4} onPress={() => void toggleVibe(item)}
+                style={({ pressed }) => [styles.chip, item.vibeCoder && styles.chipOn, pressed && { opacity: 0.7 }]}>
+                <Text style={[styles.chipText, item.vibeCoder && styles.chipTextOn]}>{item.vibeCoder ? "Vibe coder ✓" : "Vibe coder"}</Text>
+              </Pressable>
+              <Pressable testID={`tokens-${item.id}`} accessibilityRole="switch" accessibilityState={{ checked: !!item.unlimitedTokens, disabled: !!opening }} accessibilityLabel={`No token limit: ${item.name}`}
+                accessibilityHint="Lifts their daily agent limit" hitSlop={4} onPress={() => void toggleTokens(item)}
+                style={({ pressed }) => [styles.chip, item.unlimitedTokens && styles.chipOn, pressed && { opacity: 0.7 }]}>
+                <Text style={[styles.chipText, item.unlimitedTokens && styles.chipTextOn]}>{item.unlimitedTokens ? "No token limit ✓" : "No token limit"}</Text>
+              </Pressable>
+              {!self ? <Pressable testID={`remove-${item.id}`} accessibilityRole="button" accessibilityLabel={`Remove ${item.name}`} hitSlop={4}
+                onPress={() => { setRemoveError(null); setRemoving(item); }} style={({ pressed }) => [styles.removeLink, pressed && { opacity: 0.6 }]}>
+                <Text style={styles.removeText}>Remove</Text>
+              </Pressable> : null}
+            </View> : null}
+          </View>
+          <View style={owner && !item.owner ? styles.trailingTall : undefined}>{opening === item.id ? <ActivityIndicator color={colors.blue} /> : !self ? <AppIcon name="chat" size={18} color={colors.muted} /> : null}</View>
         </Pressable>;
       }}
       contentContainerStyle={styles.content}
@@ -143,16 +147,21 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   content: { paddingBottom: space.xl, flexGrow: 1 },
   resultCount: { ...typography.caption, marginHorizontal: space.side, marginBottom: space.xs, color: colors.muted },
   row: { minHeight: 64, paddingHorizontal: space.side, paddingVertical: space.sm, flexDirection: "row", alignItems: "center" },
-  copy: { flex: 1, minWidth: 0, marginHorizontal: space.sm },
+  // With controls under the name the row is three lines tall: line the avatar and the chat glyph up with the name.
+  rowTall: { alignItems: "flex-start" },
+  trailingTall: { marginTop: 2, minHeight: 36, justifyContent: "center" },
+  copy: { flex: 1, minWidth: 0, marginLeft: space.sm, marginRight: space.xs },
   name: { ...typography.bodyStrong, color: colors.ink },
   you: { ...typography.body, color: colors.muted },
   role: { ...typography.caption, marginTop: 2, color: colors.muted },
   online: { color: colors.blueDark },
-  vibeChip: { minHeight: 32, paddingHorizontal: space.sm, borderRadius: 16, borderWidth: 1, borderColor: colors.line, justifyContent: "center", marginRight: space.sm },
-  vibeChipOn: { backgroundColor: colors.blueSoft, borderColor: colors.blueSoft },
-  vibeChipText: { ...typography.meta, color: colors.muted },
-  vibeChipTextOn: { color: colors.blueDark, fontWeight: "600" },
-  removeLink: { minHeight: 32, paddingHorizontal: space.xs, justifyContent: "center", marginRight: space.xs },
+  controls: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.xs, marginTop: space.xs },
+  // 36pt chips with 4pt hit slop: a 44pt target without a tall row.
+  chip: { minHeight: 36, paddingHorizontal: space.xs + 2, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, justifyContent: "center" },
+  chipOn: { backgroundColor: colors.blueSoft, borderColor: colors.blueSoft },
+  chipText: { ...typography.meta, color: colors.muted },
+  chipTextOn: { color: colors.blueDark, fontWeight: "600" },
+  removeLink: { minHeight: 36, paddingHorizontal: space.xs, justifyContent: "center" },
   removeText: { ...typography.meta, color: colors.red },
   error: { ...typography.caption, marginHorizontal: space.side, marginVertical: space.xs, color: colors.red },
   loading: { marginTop: space.xxl },

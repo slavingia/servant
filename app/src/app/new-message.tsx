@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { Button } from "../components/Button";
 import { Avatar } from "../components/Messaging";
@@ -11,6 +12,7 @@ import { radius, space, typography, useTheme, createThemedStyles } from "../lib/
 // Pick one person for a direct message, or a few for a group message.
 export default function NewMessage() {
   const styles = useStyles();
+  const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const { account } = useSession();
   const [people, setPeople] = useState<Person[] | null>(null);
@@ -93,7 +95,7 @@ export default function NewMessage() {
         }}
         contentContainerStyle={{ paddingBottom: space.lg }}
       />
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom + space.xs, space.xl) }]}>
         {error && people?.length ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         <Button label={picked.length > 1 ? "Start group message" : "Message"} onPress={start} busy={busy} disabled={!picked.length} />
       </View>
@@ -120,6 +122,6 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   checkOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   empty: { marginTop: space.xl, marginHorizontal: space.side, alignItems: "center" },
   emptyText: { ...typography.body, textAlign: "center", color: colors.muted },
-  footer: { padding: space.side, paddingBottom: space.xl, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
+  footer: { padding: space.side, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   error: { ...typography.caption, color: colors.red, marginBottom: space.sm },
 }));

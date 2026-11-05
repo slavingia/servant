@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, AppState, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect, useScrollToTop } from "expo-router";
 import { shortTime as when } from "../../lib/time-label";
@@ -6,10 +6,14 @@ import { AppIcon } from "../../components/AppIcon";
 import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { SwipeRow } from "../../components/SwipeChannelRow";
-import { ProjectSheet, VIBE_CHOICE } from "../../components/ProjectSheet";
-import { getItem, setItem } from "../../lib/storage";
+import { choiceKey, newChatOptions, offered } from "../../lib/new-chat-choice";
+import { getItem } from "../../lib/storage";
 import { refreshProjects, useProjects } from "../../lib/projects-store";
 import { api, ServerError, type Chat } from "../../lib/server";
+import { useSession } from "../../lib/session";
+import { useLive } from "../../lib/live";
+import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
+import { activeAgentTurn, agentTurnLabel } from '../../lib/agent-turns';
 
 // The line under the title, like the last message in a DM list.
 function lastLine(chat: Chat, author: string, agent = "") {
@@ -18,10 +22,6 @@ function lastLine(chat: Chat, author: string, agent = "") {
   const body = last.text || (last.attachments ? `${last.attachments} attachment${last.attachments === 1 ? "" : "s"}` : "");
   return last.role === "user" ? `${author}: ${body}` : agent ? `${agent}: ${body}` : body;
 }
-import { useSession } from "../../lib/session";
-import { useLive } from "../../lib/live";
-import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
-import { activeAgentTurn, agentTurnLabel } from '../../lib/agent-turns';
 
 
 export default function Chats() {
@@ -37,16 +37,11 @@ export default function Chats() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [starting, setStarting] = useState(false);
-  const [picking, setPicking] = useState(false);
-  // The projects you're in (docs/projects.md), for the New chat picker; vibe says whether vibe coding is set up.
+  // The projects you're in (docs/projects.md); vibeCoder means every chat builds a prototype.
   const projects = useProjects();
-  // The last project chosen sticks, so starting a chat is one tap.
+  // A new chat starts about the last choice; the chat offers the change right above its message box.
   const [choice, setChoice] = useState<string | null>(null);
-  const choiceKey = account ? `servant.project.${account.user.id}` : null;
-  useEffect(() => {
-    if (!choiceKey) return;
-    void getItem(choiceKey).then(v => { if (v !== null) setChoice(v || null); }).catch(() => {});
-  }, [choiceKey]);
+  const userId = account?.user.id;
   // Like the DM tab: Active and Archived. Only you archive a conversation.
   const [view, setView] = useState<"active" | "archived">("active");
   const [openId, setOpenId] = useState<string | null>(null);
@@ -79,10 +74,11 @@ export default function Chats() {
   useFocusEffect(
     useCallback(() => {
       void load();
+      if (userId) void getItem(choiceKey(userId)).then(value => setChoice(value || null)).catch(() => {});
       const timer = setInterval(() => { if (AppState.currentState === 'active') void load(); }, 5000);
       const subscription = AppState.addEventListener('change', state => { if (state === 'active') void load(); });
       return () => { clearInterval(timer); subscription.remove(); };
-    }, [load]),
+    }, [load, userId]),
   );
 
   if (!account) return null;
@@ -111,19 +107,14 @@ export default function Chats() {
   const rows = view === "archived" ? archived : active;
   const VIEWS = [{ key: "active", label: "Active" }, { key: "archived", label: "Archived" }] as const;
 
-  // A remembered choice the server no longer offers (vibe coding off, a project you left) means "Just the agent".
-  const offered = (c: string | null) => c === VIBE_CHOICE ? projects?.vibe !== false : !!c && !!projects?.list.some(p => p.id === c);
-  const choiceName = choice === VIBE_CHOICE && offered(choice) ? "Vibe coding" : (offered(choice) && projects?.list.find(p => p.id === choice)?.name) || "Just the agent";
-  const start = async (project?: string | null) => {
+  // One tap: a chat about the remembered choice (vibe coders always build prototypes).
+  const start = async () => {
     if (starting) return;
-    // Everyone else chooses what the chat is about (including vibe coding);
-    // vibe coders always build prototypes.
-    if (project === undefined) project = projects && !projects.vibeCoder && offered(choice) ? choice : null;
-    setPicking(false);
+    const project = projects && !projects.vibeCoder && offered(projects, choice) ? choice : null;
     setStarting(true);
     setError(null);
     try {
-      const chat = await api.newChat(account, project === VIBE_CHOICE ? { mode: "vibe" } : project ? { projectId: project } : {});
+      const chat = await api.newChat(account, newChatOptions(project));
       router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, compose: "1" } });
     } catch (e) {
       setError(e instanceof ServerError ? e.message : "Couldn't start a chat");
@@ -134,8 +125,7 @@ export default function Chats() {
 
   return (
     <View style={styles.root}>
-      <ProjectSheet visible={picking} projects={projects?.list ?? []} vibe={projects?.vibe !== false} selected={choice} onPick={project => { setPicking(false); setChoice(project); if (choiceKey) void setItem(choiceKey, project ?? "").catch(() => {}); }} onClose={() => setPicking(false)} />
-      <FlatList ref={scrollRef}
+      <FlatList ref={scrollRef} contentInsetAdjustmentBehavior="automatic"
         data={chats === null ? [] : rows}
         keyExtractor={(c) => c.id}
         extraData={{ openId, busyId, view }}
@@ -156,15 +146,10 @@ export default function Chats() {
           <View>
             <View style={styles.header}>
               <Text accessibilityRole="header" style={styles.title}>Agent</Text>
-              <Pressable accessibilityRole="button" accessibilityLabel="New agent conversation" accessibilityState={{ disabled: starting, busy: starting }} disabled={starting} onPress={() => void start()} style={styles.compose}>
+              <Pressable accessibilityRole="button" accessibilityLabel="New chat" accessibilityState={{ disabled: starting, busy: starting }} disabled={starting} onPress={() => void start()} style={styles.compose}>
                 {starting ? <ActivityIndicator color={colors.blue} /> : <AppIcon name="compose" size={22} color={colors.ink} />}
               </Pressable>
             </View>
-            {projects && !projects.vibeCoder ? <Pressable accessibilityRole="button" accessibilityLabel={`New chats are about ${choiceName}. Change`} onPress={() => setPicking(true)} style={({ pressed }) => [styles.picker, pressed && { backgroundColor: colors.surface }]}>
-              <Text style={styles.pickerLabel}>New chat about</Text>
-              <Text style={styles.pickerValue} numberOfLines={1}>{choiceName}</Text>
-              <AppIcon name="chevronDown" size={16} color={colors.muted} />
-            </Pressable> : null}
             {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
             {actionError && !deleting ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
             {account.user.role === 'owner' && chats?.some(chat => chat.latestTurn?.status === 'waiting_for_approval') ? <View style={styles.inbox}>
@@ -193,7 +178,7 @@ export default function Chats() {
               <AppIcon name="sparkles" size={32} color={colors.blue} />
               <Text accessibilityRole="header" style={styles.emptyTitle}>Start with a question</Text>
               <Text style={styles.emptyBody}>Ask the agent for help, then return to your conversation here.</Text>
-              <Button label={projects?.vibeCoder ? "Start vibe coding" : "New conversation"} onPress={() => void start()} busy={starting} style={styles.emptyAction} />
+              <Button label={projects?.vibeCoder ? "Start vibe coding" : "New chat"} onPress={() => void start()} busy={starting} style={styles.emptyAction} />
             </View>
           )
         }
@@ -317,7 +302,4 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center", marginTop: space.md },
   emptyBody: { ...typography.body, marginTop: space.xs, color: colors.muted, textAlign: "center", maxWidth: 360 },
   emptyAction: { alignSelf: "stretch", marginTop: space.lg, marginBottom: space.xl },
-  picker: { minHeight: 48, marginHorizontal: space.side, marginBottom: space.xs, paddingHorizontal: space.sm, flexDirection: "row", alignItems: "center", gap: space.xs, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line },
-  pickerLabel: { ...typography.caption, color: colors.muted },
-  pickerValue: { ...typography.bodyStrong, flex: 1, color: colors.ink },
 }));

@@ -1,14 +1,15 @@
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { AppIcon } from "./AppIcon";
+import { VIBE_CHOICE } from "../lib/new-chat-choice";
 import type { Project } from "../lib/server";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
 // The id for "Vibe coding" in the list; it isn't a project the server knows.
-export const VIBE_CHOICE = "vibe";
+export { VIBE_CHOICE };
 
 // "New chat" choices: talk to the agent as is, vibe code a prototype with a
 // preview (when the server has the prototypes project), or work in a project.
-export function ProjectSheet({ visible, projects, vibe = true, selected = null, onPick, onClose }: { visible: boolean; projects: Project[]; vibe?: boolean; selected?: string | null; onPick: (project: string | null) => void; onClose: () => void }) {
+export function ProjectSheet({ visible, projects, vibe = true, selected = null, title = "New chat about", onPick, onClose }: { visible: boolean; projects: Project[]; vibe?: boolean; selected?: string | null; title?: string; onPick: (project: string | null) => void; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const options: { id: string | null; name: string; description?: string }[] = [
@@ -19,14 +20,14 @@ export function ProjectSheet({ visible, projects, vibe = true, selected = null, 
   return <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
     <Pressable accessibilityLabel="Close" style={styles.scrim} onPress={onClose}>
       <Pressable style={styles.sheet} accessibilityViewIsModal onPress={() => {}}>
-        <Text accessibilityRole="header" style={styles.title}>New chat about</Text>
+        <Text accessibilityRole="header" style={styles.title}>{title}</Text>
         {options.map(option => <Pressable key={option.id ?? "none"} testID={`project-${option.id ?? "none"}`} accessibilityRole="button" accessibilityState={{ selected: option.id === selected }}
           accessibilityLabel={option.description ? `${option.name}. ${option.description}` : option.name}
           onPress={() => onPick(option.id)} style={({ pressed }) => [styles.option, pressed && styles.pressed]}>
           <View style={styles.icon}><AppIcon name={option.id === VIBE_CHOICE ? "code" : option.id ? "project" : "sparkles"} size={17} color={colors.blueDark} /></View>
           <View style={styles.copy}>
             <Text style={styles.label}>{option.name}</Text>
-            {option.description ? <Text style={styles.description} numberOfLines={1}>{option.description}</Text> : null}
+            {option.description ? <Text style={styles.description} numberOfLines={2}>{option.description}</Text> : null}
           </View>
           {option.id === selected ? <AppIcon name="check" size={18} color={colors.blue} /> : null}
         </Pressable>)}

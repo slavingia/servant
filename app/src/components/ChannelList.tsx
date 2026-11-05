@@ -128,7 +128,7 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
 
   return (
     <View style={styles.root}>
-      <FlatList ref={scrollRef}
+      <FlatList ref={scrollRef} contentInsetAdjustmentBehavior="automatic"
         data={rows}
         keyExtractor={item => item.id}
         extraData={{ openId, busyId, projectsOpen, channelsOpen, dmsOpen, discovering, reordering, sort }}

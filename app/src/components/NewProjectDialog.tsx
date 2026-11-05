@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { Button } from "./Button";
 import { rememberProject } from "../lib/projects-store";
@@ -30,6 +30,7 @@ export function NewProjectDialog({ visible, onClose, onCreated }: { visible: boo
   };
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.fill}>
       <Pressable accessibilityLabel="Close" style={styles.scrim} onPress={close}>
         <Pressable accessibilityViewIsModal style={styles.card} onPress={() => {}}>
           <Text accessibilityRole="header" style={styles.title}>New project</Text>
@@ -42,11 +43,13 @@ export function NewProjectDialog({ visible, onClose, onCreated }: { visible: boo
           </View>
         </Pressable>
       </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
+  fill: { flex: 1 },
   scrim: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: space.side, backgroundColor: "rgba(17,46,81,0.42)" },
   card: { width: "100%", maxWidth: 420, backgroundColor: colors.background, borderRadius: radius.lg, padding: space.side },
   title: { ...typography.heading, color: colors.ink, marginBottom: space.sm },

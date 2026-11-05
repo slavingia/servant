@@ -41,7 +41,7 @@ export default function Messages() {
   const list = dms.filter(c => !unreadOnly || c.unread > 0);
   return (
     <View style={styles.root}>
-      <FlatList ref={scrollRef}
+      <FlatList ref={scrollRef} contentInsetAdjustmentBehavior="automatic"
         data={list}
         keyExtractor={(c) => c.id}
         extraData={{ openId, busyId }}
@@ -63,7 +63,7 @@ export default function Messages() {
                 <AppIcon name="compose" size={22} color={colors.ink} />
               </Pressable>
             </View>
-            <View style={styles.filters}>{[false, true].map(value => <Pressable key={String(value)} accessibilityRole="button" accessibilityState={{ selected: unreadOnly === value }} onPress={() => setUnreadOnly(value)} style={({ pressed }) => [styles.filter, unreadOnly === value && styles.selectedFilter, pressed && { opacity: 0.7 }]}>
+            <View accessibilityRole="tablist" style={styles.filters}>{[false, true].map(value => <Pressable key={String(value)} accessibilityRole="tab" accessibilityState={{ selected: unreadOnly === value }} aria-selected={unreadOnly === value} onPress={() => setUnreadOnly(value)} style={({ pressed }) => [styles.filter, unreadOnly === value && styles.selectedFilter, pressed && { opacity: 0.7 }]}>
               <Text style={[styles.filterText, unreadOnly === value && styles.selectedFilterText]}>{value ? "Unread" : "All"}</Text>
             </Pressable>)}
             {/* Beside the filters, as on Home, so it never takes a line or moves the list. */}

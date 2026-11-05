@@ -91,7 +91,8 @@ export default function LeaderboardScreen() {
 function Topics({ report, styles }: { report: NonNullable<Leaderboard["topics"]>; styles: ReturnType<typeof useStyles> }) {
   const all = report.irsAppTokens + report.otherTokens;
   const max = Math.max(1, ...report.themes.map(t => Math.max(t.share, t.feedbackShare)));
-  const label = (t: TopicRow) => t.name.replace(/ or /g, " / ");
+  // "Setup, application, or availability" reads as "Setup, application / availability" (no comma before the slash).
+  const label = (t: TopicRow) => t.name.replace(/,? or /g, " / ");
   return <>
     <Text accessibilityRole="header" style={styles.section}>By what users are struggling with</Text>
     <Text style={styles.meta}>Real-user survey comments ({report.source.comments.toLocaleString("en-US")}) set against agent tokens on the same payment plan topics. {all ? `${sharePercent(report.irsAppTokens, all)} of tokens went to IRS app work; the rest was Servant and tooling.` : ""}</Text>
@@ -116,7 +117,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   content: { padding: space.side, paddingBottom: space.xxl, width: "100%", maxWidth: 720, alignSelf: "center" },
   periods: { flexDirection: "row", backgroundColor: colors.surface, borderRadius: radius.md, padding: 3, marginBottom: space.md },
-  period: { flex: 1, minHeight: 36, alignItems: "center", justifyContent: "center", borderRadius: radius.sm },
+  period: { flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: radius.sm },
   periodOn: { backgroundColor: colors.background, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
   periodText: { ...typography.captionStrong, color: colors.muted },
   periodTextOn: { color: colors.ink },

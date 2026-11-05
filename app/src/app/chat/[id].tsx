@@ -5,6 +5,7 @@ import * as WebBrowser from "expo-web-browser";
 import { randomUUID } from "expo-crypto";
 import { ConversationKeyboardView } from "../../components/ConversationKeyboardView";
 import { Avatar, Composer, when } from "../../components/Messaging";
+import { ProjectSheet } from "../../components/ProjectSheet";
 import { Attachments, documentReader, PendingAttachments } from "../../components/Attachments";
 import { uploadDocument, UploadError } from "../../lib/document-upload";
 import { MediaGalleryProvider } from "../../components/MediaGallery";
@@ -22,6 +23,9 @@ import { estimateCost, formatCost, formatTokens } from "../../lib/token-format";
 import { api, sendMessage, ServerError, uploadPost, type Chat, type Project, type Message, type Upload } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { useLive } from "../../lib/live";
+import { useProjects } from "../../lib/projects-store";
+import { VIBE_CHOICE, choiceKey, choiceName, needsNewChat, newChatOptions } from "../../lib/new-chat-choice";
+import { setItem } from "../../lib/storage";
 import { forwardTitle, parseForward, type ForwardCard } from "../../lib/forward";
 import { AppIcon } from "../../components/AppIcon";
 import { SkeletonRows } from "../../components/Skeleton";
@@ -307,6 +311,13 @@ function ChatConversation() {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projectShared, setProjectShared] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  // What this chat is about, changeable until the first message is sent. Vibe coding is set when a
+  // chat is made, so switching to or from it starts a fresh chat in place of this empty one.
+  const [vibe, setVibe] = useState(false);
+  const projects = useProjects();
+  const [choosing, setChoosing] = useState(false);
+  const [switching, setSwitching] = useState(false);
+  const [aboutError, setAboutError] = useState<string | null>(null);
   const { width: winWidth } = useWindowDimensions();
   // Portrait phones stack the preview above the chat; folds, tablets, landscape and wide windows put it beside.
   const stacked = winWidth < 600;
@@ -324,6 +335,7 @@ function ChatConversation() {
       setProjectId(c.projectId ?? null);
       setProjectShared(c.projectShared === true);
       setPreviewUrl(c.mode === "vibe" && c.previewUrl ? c.previewUrl : null);
+      setVibe(c.mode === "vibe");
     }).catch(() => {});
     return () => { live = false; };
   }, [account, id]);
@@ -677,6 +689,36 @@ function ChatConversation() {
     { label: "•••", testID: "open-options", accessibilityLabel: "Chat options", onPress: () => setSharing(true) },
   ];
   const data = [...(messages ?? []), ...(firstRow ? [firstRow] : []), ...(workingRow ? [workingRow] : []), ...queuedRows].reverse();
+  const about = vibe ? VIBE_CHOICE : projectId;
+  const aboutName = choiceName(projects, about);
+  // Nothing sent yet: the choice sits right above the message box, and goes once the first message is on its way.
+  const fresh = messages !== null && messages.length === 0 && !loadError && !firstRow && !turn && waiting.length === 0;
+  const showAbout = fresh && !!projects && !projects.vibeCoder;
+  const pickAbout = async (next: string | null) => {
+    setChoosing(false);
+    if (next === about || switching) return;
+    setSwitching(true);
+    setAboutError(null);
+    // The next chat from the Agent tab starts about this choice.
+    const remember = () => setItem(choiceKey(account.user.id), next ?? "").catch(() => {});
+    try {
+      if (needsNewChat(about, next)) {
+        const chat = await api.newChat(account, newChatOptions(next));
+        void api.deleteChat(account, String(id)).catch(() => {});
+        void remember();
+        router.replace({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, compose: "1" } });
+        return;
+      }
+      await api.moveChat(account, String(id), next);
+      setProjectId(next);
+      setProjectShared(false);
+      void remember();
+    } catch (e) {
+      setAboutError(e instanceof ServerError ? e.message : "Couldn't change that. Try again.");
+    } finally {
+      setSwitching(false);
+    }
+  };
 
   return (
     <MediaGalleryProvider key={id} scope={{ kind: "chat", id }} items={media}>
@@ -684,6 +726,7 @@ function ChatConversation() {
       <Stack.Screen options={{ title: heading, headerTitle: titleButton(showTitle, setShowTitle, headerLinks.length), ...filesHeader(String(id), heading, colors.blue, headerLinks, false) }} />
       {showTitle ? <FullTitle title={heading} onClose={() => setShowTitle(false)} /> : null}
       {sharing ? <OptionsSheet id={String(id)} title={heading} shared={shared} projectId={projectId} projectShared={projectShared} onProject={setProjectId} onProjectShared={setProjectShared} onChange={setShared} onClose={() => setSharing(false)} /> : null}
+      {choosing && projects ? <ProjectSheet visible projects={projects.list} vibe={projects.vibe !== false} selected={about} title="This chat is about" onPick={project => { void pickAbout(project); }} onClose={() => setChoosing(false)} /> : null}
       <View style={[styles.split, stacked && previewOpen && styles.splitStacked]}>
       <View style={[styles.chatColumn, stacked && previewOpen && styles.chatColumnStacked]}>
       <ConversationKeyboardView>
@@ -763,6 +806,16 @@ function ChatConversation() {
           <Pressable accessibilityRole="button" accessibilityLabel="Don't forward this message" hitSlop={12} onPress={() => setPendingForward(null)} style={styles.remove}>
             <AppIcon name="close" size={16} color={colors.muted} />
           </Pressable>
+        </View> : null}
+        {showAbout ? <View style={styles.aboutRow}>
+          <Pressable testID="chat-about" accessibilityRole="button" accessibilityLabel={`About: ${aboutName}`} accessibilityHint="Change what this chat is about: a project, vibe coding or just the agent"
+            accessibilityState={{ busy: switching, expanded: choosing }} disabled={switching} hitSlop={{ top: 6, bottom: 6 }} onPress={() => setChoosing(true)}
+            style={({ pressed }) => [styles.about, pressed && { opacity: 0.7 }]}>
+            <Text style={styles.aboutLabel}>About</Text>
+            <Text style={styles.aboutValue} numberOfLines={1}>{aboutName}</Text>
+            {switching ? <ActivityIndicator size="small" color={colors.blueDark} /> : <AppIcon name="chevronDown" size={16} color={colors.blueDark} />}
+          </Pressable>
+          {aboutError ? <Text accessibilityRole="alert" style={styles.aboutError}>{aboutError}</Text> : null}
         </View> : null}
         {messages !== null && !loadError ? <Composer autoFocus={compose === "1"} placeholder={pendingForward ? "Ask about this message, or just send" : "Message the agent"} onSend={send} allowFileAttachments={false} allowDocuments canSendEmpty={!!pendingForward} /> : null}
       </ConversationKeyboardView>
@@ -901,4 +954,10 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center" },
   emptyBody: { ...typography.body, marginTop: space.xs, color: colors.muted, textAlign: "center", maxWidth: 360 },
   retry: { marginTop: space.lg },
+  // "About: <choice>" above the message box of a chat with nothing sent yet.
+  aboutRow: { paddingHorizontal: space.side, paddingTop: space.xxs, paddingBottom: space.xs, gap: space.xxs },
+  about: { alignSelf: "flex-start", maxWidth: "100%", minHeight: 32, flexDirection: "row", alignItems: "center", gap: space.xs, paddingLeft: space.sm, paddingRight: space.xs, borderRadius: radius.pill, backgroundColor: colors.blueSoft },
+  aboutLabel: { ...typography.caption, color: colors.muted },
+  aboutValue: { ...typography.captionStrong, color: colors.blueDark, flexShrink: 1 },
+  aboutError: { ...typography.caption, color: colors.red },
 }));

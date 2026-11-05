@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, AppState, FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { router, Stack, useIsFocused, useLocalSearchParams } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ConversationKeyboardView } from "../../components/ConversationKeyboardView";
 import { Button } from "../../components/Button";
 import { Composer, MessageDate, PostRow } from "../../components/Messaging";
@@ -152,6 +153,7 @@ export default function ConversationScreen() {
   const peers = conv?.kind === "dm" ? conv.members?.filter(person => person.id !== account?.user.id && !person.agent) ?? [] : [];
   const shownPeers = usePresentPeers(peers);
   const wide = useWideLayout();
+  const insets = useSafeAreaInsets();
   const [detailsOpen, setDetailsOpen] = useDetailsPanelOpen();
   if (!account) return null;
   const me = account.user.id;
@@ -387,7 +389,7 @@ export default function ConversationScreen() {
         )}
         {joined ? <TypingLine names={typingNames} /> : null}
         {unavailable ? null : !joined ? (
-          <View style={styles.joinBar}>
+          <View style={[styles.joinBar, { paddingBottom: Math.max(insets.bottom + space.xs, space.xl) }]}>
             <Text style={styles.joinText}>You're previewing {title}</Text>
             <Button label={`Join ${title}`} onPress={join} busy={joining} />
           </View>
@@ -418,6 +420,6 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   intro: { paddingHorizontal: space.side, paddingTop: space.md, paddingBottom: space.sm },
   introTitle: { ...typography.heading, color: colors.ink },
   introBody: { ...typography.body, marginTop: space.xs, color: colors.muted },
-  joinBar: { padding: space.side, paddingBottom: space.xl, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line, backgroundColor: colors.surface },
+  joinBar: { padding: space.side, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line, backgroundColor: colors.surface },
   joinText: { ...typography.body, textAlign: "center", color: colors.muted, marginBottom: space.sm },
 }));

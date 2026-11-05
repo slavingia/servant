@@ -158,8 +158,8 @@ export default function Settings() {
           accessibilityLabel="Your name" returnKeyType="done" onSubmitEditing={() => void saveName()} placeholder="Your name" placeholderTextColor={colors.muted} style={styles.nameInput} />
         {nameError ? <Text accessibilityRole="alert" style={styles.photoError}>{nameError}</Text> : null}
         <View style={styles.nameActions}>
-          <Pressable accessibilityRole="button" disabled={nameBusy} onPress={() => { setEditingName(false); setNameError(null); }}><Text style={styles.photoLink}>Cancel</Text></Pressable>
-          <Pressable testID="name-save" accessibilityRole="button" accessibilityState={{ busy: nameBusy }} disabled={nameBusy} onPress={() => void saveName()}><Text style={styles.photoLink}>{nameBusy ? "Saving…" : "Save"}</Text></Pressable>
+          <Pressable accessibilityRole="button" disabled={nameBusy} onPress={() => { setEditingName(false); setNameError(null); }} style={styles.nameAction}><Text style={styles.photoLink}>Cancel</Text></Pressable>
+          <Pressable testID="name-save" accessibilityRole="button" accessibilityState={{ busy: nameBusy }} disabled={nameBusy} onPress={() => void saveName()} style={styles.nameAction}><Text style={styles.photoLink}>{nameBusy ? "Saving…" : "Save"}</Text></Pressable>
         </View>
       </View> : <Pressable testID="change-name" accessibilityRole="button" onPress={() => { setNameDraft(account.user.name); setNameError(null); setEditingName(true); }} style={styles.changeName}>
         <Text style={styles.photoLink}>Change name</Text>
@@ -221,7 +221,9 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   photoLink: { ...typography.captionStrong, color: colors.blue, marginTop: space.xxs },
   photoBadge: { position: "absolute", right: -2, bottom: -2, width: 22, height: 22, borderRadius: 11, backgroundColor: colors.primary, borderWidth: 2, borderColor: colors.groupedBackground, alignItems: "center", justifyContent: "center" },
   photoMenu: { marginTop: -space.xxs },
-  changeName: { marginHorizontal: space.side, marginBottom: space.md },
+  // Text links, but 44pt tall targets.
+  changeName: { marginHorizontal: space.side, marginBottom: space.xs, minHeight: 44, justifyContent: "center", alignSelf: "flex-start" },
+  nameAction: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.xs },
   nameEditor: { padding: space.md, gap: space.sm },
   nameInput: { ...typography.body, color: colors.ink, minHeight: 44 },
   nameActions: { flexDirection: "row", justifyContent: "flex-end", gap: space.lg },
