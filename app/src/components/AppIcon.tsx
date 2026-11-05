@@ -13,6 +13,8 @@ const paths = {
   chat: "M5 3h14a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H9l-6 4V5a2 2 0 0 1 2-2Z M7 8h10 M7 12h7",
   sparkles: "m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3Z M20 2v4 M18 4h4",
   people: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z M16 3a4 4 0 0 1 0 8 M22 21v-2a4 4 0 0 0-3-3.9",
+  // "People" with a plus where the second person was: the Invite button on the People tab.
+  addPerson: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z M19 8v6 M16 11h6",
   user: "M20 21v-2a6 6 0 0 0-6-6h-4a6 6 0 0 0-6 6v2 M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z",
   plus: "M12 5v14 M5 12h14",
   sort: "M3 6h18 M6 12h12 M10 18h4",
