@@ -53,7 +53,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   wrap: { flexShrink: 1, minWidth: 0 },
   head: { flexDirection: "row", alignItems: "center", gap: space.xs, flexWrap: "wrap" },
   line: { ...typography.body, color: colors.muted, flexShrink: 1 },
-  meta: { ...typography.meta, color: colors.muted },
+  meta: { ...typography.meta, lineHeight: typography.body.lineHeight, color: colors.muted },
   list: { marginTop: space.xs, paddingVertical: space.xs, paddingHorizontal: space.sm, borderRadius: radius.md, backgroundColor: colors.surface },
   step: { flexDirection: "row", gap: space.sm },
   rail: { width: 10, alignItems: "center", paddingTop: 6 },
