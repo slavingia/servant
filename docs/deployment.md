@@ -20,8 +20,8 @@ launch agents have been changed and the live checks below pass.
 The examples use these absolute paths:
 
 ```text
-SERVANT_RUNTIME_DIR=/Users/sahil-irs/.local/share/servant
-SERVANT_DATA_DIR=/Users/sahil-irs/servant/server/data
+SERVANT_RUNTIME_DIR=/Users/you/.local/share/servant
+SERVANT_DATA_DIR=/Users/you/servant/server/data
 
 $SERVANT_RUNTIME_DIR/bootstrap/       stable supervisor, CLI, and tunnel code
 $SERVANT_RUNTIME_DIR/releases/<id>/   read-only code and checksum manifest
@@ -50,8 +50,8 @@ release. Choose a unique release ID; the timestamp below is an example generator
 These commands do not start services or modify account data.
 
 ```sh
-export SERVANT_RUNTIME_DIR=/Users/sahil-irs/.local/share/servant
-export SERVANT_DATA_DIR=/Users/sahil-irs/servant/server/data
+export SERVANT_RUNTIME_DIR=/Users/you/.local/share/servant
+export SERVANT_DATA_DIR=/Users/you/servant/server/data
 umask 077
 mkdir -p "$SERVANT_RUNTIME_DIR/bootstrap" "$SERVANT_RUNTIME_DIR/logs"
 cp server/supervisor.mjs server/deploy.mjs server/tunnel.mjs server/publish.mjs \
@@ -107,10 +107,10 @@ unloaded after migration. Do not use its restart commands for API deployments.
 Stage the complete tested server source, then deploy the returned release ID:
 
 ```sh
-export SERVANT_RUNTIME_DIR=/Users/sahil-irs/.local/share/servant
+export SERVANT_RUNTIME_DIR=/Users/you/.local/share/servant
 SERVANT_RELEASE="$(date -u +%Y%m%dT%H%M%SZ)-api"
 node "$SERVANT_RUNTIME_DIR/bootstrap/deploy.mjs" stage \
-  --source /Users/sahil-irs/servant/server --id "$SERVANT_RELEASE"
+  --source /Users/you/servant/server --id "$SERVANT_RELEASE"
 node "$SERVANT_RUNTIME_DIR/bootstrap/deploy.mjs" deploy --release "$SERVANT_RELEASE"
 node "$SERVANT_RUNTIME_DIR/bootstrap/deploy.mjs" status
 curl --fail --silent http://127.0.0.1:8787/ready

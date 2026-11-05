@@ -4,17 +4,17 @@
 <dict>
   <key>Label</key><string>gov.irs.servant.tunnel</string>
   <key>ProgramArguments</key>
-  <array><string>/bin/bash</string><string>/Users/sahil-irs/.local/share/servant/bootstrap/run-tunnel.sh</string></array>
+  <array><string>/bin/bash</string><string>/Users/you/.local/share/servant/bootstrap/run-tunnel.sh</string></array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>HOME</key><string>/Users/sahil-irs</string>
+    <key>HOME</key><string>/Users/you</string>
     <key>PATH</key><string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
-    <key>SERVANT_RUNTIME_DIR</key><string>/Users/sahil-irs/.local/share/servant</string>
-    <key>SERVANT_DATA_DIR</key><string>/Users/sahil-irs/servant/server/data</string>
+    <key>SERVANT_RUNTIME_DIR</key><string>/Users/you/.local/share/servant</string>
+    <key>SERVANT_DATA_DIR</key><string>/Users/you/servant/server/data</string>
     <key>SERVANT_PORT</key><string>8787</string>
     <!-- Optional named tunnel (all three required). Keep credentials outside the repository.
     <key>SERVANT_TUNNEL_ID</key><string>your-tunnel-uuid</string>
-    <key>SERVANT_TUNNEL_CONFIG</key><string>/Users/sahil-irs/.cloudflared/servant.yml</string>
+    <key>SERVANT_TUNNEL_CONFIG</key><string>/Users/you/.cloudflared/servant.yml</string>
     <key>SERVANT_PUBLIC_URL</key><string>https://servant.example.org</string>
     -->
   </dict>
@@ -22,7 +22,7 @@
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>10</integer>
   <key>ExitTimeOut</key><integer>30</integer>
-  <key>StandardOutPath</key><string>/Users/sahil-irs/.local/share/servant/logs/tunnel.log</string>
-  <key>StandardErrorPath</key><string>/Users/sahil-irs/.local/share/servant/logs/tunnel.log</string>
+  <key>StandardOutPath</key><string>/Users/you/.local/share/servant/logs/tunnel.log</string>
+  <key>StandardErrorPath</key><string>/Users/you/.local/share/servant/logs/tunnel.log</string>
 </dict>
 </plist>

@@ -4,7 +4,18 @@ Secure messaging for public servants, with an agent you can talk to.
 
 Servant is a phone app plus a small server that runs on your own computer. People you invite can message the agent running on that computer from anywhere, without using a consumer chat service.
 
-Status: private while it gets good. It is meant to be open source (CC0) when it is ready.
+Status: open source under CC0. Early software: expect rough edges, and read [SECURITY.md](SECURITY.md) before you put real work through it.
+
+## Run it yourself
+
+You need a Mac or Linux computer, Node 22 or newer, and an agent that speaks the Hermes API.
+
+1. `git clone` this repo and `cd server`
+2. `node server.mjs invite` prints a one-time link for the first owner
+3. Install the app from your own build (`app/`, Expo) or the Mac app (`desktop/`), then open the link
+4. See [docs/deployment.md](docs/deployment.md) for running it as a service, and [docs/relay-transport.md](docs/relay-transport.md) for a stable address
+
+Everything runs on your computer. There is no hosted Servant service, and nothing here talks to one.
 
 ## How it works
 
