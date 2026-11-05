@@ -1,15 +1,14 @@
-import { type ComponentRef, useCallback, useRef, useState } from "react";
+import { type ComponentRef, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
-import { router, useFocusEffect, useScrollToTop } from "expo-router";
-import { api, saveAccount, ServerError, type Release } from "../../lib/server";
+import { router, useScrollToTop } from "expo-router";
+import { api, saveAccount, ServerError } from "../../lib/server";
 import { usePhotos } from "../../lib/photos";
 import { PageTitle } from "../../components/Band";
 import { Avatar } from "../../components/Messaging";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { AppIcon } from "../../components/AppIcon";
-import Constants from "expo-constants";
 import { otaMessage, useOtaCheck } from "../../lib/ota";
 import { useSession } from "../../lib/session";
 import { feedbackGestureHint } from "../../lib/feedback-trigger";
@@ -39,7 +38,6 @@ export default function Settings() {
   const ota = useOtaCheck();
   const { colors } = useTheme();
   const styles = useStyles();
-  const [release, setRelease] = useState<Release | null>(null);
   const feedbackHint = feedbackGestureHint(Platform.OS, Platform.Version);
   const [confirming, setConfirming] = useState(false);
   const [leaving, setLeaving] = useState(false);
@@ -52,11 +50,6 @@ export default function Settings() {
   const [nameDraft, setNameDraft] = useState("");
   const [nameBusy, setNameBusy] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
-  useFocusEffect(
-    useCallback(() => {
-      if (account) api.latestRelease(account).then(setRelease).catch(() => undefined);
-    }, [account]),
-  );
   if (!account) return null;
   const owner = account.user.role === "owner";
 
@@ -187,26 +180,9 @@ export default function Settings() {
         {ota.supported ? <Row label={ota.status === "ready" ? "Restart to update" : "Check for updates"} value={otaMessage(ota.status, ota.detail)} onPress={ota.status === "ready" ? ota.restart : ota.check} /> : null}
       </View>
       {feedbackHint ? <Text style={styles.hint}>{feedbackHint}</Text> : null}
-      {release ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityHint="Opens the notes and the thread to talk about them"
-            onPress={() => router.push({ pathname: "/thread", params: { conv: release.conversationId, root: release.messageId, title: "#whats-new" } })}
-            style={({ pressed }) => [styles.group, styles.notes, pressed && { backgroundColor: colors.subtle }]}
-          >
-            <View style={styles.notesHeader}><Text style={styles.notesTitle}>What's new</Text><Text style={styles.build}>Build {release.build}</Text></View>
-            <Text style={styles.notesText} numberOfLines={3}>
-              {release.text.split("\n").slice(1).join("\n").trim()}
-            </Text>
-            <Text style={styles.notesLink}>Read release notes</Text>
-          </Pressable>
-      ) : null}
-
       <Pressable accessibilityRole="button" onPress={() => { setError(null); setConfirming(true); }} style={styles.danger}>
         <Text style={styles.dangerText}>Sign out</Text>
       </Pressable>
-
-      <Text style={styles.version}>Servant {Constants.expoConfig?.version ?? ""}</Text>
     </ScrollView>
     <ConfirmDialog visible={confirming} title="Sign out of Servant?" description="You'll need a new invite to sign in again." confirmLabel="Sign out" onConfirm={() => void leave()} onCancel={() => setConfirming(false)} busy={leaving} error={error} />
     </View>
