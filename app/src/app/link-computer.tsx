@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Platform, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
+import { Linking, Platform, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { router } from "expo-router";
 import { Button } from "../components/Button";
@@ -49,6 +49,12 @@ export default function LinkComputer() {
       setError("Couldn't copy the link. Try again");
     }
   };
+  const email = () => {
+    if (!made) return;
+    const body = `Paste this link where you sign in to Servant on your computer. It works once, for ${made.minutes} ${made.minutes === 1 ? "minute" : "minutes"}.\n\n${made.link}`;
+    Linking.openURL(`mailto:?subject=${encodeURIComponent("Your Servant sign-in link")}&body=${encodeURIComponent(body)}`)
+      .catch(() => setError("Couldn't open your email. Copy the link instead"));
+  };
   const approve = () => {
     const link = parseDeviceLink(text.match(/servant:\/\/link-device\?[^\s]+/i)?.[0] ?? text);
     if (!link) {
@@ -67,6 +73,7 @@ export default function LinkComputer() {
         <Text selectable accessibilityLabel="Sign-in link" style={styles.link} numberOfLines={3}>{made.link}</Text>
         <Text style={styles.note}>Works for {minutes} {minutes === 1 ? "minute" : "minutes"}</Text>
         <Button label={copied ? "Link copied" : "Copy link"} busy={false} onPress={copy} style={styles.action} />
+        <Button label="Email me the link" kind="secondary" onPress={email} style={styles.gap} />
         {Platform.OS !== "web" ? <Button label="Share link" kind="secondary" onPress={() => Share.share({ message: made.link }).catch(() => setError("Couldn't open sharing"))} style={styles.gap} /> : null}
         <Button label="Make a new link" kind="link" busy={busy} onPress={make} style={styles.gap} />
       </> : <Button label="Make a link" busy={busy} onPress={make} style={styles.action} />}
