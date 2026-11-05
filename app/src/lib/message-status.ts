@@ -1,5 +1,5 @@
 import type { Person, Post } from "./server";
-import { dayLabel } from "./time-label";
+import { dayLabel } from "./time-label.ts";
 
 export type PresenceStatus = { online?: boolean; lastSeenAt?: number | null };
 
