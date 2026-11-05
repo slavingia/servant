@@ -493,7 +493,11 @@ export function Composer({
     try {
       // stop() emits its final transcript asynchronously. The commit callback
       // updates latest synchronously, before finish resolves on the end event.
-      if (!await dictation.finish(1200)) return;
+      // Only dictation can veto a send. A typed draft must never depend on the
+      // dictation session being active/foreground (it silently dropped taps).
+      if (dictation.listening) {
+        if (!await dictation.finish(1200)) { setFileError("Dictation didn't finish. Tap Send again"); return; }
+      } else void dictation.finish(0);
       body = latest.current.text.trim();
       if (!body && !files.length && !canSendEmpty) return;
       if (clearNow) setText("");
