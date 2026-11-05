@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect, useScrollToTop } from "expo-router";
 import { PageTitle } from "../../components/Band";
+import { SkeletonRows } from "../../components/Skeleton";
 import { Avatar } from "../../components/Messaging";
 import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -97,7 +98,7 @@ export default function Members() {
         {people?.length ? <Text style={styles.resultCount}>{`${people.length} ${people.length === 1 ? "member" : "members"}`}</Text> : null}
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
       </>}
-      ListEmptyComponent={people === null && !error ? <ActivityIndicator accessibilityLabel="Loading members" style={styles.loading} color={colors.blue} /> : <View style={styles.empty}>
+      ListEmptyComponent={people === null && !error ? <SkeletonRows label="Loading members" /> : <View style={styles.empty}>
         <Text style={styles.emptyTitle}>{error ? "Couldn't load members" : "No members yet"}</Text>
         <Text style={styles.emptyBody}>{error ? "Try again to see who's here." : "People will appear here when they join your server."}</Text>
         {error ? <Button label="Try again" kind="secondary" busy={refreshing} onPress={() => { setRefreshing(true); void load(); }} style={styles.emptyAction} /> : null}

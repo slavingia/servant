@@ -4,6 +4,7 @@ import { router, useFocusEffect, useScrollToTop } from "expo-router";
 import { AppIcon } from "./AppIcon";
 import { Button } from "./Button";
 import { PageTitle } from "./Band";
+import { SkeletonRows } from "./Skeleton";
 import { SwipeChannelRow, useConversationActions } from "./SwipeChannelRow";
 import { ReorderableList } from "./ReorderableList";
 import { ChannelSortSheet } from "./ChannelSortSheet";
@@ -154,7 +155,7 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
         </View>}
         ListEmptyComponent={conversations === null ?
           error ? <View style={styles.empty}><Text accessibilityRole="alert" style={styles.errorText}>{error}</Text><Button label="Try again" kind="secondary" busy={refreshing} onPress={() => void reload()} /></View> :
-            <ActivityIndicator accessibilityLabel="Loading conversations" style={styles.loading} color={colors.blue} /> :
+            <SkeletonRows label="Loading conversations" avatar={false} /> :
           <View style={styles.empty}>
             <AppIcon name="archive" size={28} color={colors.muted} />
             <Text accessibilityRole="header" style={styles.emptyTitle}>Nothing archived</Text>

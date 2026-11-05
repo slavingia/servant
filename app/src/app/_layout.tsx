@@ -1,4 +1,4 @@
-import { ActivityIndicator, Platform, Text, View } from "react-native";
+import { Platform, Text, View } from "react-native";
 import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider as NavigationThemeProvider, usePathname } from "expo-router";
 import { useMemo } from "react";
 import { StatusBar } from "expo-status-bar";
@@ -53,9 +53,7 @@ function SessionNavigation() {
   // Wait for the saved account before mounting any invite screen.
   if (!ready) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.navy, alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator color={colors.white} />
-      </View>
+      <View style={{ flex: 1, backgroundColor: colors.navy }} />
     );
   }
   if (loadError) {

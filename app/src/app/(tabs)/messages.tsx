@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { SkeletonRows } from "../../components/Skeleton";
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect, useScrollToTop } from "expo-router";
 import { AppIcon } from "../../components/AppIcon";
 import { SwipeChannelRow, useConversationActions } from "../../components/SwipeChannelRow";
@@ -74,7 +75,7 @@ export default function Messages() {
         }
         ListEmptyComponent={
           conversations === null ? (
-            error ? <View style={styles.empty}><Text accessibilityRole="alert" style={styles.emptyBody}>{error}</Text><Button label="Try again" kind="secondary" busy={refreshing} onPress={() => void reload()} style={styles.emptyAction} /></View> : <ActivityIndicator accessibilityLabel="Loading messages" style={styles.loading} color={colors.blue} />
+            error ? <View style={styles.empty}><Text accessibilityRole="alert" style={styles.emptyBody}>{error}</Text><Button label="Try again" kind="secondary" busy={refreshing} onPress={() => void reload()} style={styles.emptyAction} /></View> : <SkeletonRows label="Loading messages" />
           ) : (
             <View style={styles.empty}>
               <AppIcon name={unreadOnly ? "check" : "chat"} size={32} color={colors.muted} />

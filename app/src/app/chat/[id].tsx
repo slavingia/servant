@@ -24,6 +24,7 @@ import { useSession } from "../../lib/session";
 import { useLive } from "../../lib/live";
 import { forwardTitle, parseForward, type ForwardCard } from "../../lib/forward";
 import { AppIcon } from "../../components/AppIcon";
+import { SkeletonRows } from "../../components/Skeleton";
 import { ForwardSheet, type ForwardTarget } from "../../components/ForwardSheet";
 import * as Clipboard from "expo-clipboard";
 import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
@@ -80,7 +81,7 @@ function SharedChatView() {
           : chat?.projectShared ? "Shared with their project. Read only."
             : "Private. You can see it because you're an admin."}</Text>
       </View>
-      {messages === null ? <ActivityIndicator style={{ flex: 1 }} color={colors.blue} /> : (
+      {messages === null ? <SkeletonRows label="Loading messages" count={8} style={{ flex: 1 }} /> : (
         <FlatList inverted data={data} keyExtractor={(m) => m.id} contentContainerStyle={[styles.list, styles.readOnlyList]}
           ListFooterComponent={messages.length === 0 ? <View style={styles.empty}>
             <Text accessibilityRole="header" style={styles.emptyTitle}>{error ? "Couldn't load this chat" : "No messages yet"}</Text>
@@ -687,7 +688,7 @@ function ChatConversation() {
       <View style={[styles.chatColumn, stacked && previewOpen && styles.chatColumnStacked]}>
       <ConversationKeyboardView>
         {messages === null ? (
-          <ActivityIndicator style={{ flex: 1 }} color={colors.blue} />
+          <SkeletonRows label="Loading messages" count={8} style={{ flex: 1 }} />
         ) : (
           <FlatList
             ref={list}
