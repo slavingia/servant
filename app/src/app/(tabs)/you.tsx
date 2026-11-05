@@ -226,7 +226,6 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   photoBadge: { position: "absolute", right: -2, bottom: -2, width: 22, height: 22, borderRadius: 11, backgroundColor: colors.primary, borderWidth: 2, borderColor: colors.groupedBackground, alignItems: "center", justifyContent: "center" },
   photoMenu: { marginTop: -space.xxs },
   // Text links, but 44pt tall targets.
-  changeName: { marginHorizontal: space.side, marginBottom: space.xs, minHeight: 44, justifyContent: "center", alignSelf: "flex-start" },
   nameAction: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.xs },
   nameEditor: { padding: space.md, gap: space.sm },
   nameInput: { ...typography.body, color: colors.ink, minHeight: 44 },
