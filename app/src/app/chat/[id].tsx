@@ -103,7 +103,7 @@ function SharedChatView() {
                   {!theirs ? <Text style={styles.agentTag}>Agent</Text> : null}
                   {Number.isFinite(timestamp) ? <Text style={styles.time}>{when(timestamp)}</Text> : null}
                 </View>
-                {theirs ? <ForwardedText item={item} /> : item.text ? <ReplyText text={item.text} /> : null}
+                {theirs && !isContextSummary(item.text || "") ? <ForwardedText item={item} /> : item.text ? <ReplyText text={item.text} /> : null}
                 {item.attachments?.length ? <Attachments files={item.attachments} /> : null}
               </View>
             </MessageActions>;
@@ -194,9 +194,28 @@ function PreviewPane({ url, version, stacked, onClose }: { url: string; version:
   </View>;
 }
 
+export const isContextSummary = (text: string) => /END OF CONTEXT SUMMARY/i.test(text);
+
+// A compacted-context message: a distinct, collapsed-by-default card so it doesn't read as a normal reply.
+function ContextSummary({ text }: { text: string }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const [open, setOpen] = useState(false);
+  const body = text.replace(/[\s\-=*#_]*END OF CONTEXT SUMMARY[\s\-=*#_.]*$/i, "").trim();
+  return <View testID="context-summary" style={styles.summaryCard}>
+    <Pressable accessibilityRole="button" accessibilityLabel="Context summary" accessibilityHint={open ? "Collapse" : "Expand"} accessibilityState={{ expanded: open }} onPress={() => setOpen(v => !v)} style={styles.summaryHead}>
+      <AppIcon name={open ? "chevronDown" : "chevronRight"} size={16} color={colors.muted} />
+      <Text style={[styles.turnLabel, styles.turnCopy]}>Context summary</Text>
+      <Text style={styles.turnDetail}>{open ? "Hide" : "Show"}</Text>
+    </Pressable>
+    {open ? <View style={styles.summaryBody}><MessageText text={body || text} /></View> : null}
+  </View>;
+}
+
 // A "PREVIEW: <url>" line in a reply becomes a button.
 function ReplyText({ text, failed }: { text: string; failed?: boolean }) {
   const styles = useStyles();
+  if (isContextSummary(text)) return <ContextSummary text={text} />;
   const match = text.match(/(?:^|\n)PREVIEW:\s*(https:\/\/\S+)\s*$/);
   if (!match) return <MessageText text={text} failed={failed} />;
   const body = text.slice(0, match.index).trimEnd();
@@ -769,7 +788,7 @@ function ChatConversation() {
                     {!mine ? <Text style={styles.agentTag}>Agent</Text> : null}
                     {Number.isFinite(timestamp) || deviceLabel ? <Text style={styles.time}>{Number.isFinite(timestamp) ? when(timestamp) : null}{deviceLabel ? <Text testID={`message-device-${item.id}`} accessibilityLabel={`Sent from ${deviceLabel}`}>{Number.isFinite(timestamp) ? " · " : ""}{deviceLabel}</Text> : null}</Text> : null}
                   </View>
-                  {mine && !working ? <ForwardedText item={item} /> : !working && item.text ? <ReplyText text={item.text} failed={item.failed} /> : null}
+                  {mine && !working && !isContextSummary(item.text || "") ? <ForwardedText item={item} /> : !working && item.text ? <ReplyText text={item.text} failed={item.failed} /> : null}
                   {!working && !item.failed ? tweetIds(item.text || "").map(id => <TweetEmbed key={id} id={id} />) : null}
                   {!working && item.attachments?.length ? <Attachments files={item.attachments} /> : null}
                   {item.uploads?.length ? <PendingAttachments files={item.uploads} progress={item.pending ? uploadProgress : null} /> : null}
@@ -925,6 +944,9 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   fullTitleText: { ...typography.bodyStrong, flex: 1, color: colors.ink },
   sharedBanner: { paddingHorizontal: space.side, paddingVertical: space.xs, backgroundColor: colors.blueSoft },
   previewButton: { minHeight: 40, paddingHorizontal: space.md, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  summaryCard: { borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, borderLeftWidth: 3, borderLeftColor: colors.blue, borderRadius: radius.sm, backgroundColor: colors.surface, overflow: "hidden" },
+  summaryHead: { flexDirection: "row", alignItems: "center", gap: space.xs, minHeight: 44, paddingHorizontal: space.sm },
+  summaryBody: { paddingHorizontal: space.sm, paddingBottom: space.sm },
   previewInline: { alignSelf: "flex-start", marginTop: space.xs },
   previewButtonText: { ...typography.captionStrong, color: colors.onPrimary },
   projectLine: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm },
