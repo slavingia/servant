@@ -226,6 +226,17 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
       setCopying(false);
     }
   };
+  // Who reacted: names are fetched only when the menu opens on a message that has reactions.
+  const [reactorNames, setReactorNames] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!menu || !reactions.length || !account) return;
+    let live = true;
+    api.people(account).then(
+      d => { if (live) setReactorNames(Object.fromEntries([...d.people, d.agent].map(p => [p.id, p.name]))); },
+      () => {},
+    );
+    return () => { live = false; };
+  }, [menu, reactions.length, account]);
   if (post.activity) return (
     <View accessible accessibilityLabel={`${post.text}, ${when(post.createdAt)}`} style={styles.activity}>
       <Text style={styles.activityText}>{post.text} · {when(post.createdAt)}</Text>
@@ -284,7 +295,7 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
         {available && reactions.length > 0 ? <View style={styles.reactions}>
           {reactions.map(r => {
             const selected = r.userIds.includes(me);
-            return <Pressable key={r.emoji} accessibilityRole="button" accessibilityLabel={`${r.emoji}, ${r.userIds.length} reactions${selected ? ", including you. Remove reaction" : ". Add reaction"}`} accessibilityState={{ selected, disabled: busy || !onReact }} disabled={busy || !onReact} onPress={() => choose(r.emoji)} style={styles.reaction}>
+            return <Pressable key={r.emoji} accessibilityRole="button" accessibilityLabel={`${r.emoji}, ${r.userIds.length} reactions${selected ? ", including you. Remove reaction" : ". Add reaction"}`} accessibilityHint="Touch and hold to see who reacted" accessibilityState={{ selected, disabled: busy || !onReact }} disabled={busy || !onReact} onPress={() => choose(r.emoji)} onLongPress={() => setMenu(true)} style={styles.reaction}>
               <View style={[styles.reactionPill, selected && styles.selectedReaction]}><Text style={styles.reactionText}>{r.emoji} {r.userIds.length}</Text></View>
             </Pressable>;
           })}
@@ -319,6 +330,14 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
               </Pressable>
               {selecting ? <Text style={styles.copyStatus}>Touch and hold a word, then drag the selection handles to copy part of this message.</Text> : null}
               <Text key={selecting ? "full-text" : "preview"} testID="message-selectable-text" selectable={selecting} numberOfLines={selecting ? undefined : 4} style={styles.menuPreview}>{post.text}</Text>
+            </> : null}
+            {reactions.length > 0 && !selecting ? <>
+              <Text style={styles.menuTitle}>Who reacted</Text>
+              {reactions.map(r => (
+                <Text key={r.emoji} accessibilityLabel={`${r.emoji}: ${r.userIds.map(id => (id === me ? "You" : reactorNames[id] ?? "Someone")).join(", ")}`} style={styles.reactionWho}>
+                  {r.emoji}  {r.userIds.map(id => (id === me ? "You" : reactorNames[id] ?? "Someone")).join(", ")}
+                </Text>
+              ))}
             </> : null}
             {onReact && !selecting ? <>
               <Text style={styles.menuTitle}>React</Text>
@@ -443,6 +462,13 @@ export function Composer({
   }, []);
   const [selection, setSelection] = useState({ start: initial.length, end: initial.length });
   const [insertedSelection, setInsertedSelection] = useState<{ start: number; end: number }>();
+  const [copiedSelected, setCopiedSelected] = useState(false);
+  // The phone's own Copy toolbar did not appear for some people, so highlighted text also gets a Copy button.
+  const copySelected = async () => {
+    const part = text.slice(selection.start, selection.end);
+    if (!part) return;
+    try { await Clipboard.setStringAsync(part); setCopiedSelected(true); setTimeout(() => setCopiedSelected(false), 1500); } catch { /* the system toolbar is still there */ }
+  };
   const [focused, setFocused] = useState(false);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(blurTimer.current), []);
@@ -623,6 +649,9 @@ export function Composer({
             : allowAttachments ? <Pressable accessibilityRole="button" accessibilityLabel={attachmentMenu ? "Close attachment options" : "Add attachments"} accessibilityState={{ disabled: busy || picking, expanded: attachmentMenu }} disabled={busy || picking} onPress={() => setAttachmentMenu(open => !open)} style={[styles.attachmentButton, attachmentMenu && styles.attachmentButtonSelected]}>
               <AppIcon name={attachmentMenu ? "close" : "plus"} size={21} color={colors.muted} />
             </Pressable> : null}
+          {selection.end > selection.start && !dictation.listening ? <Pressable testID="composer-copy" accessibilityRole="button" accessibilityLabel="Copy the highlighted text" onPress={copySelected} style={styles.copySelected}>
+            <AppIcon name="copy" size={17} color={colors.blue} /><Text style={styles.copySelectedText}>{copiedSelected ? "Copied" : "Copy"}</Text>
+          </Pressable> : null}
           <Text style={styles.composerHint} numberOfLines={1} accessibilityLiveRegion="polite">{dictation.listening ? (dictation.partial || "Listening…") : picking ? "Adding attachment…" : enterSends && text.trim() ? "Shift + Return for a new line" : !onCancel && mentionMatches(members, me, "").length > 1 ? "@ to mention someone" : ""}</Text>
           {!onCancel && dictation.available ? <Pressable testID="composer-dictate" accessibilityRole="button" accessibilityLabel={dictation.listening ? "Stop dictation" : "Dictate a message"} accessibilityState={{ disabled: busy, selected: dictation.listening }} disabled={busy} onPress={dictation.toggle} hitSlop={6} style={[styles.dictate, dictation.listening && styles.dictateOn]}>
             <AppIcon name={dictation.listening ? "stop" : "mic"} size={21} color={dictation.listening ? colors.onPrimary : colors.muted} />
@@ -695,6 +724,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   copyStatus: { ...typography.caption, color: colors.muted, marginVertical: space.xs },
   menuAuthor: { ...typography.bodyStrong, color: colors.ink, marginBottom: space.xs },
   menuPreview: { ...typography.body, color: colors.muted, marginTop: space.xs, marginBottom: space.md },
+  reactionWho: { ...typography.body, color: colors.ink, paddingVertical: space.xxs },
   menuTitle: { ...typography.label, color: colors.muted, marginTop: space.xs, marginBottom: space.xs },
   emojiGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: space.xxs, marginBottom: space.sm },
   emojiButton: { width: 48, height: 48, borderRadius: radius.md, borderWidth: 1, borderColor: "transparent", justifyContent: "center", alignItems: "center" },
@@ -744,13 +774,18 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   composerWide: { borderColor: colors.line, borderRadius: radius.lg + 4, boxShadow: "0 1px 2px rgba(16,24,40,0.04), 0 4px 16px rgba(16,24,40,0.06)" },
   composerWideFocused: { borderColor: colors.borderStrong },
   composerToolbar: { flexDirection: "row", alignItems: "center", paddingHorizontal: space.xxs, paddingBottom: space.xxs, minHeight: 48 },
+  copySelected: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: space.xxs, paddingHorizontal: space.xs },
+  copySelectedText: { ...typography.label, color: colors.blue },
   composerHint: { ...typography.meta, color: colors.muted, flex: 1, paddingHorizontal: space.xs },
   editingLabel: { ...typography.captionStrong, color: colors.muted, paddingTop: space.xs, paddingHorizontal: space.sm },
   input: { ...typography.body, minHeight: 44, maxHeight: 144, paddingHorizontal: space.sm, paddingTop: space.sm, paddingBottom: space.xs, color: colors.ink, backgroundColor: colors.background },
   // The colored copy behind the box, and the box made see-through over it (caret stays visible).
   inputMirror: { position: "absolute", top: 0, left: 0, right: 0, color: colors.ink, backgroundColor: colors.background, overflow: "hidden" },
   // The composer's border already shows focus; the browser's own ring would draw a line inside it.
-  inputOverlay: { color: "transparent", backgroundColor: "transparent", ...(Platform.OS === "web" ? { caretColor: colors.ink, outlineStyle: "none" } as object : {}) },
+  // Not "transparent": on Android that is the integer 0, which React Native reads as "no color set",
+  // so the real text drew in the default dark color over the blue copy (doubled, bolder text).
+  // One step of alpha is invisible and not zero.
+  inputOverlay: { color: "#00000001", backgroundColor: "transparent", ...(Platform.OS === "web" ? { caretColor: colors.ink, outlineStyle: "none" } as object : {}) },
   send: { minHeight: 44, minWidth: 44, paddingHorizontal: space.sm, borderRadius: radius.sm, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   sendDisabled: { backgroundColor: colors.subtle },
   sendText: { ...typography.label, color: colors.onPrimary },
