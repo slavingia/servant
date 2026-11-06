@@ -1965,6 +1965,8 @@ if (isMain) {
       : joinLink({ fresh: process.argv.includes("--fresh") });
     console.log(`Invite code: ${code}`);
     console.log(`Link:        ${pairLink(code, cfg, { local })}`);
+    const web = joinWebLink(code, cfg, { local });
+    if (web) console.log(`Web link:    ${web}   (tap it in any app: opens Servant on a phone or Mac)`);
     console.log(`${named ? "Single use" : "Anyone with it can join"}. Expires ${new Date(expiresAt).toDateString()}.`);
     if (local) console.log("Works only on this computer. In the Servant Mac app, choose Paste an invite link and paste it.");
   } else if (cmd === "ota") {
@@ -1996,8 +1998,6 @@ if (isMain) {
       headers: { "Content-Type": "application/json", "X-Servant-Admin": cfg.adminKey },
       body: JSON.stringify({ build, notes: fs.readFileSync(file, "utf8") }),
     }).catch((e) => ({ ok: false, status: 0, json: async () => ({ error: { message: e.message } }) }));
-    const web = joinWebLink(code, cfg, { local });
-    if (web) console.log(`Web link:    ${web}   (tap it in any app: opens Servant on a phone or Mac)`);
     const data = await r.json().catch(() => ({}));
     if (!r.ok) {
       console.error(`Couldn't post the notes (${r.status}): ${data.error?.message || "server not running?"}`);
