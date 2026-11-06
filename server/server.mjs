@@ -37,6 +37,7 @@ import { createChatMediaStore } from "./chat-media.mjs";
 import { createUsageStore, limitMessage, agentTierOf, AGENT_TIERS, RESEARCHER_TIER } from "./usage.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { supportsDurableRuns, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
+import { createReadmeCache } from "./project-readme.mjs";
 import { MAX_ITEMS, MAX_PEOPLE, MAX_PROJECTS, MAX_RELEASES, VIBE_PROJECT, accessOf, accessibleProjects, cleanDate, cleanDescription, cleanLevel, cleanLogin, cleanName, cleanNotes, cleanPath, cleanReleaseName, cleanRepo, cleanRules, cleanStage, cleanStages, cleanTitle, cleanUrl, cleanWorkflow, createProjectFiles, createProjectStore, expandPath, migrateFolders, needsMigration, newItem, newProject, newRelease, patchCell, projectInstructions, projectPeople, projectSharedWith, projectView, removeAccess, setAccess, validProjectId, vibeFolder, vibePreview } from "./projects.mjs";
 import { validTermsAcceptance } from "./terms.mjs";
 import { verifyMemberUpstream, verifyResearcherUpstream } from "./member-policy.mjs";
@@ -600,6 +601,8 @@ let documentStore;
 let projectFileStore;
 const projectFiles = () => projectFileStore ??= createProjectFiles(path.join(DATA_DIR, "project-files"));
 let projectStore;
+let readmeCache;
+const projectReadme = repo => (readmeCache ??= createReadmeCache(path.join(DATA_DIR, "readme-cache")))(repo);
 const projects = () => projectStore ??= createProjectStore(loadConfig().projectsFile);
 const vibeProject = () => projects().byId(VIBE_PROJECT);
 // The project with this id, if this person is in it (or is an admin).
@@ -1004,6 +1007,12 @@ async function handle(req, res, cfg) {
         const sharedChats = allChats().filter(c => c.projectId === pid && c.userId !== user.id && !c.deletedAt && c.projectShared)
           .sort((a, b) => b.updatedAt - a.updatedAt).map(c => chatView(c, users()[user.id] || user, users()));
         return send(res, 200, { ...wrap(true, project), sharedChats });
+      }
+      // The repo's README from GitHub (cached; stale copy while GitHub is unreachable). Anyone who can see the project.
+      if (method === "GET" && parts.length === 4 && parts[3] === "readme") {
+        const { project } = found(projects().read(), pid);
+        if (!project.repo) return send(res, 200, { readme: null });
+        return send(res, 200, { readme: await projectReadme(project.repo) });
       }
       if (method === "PATCH" && parts.length === 3) {
         const body = await readAuthorizedBody(req);

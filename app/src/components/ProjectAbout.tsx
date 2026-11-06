@@ -5,6 +5,7 @@ import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
 import { AppIcon } from "./AppIcon";
 import { Button } from "./Button";
+import { ProjectReadme } from "./ProjectReadme";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Avatar } from "./Messaging";
 import { forgetProject } from "../lib/projects-store";
@@ -124,6 +125,8 @@ export function ProjectAbout({ account, project, onChange }: { account: Account;
         <TextInput accessibilityLabel="Project description" editable={canEdit} value={fields.description} onChangeText={field("description")} onBlur={saveText("description")} maxLength={200}
           placeholder="What this project is, in a line" placeholderTextColor={colors.muted} style={[styles.input, !canEdit && styles.readonly]} />
       </> : null}
+
+      <ProjectReadme account={account} project={project} />
 
       {canEdit || hasRepo || project.rules.length || project.stages.length ? <>
         <View style={styles.sectionRow}><Text accessibilityRole="header" style={styles.section}>How we work</Text></View>
