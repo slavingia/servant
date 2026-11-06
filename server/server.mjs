@@ -254,6 +254,28 @@ export function pairLink(code, cfg = loadConfig(), { local = false } = {}) {
 }
 
 // One-time invite for the owner: a new device for the existing owner, or the
+// The same invite as a web address people can tap in any app: https://<server>/join?code=…&key=…&d=…
+// The page opens Servant (phone or Mac) by itself; see JOIN_PAGE.
+export function joinWebLink(code, cfg = loadConfig(), opts = {}) {
+  const origin = (cfg.publicUrl || "").replace(/\/+$/, "");
+  const app = new URL(pairLink(code, cfg, opts));
+  return origin && !opts.local ? `${origin}/join?${app.searchParams}` : null;
+}
+
+const JOIN_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Join Servant</title>
+<style>body{font:17px -apple-system,system-ui,sans-serif;background:#0b0f1a;color:#fff;margin:0;display:grid;place-items:center;min-height:100vh}main{max-width:420px;padding:32px;text-align:center}h1{font-size:28px;margin:0 0 8px}p{color:#b8c0d4;line-height:1.45}a.b,button{display:block;width:100%;box-sizing:border-box;margin:12px 0;padding:14px;border:0;border-radius:12px;font:600 17px inherit;font-family:inherit;text-decoration:none;cursor:pointer}a.b{background:#3b82f6;color:#fff}button{background:#1c2438;color:#fff}small{color:#8791aa}</style></head><body><main>
+<h1>Join Servant</h1><p id="msg">Opening Servant…</p>
+<a class="b" id="open" href="#">Open Servant</a><button id="copy">Copy invite link</button>
+<p><small>No app yet? Install Servant, then come back to this page. Or paste the copied link into Servant: Paste an invite link.</small></p></main>
+<script>
+(function(){var q=new URLSearchParams(location.search),code=q.get("code")||"";
+if(!/^[0-9A-Za-z]{5}-?[0-9A-Za-z]{5}$/.test(code)){document.getElementById("msg").textContent="That invite link isn't complete. Ask for a new one.";document.getElementById("open").style.display=document.getElementById("copy").style.display="none";return}
+var p=new URLSearchParams();p.set("code",code);["key","d","hub","server"].forEach(function(k){var v=q.get(k);if(v)p.set(k,v)});
+var link="servant://pair?"+p.toString();document.getElementById("open").href=link;
+document.getElementById("copy").onclick=function(){var b=this;(navigator.clipboard?navigator.clipboard.writeText(link):Promise.reject()).then(function(){b.textContent="Copied"},function(){window.prompt("Copy this link",link)})};
+setTimeout(function(){location.href=link;document.getElementById("msg").textContent="If Servant didn't open, tap Open Servant."},300)})();
+</script></body></html>`;
+
 // first owner account on a fresh server. Lets the server's own computer sign in
 // without a phone to scan a QR code.
 export function ownerInvite({ name } = {}) {
@@ -652,6 +674,11 @@ async function handle(req, res, cfg) {
   }
 
   // Over-the-air app updates: public, signed, app code only (see ota.mjs).
+  // The invite web page: opens the app by itself, with copy-the-link as a fallback. Nothing is read from the server.
+  if (method === "GET" && url.pathname === "/join") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" });
+    return res.end(JOIN_PAGE);
+  }
   if (url.pathname.startsWith("/ota/") && ota().handle(req, res)) return undefined;
 
   // Lets the app check a server address before pairing (and re-discover it later).
@@ -897,7 +924,7 @@ async function handle(req, res, cfg) {
     if (method === "POST" && parts[1] === "invites" && parts.length === 2) {
       const body = await readBody(req);
       const { code, expiresAt } = mutateAuthenticated(req, state => makeJoinLink(state, { fresh: body.fresh === true }), true);
-      return send(res, 200, { code, link: pairLink(code, cfg), expiresAt });
+      return send(res, 200, { code, link: pairLink(code, cfg), webLink: joinWebLink(code, cfg), expiresAt });
     }
     if (method === "GET" && parts[1] === "devices" && parts.length === 2) {
       const list = Object.values(state.devices)
@@ -1969,6 +1996,8 @@ if (isMain) {
       headers: { "Content-Type": "application/json", "X-Servant-Admin": cfg.adminKey },
       body: JSON.stringify({ build, notes: fs.readFileSync(file, "utf8") }),
     }).catch((e) => ({ ok: false, status: 0, json: async () => ({ error: { message: e.message } }) }));
+    const web = joinWebLink(code, cfg, { local });
+    if (web) console.log(`Web link:    ${web}   (tap it in any app: opens Servant on a phone or Mac)`);
     const data = await r.json().catch(() => ({}));
     if (!r.ok) {
       console.error(`Couldn't post the notes (${r.status}): ${data.error?.message || "server not running?"}`);

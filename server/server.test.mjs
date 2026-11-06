@@ -1201,6 +1201,16 @@ test("state on disk holds only token hashes", () => {
 async function events(token) {
   const ctrl = new AbortController();
   const res = await testFetch(dataDir, base + "/v1/events", { method: "POST", body: "{}", headers: { Authorization: `Bearer ${token}` }, signal: ctrl.signal });
+test("the invite web page opens the app by itself and needs no sign-in", async () => {
+  const r = await fetch(base + "/join?code=ZFB5W-UKJ68");
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get("content-type"), /text\/html/);
+  const html = await r.text();
+  assert.match(html, /servant:\/\/pair\?/);
+  assert.match(html, /Copy invite link/);
+  assert.match(r.headers.get("content-security-policy"), /default-src 'none'/);
+});
+
   const got = [];
   const decoder = createLiveEventDecoder(frame => got.push(frame));
   (async () => {

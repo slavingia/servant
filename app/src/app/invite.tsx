@@ -8,7 +8,7 @@ import { api, ServerError } from "../lib/server";
 import { useSession } from "../lib/session";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
-type Link = { code: string; link: string; expiresAt: number };
+type Link = { code: string; link: string; webLink?: string | null; expiresAt: number };
 
 // One join link for the whole team. Anyone with it can join until it expires.
 export default function Invite() {
@@ -76,7 +76,7 @@ export default function Invite() {
   }
 
   const until = new Date(invite.expiresAt).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
-  const message = `Join ${account.serverName} on Servant. Open this on your phone: ${invite.link}`;
+  const message = `Join ${account.serverName} on Servant. Tap to join: ${invite.webLink ?? invite.link}`;
   const copy = async () => {
     if (actionInFlight.current) return;
     actionInFlight.current = true;
@@ -84,7 +84,7 @@ export default function Invite() {
     setCopied(false);
     setActionError(null);
     try {
-      const success = await Clipboard.setStringAsync(invite.link);
+      const success = await Clipboard.setStringAsync(invite.webLink ?? invite.link);
       if (!success) throw new Error("Clipboard unavailable");
       setCopied(true);
     } catch {

@@ -35,3 +35,12 @@ test("rejects junk and unsafe servers", () => {
   assert.equal(parseInvite("servant://pair?code=ABCDE-FGH23&hub=javascript%3Aalert(1)"), null);
   assert.equal(parseInvite("servant://pair?code=ABCDE-FGH23&server=javascript%3Aalert(1)"), null);
 });
+
+test("the web invite link (https://<server>/join?…) parses like the servant:// one", () => {
+  const key = "02" + "ab".repeat(32);
+  const web = `https://tsoa.servant.com/join?code=ZFB5W-UKJ68&key=${key}&d=${encodeURIComponent("https://gist.githubusercontent.com/x/raw/hub.json")}`;
+  const got = parseInvite(`Tap to join: ${web}`);
+  assert.equal(got?.code, "ZFB5W-UKJ68");
+  assert.equal(got?.serverKey, key);
+  assert.equal(parseInvite("https://tsoa.servant.com/other?code=ZFB5W-UKJ68&d=https://x.y/z"), null);
+});

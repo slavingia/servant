@@ -6,7 +6,8 @@ const CODE = /^[0-9A-Z]{5}-?[0-9A-Z]{5}$/i;
 export function parseInvite(input: string): Invite | null {
   const text = input.trim();
   if (!text) return null;
-  const match = text.match(/servant:\/\/pair\?[^\s]+/i);
+  // servant://pair?… or the web form https://<server>/join?… (same parameters).
+  const match = text.match(/servant:\/\/pair\?[^\s]+/i) || text.match(/https:\/\/[^\s/?#]+\/join\?[^\s]+/i);
   if (!match) return null;
   const query = match[0].slice(match[0].indexOf("?") + 1);
   const params = new URLSearchParams(query);
