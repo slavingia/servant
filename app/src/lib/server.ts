@@ -464,6 +464,9 @@ export const api = {
   /** Tell everyone you muted or turned your camera off. */
   meetingState: (a: Account, id: string, participantId: string, muted: boolean, cameraOff: boolean) =>
     request(a, `/v1/meetings/${id}/state`, { method: "POST", body: JSON.stringify({ participantId, muted, cameraOff }) }).catch(() => undefined),
+  /** Host only: ask someone on the call to mute. */
+  muteParticipant: (a: Account, id: string, participantId: string) =>
+    request(a, `/v1/meetings/${id}/mute`, { method: "POST", body: JSON.stringify({ participantId }) }).then(json<{ meeting: Meeting }>).then((d) => d.meeting),
   endMeeting: (a: Account, id: string) =>
     request(a, `/v1/meetings/${id}/end`, { method: "POST", body: "{}" }).then(json<{ meeting: Meeting }>).then((d) => d.meeting),
   meetingStep: (a: Account, id: string, n: number, action: "accept" | "skip") =>
@@ -472,6 +475,3 @@ export const api = {
     request(a, "/v1/releases/latest").then(json<{ release: Release | null }>).then((d) => d.release),
   signOut: (a: Account) => request(a, "/v1/signout", { method: "POST" }).catch(() => undefined),
 };
-  /** Host only: ask someone on the call to mute. */
-  muteParticipant: (a: Account, id: string, participantId: string) =>
-    request(a, `/v1/meetings/${id}/mute`, { method: "POST", body: JSON.stringify({ participantId }) }).then(json<{ meeting: Meeting }>).then((d) => d.meeting),
