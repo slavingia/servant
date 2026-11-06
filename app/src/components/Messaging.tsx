@@ -8,7 +8,7 @@ import { router } from "expo-router";
 import { api, ServerError, type Conversation, type Person, type Post, type Upload } from "../lib/server";
 import { useDictation } from "../lib/dictation";
 import { insertDictation } from "../lib/dictation-text";
-import { activeMention, insertMention, mentionMatches, mentionText } from "../lib/mentions";
+import { activeMention, agentMentionNames, AGENT_HANDLES, insertMention, mentionMatches, mentionText } from "../lib/mentions";
 import { slashMatches } from "../lib/slash-commands";
 import type { MessageReceipt } from "../lib/message-status";
 import { messageDeviceLabel } from "../lib/message-device";
@@ -478,7 +478,7 @@ export function Composer({
   const suggestions = match ? mentionMatches(members, me, match.query, mentionAgent) : [];
   // @names of people here (and @s) show in blue as you type: a colored copy of the text sits
   // exactly under a see-through input (inputs can't color part of their text on the web).
-  const mentionNames = new Set([...members.map(p => mentionText(p.name).toLowerCase()), ...(mentionAgent ? ["@s", "@agent"] : [])]);
+  const mentionNames = new Set([...members.map(p => mentionText(p.name).toLowerCase()), ...(mentionAgent ? agentMentionNames() : [])]);
   const slash = commands && !busy && !onCancel ? slashMatches(text, commands.channel, commands.agent === true) : null;
   const latest = useRef({ text, selection });
   useLayoutEffect(() => { latest.current = { text, selection }; });
@@ -572,10 +572,20 @@ export function Composer({
       ) : null}
       {match ? (
         <ScrollView keyboardShouldPersistTaps="always" style={styles.suggestions} accessibilityLabel="Mention suggestions">
-          {suggestions.length ? suggestions.map(person => (
+          {suggestions.length ? suggestions.map(person => person.agent ? (
+            // The agent has its own row: tinted, labelled "Agent", and it says every name that reaches it.
+            <Pressable key={person.id} testID="mention-agent" accessibilityRole="button" accessibilityLabel={`Ask the agent. Mention it as ${AGENT_HANDLES.map(handle => `@${handle}`).join(", ")}`} onPress={() => choose(person)} style={({ pressed }) => [styles.suggestion, styles.agentSuggestion, pressed && { opacity: 0.8 }]}>
+              <View style={styles.agentAvatar}><AppIcon name="sparkles" size={17} color={colors.onPrimary} /></View>
+              <View style={{ flex: 1, marginLeft: space.sm }}>
+                <Text style={styles.suggestionName}>Agent</Text>
+                <Text style={styles.suggestionHandle}>Ask anything. Works as {AGENT_HANDLES.map(handle => `@${handle}`).join(", ")}</Text>
+              </View>
+              <Text style={styles.agentSuggestionTag}>@{AGENT_HANDLES[0]}</Text>
+            </Pressable>
+          ) : (
             <Pressable key={person.id} testID={`mention-${person.id}`} accessibilityRole="button" accessibilityLabel={`Mention ${person.name}`} onPress={() => choose(person)} style={({ pressed }) => [styles.suggestion, pressed && { backgroundColor: colors.surface }]}>
-              {person.agent ? <View style={styles.agentAvatar}><AppIcon name="sparkles" size={17} color={colors.onPrimary} /></View> : <Avatar name={person.name} userId={person.id} size={30} />}
-              <View style={{ flex: 1, marginLeft: space.sm }}><Text style={styles.suggestionName}>{person.agent ? "Agent" : person.name}</Text><Text style={styles.suggestionHandle}>{mentionText(person.name)}</Text></View>
+              <Avatar name={person.name} userId={person.id} size={30} />
+              <View style={{ flex: 1, marginLeft: space.sm }}><Text style={styles.suggestionName}>{person.name}</Text><Text style={styles.suggestionHandle}>{mentionText(person.name)}</Text></View>
             </Pressable>
           )) : <Text style={styles.noSuggestions}>No matching members in this conversation</Text>}
         </ScrollView>
@@ -759,6 +769,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   attachmentText: { ...typography.captionStrong, color: colors.ink },
   suggestions: { maxHeight: 190, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   suggestion: { flexDirection: "row", alignItems: "center", minHeight: 56, paddingHorizontal: space.side, paddingVertical: space.xs },
+  agentSuggestion: { backgroundColor: colors.blueSoft, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  agentSuggestionTag: { ...typography.captionStrong, color: colors.blueDark, backgroundColor: colors.background, paddingHorizontal: space.xs, paddingVertical: space.xxs, borderRadius: radius.sm, overflow: "hidden" },
   suggestionName: { ...typography.bodyStrong, color: colors.ink },
   dictate: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", marginRight: space.xs },
   dictateOn: { backgroundColor: colors.danger },

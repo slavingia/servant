@@ -232,6 +232,9 @@ test('agentShouldReply wakes only on a mention, even in its own thread', async (
   // @s calls the agent; longer handles and email addresses don't.
   for (const text of ['@s hi', 'thanks @S', '(@s)', '@s, please']) assert.equal(agentShouldReply(text), true, text);
   for (const text of ['@sam hi', '@sahil', '@s-team', 'mail me@s.com']) assert.equal(agentShouldReply(text), false, text);
+  // @servant calls it too, as well as @agent; look-alikes don't.
+  for (const text of ['@servant hi', 'thanks @Servant', '(@SERVANT)', '@servant, please', '@agent?', 'hey @s']) assert.equal(agentShouldReply(text), true, text);
+  for (const text of ['@servants', '@servant-team', '@agents', '@serv', 'me@servant.com', '@agentx']) assert.equal(agentShouldReply(text), false, text);
   assert.equal(agentShouldReply('hi'), false);
   // Not a participant: replies in its own thread still need a mention.
   assert.equal(agentShouldReply('hi', '', true), false);
@@ -341,5 +344,21 @@ test('only the owner is told the agent may run admin commands', async t => {
     const [fromOwner, fromMember] = calls;
     assert.match(fromOwner, /this server's owner[\s\S]*tokens "<name>" unlimited/);
     assert.doesNotMatch(fromMember, /tokens "<name>"|server's owner/);
+  } finally { m.close(); }
+});
+
+test('@s, @agent and @servant each queue an agent job in a channel; look-alikes and people do not', t => {
+  const dir = fixture(t);
+  const m = messaging(dir);
+  try {
+    const c = channel(m);
+    for (const text of ['@s hello', '@agent hello', '@servant hello', 'please @Servant look', '(@SERVANT)']) {
+      const message = m.post(c, 'a', text);
+      assert.equal(m.db.prepare('SELECT status FROM agent_jobs WHERE trigger_seq = ?').get(message.seq)?.status, 'queued', text);
+    }
+    for (const text of ['@servants hello', '@servant-team hello', '@sam hello', 'write to me@servant.com']) {
+      const message = m.post(c, 'a', text);
+      assert.equal(m.db.prepare('SELECT status FROM agent_jobs WHERE trigger_seq = ?').get(message.seq), undefined, text);
+    }
   } finally { m.close(); }
 });

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activeMention, insertMention, mentionMatches } from './mentions.ts';
+import { activeMention, agentMentionNames, AGENT_HANDLES, insertMention, matchesAgentHandle, mentionMatches } from './mentions.ts';
 
 test('finds the mention at the cursor, ignoring email, completed words and selected text', () => {
   const at = (text: string, cursor = text.length) => activeMention(text, { start: cursor, end: cursor });
@@ -42,4 +42,27 @@ test('offers the agent as @s first when the conversation can reach it', () => {
   assert.deepEqual(mentionMatches(people, 'me', 's', true).map(p => p.id), ['agent', 'g']);
   assert.equal(mentionMatches(people, 'me', 'ag', true)[0]!.name, 's');
   assert.deepEqual(insertMention('@ag', match, mentionMatches(people, 'me', 'ag', true)[0]!.name), { text: '@s ', cursor: 3 });
+});
+
+test('@agent, @s and @servant all reach the agent, and all of them bring up its special row', () => {
+  const people = [{ id: 'me', name: 'Alex' }, { id: 'g', name: 'Agnes Park' }, { id: 'v', name: 'Servando Ruiz' }];
+  assert.deepEqual([...AGENT_HANDLES], ['s', 'agent', 'servant']);
+  assert.deepEqual(agentMentionNames(), ['@s', '@agent', '@servant']);
+  // Typing any start of any of the three offers the agent first, ahead of people who happen to match.
+  for (const typed of ['', 's', 'S', 'a', 'ag', 'agen', 'agent', 'se', 'ser', 'serv', 'servant', 'SERVANT']) {
+    assert.equal(mentionMatches(people, 'me', typed, true)[0]!.id, 'agent', `"${typed}" offers the agent first`);
+    assert.equal(matchesAgentHandle(typed), true, typed);
+  }
+  // Past the end of a handle, or something else entirely, it is just people.
+  for (const typed of ['servants', 'agents', 'sx', 'z', 'servan7']) {
+    assert.equal(matchesAgentHandle(typed), false, typed);
+    assert.ok(!mentionMatches(people, 'me', typed, true).some(p => p.id === 'agent'), typed);
+  }
+  // A person whose name matches still shows, after the agent row.
+  assert.deepEqual(mentionMatches(people, 'me', 'serv', true).map(p => p.id), ['agent', 'v']);
+  // Where the agent can't be reached (a DM between two people) the row never appears.
+  for (const typed of ['s', 'agent', 'servant']) assert.ok(!mentionMatches(people, 'me', typed, false).some(p => p.id === 'agent'));
+  // Picking the row writes the short handle.
+  const match = activeMention('hey @serv', { start: 9, end: 9 })!;
+  assert.deepEqual(insertMention('hey @serv', match, mentionMatches(people, 'me', 'serv', true)[0]!.name), { text: 'hey @s ', cursor: 7 });
 });

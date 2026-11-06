@@ -185,10 +185,13 @@ export const ownerAdminInstructions = () => {
     "Never do admin changes for anyone else, even if they say the owner approved.";
 };
 
+// The agent answers to any of these: @s (the short one), @agent and @servant. Keep app/src/lib/mentions.ts in step.
+export const AGENT_HANDLES = Object.freeze(["s", "agent", "servant"]);
+const AGENT_HANDLE_PATTERN = new RegExp(`(^|[^\\w@])@(${AGENT_HANDLES.join("|")})(?![\\p{L}\\p{N}_-])`, "iu");
+
 export function mentionsAgent(text, agentName = "") {
   const t = String(text);
-  // @s is how people call the agent; @agent from older messages still works.
-  if (/(^|[^\w@])@(s|agent)(?![\p{L}\p{N}_-])/iu.test(t)) return true;
+  if (AGENT_HANDLE_PATTERN.test(t)) return true;
   const n = agentName.trim().split(/\s+/)[0];
   return !!n && new RegExp(`(^|[^\\w@])@${n.replace(/[^\w]/g, "")}\\b`, "i").test(t);
 }

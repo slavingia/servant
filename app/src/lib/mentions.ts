@@ -17,16 +17,27 @@ export function activeMention(text: string, selection: { start: number; end: num
   return { start, end, query };
 }
 
-// The agent isn't a conversation member, but people call it with @s, so it is
-// offered first whenever the conversation can reach it (typing "@s" or "@ag…").
-export const AGENT_HANDLE = "s";
+// The agent isn't a conversation member, but people call it with @s, @agent or @servant, so it is offered
+// first, as its own special row, whenever the conversation can reach it and what's typed starts any of them.
+// Keep AGENT_HANDLES in step with server/messaging.mjs.
+export const AGENT_HANDLES = ["s", "agent", "servant"] as const;
+export const AGENT_HANDLE = "s";                      // what picking the row inserts: the short one
 export const AGENT_MENTION: MentionPerson = { id: "agent", name: AGENT_HANDLE, agent: true };
+
+/** True when the text typed after "@" could still become one of the agent's handles. */
+export const matchesAgentHandle = (query: string) => {
+  const q = fold(query);
+  return AGENT_HANDLES.some(handle => handle.startsWith(q));
+};
 
 export function mentionMatches(members: MentionPerson[], me: string, query: string, withAgent = false) {
   const q = fold(query).replace(/-/g, " ");
   const people = members.filter(p => p.id !== me && !p.agent && fold(p.name).includes(q)).sort((a, b) => a.name.localeCompare(b.name));
-  return withAgent && (AGENT_HANDLE.startsWith(q) || "agent".startsWith(q)) ? [AGENT_MENTION, ...people] : people;
+  return withAgent && matchesAgentHandle(query) ? [AGENT_MENTION, ...people] : people;
 }
+
+/** All the ways a message can name the agent, lower case with the @, for highlighting what's typed. */
+export const agentMentionNames = () => AGENT_HANDLES.map(handle => `@${handle}`);
 
 export function insertMention(text: string, match: MentionQuery, name: string) {
   const suffix = text.slice(match.end);
