@@ -1,46 +1,83 @@
-# Sign in with a PIV card (federal identity)
+# Sign in with a federal identity (Login.gov first, PIV and Active Directory later)
 
-Status: proposal. Nothing here is built yet.
+Status: proposal with research. Nothing here is built yet.
 
-## What this is
+## Recommendation
 
-Today a person joins Servant with an invite link or code, types their own name, and the server hands their device a token (`POST /v1/pair`, `server/server.mjs`). Nothing proves who they are beyond holding the link. For federal teams the goal is to prove it with the identity they already have: a PIV or CAC card, backed by the agency's Active Directory.
+Start with **Login.gov plus a federal-email check**, and build it as generic OpenID Connect (OIDC) so an agency identity provider can be added later with no new server design.
 
-## How PIV actually works for an app
+- Login.gov already does the hard part: verified email, a required second factor, and an option to require a PIV or CAC card.
+- Servant can then admit a person when a verified email on their Login.gov account is on the official federal `.gov` list. No agency IT project is needed to get going.
+- Agency Active Directory (Microsoft Entra ID with certificate-based sign-in, or AD FS) is the later step for teams that need their own directory, groups or disablement. It is the same OIDC flow with a different issuer.
 
-An app does not read the card. The card signs in at the **identity provider** (IdP), and the app trusts the IdP's answer. So Servant needs to be an OpenID Connect (OIDC) client of the agency IdP, not a smart card reader:
+## What the US government uses
 
-| Where | What happens |
-| --- | --- |
-| Mac app and web | The sign-in opens the IdP in the system browser. The browser does the TLS client-certificate step with the card, the IdP issues an ID token, and the app gets it back through a loopback or `servant://` redirect. |
-| Phone | Same flow in the system browser sheet. Phones have no card reader, so this relies on the agency's derived PIV credential (Intune or a similar manager) or a remembered session at the IdP. |
+From the sources I read (links at the end):
 
-IdPs this covers with the same code: Microsoft Entra ID (Active Directory) with certificate-based authentication, AD FS, Okta or Ping set up for PIV, and Login.gov or agency ICAM. Servant never sees the card, the PIN or the certificate.
+| Option | Who it is for | What it gives Servant | Catch |
+| --- | --- | --- | --- |
+| Login.gov | Public and federal workforce sites; shared across many agencies | OIDC with PKCE (the method Login.gov recommends for native mobile apps) or `private_key_jwt` (recommended for web). Verified email, a second factor always, optional PIV/CAC | Needs a Login.gov partner onboarding (team and app in their partner portal). I did not confirm the approval steps or any cost |
+| Agency IdP (Entra ID, AD FS, Okta, Ping) with PIV/CAC | One agency's own staff | Directory identity, groups, account disablement, certificate sign-in enforced by the agency | Needs the agency to register the app and agree to it. One tenant per agency |
+| Direct card reading in the app | Nobody | Nothing, an app should not read the card | Do not build it |
 
-## Proposed design
+Microsoft Entra certificate-based authentication is a free Entra feature. It works through the browser (web apps and phone browsers) and with Conditional Access, and the admin decides by certificate issuer or policy OID which certificates count as multi-factor. That is how PIV-backed Entra sign-in is normally enforced.
 
-1. **OIDC authorization code with PKCE.** One configured issuer, client ID and allowed domain in `server/data/config.json`. Discovery from `/.well-known/openid-configuration`; signature check against the issuer's JWKS; `iss`, `aud`, `exp`, `nonce` all verified on the server. No client secret on devices.
-2. **A stable identity key.** Store `{issuer, sub}` on the user record, plus the UPN or email as a display and recovery hint. Never key on name. Optional: also record the certificate-derived claim (EDIPI or the PIV assurance level `amr`/`acr`) when the IdP provides it, and refuse tokens below the required assurance.
-3. **Invites keep deciding who may join.** PIV proves who you are; the owner still decides who is allowed. A signed-in identity joins when it matches a pending named invite, the team link, or an allowed-domain rule the owner switches on. This keeps today's "owner is never asked to type a name" rule: the name comes from the IdP.
-4. **A new route, not a changed one.** `POST /v1/pair/oidc` takes the authorization code and PKCE verifier, does the exchange server-side, then creates or finds the user by `{issuer, sub}` and returns the same device token as `/v1/pair`. Rate limit and terms acceptance (`validTermsAcceptance`) apply exactly as they do now. Existing invite pairing keeps working for people without a card.
-5. **Devices stay tokens.** After sign-in a device holds a Servant token as today, so offline use, push and the secure transport are unchanged. Re-auth with the card is required to add a new device, and an optional owner setting can require it again after N days.
-6. **Removing a person** (`removePerson`) already revokes every device. When the IdP disables the account, the next re-auth fails and the device is revoked.
+## Login.gov facts this design relies on
 
-## What I need from the agency before building
+- **Discovery:** sandbox `https://idp.int.identitysandbox.gov/.well-known/openid-configuration`, production `https://secure.login.gov/.well-known/openid-configuration`.
+- **Client auth:** PKCE for native apps, `private_key_jwt` for a web server. Servant's phones and Mac app are native, so PKCE; the server verifies the ID token itself.
+- **Assurance (`acr_values`):**
+  - `urn:acr.login.gov:auth-only` means email, password and a second factor, no identity proofing. This is enough for "prove you own a federal email."
+  - `http://idmanagement.gov/ns/assurance/aal/2?hspd12=true` requires a PIV or CAC card.
+  - Verified identity levels exist (`verified`, `verified-facial-match-required`) but Servant does not need them.
+- **Attributes (by scope):** `email` (one address), `all_emails` (every address on the account), `x509` / `x509:subject` / `x509:issuer` (the card's certificate details when a PIV/CAC was used), and the stable `sub` (a UUID). `email_verified` is always true: Login.gov only supports verified emails.
 
-- Which IdP and tenant (issuer URL), and an app registration with a redirect URI (`servant://auth` plus the Mac loopback).
-- Which claim is the identity (UPN, email or EDIPI) and which allowed domain(s).
-- Whether certificate-based sign-in is enforced at the IdP for that app (it should be, with a Conditional Access policy or the IdP's own rule), so Servant does not have to trust a self-reported level.
-- Whether phones are in scope on day one (needs derived credentials) or Mac and web first.
+## Detecting a federal email
+
+A Login.gov account can hold several verified emails, so ask for `all_emails` and decide on those, not just `email`.
+
+1. **Match the domain against the official list, not a `.gov` suffix.** A bare `.gov` check would admit city, county, state, tribal and special-district staff. In CISA's published `.gov` data (cisagov/dotgov-data, `current-full.csv`, read 11/05/2026) there are 17,025 domains and only 1,319 are federal: 1,172 executive, 121 legislative, 24 judicial and 2 other. The rest are city (9,599), county (3,061), state or territory (1,488), special district (1,158), tribal (294), school district (77) and interstate (29). `current-federal.csv` is the federal-only file; it includes `irs.gov` and `treasury.gov`. Decide which federal branches count (executive only, or all federal).
+2. **Match the exact domain or a subdomain of a listed domain** (`name@irs.gov`, `name@mail.irs.gov`), never a substring.
+3. **Federal does not mean the whole federal workforce.** Contractors usually have non-`.gov` addresses, and the military uses `.mil`, which this list does not cover. Make the allowed domains an owner setting, so `.mil` or a named contractor domain can be added deliberately.
+4. **An email proves a mailbox, not employment.** Someone who leaves an agency may keep Login.gov access to that address until the agency removes it. Treat it as "can read mail at that address," and let the owner remove people (Servant already does this and revokes every device).
+5. **Higher bar when it matters.** Ask for the PIV/CAC `acr_values` on the owner's own sign-in and when adding a new device, and keep the card's certificate subject (`x509_subject`) as extra evidence.
+
+The domain list should be refreshed on a schedule (it changes), cached on the server and versioned in the audit trail, with a manual owner override.
+
+## How it fits Servant
+
+Today, joining is `POST /v1/pair` with an invite code and a typed name. Keep that. Add one route:
+
+1. `POST /v1/pair/oidc` takes the authorization code and PKCE verifier. The server exchanges it, verifies the ID token (signature from the issuer's JWKS, `iss`, `aud`, `exp`, `nonce`), and reads `sub`, `all_emails` and the assurance level.
+2. The user is keyed on `{issuer, sub}`. Name and email are display hints, never the key.
+3. The owner chooses the join rule: invite required (a federal email only proves who you are), or a federal email is enough to join as a member. Default stays "invite required."
+4. The device then holds an ordinary Servant token, so push, offline use and the encrypted transport do not change.
+5. Terms acceptance and the pairing rate limit apply as they do now.
+
+The same route works for an agency IdP later: configure another issuer, with `groups` or `upn` claims instead of an email-domain rule.
+
+## Open questions
+
+- Login.gov partner onboarding: who submits it (it needs an agency sponsor), how long it takes, and any cost. I could not confirm these from public pages.
+- Does the owner want "federal email is enough to join" or "must also have an invite"?
+- Are `.mil` and named contractor domains in scope?
+- Phones: the PIV/CAC path on a phone needs a derived credential or a card reader. Login.gov's non-card second factors work on phones today.
 
 ## Build order
 
-1. Server: OIDC verifier module with unit tests against a local mock IdP (discovery, JWKS rotation, bad `aud`, expired, replayed nonce).
-2. `POST /v1/pair/oidc` and the user-record fields, with integration tests beside the existing pairing tests.
-3. App and Mac: "Sign in with your agency account" on the join screen, next to the invite code.
-4. Owner settings: allowed domain, require card for new devices.
-5. Document it in `docs/ato-data-flows.md` (new external flow to the IdP) and `docs/member-security.md`. This needs the owner's security review; it is an authentication change.
+1. Server: OIDC verifier with tests against a mock issuer (discovery, key rotation, wrong `aud`, expired, replayed nonce) and a federal-domain matcher with tests (exact, subdomain, look-alike such as `irs.gov.evil.com`, `.mil`, city `.gov`).
+2. `POST /v1/pair/oidc` and the user fields, with integration tests beside the pairing tests.
+3. App and Mac: "Sign in with Login.gov" next to the invite code, in the system browser.
+4. Owner settings: join rule, allowed domains, require card for the owner and new devices.
+5. Docs: add the external flow to `docs/ato-data-flows.md` and `docs/member-security.md`. This changes authentication and needs the owner's security review.
 
 ## Not in scope
 
-Reading the card directly, storing certificates or PINs, replacing invites, or any claim of FedRAMP or ATO coverage. The IdP carries the PIV assurance.
+Reading the card directly, storing certificates or PINs, ID proofing, or any claim of FedRAMP or ATO coverage.
+
+## Sources read
+
+- Login.gov developer guide: getting started, authorization (`acr_values`), attributes, user info (`developers.login.gov`).
+- Microsoft Learn, Microsoft Entra certificate-based authentication overview.
+- CISA `.gov` domain data, `current-full.csv` and `current-federal.csv`.
+- IDManagement.gov PIV 101 (background only).
