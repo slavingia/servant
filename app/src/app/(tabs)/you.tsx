@@ -7,6 +7,7 @@ import { api, saveAccount, ServerError } from "../../lib/server";
 import { usePhotos } from "../../lib/photos";
 import { PageTitle } from "../../components/Band";
 import { Avatar } from "../../components/Messaging";
+import { pickImageOnWeb } from "../../lib/pick-image-web";
 import { PhotoCropper, type CropSource } from "../../components/PhotoCropper";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { AppIcon } from "../../components/AppIcon";
@@ -69,11 +70,18 @@ export default function Settings() {
     setPhotoMenu(false);
     setPhotoError(null);
     // Phones crop in the system picker; the web picker can't, so it gets our own crop dialog.
-    const web = Platform.OS === "web";
-    const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: !web, aspect: [1, 1], quality: 1 });
-    if (picked.canceled || !picked.assets[0]) return;
-    const asset = picked.assets[0];
-    if (web) { setCropSource({ uri: asset.uri, width: asset.width, height: asset.height }); return; }
+    let asset: { uri: string; width: number; height: number };
+    try {
+      if (Platform.OS === "web") {
+        const image = await pickImageOnWeb();
+        if (!image) return;
+        setCropSource(image);
+        return;
+      }
+      const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, aspect: [1, 1], quality: 1 });
+      if (picked.canceled || !picked.assets[0]) return;
+      asset = picked.assets[0];
+    } catch { setPhotoError("Couldn't use that photo. Try a JPEG or PNG."); return; }
     setPhotoBusy(true);
     try {
       const side = Math.min(asset.width, asset.height);
