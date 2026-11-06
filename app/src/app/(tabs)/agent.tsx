@@ -8,6 +8,7 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { SwipeRow } from "../../components/SwipeChannelRow";
 import { choiceKey, newChatOptions, offered } from "../../lib/new-chat-choice";
 import { getItem } from "../../lib/storage";
+import { lastChatKey } from "../../lib/new-chat-choice";
 import { refreshProjects, useProjects } from "../../lib/projects-store";
 import { api, ServerError, type Chat } from "../../lib/server";
 import { useSession } from "../../lib/session";
@@ -24,6 +25,8 @@ function lastLine(chat: Chat, author: string, agent = "") {
   return last.role === "user" ? `${author}: ${body}` : agent ? `${agent}: ${body}` : body;
 }
 
+
+let resumedThisLaunch = false;
 
 export default function Chats() {
   const styles = useStyles();
@@ -58,6 +61,14 @@ export default function Chats() {
       const { mine, others } = await api.orgChats(account, setAccount);
       setChats(mine);
       refreshAgent(mine);
+      if (!resumedThisLaunch) {
+        // Once per launch, pick up where you left off: reopen the last chat with the message box focused.
+        resumedThisLaunch = true;
+        void getItem(lastChatKey(account.user.id)).then(id => {
+          const chat = id ? mine.find(c => c.id === id && !c.archived) : null;
+          if (chat) router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, compose: "1" } });
+        }).catch(() => {});
+      }
       setShared(others);
       void refreshProjects(account);
       setError(null);

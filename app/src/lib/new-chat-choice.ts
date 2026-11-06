@@ -31,3 +31,6 @@ export function newChatOptions(choice: NewChatChoice): { projectId?: string; mod
 export function needsNewChat(current: NewChatChoice, next: NewChatChoice): boolean {
   return (current === VIBE_CHOICE) !== (next === VIBE_CHOICE);
 }
+
+// The agent chat you were last in; the Agent tab reopens it (message box focused) once per app launch.
+export const lastChatKey = (userId: string) => `servant.lastChat.${userId}`;

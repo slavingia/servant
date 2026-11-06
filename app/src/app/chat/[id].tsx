@@ -25,7 +25,7 @@ import { api, sendMessage, ServerError, uploadPost, type Chat, type Project, typ
 import { useSession } from "../../lib/session";
 import { useLive } from "../../lib/live";
 import { useProjects } from "../../lib/projects-store";
-import { VIBE_CHOICE, choiceKey, choiceName, needsNewChat, newChatOptions } from "../../lib/new-chat-choice";
+import { VIBE_CHOICE, choiceKey, lastChatKey, choiceName, needsNewChat, newChatOptions } from "../../lib/new-chat-choice";
 import { setItem } from "../../lib/storage";
 import { forwardTitle, parseForward, type ForwardCard } from "../../lib/forward";
 import { AppIcon } from "../../components/AppIcon";
@@ -457,6 +457,8 @@ function ChatConversation() {
   // Backing out of a chat that never got a message deletes it (set below), so no empty "New chat" is left behind.
   const discardable = useRef(false);
   useEffect(() => () => { if (discardable.current && account) void api.deleteChat(account, String(id)).catch(() => {}); }, [account, id]);
+  const loaded = messages !== null && !loadError;
+  useEffect(() => { if (id && loaded && account) setItem(lastChatKey(account.user.id), String(id)).catch(() => {}); }, [id, loaded, account]);
   if (!account) return null;
 
   const refreshTurns = async () => {
