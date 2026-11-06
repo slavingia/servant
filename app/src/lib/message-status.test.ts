@@ -14,14 +14,16 @@ const post: Post = {
 
 test("presence uses known times, handles clock skew and never implies online while disconnected", () => {
   assert.equal(presenceLabel({ online: true, lastSeenAt: now }, now), "Online");
-  assert.equal(presenceLabel({ online: true, lastSeenAt: now }, now, false), "Last seen just now");
+  assert.equal(presenceLabel({ online: true, lastSeenAt: now }, now, false), "Last seen recently");
   assert.equal(presenceLabel({}, now), "");
   assert.equal(presenceLabel({ lastSeenAt: null }, now), "");
   assert.equal(presenceLabel({ lastSeenAt: NaN }, now), "");
-  assert.equal(presenceLabel({ lastSeenAt: now + 30_000 }, now), "Last seen just now");
-  assert.equal(presenceLabel({ lastSeenAt: now - 60_000 }, now), "Last seen 1 minute ago");
-  assert.equal(presenceLabel({ lastSeenAt: now - 2 * 60_000 }, now), "Last seen 2 minutes ago");
-  assert.equal(presenceLabel({ lastSeenAt: now - 2 * 60 * 60_000 }, now), `Last seen ${statusTime(now - 2 * 60 * 60_000, now)}`);
+  assert.equal(presenceLabel({ lastSeenAt: now + 30_000 }, now), "Last seen recently");
+  assert.equal(presenceLabel({ lastSeenAt: now - 60_000 }, now), "Last seen recently");
+  assert.equal(presenceLabel({ lastSeenAt: now - 2 * 60_000 }, now), "Last seen recently");
+  assert.equal(presenceLabel({ lastSeenAt: now - 2 * 60 * 60_000 }, now), "Last seen today");
+  assert.equal(presenceLabel({ lastSeenAt: now - 3 * 24 * 60 * 60_000 }, now), "Last seen this week");
+  assert.equal(presenceLabel({ lastSeenAt: now - 30 * 24 * 60 * 60_000 }, now), "Last seen a while ago");
 });
 
 test("receipt times retain the day and year for older messages", () => {

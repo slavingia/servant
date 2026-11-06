@@ -18,13 +18,12 @@ export function statusTime(at: number, now = Date.now()) {
 export function presenceLabel(presence: PresenceStatus, now = Date.now(), connected = true) {
   if (presence.online && connected) return "Online";
   if (!validTime(presence.lastSeenAt)) return "";
+  // Deliberately vague (never an exact time): people shouldn't be able to track each other's comings and goings.
   const age = Math.max(0, now - presence.lastSeenAt);
-  if (age < 60_000) return "Last seen just now";
-  if (age < 60 * 60_000) {
-    const minutes = Math.floor(age / 60_000);
-    return `Last seen ${minutes} ${minutes === 1 ? "minute" : "minutes"} ago`;
-  }
-  return `Last seen ${statusTime(presence.lastSeenAt, now)}`;
+  if (age < 60 * 60_000) return "Last seen recently";
+  if (age < 24 * 60 * 60_000) return "Last seen today";
+  if (age < 7 * 24 * 60 * 60_000) return "Last seen this week";
+  return "Last seen a while ago";
 }
 
 export type MessageReceipt = "sent" | "seen";
