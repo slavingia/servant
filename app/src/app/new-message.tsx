@@ -16,6 +16,7 @@ export default function NewMessage() {
   const { colors } = useTheme();
   const { account } = useSession();
   const [people, setPeople] = useState<Person[] | null>(null);
+  const [me, setMe] = useState<string | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
@@ -24,7 +25,7 @@ export default function NewMessage() {
   const loadPeople = useCallback(() => {
     if (!account) return;
     void api.people(account).then(
-      (d) => { setError(null); setPeople(d.people.filter((p) => p.id !== d.me)); },
+      (d) => { setError(null); setMe(d.me); setPeople([...d.people.filter((p) => p.id === d.me), ...d.people.filter((p) => p.id !== d.me)]); },
       (e) => {
         setPeople([]);
         setError(e instanceof ServerError ? e.message : "Couldn't load people");
@@ -81,14 +82,14 @@ export default function NewMessage() {
           return (
             <Pressable
               accessibilityRole="checkbox"
-              accessibilityLabel={item.name}
+              accessibilityLabel={item.id === me ? `${item.name} (you)` : item.name}
               accessibilityState={{ checked: on, disabled }}
               disabled={disabled}
               onPress={() => toggle(item.id)}
               style={({ pressed }) => [styles.row, on && styles.rowSelected, disabled && !on && styles.rowDisabled, pressed && { backgroundColor: colors.surface }]}
             >
               <Avatar name={item.name} userId={item.id} size={36} />
-              <Text style={styles.name}>{item.name}</Text>
+              <Text style={styles.name}>{item.name}{item.id === me ? " (you)" : ""}</Text>
               <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[styles.check, on && styles.checkOn]}>{on ? <AppIcon name="check" size={16} color={colors.onPrimary} /> : null}</View>
             </Pressable>
           );

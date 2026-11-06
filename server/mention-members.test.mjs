@@ -22,6 +22,9 @@ test('conversation details expose all members for mentions without expanding lis
     assert.equal((await get(`/v1/conversations/${channel.id}`, users.p54)).status, 404);
     const dm = m.openDm(users.p0, ['p1', 'p2']);
     assert.deepEqual((await get(`/v1/conversations/${dm.id}`)).body.conversation.members.map(p => p.id).sort(), ['p0', 'p1', 'p2']);
+    const self = m.openDm(users.p0, ['p0']);
+    assert.equal(m.openDm(users.p0, ['p0']).id, self.id);
+    assert.equal((await get(`/v1/conversations/${self.id}`)).body.conversation.title, users.p0.name);
   } finally { m.close(); }
 });
 
