@@ -1,5 +1,5 @@
 import { type ComponentRef, useRef, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { router, useScrollToTop } from "expo-router";
@@ -9,9 +9,7 @@ import { PageTitle } from "../../components/Band";
 import { Avatar } from "../../components/Messaging";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { AppIcon } from "../../components/AppIcon";
-import { otaMessage, useOtaCheck } from "../../lib/ota";
 import { useSession } from "../../lib/session";
-import { feedbackGestureHint } from "../../lib/feedback-trigger";
 import { createThemedStyles, useTheme, radius, space, typography } from "../../lib/theme";
 
 function Row({ label, value, onPress }: { label: string; value?: string; onPress?: () => void }) {
@@ -35,10 +33,8 @@ export default function Settings() {
   const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
   useScrollToTop(scrollRef);
   const { account, setAccount, signOut } = useSession();
-  const ota = useOtaCheck();
   const { colors } = useTheme();
   const styles = useStyles();
-  const feedbackHint = feedbackGestureHint(Platform.OS, Platform.Version);
   const [confirming, setConfirming] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -174,12 +170,6 @@ export default function Settings() {
         <Row label="Archived" onPress={() => router.push("/archived-channels")} />
       </View>
 
-      <Text accessibilityRole="header" style={styles.section}>Help & updates</Text>
-      <View style={styles.group}>
-        <Row label="Send feedback" onPress={() => router.push("/feedback")} />
-        {ota.supported ? <Row label={ota.status === "ready" ? "Restart to update" : "Check for updates"} value={otaMessage(ota.status, ota.detail)} onPress={ota.status === "ready" ? ota.restart : ota.check} /> : null}
-      </View>
-      {feedbackHint ? <Text style={styles.hint}>{feedbackHint}</Text> : null}
       <Pressable accessibilityRole="button" onPress={() => { setError(null); setConfirming(true); }} style={styles.danger}>
         <Text style={styles.dangerText}>Sign out</Text>
       </Pressable>
