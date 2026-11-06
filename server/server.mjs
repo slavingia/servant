@@ -757,12 +757,12 @@ async function handle(req, res, cfg) {
         ? Object.values(state.users).find(u => !isRemoved(u) && u.email && u.email.toLowerCase() === verifiedEmail.toLowerCase())
         : null;
       const existing = (invite.userId && state.users[invite.userId]) || byEmail || null;
-      const name = invite.reusable ? String(body.name || "").trim().slice(0, 80) : invite.name;
+      const name = invite.reusable ? String(body.name || "").replace(/\s+/g, " ").trim().slice(0, 80) : invite.name;
       if (!existing && !name) throw requestError(400, "name_required", "Enter your name");
       const terms = validTermsAcceptance(body.terms);
       if (!terms) throw requestError(400, "terms_required", "Agree to the terms to join");
       // The team link never makes a second person with a name that's already here (#41).
-      if (!existing && invite.reusable && Object.values(state.users).some(u => !isRemoved(u) && String(u.name).trim().toLowerCase() === name.toLowerCase())) {
+      if (!existing && invite.reusable && Object.values(state.users).some(u => !isRemoved(u) && String(u.name).replace(/\s+/g, " ").trim().toLowerCase() === name.toLowerCase())) {
         throw requestError(409, "name_taken", `Someone named ${name} is already here. If that's you, sign in from a device you already use: You, then Link a computer. Or use a different name`);
       }
       if (invite.reusable) invite.uses += 1;

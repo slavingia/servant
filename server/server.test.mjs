@@ -1192,6 +1192,8 @@ async function events(token) {
         decoder.push(chunk);
       }
     } catch {}
+  const spaced = await api("POST", "/v1/pair", { body: { terms: ACCEPT, code, name: "Joshua   Twice" } });
+  assert.equal(spaced.status, 409, "extra spaces inside the name don't make a different person");
   })();
   return { got, close: () => ctrl.abort() };
 }
