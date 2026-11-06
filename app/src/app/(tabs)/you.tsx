@@ -1,5 +1,5 @@
 import { type ComponentRef, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { router, useScrollToTop } from "expo-router";
@@ -7,6 +7,7 @@ import { api, saveAccount, ServerError } from "../../lib/server";
 import { usePhotos } from "../../lib/photos";
 import { PageTitle } from "../../components/Band";
 import { Avatar } from "../../components/Messaging";
+import { PhotoCropper, type CropSource } from "../../components/PhotoCropper";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { AppIcon } from "../../components/AppIcon";
 import { useSession } from "../../lib/session";
@@ -41,6 +42,7 @@ export default function Settings() {
   const photos = usePhotos();
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoMenu, setPhotoMenu] = useState(false);
+  const [cropSource, setCropSource] = useState<CropSource | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
@@ -51,15 +53,29 @@ export default function Settings() {
 
   const hasPhoto = !!photos?.versions[account.user.id];
   // Square, 512px JPEG: small enough for everyone's phone to load quickly.
+  const uploadPhoto = async (base64: string) => {
+    setPhotoBusy(true);
+    try {
+      const { person } = await api.setPhoto(account, base64);
+      photos?.learn([person]);
+    } catch (e) {
+      setPhotoError(e instanceof ServerError ? e.message : "Couldn't use that photo. Try another one.");
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
   const choosePhoto = async () => {
     if (photoBusy) return;
     setPhotoMenu(false);
     setPhotoError(null);
-    const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, aspect: [1, 1], quality: 1 });
+    // Phones crop in the system picker; the web picker can't, so it gets our own crop dialog.
+    const web = Platform.OS === "web";
+    const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: !web, aspect: [1, 1], quality: 1 });
     if (picked.canceled || !picked.assets[0]) return;
+    const asset = picked.assets[0];
+    if (web) { setCropSource({ uri: asset.uri, width: asset.width, height: asset.height }); return; }
     setPhotoBusy(true);
     try {
-      const asset = picked.assets[0];
       const side = Math.min(asset.width, asset.height);
       const context = ImageManipulator.manipulate(asset.uri);
       if (asset.width !== asset.height) context.crop({ originX: (asset.width - side) / 2, originY: (asset.height - side) / 2, width: side, height: side });
@@ -174,7 +190,8 @@ export default function Settings() {
         <Text style={styles.dangerText}>Sign out</Text>
       </Pressable>
     </ScrollView>
-    <ConfirmDialog visible={confirming} title="Sign out of Servant?" description="You'll need a new invite to sign in again." confirmLabel="Sign out" onConfirm={() => void leave()} onCancel={() => setConfirming(false)} busy={leaving} error={error} />
+    <PhotoCropper source={cropSource} onCancel={() => setCropSource(null)} onDone={b64 => { setCropSource(null); void uploadPhoto(b64); }} />
+      <ConfirmDialog visible={confirming} title="Sign out of Servant?" description="You'll need a new invite to sign in again." confirmLabel="Sign out" onConfirm={() => void leave()} onCancel={() => setConfirming(false)} busy={leaving} error={error} />
     </View>
   );
 }
