@@ -1,4 +1,4 @@
-import { type ComponentRef, useRef, useState } from "react";
+import { type ComponentRef, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
@@ -49,8 +49,40 @@ export default function Settings() {
   const [nameDraft, setNameDraft] = useState("");
   const [nameBusy, setNameBusy] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
+  // Joined before email codes: confirm your work email so nobody else can pose as you.
+  const [emailNeeded, setEmailNeeded] = useState(false);
+  const [emailStep, setEmailStep] = useState<null | "email" | "code">(null);
+  const [emailDraft, setEmailDraft] = useState("");
+  const [codeDraft, setCodeDraft] = useState("");
+  const [challenge, setChallenge] = useState("");
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!account) return;
+    let live = true;
+    api.emailRequired(account).then(v => { if (live) setEmailNeeded(v); }).catch(() => {});
+    return () => { live = false; };
+  }, [account?.user.id]);
   if (!account) return null;
   const owner = account.user.role === "owner";
+  const sendEmail = async () => {
+    if (emailBusy) return;
+    setEmailBusy(true); setEmailError(null);
+    try {
+      const out = await api.sendMyEmailCode(account, emailDraft.trim());
+      setChallenge(out.challenge); setEmailDraft(out.email); setCodeDraft(""); setEmailStep("code");
+    } catch (e) { setEmailError(e instanceof ServerError ? e.message : "Couldn't send the code. Try again."); }
+    finally { setEmailBusy(false); }
+  };
+  const confirmEmail = async () => {
+    if (emailBusy) return;
+    setEmailBusy(true); setEmailError(null);
+    try {
+      await api.confirmMyEmail(account, challenge, codeDraft.trim());
+      setEmailNeeded(false); setEmailStep(null);
+    } catch (e) { setEmailError(e instanceof ServerError ? e.message : "Couldn't confirm. Try again."); }
+    finally { setEmailBusy(false); }
+  };
 
   const hasPhoto = !!photos?.versions[account.user.id];
   // Square, 512px JPEG: small enough for everyone's phone to load quickly.
@@ -179,6 +211,28 @@ export default function Settings() {
           <Pressable accessibilityRole="button" disabled={nameBusy} onPress={() => { setEditingName(false); setNameError(null); }} style={styles.nameAction}><Text style={styles.photoLink}>Cancel</Text></Pressable>
           <Pressable testID="name-save" accessibilityRole="button" accessibilityState={{ busy: nameBusy }} disabled={nameBusy} onPress={() => void saveName()} style={styles.nameAction}><Text style={styles.photoLink}>{nameBusy ? "Saving…" : "Save"}</Text></Pressable>
         </View>
+      </View> : null}
+      {emailNeeded ? <View style={[styles.group, styles.nameEditor]}>
+        {emailStep === null ? <Pressable testID="confirm-email" accessibilityRole="button" onPress={() => { setEmailError(null); setEmailStep("email"); }} style={styles.nameAction}>
+          <Text style={styles.photoLink}>Confirm your work email</Text>
+        </Pressable> : emailStep === "email" ? <>
+          <TextInput testID="email-input" value={emailDraft} onChangeText={setEmailDraft} autoFocus autoCapitalize="none" autoCorrect={false} keyboardType="email-address"
+            accessibilityLabel="Work email" returnKeyType="send" onSubmitEditing={() => void sendEmail()} placeholder="you@irs.gov" placeholderTextColor={colors.muted} style={styles.nameInput} />
+          {emailError ? <Text accessibilityRole="alert" style={styles.photoError}>{emailError}</Text> : null}
+          <View style={styles.nameActions}>
+            <Pressable accessibilityRole="button" disabled={emailBusy} onPress={() => { setEmailStep(null); setEmailError(null); }} style={styles.nameAction}><Text style={styles.photoLink}>Cancel</Text></Pressable>
+            <Pressable testID="email-send" accessibilityRole="button" accessibilityState={{ busy: emailBusy }} disabled={emailBusy} onPress={() => void sendEmail()} style={styles.nameAction}><Text style={styles.photoLink}>{emailBusy ? "Sending…" : "Send code"}</Text></Pressable>
+          </View>
+        </> : <>
+          <Text style={styles.hint}>We sent a six-digit code to {emailDraft}</Text>
+          <TextInput testID="email-code" value={codeDraft} onChangeText={setCodeDraft} autoFocus keyboardType="number-pad" maxLength={8} textContentType="oneTimeCode"
+            accessibilityLabel="Six-digit code" returnKeyType="done" onSubmitEditing={() => void confirmEmail()} placeholder="Code" placeholderTextColor={colors.muted} style={styles.nameInput} />
+          {emailError ? <Text accessibilityRole="alert" style={styles.photoError}>{emailError}</Text> : null}
+          <View style={styles.nameActions}>
+            <Pressable accessibilityRole="button" disabled={emailBusy} onPress={() => { setEmailStep("email"); setEmailError(null); }} style={styles.nameAction}><Text style={styles.photoLink}>Back</Text></Pressable>
+            <Pressable testID="email-confirm" accessibilityRole="button" accessibilityState={{ busy: emailBusy }} disabled={emailBusy} onPress={() => void confirmEmail()} style={styles.nameAction}><Text style={styles.photoLink}>{emailBusy ? "Checking…" : "Confirm"}</Text></Pressable>
+          </View>
+        </>}
       </View> : null}
       <Text accessibilityRole="header" style={styles.section}>Preferences</Text>
       <View style={styles.group}>

@@ -203,6 +203,8 @@ test("email code sign-in: off by default, then required, wrong/expired/outsider 
   const { emailAllowed } = await import("./email-verify.mjs");
   assert.equal(emailAllowed("a@irs.gov", ["irs.gov"]), true);
   assert.equal(emailAllowed("a@mail.irs.gov", ["irs.gov"]), true);
+  const old = await pair("member", "Early Joiner");
+  const otherEarly = await pair("member", "Other Early");
   for (const bad of ["a@irs.gov.evil.com", "a@notirs.gov", "a@irs.com", "a@evilirs.gov"]) assert.equal(emailAllowed(bad, ["irs.gov"]), false, bad);
   const off = await api("GET", "/v1/pair/email");
   assert.deepEqual(off.json, { required: false, domains: [] });
@@ -241,6 +243,21 @@ test("email code sign-in: off by default, then required, wrong/expired/outsider 
     const team = (await mod.joinLink({ fresh: true })).code;
     const start2 = await api("POST", "/v1/pair/email", { body: { code: team, email: "pat.tester@irs.gov" } });
     assert.equal(start2.status, 200, start2.text);
+    // Someone who joined before email codes adds their email from inside the app.
+    const me0 = (await api("GET", "/v1/me", { token: old })).json;
+    assert.equal(me0.emailRequired, true);
+    assert.equal((await api("POST", "/v1/people/me/email", { token: old, body: { email: "pat.tester@irs.gov" } })).json.error?.code, "email_taken", "an address someone else confirmed can't be claimed");
+    const mine = await api("POST", "/v1/people/me/email", { token: old, body: { email: "early@irs.gov" } });
+    assert.equal(mine.status, 200, mine.text);
+    const bad = await api("POST", "/v1/people/me/email/confirm", { token: old, body: { challenge: mine.json.challenge, code: "x" } });
+    assert.equal(bad.json.error?.code, "email_code_wrong");
+    const done = await api("POST", "/v1/people/me/email/confirm", { token: old, body: { challenge: mine.json.challenge, code: sent.at(-1).code } });
+    assert.equal(done.status, 200, done.text);
+    const me1 = (await api("GET", "/v1/me", { token: old })).json;
+    assert.deepEqual([me1.emailRequired, me1.user.emailVerified], [false, true]);
+    // a challenge for the join flow can't confirm an account email
+    const other = await api("POST", "/v1/people/me/email/confirm", { token: otherEarly, body: { challenge: ok.json.challenge, code: "000000" } });
+    assert.ok(other.json.error);
     const back = await api("POST", "/v1/pair", { body: { code: team, device: "Desktop", terms: ACCEPT, emailChallenge: start2.json.challenge, emailCode: sent.at(-1).code } });
     assert.equal(back.status, 201, back.text);
     assert.equal(back.json.user.id, good.json.user.id);

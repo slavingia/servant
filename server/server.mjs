@@ -13,7 +13,7 @@
 //   node server/server.mjs people | remove-person <name or id>   list people / remove someone who left
 //   node server/server.mjs release <build> <notes.md>   post a build's notes to #whats-new
 
-import { createEmailVerifier, commandSender, emailSettings } from "./email-verify.mjs";
+import { createEmailVerifier, commandSender, emailSettings, normalizeEmail } from "./email-verify.mjs";
 import http from "node:http";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -854,7 +854,7 @@ async function handle(req, res, cfg) {
 
   if (method === "GET" && url.pathname === "/v1/me") {
     mutateAuthenticated(req, (_state, current) => { current.device.lastSeenAt = now(); });
-    return send(res, 200, { user: { id: user.id, name: user.name, role: user.role }, device: { id: device.id, label: device.label }, server: { name: cfg.name }, hub: { name: cfg.name } });
+    return send(res, 200, { user: { id: user.id, name: user.name, role: user.role, ...(user.emailVerifiedAt ? { emailVerified: true } : {}) }, emailRequired: emailSettings(cfg).enabled && !user.emailVerifiedAt, device: { id: device.id, label: device.label }, server: { name: cfg.name }, hub: { name: cfg.name } });
   }
 
   if (method === "POST" && url.pathname === "/v1/signout") {
@@ -1118,6 +1118,32 @@ async function handle(req, res, cfg) {
   }
   if (method === "PATCH" && parts[1] === "people" && parts.length === 3 && parts[2] !== "me") {
     const body = await readAuthorizedBody(req);
+  // Someone who joined before email codes attaches a confirmed work email to their account. Once it is on file,
+  // joining with that email on a new device signs in as them, and no one else can claim the address.
+  if (method === "POST" && parts[1] === "people" && parts[2] === "me" && parts[3] === "email" && (parts.length === 4 || (parts.length === 5 && parts[4] === "confirm"))) {
+    const body = await readAuthorizedBody(req);
+    const settings = emailSettings(cfg);
+    if (!settings.enabled) return fail(res, 404, "not_found", "Email codes are off"), undefined;
+    const ip = clientIp(req);
+    if (!pairAllowed(ip)) return fail(res, 429, "rate_limited", "Too many tries. Wait ten minutes"), undefined;
+    const scope = `me:${user.id}`;
+    const takenBy = (email) => Object.values(readState().users).some(u => u.id !== user.id && !isRemoved(u) && u.email && u.email.toLowerCase() === email.toLowerCase());
+    try {
+      if (parts.length === 4) {
+        const wanted = normalizeEmail(body.email);
+        if (wanted && takenBy(wanted)) return fail(res, 409, "email_taken", "That email already belongs to someone here"), undefined;
+        const out = await emailVerifier.start({ email: body.email, inviteKey: scope }, settings);
+        return send(res, 200, { challenge: out.id, email: out.email, expiresInSeconds: 600 });
+      }
+      const confirmed = emailVerifier.check({ id: body.challenge, code: body.code, inviteKey: scope });
+      if (takenBy(confirmed)) return fail(res, 409, "email_taken", "That email already belongs to someone here"), undefined;
+      mutateAuthenticated(req, (state, auth) => { state.users[auth.user.id].email = confirmed; state.users[auth.user.id].emailVerifiedAt = now(); });
+      return send(res, 200, { ok: true, email: confirmed });
+    } catch (error) {
+      if (!error.status) throw error;
+      return fail(res, error.status, error.code, error.message), undefined;
+    }
+  }
     // Owners only (the `true` below): vibe coder, unlimited agent tokens (no daily cap), and
     // fixing someone's name (a typo at invite time).
     const flags = ["vibeCoder", "unlimitedTokens"].filter(k => k in body);

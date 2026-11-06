@@ -18,3 +18,5 @@ Flow: invite link, terms, then `POST /v1/pair/email {code, email}` emails a code
 `GET /v1/pair/email` tells a client whether it is required. Challenges live in server memory, so a restart means asking for a new code.
 
 Not built: the mailer itself (needs an IRS-approved sending path, which is an owner call), and sign-in for people who already joined (new devices still use link-a-computer).
+
+People who joined before email codes: while it is on, `GET /v1/me` returns `emailRequired: true` until they confirm an email, and the You tab shows "Confirm your work email". `POST /v1/people/me/email {email}` sends the code, `POST /v1/people/me/email/confirm {challenge, code}` saves it. An address someone else already confirmed is refused (`email_taken`). Once saved, joining with that email on a new device signs in as the same person.
