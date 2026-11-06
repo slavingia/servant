@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { nameFromEmail } from "../lib/name-from-email";
 import { ActivityIndicator, KeyboardAvoidingView, Pressable, Platform, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Button } from "../components/Button";
@@ -62,7 +63,7 @@ export default function Pair() {
         if (e.code === "email_code_expired") setEmailStep("email");
         setError(e.message);
       }
-      else if (e instanceof ServerError && e.code === "name_required") { setEmailStep(null); setAskName(true); }
+      else if (e instanceof ServerError && e.code === "name_required") { setEmailStep(null); setName((n) => n || nameFromEmail(email)); setAskName(true); }
       else setError(e instanceof ServerError ? e.message : "Couldn't join. Try again");
     } finally {
       setBusy(false);
@@ -149,7 +150,7 @@ export default function Pair() {
       <KeyboardAvoidingView style={styles.form} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
         <Text accessibilityRole="header" style={styles.title}>What should we call you?</Text>
-        <Text style={[styles.body, styles.left]}>This is how you’ll appear to your teammates.</Text>
+        <Text style={[styles.body, styles.left]}>{proof ? "Your email is confirmed. We guessed your name from it, so fix it if it’s off. This is how you’ll appear to your teammates." : "This is how you’ll appear to your teammates."}</Text>
         <Text style={styles.label}>Your name</Text>
         <TextInput
           accessibilityLabel="Your name"
