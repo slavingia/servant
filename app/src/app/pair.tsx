@@ -63,6 +63,7 @@ export default function Pair() {
         if (e.code === "email_code_expired") setEmailStep("email");
         setError(e.message);
       }
+      else if (e instanceof ServerError && e.code === "name_taken") { setAskName(true); setError(e.message); }
       else if (e instanceof ServerError && e.code === "name_required") { setEmailStep(null); setName((n) => n || nameFromEmail(email)); setAskName(true); }
       else setError(e instanceof ServerError ? e.message : "Couldn't join. Try again");
     } finally {

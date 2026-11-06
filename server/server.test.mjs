@@ -196,6 +196,9 @@ test("joining needs all three terms checks, and the acceptance is recorded", asy
 test("everything except health and pairing needs a token", async () => {
   assert.equal((await api("GET", "/health")).status, 200);
   assert.equal((await api("GET", "/v1/chats")).status, 401);
+  assert.equal((await api("GET", "/v1/me", { token: "nope" })).status, 401);
+});
+
 test("email code sign-in: off by default, then required, wrong/expired/outsider codes refused", async () => {
   const { emailAllowed } = await import("./email-verify.mjs");
   assert.equal(emailAllowed("a@irs.gov", ["irs.gov"]), true);
@@ -234,13 +237,17 @@ test("email code sign-in: off by default, then required, wrong/expired/outsider 
     const code2 = mod.createInvite({ name: "Second", role: "member" });
     const again = await api("POST", "/v1/pair", { body: { code: code2, device: "x", terms: ACCEPT, emailChallenge: ok.json.challenge, emailCode: sent[0].code } });
     assert.equal(again.json.error?.code, "email_code_expired");
+    // #41: the same confirmed email from another device signs in as the same person, not a second one
+    const team = (await mod.joinLink({ fresh: true })).code;
+    const start2 = await api("POST", "/v1/pair/email", { body: { code: team, email: "pat.tester@irs.gov" } });
+    assert.equal(start2.status, 200, start2.text);
+    const back = await api("POST", "/v1/pair", { body: { code: team, device: "Desktop", terms: ACCEPT, emailChallenge: start2.json.challenge, emailCode: sent.at(-1).code } });
+    assert.equal(back.status, 201, back.text);
+    assert.equal(back.json.user.id, good.json.user.id);
   } finally {
     delete globalThis.__servantEmailSend;
     fs.writeFileSync(file, before);
   }
-});
-
-  assert.equal((await api("GET", "/v1/me", { token: "nope" })).status, 401);
 });
 
 test("plaintext transition applies only to explicitly grandfathered unexpired paired devices", async () => {
@@ -1115,6 +1122,18 @@ test("leaderboard counts agent tokens in total and by person, across chats and c
   // Needs a paired device; never includes prompt text.
   assert.equal((await api("GET", "/v1/leaderboard")).status, 401);
   assert.ok(!JSON.stringify(board).includes("first question"));
+});
+
+test("the team link won't make a second person with a name that's already here (#41)", async () => {
+  const code = (await mod.joinLink({ fresh: true })).code;
+  const first = await api("POST", "/v1/pair", { body: { terms: ACCEPT, code, name: "Joshua Twice" } });
+  assert.equal(first.status, 201, first.text);
+  const again = await api("POST", "/v1/pair", { body: { terms: ACCEPT, code, name: "  joshua twice " } });
+  assert.equal(again.status, 409, again.text);
+  assert.equal(again.json.error.code, "name_taken");
+  assert.match(again.json.error.message, /Link a computer/);
+  const other = await api("POST", "/v1/pair", { body: { terms: ACCEPT, code, name: "Joshua Once" } });
+  assert.equal(other.status, 201, other.text);
 });
 
 test("a second-device invite pairs as the same person", async () => {

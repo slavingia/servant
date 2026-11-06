@@ -703,8 +703,6 @@ async function handle(req, res, cfg) {
     return fail(res, 404, "not_found", "Not found");
   }
 
-  if (method === "POST" && url.pathname === "/v1/pair") {
-    const ip = clientIp(req);
   if (method === "GET" && url.pathname === "/v1/pair/email") {
     const s = emailSettings(cfg);
     return send(res, 200, { required: s.enabled, domains: s.enabled ? s.domains : [] });
@@ -730,10 +728,10 @@ async function handle(req, res, cfg) {
     }
   }
 
+  if (method === "POST" && url.pathname === "/v1/pair") {
+    const ip = clientIp(req);
     if (!pairAllowed(ip)) return fail(res, 429, "rate_limited", "Too many tries. Wait ten minutes");
     const body = await readBody(req);
-    const { token, user, isNew } = mutateState(state => {
-      const key = sha256(normalizeCode(body.code));
     const emailSettingsNow = emailSettings(cfg);
     let verifiedEmail = null;
     if (emailSettingsNow.enabled) {
@@ -746,19 +744,29 @@ async function handle(req, res, cfg) {
         catch (error) { if (!error.status) throw error; pairFailed(ip); return fail(res, error.status, error.code, error.message); }
       }
     }
+    const { token, user, isNew } = mutateState(state => {
+      const key = sha256(normalizeCode(body.code));
       const invite = state.invites[key];
       if (!invite || invite.usedAt || invite.revokedAt || invite.expiresAt < now()) {
         pairFailed(ip);
         throw requestError(403, "invalid_invite", "That invite link doesn't work. Ask for a new one");
       }
+      if (invite.userId && isRemoved(state.users[invite.userId])) throw requestError(403, "invalid_invite", "That invite link doesn't work. Ask for a new one");
+      // A confirmed work email that already belongs to someone signs in as them (a new device), not a second person (#41).
+      const byEmail = verifiedEmail && !invite.userId
+        ? Object.values(state.users).find(u => !isRemoved(u) && u.email && u.email.toLowerCase() === verifiedEmail.toLowerCase())
+        : null;
+      const existing = (invite.userId && state.users[invite.userId]) || byEmail || null;
       const name = invite.reusable ? String(body.name || "").trim().slice(0, 80) : invite.name;
-      if (!name) throw requestError(400, "name_required", "Enter your name");
+      if (!existing && !name) throw requestError(400, "name_required", "Enter your name");
       const terms = validTermsAcceptance(body.terms);
       if (!terms) throw requestError(400, "terms_required", "Agree to the terms to join");
+      // The team link never makes a second person with a name that's already here (#41).
+      if (!existing && invite.reusable && Object.values(state.users).some(u => !isRemoved(u) && String(u.name).trim().toLowerCase() === name.toLowerCase())) {
+        throw requestError(409, "name_taken", `Someone named ${name} is already here. If that's you, sign in from a device you already use: You, then Link a computer. Or use a different name`);
+      }
       if (invite.reusable) invite.uses += 1;
       else invite.usedAt = now();
-      if (invite.userId && isRemoved(state.users[invite.userId])) throw requestError(403, "invalid_invite", "That invite link doesn't work. Ask for a new one");
-      const existing = invite.userId && state.users[invite.userId];
       const user = existing || { id: id("usr"), name, role: invite.role, createdAt: now(), ...(invite.role === "owner" ? {} : { agentTier: loadConfig().defaultAgentTier ?? 0 }) };
       const token = crypto.randomBytes(32).toString("base64url");
       const deviceId = id("dev");
