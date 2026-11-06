@@ -130,9 +130,9 @@ export function loadConfig() {
     agentAccess: cfg.agentAccess === "limited" ? "limited" : "full",
     // Where new people start: 0 = no agent until an owner sets a tier (1 tester, 2 vibe coder, 3 design engineer).
     defaultAgentTier: [0, 1, 2, 3, 4].includes(cfg.defaultAgentTier) ? cfg.defaultAgentTier : 0,
-    // Where the server can be reached from phones. Filled in by the tunnel script.
     // Email code sign-in (docs/email-sign-in.md). Off unless enabled.
     emailVerification: cfg.emailVerification || {},
+    // Where the server can be reached from phones. Filled in by the tunnel script.
     publicUrl: process.env.SERVANT_PUBLIC_URL || cfg.publicUrl || "",
     // The website that serves the invite page (https://servant.com/join), and the download buttons it shows.
     joinUrl: cfg.joinUrl || "",
