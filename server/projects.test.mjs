@@ -112,11 +112,11 @@ test("what the agent is told: the workflow in plain words, the rules, and what t
   assert.match(tell(site, { id: "usr_hai", name: "Hai" }, { level: "read" }), /Hai can read only: don't push or merge on their behalf; propose changes or open a PR for someone with write\./);
   assert.match(tell(site, { id: "usr_x", name: "Mo" }, { level: "write" }), /Mo can write but not merge: push following the workflow above, but never merge on their behalf/);
   // Notes and files come after the rules; a project without a repo has no workflow or access lines.
-  const plain = { ...newProject({ name: "Refunds", notes: "Audience: residents." }, "usr_ana", new Set()), files: [{ id: "fil_1", name: "brief.md", size: 11 }] };
+  const plain = { ...newProject({ name: "Refunds", notes: "Audience: taxpayers." }, "usr_ana", new Set()), files: [{ id: "fil_1", name: "brief.md", size: 11 }] };
   const notesOnly = tell(plain, users.usr_ana);
   assert.match(notesOnly, /project "Refunds"\. Everyone's chats/);
   assert.doesNotMatch(notesOnly, /How we work|can merge|can read/);
-  assert.match(notesOnly, /Project notes from the team:\nAudience: residents\./);
+  assert.match(notesOnly, /Project notes from the team:\nAudience: taxpayers\./);
   assert.match(notesOnly, /"brief\.md" \(11 bytes\): \/files\/refunds\/fil_1/);
   assert.match(tell(plain, users.usr_ana, { full: false }), /File "brief\.md":\ninline text/, "restricted agents get small text files inline, never paths");
   // Vibe coding: the prototype folder, the preview line, the project's rules, but no access line.

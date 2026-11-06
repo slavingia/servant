@@ -16,7 +16,7 @@ receives a separate device credential for the phone's existing account.
   them under its default policy. The download page clearly labels this limitation
   and links Apple's opening instructions. Developer ID creation was blocked by an
   Account Holder restriction on the API credential and expired Xcode authentication.
-- Phone build **25** is available in the existing TestFlight group, Firebase
+- Phone build **25** is available in the existing IRS TestFlight group, Firebase
   `servant-internal` group, and Google Play internal track. TestFlight reports
   `VALID / IN_BETA_TESTING`; Play reports `completed`; Firebase distribution and
   release-note readback succeeded. No Servant chat announcements were posted.

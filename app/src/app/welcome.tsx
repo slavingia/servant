@@ -68,7 +68,7 @@ export default function Welcome() {
           {desktopWorkspace ? <Button label="Sign in with your phone" kind="secondary" onPress={() => setUseInvite(false)} style={[styles.action, { marginTop: space.sm }]} /> : null}
           {Platform.OS !== "web" ? <Button label="Scan an invite code" kind="secondary" onPress={() => router.push("/scan")} style={[styles.action, { marginTop: space.sm }]} /> : null}
 
-          <Text style={styles.note}>For non-sensitive work only. Don't share customer or other sensitive information here until your organization approves Servant for it</Text>
+          <Text style={styles.note}>For non-sensitive work only. Don't share taxpayer information here until your agency approves Servant for it</Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </View>

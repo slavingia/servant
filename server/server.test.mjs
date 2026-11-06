@@ -558,7 +558,7 @@ test("projects made in the app: notes and files every chat in them sees; people 
   const other = await pair("member", "Olly Other");
   const ollyId = (await api("GET", "/v1/people", { token: other })).json.me;
   assert.equal((await api("POST", "/v1/projects", { token, body: { name: "  " } })).status, 400);
-  const project = (await api("POST", "/v1/projects", { token, body: { name: "Refund tracker", notes: "Audience: residents. Plain words." } })).json.project;
+  const project = (await api("POST", "/v1/projects", { token, body: { name: "Refund tracker", notes: "Audience: taxpayers. Plain words." } })).json.project;
   assert.deepEqual([project.id, project.name, project.chatCount, project.access, project.canEdit, project.workflow, project.rules, project.role], ["refund-tracker", "Refund tracker", 0, "merge", true, "main", [], "owner"]);
   assert.deepEqual(project.people.map(p => [p.name, p.level, p.owner]), [["Fran Founder", "merge", true]]);
   // Only people in a project see it.
@@ -579,7 +579,7 @@ test("projects made in the app: notes and files every chat in them sees; people 
     await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: `hello from ${chat.id}` } });
     const stream = await waitFor(() => [...owner.calls, ...member.calls].find(c => c.url.endsWith("/chat/stream") && c.body.message === `hello from ${chat.id}`));
     assert.match(stream.body.system_message, /project "Refund tracker"/);
-    assert.match(stream.body.system_message, /Audience: residents/);
+    assert.match(stream.body.system_message, /Audience: taxpayers/);
     assert.doesNotMatch(stream.body.system_message, /How we work/, "no repo, no workflow talk");
     // The full agent reads files from disk by path.
     assert.match(stream.body.system_message, /brief\.md.*project-files/);
