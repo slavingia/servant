@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { Account } from "./server";
-import { createCall, type CallState } from "./meeting-call";
+import { createCall, type CallPreset, type CallState } from "./meeting-call";
 
 // The one call you're on. It lives outside any screen, so moving around the app (or closing the
 // call screen) keeps you in it; only Leave or End takes you out. Joining a different call leaves
@@ -12,7 +12,7 @@ const listeners = new Set<() => void>();
 let snap: Active | null = null;
 const notify = () => { snap = active ? { ...active } : null; for (const l of listeners) l(); };
 
-export function joinCall(account: Account, meetingId: string): Active {
+export function joinCall(account: Account, meetingId: string, preset?: CallPreset): Active {
   if (active?.id === meetingId && !["ended", "failed"].includes(active.state.status)) return active;
   if (active) void leaveCall();
   const entry: Active = { id: meetingId, call: null as never, state: { status: "starting", error: null, local: null, remotes: [], people: [], muted: false, cameraOff: false, sharing: false } };
@@ -21,7 +21,7 @@ export function joinCall(account: Account, meetingId: string): Active {
     // A finished call stops being "the call you're on".
     if (active === entry && (s.status === "ended" || s.status === "failed") && !s.local) active = null;
     notify();
-  });
+  }, preset);
   active = entry;
   notify();
   void entry.call.start();

@@ -86,8 +86,27 @@ async function gathered(pc: Peer, timeoutMs = 3000) {
 // level control, with Chrome's stronger voice isolation where available (the Mac app is Chrome).
 const VOICE = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, voiceIsolation: true, googNoiseSuppression: true, googHighpassFilter: true } as any;
 
-export function createCall(account: Account, meetingId: string, onChange: (s: CallState) => void) {
-  const state: CallState = { status: "starting", error: null, local: null, remotes: [], people: [], muted: false, cameraOff: false, sharing: false };
+/** What you chose on the check-your-camera screen: the open camera and mic, and whether each is off. */
+export type CallPreset = { stream: Stream; muted: boolean; cameraOff: boolean };
+
+/** Opens your camera and mic for the check screen. No camera or no permission still gives a clear answer. */
+export async function openPreview(): Promise<{ stream: Stream | null; hasCamera: boolean; error: string | null }> {
+  const { mediaDevices } = rtc();
+  try {
+    const stream = await mediaDevices.getUserMedia({ audio: VOICE, video: { width: 640, height: 480, frameRate: 24 } });
+    return { stream, hasCamera: !!stream.getVideoTracks?.().length, error: null };
+  } catch {
+    try {
+      const stream = await mediaDevices.getUserMedia({ audio: VOICE, video: false });
+      return { stream, hasCamera: false, error: "We can't see a camera. You can still join with sound only" };
+    } catch {
+      return { stream: null, hasCamera: false, error: "Servant can't use your camera or microphone. Allow both in your device settings, then try again" };
+    }
+  }
+}
+
+export function createCall(account: Account, meetingId: string, onChange: (s: CallState) => void, preset?: CallPreset) {
+  const state: CallState = { status: "starting", error: null, local: null, remotes: [], people: [], muted: !!preset?.muted, cameraOff: !!preset?.cameraOff, sharing: false };
   const emit = () => onChange({ ...state, remotes: [...state.remotes], people: [...state.people] });
   let pc: Peer | null = null;
   let participantId: string | null = null;
@@ -102,6 +121,12 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
 
   async function getMedia() {
     const { mediaDevices } = rtc();
+    if (preset?.stream) {
+      // The stream you checked is the one you join with, so the camera isn't opened twice.
+      for (const t of preset.stream.getAudioTracks?.() ?? []) t.enabled = !preset.muted;
+      for (const t of preset.stream.getVideoTracks?.() ?? []) t.enabled = !preset.cameraOff;
+      return preset.stream;
+    }
     try { return await mediaDevices.getUserMedia({ audio: VOICE, video: { width: 640, height: 480, frameRate: 24 } }); }
     catch {
       // No camera, or the camera was refused: join with audio only.

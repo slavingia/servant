@@ -6,9 +6,10 @@ import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-cont
 import { CallPulse } from "../../components/CallPulse";
 import { startRingSound } from "../../lib/ring-sound";
 import { CallVideo } from "../../components/CallVideo";
+import { PreCall } from "../../components/PreCall";
 import { useSession } from "../../lib/session";
 import { systemCalls } from "../../lib/servant-call";
-import { callsSupported, screenShareSupported, type CallState } from "../../lib/meeting-call";
+import { callsSupported, screenShareSupported, type CallPreset, type CallState } from "../../lib/meeting-call";
 import { endCall, joinCall, leaveCall, useActiveCall } from "../../lib/active-call";
 import { useCallClock } from "../../lib/call-clock";
 import { radius, space, typography } from "../../lib/theme";
@@ -19,10 +20,22 @@ const DARK = "#0B1220";
 export default function MeetingScreen() {
   // A full-screen modal can report zero safe-area insets, which put the status line under the clock
   // and the island. A provider of its own measures the modal itself.
-  return <SafeAreaProvider><Meeting /></SafeAreaProvider>;
+  return <SafeAreaProvider><Gate /></SafeAreaProvider>;
 }
 
-function Meeting() {
+/** Before you join, a check-your-camera screen. Coming back to a call you're already on skips it. */
+function Gate() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const active = useActiveCall();
+  const [preset, setPreset] = useState<CallPreset | null>(null);
+  const [unsupported] = useState(() => !callsSupported());
+  if (!unsupported && active?.id !== id && !preset) {
+    return <PreCall onJoin={setPreset} onCancel={() => { if (router.canGoBack()) router.back(); else router.replace("/"); }} />;
+  }
+  return <Meeting preset={preset ?? undefined} />;
+}
+
+function Meeting({ preset }: { preset?: CallPreset }) {
   const { id } = useLocalSearchParams<{ id: string }>();
   // The screen stays on for the whole call; it sleeps normally again when you leave.
   useCallAwake();
@@ -38,8 +51,8 @@ function Meeting() {
   useEffect(() => {
     if (!account || !id || unsupported) return;
     systemCalls.end(id);
-    joinCall(account, id);
-  }, [account, id, unsupported]);
+    joinCall(account, id, preset);
+  }, [account, id, unsupported, preset]);
   const mine = active?.id === id ? active : null;
   const call = { current: mine?.call ?? null };
   const state: CallState = unsupported
