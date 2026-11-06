@@ -14,7 +14,7 @@
 //   node server/server.mjs release <build> <notes.md>   post a build's notes to #whats-new
 
 import { joinPage } from "./join-page.mjs";
-import { newFolder, servePrototype } from "./prototypes.mjs";
+import { newFolder, removePrototype, servePrototype } from "./prototypes.mjs";
 import { PRIVACY_PAGE } from "./privacy-page.mjs";
 import { createEmailVerifier, commandSender, emailSettings, normalizeEmail } from "./email-verify.mjs";
 import http from "node:http";
@@ -683,8 +683,9 @@ async function handle(req, res, cfg) {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" });
     return res.end(joinPage(cfg.downloads));
   }
+  if (url.pathname === "/robots.txt") return send(res, 200, "User-agent: *\nDisallow: /p/\n", { "Content-Type": "text/plain; charset=utf-8" }), undefined;
   // Prototypes built in Prototyping chats (prototypes.mjs): public by unguessable folder name, sandboxed.
-  if (url.pathname.startsWith("/p/") && servePrototype(req, res, url, { dir: PROTOTYPES_DIR, kitDir: expandPath(vibeProject()?.path) })) return undefined;
+  if (url.pathname.startsWith("/p/") && servePrototype(req, res, url, { dir: PROTOTYPES_DIR, kitDir: expandPath(vibeProject()?.path), ip: clientIp(req) })) return undefined;
   // Privacy policy for the app stores (Google Play and App Store link here).
   if (method === "GET" && url.pathname === "/privacy") {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=300", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'" });
@@ -1399,6 +1400,7 @@ async function handle(req, res, cfg) {
     chatMediaStore().deleteChat(chat.id);
     documents().deleteChat(chat.id);
     removeLongMessages(chat.id);
+    if (chat.hosted === "server") removePrototype(PROTOTYPES_DIR, chat.vibeFolder);
     hermes(chatUp, "DELETE", `/api/sessions/${encodeURIComponent(chat.hermesSessionId)}`).catch(() => {});
     return send(res, 200, { ok: true });
   }

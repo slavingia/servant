@@ -879,6 +879,12 @@ test("vibe coders: owners mark them; their chats build a prototype and show a pr
   const stream = owner.calls.slice(before).find((c) => c.url.endsWith("/chat/stream"));
   assert.match(stream.body.system_message, /prototyping session/);
   assert.ok(stream.body.system_message.includes(`PREVIEW: ${chat.previewUrl}`));
+  // Deleting the chat deletes its prototype files too.
+  const gone = (await api("POST", "/v1/chats", { token, body: {} })).json.chat;
+  const goneDir = path.join(dataDir, "prototypes", gone.previewUrl.split("/p/")[1].replace(/\/$/, ""));
+  fs.mkdirSync(goneDir, { recursive: true }); fs.writeFileSync(path.join(goneDir, "index.html"), "x");
+  assert.equal((await api("DELETE", `/v1/chats/${gone.id}`, { token })).status, 200);
+  assert.equal(fs.existsSync(goneDir), false);
   // Unmarking stops new vibe chats; the old one keeps its mode.
   await api("PATCH", `/v1/people/${val}`, { token: boss, body: { vibeCoder: false } });
   assert.equal((await api("POST", "/v1/chats", { token, body: {} })).json.chat.mode, undefined);
@@ -1907,4 +1913,22 @@ test("prototypes are served by the server itself: sandboxed, public by link, not
   for (const bad of ["/p/proto-abcdef012345678901/link.txt", "/p/proto-abcdef012345678901/../secret.txt", "/p/proto-abcdef012345678901/%2e%2e/secret.txt", "/p/proto-abcdef012345678901/.hidden", "/p/", "/p/proto-nope-nope-nope/", "/p/..%2f/", "/p/UPPER/"]) assert.equal((await get(bad)).status, 404, bad);
   assert.equal((await get("/p/proto-abcdef012345678901/", { method: "POST" })).status, 405);
   assert.equal((await get("/p/proto-abcdef012345678901/", { method: "HEAD" })).status, 200);
+});
+
+test("prototype security: no indexing, no framing tricks, rate limit per visitor, files removed with the chat", async () => {
+  const folder = "proto-fedcba987654321012";
+  fs.mkdirSync(path.join(dataDir, "prototypes", folder), { recursive: true });
+  fs.writeFileSync(path.join(dataDir, "prototypes", folder, "index.html"), "<p>x</p>");
+  const ok = await fetch(`${base}/p/${folder}/`);
+  assert.equal(ok.headers.get("x-robots-tag"), "noindex, nofollow, noarchive");
+  assert.match(ok.headers.get("content-security-policy"), /form-action 'self'; base-uri 'self'/);
+  assert.match(await (await fetch(`${base}/robots.txt`)).text(), /Disallow: \/p\//);
+  // 600 a minute per visitor, then a polite wait; another visitor is unaffected.
+  const { servePrototype, _resetLimits } = await import("./prototypes.mjs");
+  _resetLimits();
+  const run = (ip) => { let status; servePrototype({ method: "GET" }, { writeHead: (s) => { status = s; }, end() {} }, new URL(`http://x/p/${folder}/`), { dir: path.join(dataDir, "prototypes"), ip }); return status; };
+  for (let i = 0; i < 600; i++) assert.equal(run("1.1.1.1"), 200);
+  assert.equal(run("1.1.1.1"), 429);
+  assert.equal(run("2.2.2.2"), 200);
+  _resetLimits();
 });
