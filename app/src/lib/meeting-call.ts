@@ -187,7 +187,7 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
       const m = await api.meeting(account, meetingId);
       if (m.status !== "live") { state.status = "ended"; emit(); await stop(false); return; }
       state.startedAt = m.startedAt; state.conversationId = m.conversationId;
-      state.people = m.participants.filter(p => !p.screen).map(p => ({ id: p.id, name: p.you ? "You" : p.user.name, you: p.you, muteSeq: p.muteSeq || 0, hasAudio: p.hasAudio, hasVideo: p.hasVideo, muted: !!p.muted || !p.hasAudio }))
+      state.people = m.participants.filter(p => !p.screen).map(p => ({ id: p.id, name: p.id === participantId ? "You" : p.you ? `${p.user.name} (other device)` : p.user.name, you: p.id === participantId, muteSeq: p.muteSeq || 0, hasAudio: p.hasAudio, hasVideo: p.hasVideo, muted: !!p.muted || !p.hasAudio }))
         .sort((a, b) => Number(b.you) - Number(a.you));
       state.host = !!m.host;
       // The host muted you: mute your own mic, once per ask. You can unmute yourself afterwards.
@@ -196,7 +196,8 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
         seenMuteSeq = me.muteSeq || 0;
         if (!state.muted) { state.muted = true; for (const t of state.local?.getAudioTracks?.() ?? []) t.enabled = false; report(); }
       }
-      const others = m.participants.filter(p => !p.you && p.id !== participantId && p.publishing);
+      // Same person on another device (Android + Mac) is still someone to watch: match this connection, not the account.
+      const others = m.participants.filter(p => p.id !== participantId && p.publishing);
       for (const p of others) {
         const known = state.remotes.find(r => r.participantId === p.id);
         if (known) { known.hasVideo = p.hasVideo; known.muted = !!p.muted; }
