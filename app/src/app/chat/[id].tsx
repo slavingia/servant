@@ -776,7 +776,7 @@ function ChatConversation() {
       <Stack.Screen options={{ title: heading, headerTitle: titleButton(showTitle, setShowTitle, headerLinks.length), ...filesHeader(String(id), heading, colors.blue, headerLinks, false) }} />
       {showTitle ? <FullTitle title={heading} onClose={() => setShowTitle(false)} /> : null}
       {sharing ? <OptionsSheet id={String(id)} title={heading} shared={shared} projectId={projectId} projectShared={projectShared} onProject={setProjectId} onProjectShared={setProjectShared} onChange={setShared} onClose={() => setSharing(false)} /> : null}
-      {choosing && projects ? <ProjectSheet visible projects={projects.list} vibe={projects.vibe !== false} selected={about} title="This chat is about" onPick={project => { void pickAbout(project); }} onClose={() => setChoosing(false)} /> : null}
+      {choosing && projects ? <ProjectSheet visible projects={projects.list} vibe={projects.vibe === true && (projects.agentTier === undefined || projects.agentTier === 2 || projects.agentTier === 3)} selected={about} title="This chat is about" onPick={project => { void pickAbout(project); }} onClose={() => setChoosing(false)} /> : null}
       <View style={[styles.split, stacked && previewOpen && styles.splitStacked]}>
       <View style={[styles.chatColumn, stacked && previewOpen && styles.chatColumnStacked]}>
       <ConversationKeyboardView>
@@ -859,7 +859,7 @@ function ChatConversation() {
           </Pressable>
         </View> : null}
         {showAbout ? <View style={styles.aboutRow}>
-          <Pressable testID="chat-about" accessibilityRole="button" accessibilityLabel={`About: ${aboutName}`} accessibilityHint="Change what this chat is about: a project, prototyping or just the agent"
+          <Pressable testID="chat-about" accessibilityRole="button" accessibilityLabel={`About: ${aboutName}`} accessibilityHint="Change what this chat is about: a project, Design Studio or just the agent"
             accessibilityState={{ busy: switching, expanded: choosing }} disabled={switching} hitSlop={{ top: 6, bottom: 6 }} onPress={() => setChoosing(true)}
             style={({ pressed }) => [styles.about, pressed && { opacity: 0.7 }]}>
             <Text style={styles.aboutLabel}>About</Text>

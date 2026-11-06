@@ -88,7 +88,7 @@ try {
   await page.evaluate(async a => { await window.servantDesktop.storage.setItem('servant.account', JSON.stringify(a)); }, ann);
   // The macOS picker and permission aren't drivable headlessly: hand the page a synthetic screen.
   await page.addInitScript(FAKE_DEVICES);
-  await page.goto(`servant-app://app/meeting/${meeting.id}`);
+  await page.goto(`servant-ux-app://app/meeting/${meeting.id}`);
   await page.evaluate(() => {
     const original = navigator.mediaDevices.getDisplayMedia?.bind(navigator.mediaDevices);
     window.__displayRequests = 0;
@@ -111,7 +111,7 @@ try {
   await bp.waitForURL('**/welcome');
   await bp.evaluate(async a => { await window.servantDesktop.storage.setItem('servant.account', JSON.stringify(a)); }, boAccount);
   await bp.addInitScript(FAKE_DEVICES);
-  await bp.goto(`servant-app://app/meeting/${meeting.id}`);
+  await bp.goto(`servant-ux-app://app/meeting/${meeting.id}`);
   await bp.getByRole('button', { name: 'Leave' }).waitFor();
   await bp.getByRole('button', { name: 'Share screen' }).waitFor();   // offered once the call is live, on the Mac app too
   assert.equal(await bp.getByTestId('screen-stage').count(), 0, 'no screen yet');

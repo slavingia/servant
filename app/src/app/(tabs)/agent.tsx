@@ -43,6 +43,10 @@ export default function Chats() {
   const [starting, setStarting] = useState(false);
   // The projects you're in (docs/projects.md); vibeCoder means every chat builds a prototype.
   const projects = useProjects();
+  const canCreateDesign = projects?.vibe === true && (projects.agentTier === undefined || projects.agentTier === 2 || projects.agentTier === 3);
+  const designStudioDescription = canCreateDesign
+    ? "Create, preview, and share interactive designs."
+    : "View and review interactive designs shared with your team.";
   // A new chat starts about the last choice; the chat offers the change right above its message box.
   const [choice, setChoice] = useState<string | null>(null);
   const userId = account?.user.id;
@@ -164,6 +168,15 @@ export default function Chats() {
             </View>
             {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
             {actionError && !deleting ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
+            <Pressable accessibilityRole="button" accessibilityLabel="Open Design Studio" accessibilityHint={designStudioDescription} onPress={() => router.push("/designs")}
+              style={({ pressed }) => [styles.designStudio, pressed && { opacity: 0.75 }]}>
+              <View style={styles.designStudioIcon}><AppIcon name="code" size={20} color={colors.blueDark} /></View>
+              <View style={styles.designStudioCopy}>
+                <Text style={styles.designStudioTitle}>Design Studio</Text>
+                <Text style={styles.designStudioBody}>{designStudioDescription}</Text>
+              </View>
+              <AppIcon name="chevronRight" size={18} color={colors.muted} />
+            </Pressable>
             {account.user.role === 'owner' && chats?.some(chat => chat.latestTurn?.status === 'waiting_for_approval') ? <View style={styles.inbox}>
               <Text accessibilityRole="header" style={styles.inboxTitle}>Needs your approval</Text>
               {chats.filter(chat => chat.latestTurn?.status === 'waiting_for_approval').map(chat => <Pressable key={chat.id} accessibilityRole="button" accessibilityLabel={`Review action in ${chat.title}`} onPress={() => router.push({ pathname: '/chat/[id]', params: { id: chat.id, title: chat.title } })} style={styles.approvalRow}>
@@ -190,7 +203,7 @@ export default function Chats() {
               <AppIcon name="sparkles" size={32} color={colors.blue} />
               <Text accessibilityRole="header" style={styles.emptyTitle}>Start with a question</Text>
               <Text style={styles.emptyBody}>Ask the agent for help, then return to your conversation here.</Text>
-              <Button label={projects?.vibeCoder ? "Start prototyping" : "New chat"} onPress={() => void start()} busy={starting} style={styles.emptyAction} />
+              <Button label={projects?.vibeCoder ? "Start a design" : "New chat"} onPress={() => void start()} busy={starting} style={styles.emptyAction} />
             </View>
           )
         }
@@ -221,7 +234,7 @@ export default function Chats() {
                       <Text style={[styles.rowTitle, styles.readTitle, unread > 0 && styles.unreadTitle]} numberOfLines={1}>{title}</Text>
                       <Text style={[styles.rowWhen, unread > 0 && styles.unreadWhen]}>{when(item.updatedAt)}</Text>
                     </View>
-                    {item.mode === "vibe" || item.project ? <Text style={styles.projectTag} numberOfLines={1}>{[item.project?.name, item.mode === "vibe" ? "Prototyping" : null].filter(Boolean).join(" · ")}</Text> : null}
+                    {item.mode === "vibe" || item.project ? <Text style={styles.projectTag} numberOfLines={1}>{[item.project?.name, item.mode === "vibe" ? "Design" : null].filter(Boolean).join(" · ")}</Text> : null}
                     <View style={styles.rowTop}>
                       {activeAgentTurn(item.latestTurn) ? <View style={styles.turnLive}>{item.latestTurn!.status === 'running'
                           ? <LiveStatus text={liveAgentLine(item.latestTurn)} style={styles.turnLiveText} />
@@ -281,6 +294,11 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   header: { minHeight: 60, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.xs },
   title: { ...typography.title, color: colors.ink, flexShrink: 1 },
   compose: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
+  designStudio: { marginHorizontal: space.side, marginBottom: space.sm, minHeight: 64, padding: space.sm, flexDirection: "row", alignItems: "center", gap: space.sm, borderRadius: radius.lg, backgroundColor: colors.blueSoft },
+  designStudioIcon: { width: 38, height: 38, borderRadius: radius.md, alignItems: "center", justifyContent: "center", backgroundColor: colors.background },
+  designStudioCopy: { flex: 1, minWidth: 0 },
+  designStudioTitle: { ...typography.bodyStrong, color: colors.brandText },
+  designStudioBody: { ...typography.caption, color: colors.muted, marginTop: 2 },
   error: { ...typography.caption, marginBottom: space.sm, marginHorizontal: space.side, color: colors.red },
   sectionTitle: { ...typography.label, color: colors.muted, paddingHorizontal: space.side, paddingTop: space.sm, paddingBottom: space.xs, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   retry: { marginHorizontal: space.side },

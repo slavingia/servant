@@ -10,6 +10,7 @@ import { parseAgentTurn, type AgentTurn } from './agent-turns';
 import { isDesktop } from './desktop';
 import { createAccountWrites } from './account-writes';
 import type { SourceDevice } from './message-device';
+import { startOnboarding, type UXOnboardingState } from './onboarding';
 export type { StreamEvent } from "./agent-events";
 
 export type Role = "owner" | "member";
@@ -20,6 +21,8 @@ export type Account = {
   discovery?: string;
   serverName: string;
   user: { id: string; name: string; role: Role };
+  /** Device-local UX setup preferences. These never grant server access. */
+  uxOnboarding?: UXOnboardingState;
 };
 // shared: the author chose to let the rest of the server read it (off when a chat starts). author/readOnly: someone else's chat.
 export type ChatLastMessage = { role: "user" | "assistant"; text: string; at: number; attachments: number; pending?: boolean };
@@ -82,6 +85,8 @@ export type IceServer = { urls: string | string[]; username?: string; credential
 export type Meeting = {
   id: string;
   conversationId: string;
+  /** You started this meeting, so host-only controls are available. */
+  host?: boolean;
   status: MeetingStatus;
   startedBy: { id: string; name: string };
   startedAt: number;
@@ -236,7 +241,19 @@ export async function pair(invite: Invite, name?: string, terms: TermsAcceptance
   }
   if (!res.ok) throw await readError(res);
   const data = await res.json();
-  const account: Account = { token: data.token, serverUrl, serverKey: invite.serverKey, discovery: invite.discovery, serverName: data.server?.name || data.hub?.name || "Server", user: data.user };
+  // Pairing consumes the invite, so persist the complete device-local account
+  // in this single write before returning it to the screen. A follow-up write
+  // could fail after the server has already consumed the code and make Retry
+  // submit an invite that can no longer succeed.
+  const account: Account = {
+    token: data.token,
+    serverUrl,
+    serverKey: invite.serverKey,
+    discovery: invite.discovery,
+    serverName: data.server?.name || data.hub?.name || "Server",
+    user: data.user,
+    uxOnboarding: startOnboarding(),
+  };
   await saveAccount(account);
   return account;
 }
@@ -379,7 +396,7 @@ export const api = {
   chat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}`).then((r) => r.json()).then((d) => d.chat as Chat),
   setChatShared: (a: Account, id: string, shared: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ shared }) }).then((r) => r.json()).then((d) => d.chat as Chat),
   // Projects: shared bodies of work with notes, files, rules and who can read, write or merge (docs/projects.md).
-  projects: (a: Account) => request(a, "/v1/projects").then(json<{ projects: Project[]; vibeCoder: boolean; vibe: boolean }>),
+  projects: (a: Account) => request(a, "/v1/projects").then(json<{ projects: Project[]; vibeCoder: boolean; agentTier?: number; vibe: boolean }>),
   project: (a: Account, id: string) => request(a, `/v1/projects/${encodeURIComponent(id)}`).then(json<{ project: Project; sharedChats: Chat[] }>),
   createProject: (a: Account, body: { name: string; description?: string; notes?: string }) => request(a, "/v1/projects", { method: "POST", body: JSON.stringify(body) }).then(json<{ project: Project }>).then(d => d.project),
   updateProject: (a: Account, id: string, change: Partial<Pick<Project, "name" | "description" | "notes" | "repo" | "path" | "pages" | "workflow" | "rules" | "stages">>) => request(a, `/v1/projects/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(change) }).then(json<{ project: Project }>).then(d => d.project),

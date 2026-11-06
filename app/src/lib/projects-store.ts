@@ -5,7 +5,7 @@ import { useSession } from "./session";
 // The projects you're in, shared by the sidebar, Home, the Agent tab's picker and the project
 // page: one list, so a project made or renamed in one place shows up in the others right away.
 // vibeCoder: you only build prototypes; vibe: vibe coding is set up on this server.
-export type Projects = { list: Project[]; vibeCoder: boolean; vibe: boolean };
+export type Projects = { list: Project[]; vibeCoder: boolean; vibe: boolean; agentTier: number | null | undefined };
 type State = { who: string; loaded: Projects | null };
 let state: State = { who: "", loaded: null };
 let inflight: Promise<void> | null = null;
@@ -17,7 +17,12 @@ const subscribe = (l: () => void) => { listeners.add(l); return () => { listener
 export function refreshProjects(account: Account) {
   if (inflight) return inflight;
   inflight = api.projects(account)
-    .then(r => emit({ who: whoIs(account), loaded: { list: r.projects, vibeCoder: r.vibeCoder, vibe: r.vibe } }))
+    .then(r => {
+      const tier = r.agentTier === undefined
+        ? (r.vibeCoder ? 2 : undefined)
+        : Number.isInteger(r.agentTier) ? r.agentTier : null;
+      emit({ who: whoIs(account), loaded: { list: r.projects, vibeCoder: r.vibeCoder, vibe: r.vibe, agentTier: tier } });
+    })
     .catch(() => {})
     .finally(() => { inflight = null; });
   return inflight;

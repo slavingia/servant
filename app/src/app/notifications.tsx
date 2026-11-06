@@ -4,6 +4,7 @@ import { useNotifications } from '../lib/notifications';
 import { Button } from '../components/Button';
 import { radius, space, typography, createThemedStyles, useTheme } from '../lib/theme';
 import type { NotificationPreferences } from '../lib/notifications-api';
+import { appName, nativePushConfigured } from '../lib/app-identity';
 const choices: { mode: NotificationPreferences['mode']; title: string; detail: string }[] = [
   { mode: 'all', title: 'All messages', detail: 'Every message in your channels and direct messages' },
   { mode: 'mentions', title: 'Direct messages, mentions and replies', detail: 'Includes replies to threads you participate in and replies from the agent' },
@@ -15,11 +16,16 @@ export default function NotificationSettings() {
   const { supported, enabled, busy, error, preferences, enable, update } = useNotifications();
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(timer); }, []);
-  if (!supported) return <ScrollView style={styles.root} contentContainerStyle={styles.content}><Text accessibilityRole="header" style={styles.title}>Get notified on your phone</Text><Text style={styles.description}>Install Servant on iPhone or Android and sign in to get alerts for DMs, mentions and agent replies. Your settings there apply everywhere.</Text></ScrollView>;
+  if (!supported) return <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+    <Text accessibilityRole="header" style={styles.title}>{nativePushConfigured ? 'Get notified on your phone' : `Push notifications aren't available in ${appName} yet`}</Text>
+    <Text style={styles.description}>{nativePushConfigured
+      ? `Install ${appName} on iPhone or Android and sign in to get alerts for DMs, mentions and agent replies. Your settings there apply everywhere.`
+      : `Alerts remain available in the original Servant app while ${appName} gets its own Apple and Google push setup. Messages still arrive here while the app is open.`}</Text>
+  </ScrollView>;
   const paused = preferences.pausedUntil > now;
   return <ScrollView style={styles.root} contentContainerStyle={styles.content}>
 
-    <Text style={styles.description}>Choose when Servant should notify you. Archived channels stay quiet.</Text>
+    <Text style={styles.description}>Choose when {appName} should notify you. Archived channels stay quiet.</Text>
     {!enabled ? <Button label="Enable notifications" busy={busy} onPress={enable} style={styles.enable} /> : <View style={styles.enabled}><Text style={styles.detail}>Notifications are enabled</Text><Pressable accessibilityRole="button" onPress={() => Linking.openSettings()} style={styles.settings}><Text style={styles.link}>Open system settings</Text></Pressable></View>}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
     <Text accessibilityRole="header" style={styles.label}>Notify me about</Text>

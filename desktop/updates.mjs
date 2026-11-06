@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import updater from 'electron-updater';
-import { DOWNLOAD_PAGE, teamIdentifier, updateMode } from './policy.mjs';
+import { APP_NAME, DOWNLOAD_PAGE, teamIdentifier, updateMode } from './policy.mjs';
 
 const { autoUpdater } = updater;
 const run = promisify(execFile);
@@ -12,7 +12,7 @@ const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 // Updates come from the GitHub release feed configured in package.json.
 // Squirrel.Mac installs an update only when it carries the running app's
 // Developer ID signature, so ad-hoc preview builds offer the download page.
-export function createUpdates({ getWindow, openExternal }) {
+export function createUpdates({ getWindow, openExternal, enabled = true }) {
   let mode = null;
   let offered = null;
   let downloading = false;
@@ -27,6 +27,17 @@ export function createUpdates({ getWindow, openExternal }) {
   const show = options => {
     const window = getWindow();
     return window ? dialog.showMessageBox(window, options) : dialog.showMessageBox(options);
+  };
+
+  if (!enabled) return {
+    start() {},
+    check: async ({ manual = false } = {}) => {
+      if (manual) await show({
+        type: 'info',
+        message: `${APP_NAME} updates are not configured yet`,
+        detail: 'Install a new UX-team build manually until a dedicated signed release feed is available.',
+      });
+    },
   };
 
   const resolveMode = async () => {
@@ -45,18 +56,18 @@ export function createUpdates({ getWindow, openExternal }) {
     downloading = false;
     const { response } = await show({
       type: 'info', buttons: ['Restart Now', 'Later'], defaultId: 0, cancelId: 1,
-      message: `Servant ${info.version} is ready`, detail: 'Restart to finish updating. Otherwise it installs the next time you quit.',
+      message: `${APP_NAME} ${info.version} is ready`, detail: 'Restart to finish updating. Otherwise it installs the next time you quit.',
     });
     if (response === 0) autoUpdater.quitAndInstall();
   });
 
   const check = async ({ manual = false } = {}) => {
     if (!app.isPackaged) {
-      if (manual) await show({ type: 'info', message: 'Updates are checked in the installed app', detail: 'This copy of Servant is running from source.' });
+      if (manual) await show({ type: 'info', message: 'Updates are checked in the installed app', detail: `This copy of ${APP_NAME} is running from source.` });
       return;
     }
     if (downloading) {
-      if (manual) await show({ type: 'info', message: 'An update is downloading', detail: 'Servant will tell you when it is ready.' });
+      if (manual) await show({ type: 'info', message: 'An update is downloading', detail: `${APP_NAME} will tell you when it is ready.` });
       return;
     }
     let result;
@@ -66,13 +77,13 @@ export function createUpdates({ getWindow, openExternal }) {
       if (!manual) { console.warn('Update check failed', error?.message); return; }
       const { response } = await show({
         type: 'warning', buttons: ['Open Download Page', 'OK'], defaultId: 1, cancelId: 1,
-        message: "Couldn't check for updates", detail: 'Check your connection, or download the latest Servant from the website.',
+        message: "Couldn't check for updates", detail: `Check your connection, or download the latest ${APP_NAME} from the website.`,
       });
       if (response === 0) openExternal(DOWNLOAD_PAGE);
       return;
     }
     if (!result?.isUpdateAvailable) {
-      if (manual) await show({ type: 'info', message: "You're up to date", detail: `Servant ${app.getVersion()} is the latest version.` });
+      if (manual) await show({ type: 'info', message: "You're up to date", detail: `${APP_NAME} ${app.getVersion()} is the latest version.` });
       return;
     }
     const version = result.updateInfo.version;
@@ -86,12 +97,12 @@ export function createUpdates({ getWindow, openExternal }) {
         console.warn('Update download failed', error?.message);
         if (manual) void show({ type: 'warning', message: "Couldn't download the update", detail: error?.message ?? 'Try again later.' });
       });
-      if (manual) await show({ type: 'info', message: `Downloading Servant ${version}`, detail: 'Servant will tell you when it is ready to install.' });
+      if (manual) await show({ type: 'info', message: `Downloading ${APP_NAME} ${version}`, detail: `${APP_NAME} will tell you when it is ready to install.` });
       return;
     }
     const { response } = await show({
       type: 'info', buttons: ['Download', 'Later'], defaultId: 0, cancelId: 1,
-      message: `Servant ${version} is available`, detail: `You have ${app.getVersion()}. Download the new version and replace Servant in Applications.`,
+      message: `${APP_NAME} ${version} is available`, detail: `You have ${app.getVersion()}. Download the new version and replace ${APP_NAME} in Applications.`,
     });
     if (response === 0) openExternal(DOWNLOAD_PAGE);
   };

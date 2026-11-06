@@ -1,5 +1,5 @@
 import { Platform, Text, View } from "react-native";
-import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider as NavigationThemeProvider, usePathname } from "expo-router";
+import { DarkTheme, DefaultTheme, Redirect, router, Stack, ThemeProvider as NavigationThemeProvider, usePathname } from "expo-router";
 import { useMemo } from "react";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -15,6 +15,7 @@ import { ThemeProvider, useTheme, typography } from "../lib/theme";
 import { validServerKey } from "../lib/tunnel-crypto";
 import { useWideLayout } from "../lib/layout";
 import { WideBack } from "../components/WideBack";
+import { onboardingRequired } from "../lib/onboarding";
 
 export default function RootLayout() {
   return (
@@ -50,6 +51,7 @@ function SessionNavigation() {
     },
   }), [colors, scheme]);
   const paired = !!account && validServerKey(account.serverKey);
+  const onboarding = paired && onboardingRequired(account?.uxOnboarding);
   // Wait for the saved account before mounting any invite screen.
   if (!ready) {
     return (
@@ -64,6 +66,7 @@ function SessionNavigation() {
       </View>
     );
   }
+  if (onboarding && pathname !== "/onboarding") return <Redirect href="/onboarding" />;
   return (
     <NavigationThemeProvider value={navigationTheme}>
     <PhotoProvider>
@@ -71,7 +74,7 @@ function SessionNavigation() {
     <NotificationsProvider>
     <FeedbackPrompt>
     <StatusBar style={paired || pathname === "/welcome" || scheme === "dark" ? "light" : "dark"} />
-    <AppChrome enabled={paired}>
+    <AppChrome enabled={paired && pathname !== "/onboarding"}>
     <Stack
       screenOptions={{
         headerStyle: { backgroundColor: colors.background },
@@ -112,6 +115,7 @@ function SessionNavigation() {
         <Stack.Screen name="pair" options={{ title: "Joining", headerBackVisible: false }} />
       </Stack.Protected>
       <Stack.Protected guard={paired} redirectTo="/welcome">
+        <Stack.Screen name="onboarding" options={{ headerShown: false, animation: "fade" }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false, title: "Back", animation: "none" }} />
         <Stack.Screen name="c/[id]" options={{ title: "", ...sidebarScreen }} />
         <Stack.Screen name="thread" options={{ title: "Thread", ...childScreen }} />
@@ -123,6 +127,7 @@ function SessionNavigation() {
         <Stack.Screen name="channel-info" options={{ title: "Details", ...childScreen }} />
         <Stack.Screen name="files" options={{ title: "Files", ...childScreen }} />
         <Stack.Screen name="project" options={{ title: "Project", ...childScreen }} />
+        <Stack.Screen name="designs" options={{ title: "Designs", ...sidebarScreen }} />
         <Stack.Screen name="chat/[id]" options={{ title: "", ...childScreen }} />
         <Stack.Screen name="feedback" options={{ title: "Feedback", ...childScreen }} />
         <Stack.Screen name="notifications" options={{ title: "Notifications", ...childScreen }} />

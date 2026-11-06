@@ -27,6 +27,12 @@ test("reads the newer server= parameter too", () => {
   assert.equal(parseInvite(link)?.server, "https://y.trycloudflare.com");
 });
 
+test("accepts this client's scheme without dropping ordinary Servant invites", () => {
+  const query = `code=ABCDE-FGH23&d=${encodeURIComponent(D)}`;
+  assert.equal(parseInvite(`servant-ux://pair?${query}`)?.code, "ABCDE-FGH23");
+  assert.equal(parseInvite(`servant://pair?${query}`)?.code, "ABCDE-FGH23");
+});
+
 test("rejects junk and unsafe servers", () => {
   assert.equal(parseInvite("hello"), null);
   assert.equal(parseInvite("servant://pair?code=ABCDE-FGH23"), null);

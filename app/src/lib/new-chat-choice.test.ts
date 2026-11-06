@@ -16,7 +16,7 @@ test("choices the server offers", () => {
 
 test("names fall back to just the agent", () => {
   assert.equal(choiceName(projects, "expo"), "Expo app");
-  assert.equal(choiceName(projects, VIBE_CHOICE), "Prototyping");
+  assert.equal(choiceName(projects, VIBE_CHOICE), "Design Studio");
   assert.equal(choiceName(projects, "gone"), "Just the agent");
   assert.equal(choiceName(null, "expo"), "Just the agent");
 });

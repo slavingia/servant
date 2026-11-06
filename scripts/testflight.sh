@@ -4,6 +4,7 @@
 # Notes are required: they become TestFlight's What to Test and the build's post
 # in Servant's #whats-new (scripts/notes.py).
 set -euo pipefail
+[ "${SERVANT_APP_FLAVOR:-}" = "core" ] || { echo "Refusing to use the upstream TestFlight target from the UX fork. Set SERVANT_APP_FLAVOR=core explicitly if this is an intentional core release." >&2; exit 2; }
 BUILD=${1:?build number}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 NOTES=""; UPLOAD=""

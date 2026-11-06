@@ -150,7 +150,7 @@ print(value)
   await phone.page.waitForURL('**/welcome');
   await phone.page.getByText('Your workspace, on your Mac', { exact: true }).waitFor();
   await phone.page.evaluate(async account => { await window.servantDesktop.storage.setItem('servant.account', JSON.stringify(account)); }, phoneAccount);
-  await phone.page.goto('servant-app://app/link-device?' + new URLSearchParams({ id: link.id, key: link.serverKey }));
+  await phone.page.goto('servant-ux-app://app/link-device?' + new URLSearchParams({ id: link.id, key: link.serverKey }));
   await phone.page.getByRole('button', { name: 'Sign in on Mac', exact: true }).waitFor();
   assert.ok((await phone.page.locator('body').innerText()).includes(matchingCode), 'Phone and desktop confirmation numbers must match');
   await phone.page.screenshot({ path: path.join(artifacts, 'phone-approval.png') });
@@ -207,7 +207,7 @@ print(value)
   await owner.page.waitForURL('**/welcome');
   await owner.page.getByText('Your workspace, on your Mac', { exact: true }).waitFor();
   await owner.page.evaluate(async account => { await window.servantDesktop.storage.setItem('servant.account', JSON.stringify(account)); }, ownerAccount);
-  await owner.page.goto(`servant-app://app/c/${conversationId}`);
+  await owner.page.goto(`servant-ux-app://app/c/${conversationId}`);
   const computerMessage = messages.body.messages.find(message => message.text === 'QR sign-in smoke message');
   await owner.page.getByTestId(`message-device-${computerMessage.id}`).waitFor();
   assert.equal(await owner.page.getByTestId(`message-device-${computerMessage.id}`).getAttribute('aria-label'), 'Sent from Computer');
@@ -236,9 +236,9 @@ print(value)
   await desktop.page.getByRole('button', { name: 'Create a channel', exact: true }).waitFor();
   const restored = await desktop.page.evaluate(async () => JSON.parse(await window.servantDesktop.storage.getItem('servant.account')));
   assert.ok(restored.token === linked.token, 'Restart must restore the existing Mac device');
-  await desktop.page.goto('servant-app://app/you');
+  await desktop.page.goto('servant-ux-app://app/you');
   await desktop.page.getByRole('button', { name: 'Sign out', exact: true }).click();
-  await desktop.page.getByText('Sign out of Servant?', { exact: true }).waitFor();
+  await desktop.page.getByText('Sign out of Servant UX?', { exact: true }).waitFor();
   await desktop.page.getByRole('button', { name: 'Sign out', exact: true }).last().click();
   await desktop.page.waitForURL('**/welcome');
   assert.equal(await desktop.page.evaluate(() => window.servantDesktop.storage.getItem('servant.account')), null);

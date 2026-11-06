@@ -6,6 +6,7 @@
 # Also builds the Play AAB (app-release.aab); scripts/play.py uploads it to the internal track.
 # Key: .certs/servant-release.keystore (git-ignored), password in keychain item servant-android-key.
 set -euo pipefail
+[ "${SERVANT_APP_FLAVOR:-}" = "core" ] || { echo "Refusing to use the upstream Firebase target from the UX fork. Set SERVANT_APP_FLAVOR=core explicitly if this is an intentional core release." >&2; exit 2; }
 export ANDROID_HOME=${ANDROID_HOME:-$HOME/Library/Android/sdk}
 export JAVA_HOME=${JAVA_HOME:-$(/usr/libexec/java_home -v 17 2>/dev/null || /usr/libexec/java_home)}
 BUILD=${1:?build number}

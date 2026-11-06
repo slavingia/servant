@@ -11,11 +11,26 @@ import { notificationApi, defaultNotifications, type NotificationPreferences } f
 import { notificationRoute } from './notification-route';
 import type { NotificationState } from './notifications';
 import { useIconBadge } from './use-icon-badge';
+import { nativePushConfigured } from './app-identity';
 
 const Ctx = createContext<NotificationState | null>(null);
+const unsupportedNotifications: NotificationState = {
+  supported: false,
+  enabled: false,
+  busy: false,
+  error: null,
+  preferences: defaultNotifications,
+  enable: async () => {},
+  update: async () => {},
+};
 // Default to silent until a paired account and its current screen are known.
 Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: false }) });
 export function NotificationsProvider({ children }: { children: ReactNode }) {
+  if (!nativePushConfigured) return <Ctx.Provider value={unsupportedNotifications}>{children}</Ctx.Provider>;
+  return <ConfiguredNotificationsProvider>{children}</ConfiguredNotificationsProvider>;
+}
+
+function ConfiguredNotificationsProvider({ children }: { children: ReactNode }) {
   const { account } = useSession();
   const { unread, connected } = useLive();
   useIconBadge(account, unread, connected);

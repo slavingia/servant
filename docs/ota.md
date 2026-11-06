@@ -1,5 +1,13 @@
 # Over-the-air app updates from your Mac
 
+> **UX flavor:** Servant UX mobile builds use flavor-specific runtime versions
+> such as `servant-ux-1.0.0(28)`, so a core mobile client cannot load a UX update
+> or vice versa. The UX Electron client currently disables binary and web-bundle
+> updates until it has its own signed feed and runtime namespace. With the
+> default UX flavor, `servant ota publish` therefore publishes only iOS and
+> Android; `--platform web` is rejected. Set `SERVANT_APP_FLAVOR=core` only when
+> intentionally publishing for upstream core clients.
+
 The Servant server on your Mac sends updates straight to every Servant app: iPhone, Android and the Mac app's interface. There is no app store review, no TestFlight build and no Expo account or cloud service. Apps fetch updates from your Mac over the same tunnel or relay as everything else.
 
 ```text
@@ -27,7 +35,7 @@ A phone only takes an update made for its own runtime version. The runtime versi
 
 1. **Signing key.** Already generated for this project. The private key lives only at `~/.config/servant/ota-keys/private-key.pem` (mode 0600) and is never committed. The certificate is `app/certs/certificate.pem`, built into every app. To make a new pair: `cd app && npx expo-updates codesigning:generate --key-output-directory ~/.config/servant/ota-keys --certificate-output-directory certs --certificate-validity-duration-years 10 --certificate-common-name Servant`, then `npx expo-updates codesigning:configure --certificate-input-directory=certs --key-input-directory=$HOME/.config/servant/ota-keys`. A new certificate needs a new build, and builds with the old one keep trusting only the old key.
 2. **A stable address for your Mac.** Each build has the update address built in, so it must not change. A quick tunnel's `trycloudflare.com` address changes on restart, so use a fixed one: a named Cloudflare tunnel or the stable relay in [relay-transport.md](relay-transport.md). The update address is `https://<that host>/ota/manifest`.
-3. **A build that contains expo-updates and that address.** Updates only reach builds made after this was added, and only builds given the address: `SERVANT_OTA_URL=https://<host>/ota/manifest scripts/testflight.sh <n>` (same for `scripts/firebase.sh` and the Play bundle). Without `SERVANT_OTA_URL`, updates are off in that build. Older builds ignore updates.
+3. **A build that contains expo-updates and that address.** Updates only reach builds made after this was added, and only builds given the address. For an intentional upstream release use `SERVANT_APP_FLAVOR=core SERVANT_OTA_URL=https://<host>/ota/manifest scripts/testflight.sh <n>` (same for `scripts/firebase.sh` and the Play bundle). The scripts refuse to use upstream distribution targets unless `core` is explicit. Without `SERVANT_OTA_URL`, updates are off in that build. Older builds ignore updates.
 4. **The server.** Nothing to configure. `/ota/manifest` and `/ota/assets/<hash>` are part of the API and use `<data>/ota`.
 
 ## The Mac app

@@ -2,12 +2,13 @@ export type Invite = { code: string; server?: string; discovery?: string; server
 
 const CODE = /^[0-9A-Z]{5}-?[0-9A-Z]{5}$/i;
 
-// Accepts a servant://pair?code=…&d=… link (from a QR code, a tap or a paste).
+// Accepts an ordinary servant://pair link or this client's servant-ux://pair
+// link (from a QR code, a tap or a paste).
 export function parseInvite(input: string): Invite | null {
   const text = input.trim();
   if (!text) return null;
-  // servant://pair?… or the web form https://<server>/join?… (same parameters).
-  const match = text.match(/servant:\/\/pair\?[^\s]+/i) || text.match(/https:\/\/[^\s/?#]+\/join\?[^\s]+/i);
+  // Native links and the web form use the same parameters.
+  const match = text.match(/servant(?:-ux)?:\/\/pair\?[^\s]+/i) || text.match(/https:\/\/[^\s/?#]+\/join\?[^\s]+/i);
   if (!match) return null;
   const query = match[0].slice(match[0].indexOf("?") + 1);
   const params = new URLSearchParams(query);

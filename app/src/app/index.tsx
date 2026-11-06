@@ -3,6 +3,7 @@ import { View } from "react-native";
 import { useSession } from "../lib/session";
 import { useTheme } from "../lib/theme";
 import { validServerKey } from "../lib/tunnel-crypto";
+import { onboardingRequired } from "../lib/onboarding";
 
 export default function Index() {
   const { colors } = useTheme();
@@ -12,5 +13,6 @@ export default function Index() {
       <View style={{ flex: 1, backgroundColor: colors.navy }} />
     );
   }
-  return <Redirect href={account && validServerKey(account.serverKey) ? "/channels" : "/welcome"} />;
+  if (!account || !validServerKey(account.serverKey)) return <Redirect href="/welcome" />;
+  return <Redirect href={onboardingRequired(account.uxOnboarding) ? "/onboarding" : "/channels"} />;
 }

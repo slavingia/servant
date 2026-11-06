@@ -1,9 +1,9 @@
 {
-  "name": "servant-desktop",
-  "productName": "Servant",
+  "name": "servant-ux-desktop",
+  "productName": "Servant UX",
   "version": "1.0.8",
-  "description": "Servant for Mac — channels, direct messages, and your agent",
-  "author": "Servant",
+  "description": "Servant UX for Mac — UX research, design, and collaboration",
+  "author": "Servant UX",
   "license": "CC0-1.0",
   "private": true,
   "type": "module",
@@ -24,8 +24,8 @@
     "playwright": "1.58.2"
   },
   "build": {
-    "appId": "gov.irs.servant.desktop",
-    "artifactName": "Servant-${version}-${arch}.${ext}",
+    "appId": "gov.irs.servant.ux.desktop",
+    "artifactName": "Servant-UX-${version}-${arch}.${ext}",
     "directories": {
       "output": "dist"
     },
@@ -47,21 +47,21 @@
       "hardenedRuntime": true,
       "protocols": [
         {
-          "name": "Servant invite",
+          "name": "Servant UX invite",
           "schemes": [
-            "servant"
+            "servant-ux"
           ]
         }
       ],
       "entitlements": "entitlements.mac.plist",
       "entitlementsInherit": "entitlements.mac.plist",
       "extendInfo": {
-        "NSCameraUsageDescription": "Servant uses the camera for meeting video.",
-        "NSMicrophoneUsageDescription": "Servant uses the microphone for meetings."
+        "NSCameraUsageDescription": "Servant UX uses the camera for meeting video.",
+        "NSMicrophoneUsageDescription": "Servant UX uses the microphone for meetings."
       }
     },
     "dmg": {
-      "title": "Servant",
+      "title": "Servant UX",
       "contents": [
         {
           "x": 140,
@@ -75,15 +75,7 @@
           "path": "/Applications"
         }
       ]
-    },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "slavingia",
-        "repo": "servant-desktop-releases",
-        "releaseType": "prerelease"
-      }
-    ]
+    }
   },
   "dependencies": {
     "electron-updater": "6.8.10"

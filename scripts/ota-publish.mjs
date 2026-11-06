@@ -18,25 +18,38 @@ const appDir = path.join(root, "app");
 const args = process.argv.slice(2);
 const arg = (name, fallback = "") => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] ?? "" : fallback; };
 const die = message => { console.error(`servant ota publish: ${message}`); process.exit(1); };
+const env = { ...process.env, CI: "1" };
+
+// Resolve app.config.js so flavor-specific identifiers and runtime versions are
+// exactly the ones Expo embeds in the installed binary.
+const config = JSON.parse(execFileSync("npx", ["expo", "config", "--type", "public", "--json"], { cwd: appDir, encoding: "utf8", env }));
+// Expo deliberately removes local signing paths and metadata from its public
+// config. Read only those build-time fields from the checked-in static config;
+// keep using the resolved public config for flavor/runtime values and manifests.
+const signing = JSON.parse(fs.readFileSync(path.join(appDir, "app.json"), "utf8")).expo?.updates;
+const flavor = config.extra?.servantFlavor || "core";
 
 const dataDir = arg("data") || process.env.SERVANT_DATA_DIR || path.join(os.homedir(), ".local", "share", "servant", "data");
 const only = arg("platform");
-// Everything by default: both phone platforms and the Mac app's interface.
-const chosen = only ? [only] : ["ios", "android", "web"];
+// UX phone runtimes are flavor-isolated. The UX desktop intentionally has no
+// interface-update runtime yet, so a default UX publish cannot replace the
+// interface used by an upstream Servant desktop.
+const chosen = only ? [only] : flavor === "ux" ? ["ios", "android"] : ["ios", "android", "web"];
 if (chosen.some(p => !["ios", "android", "web"].includes(p))) die("--platform must be ios, android or web");
 const platforms = chosen.filter(p => p !== "web");
 const wantsWeb = chosen.includes("web");
+if (wantsWeb && flavor === "ux") die("web interface updates are disabled for Servant UX until it has a dedicated desktop runtime; use SERVANT_APP_FLAVOR=core only for an upstream desktop publish");
 
-const config = JSON.parse(fs.readFileSync(path.join(appDir, "app.json"), "utf8")).expo;
-if (!config.updates?.codeSigningCertificate) die("app.json has no updates.codeSigningCertificate");
+if (!signing?.codeSigningCertificate) die("app.json has no updates.codeSigningCertificate");
 const key = process.env.SERVANT_OTA_KEY_FILE || path.join(os.homedir(), ".config", "servant", "ota-keys", "private-key.pem");
 if (!fs.existsSync(key)) die(`no signing key at ${key}. Generate one with: cd app && npx expo-updates codesigning:generate`);
 
 // The runtime version must equal what the installed builds report, so compute it
 // the same way expo-updates does for the "nativeVersion" policy.
-const policy = config.runtimeVersion?.policy;
 const runtimeFor = platform => {
-  if (typeof config.runtimeVersion === "string") return config.runtimeVersion;
+  const runtime = config[platform]?.runtimeVersion ?? config.runtimeVersion;
+  if (typeof runtime === "string") return runtime;
+  const policy = runtime?.policy;
   const native = platform === "ios" ? config.ios?.buildNumber : config.android?.versionCode;
   if (policy === "nativeVersion") return `${config.version}(${native})`;
   if (policy === "appVersion") return config.version;
@@ -45,15 +58,13 @@ const runtimeFor = platform => {
 const runtimeVersions = Object.fromEntries(platforms.map(p => [p, runtimeFor(p)]));
 
 const note = () => arg("note") || execFileSync("git", ["log", "-1", "--format=%h %s"], { cwd: root, encoding: "utf8" }).trim();
-const env = { ...process.env, CI: "1" };
 
 if (platforms.length) {
   const out = fs.mkdtempSync(path.join(os.tmpdir(), "servant-ota-"));
   try {
     console.log(`Exporting ${platforms.join(" and ")} (runtime ${[...new Set(Object.values(runtimeVersions))].join(", ")})…`);
     execFileSync("npx", ["expo", "export", ...platforms.flatMap(p => ["--platform", p]), "--output-dir", out], { cwd: appDir, stdio: ["ignore", "inherit", "inherit"], env });
-    const expoClient = JSON.parse(execFileSync("npx", ["expo", "config", "--type", "public", "--json"], { cwd: appDir, encoding: "utf8", env }));
-    for (const r of publishUpdate({ dir: path.join(dataDir, "ota"), exportDir: out, runtimeVersions, expoClient, note: note() })) console.log(`Published ${r.id} for ${r.platforms.join("+")} on runtime ${r.runtimeVersion}`);
+    for (const r of publishUpdate({ dir: path.join(dataDir, "ota"), exportDir: out, runtimeVersions, expoClient: config, note: note() })) console.log(`Published ${r.id} for ${r.platforms.join("+")} on runtime ${r.runtimeVersion}`);
   } finally { fs.rmSync(out, { recursive: true, force: true }); }
 }
 

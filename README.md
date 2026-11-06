@@ -6,6 +6,28 @@ Servant is a phone app plus a small server that runs on your own computer. Peopl
 
 Status: open source under CC0. Early software: expect rough edges, and read [SECURITY.md](SECURITY.md) before you put real work through it.
 
+## UX client flavor
+
+This checkout defaults to a separately installable **Servant UX** client while
+keeping the encrypted Servant server protocol unchanged. It can pair with an
+existing Servant server, and the mobile and Mac clients can paste ordinary
+`servant://pair` invites; the mobile client can scan their QR codes too. Its own
+deep-link scheme is `servant-ux://`, so it does not take over links registered to
+the upstream app.
+
+The first UX milestone adds resumable role-and-goal onboarding plus a **Design
+Studio** library over Servant's existing interactive prototype chats. Design
+reviews are shared as ordinary channel or direct-message posts with ordinary
+threads, so teammates using the original client can participate without an app
+upgrade.
+
+The UX mobile build omits Firebase service-file references and Firebase config
+plugins, does not request push permission, and does not register a push token.
+Native push and system call ringing need dedicated UX-team APNs/FCM credentials
+and server-side app/topic routing before they can be enabled. See
+[UX client identity and builds](docs/ux-client.md) for identifiers, build commands,
+core-flavor compatibility, and desktop update limitations.
+
 ## Run it yourself
 
 You need a Mac or Linux computer, Node 22 or newer, and an agent that speaks the Hermes API.

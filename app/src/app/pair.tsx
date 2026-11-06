@@ -53,9 +53,9 @@ export default function Pair() {
     setError(null);
     setBusy(true);
     try {
-      const a = await pair(invite(), withName, termsAcceptance(), withProof);
-      setAccount(a);
-      router.replace("/channels");
+      const account = await pair(invite(), withName, termsAcceptance(), withProof);
+      setAccount(account);
+      router.replace("/onboarding");
     } catch (e) {
       if (e instanceof ServerError && e.code === "email_required") { setEmailStep("email"); }
       else if (e instanceof ServerError && (e.code === "email_code_wrong" || e.code === "email_code_expired")) {

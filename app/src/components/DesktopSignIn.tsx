@@ -11,6 +11,7 @@ import { pollDesktopLink, startDesktopLink, type DesktopLinkSession } from "../l
 import { saveAccountIfCurrent, ServerError } from "../lib/server";
 import { useSession } from "../lib/session";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
+import { startOnboarding } from "../lib/onboarding";
 
 export function DesktopSignIn({ workspace, onUseInvite }: { workspace: DesktopWorkspace; onUseInvite: () => void }) {
   const [attempt, setAttempt] = useState(0);
@@ -45,9 +46,10 @@ function DesktopSignInAttempt({ workspace, onUseInvite, onRetry }: { workspace: 
         setConnection(null);
         if (account) {
           setCompleting(true);
-          if (!await saveAccountIfCurrent(account, () => !controller.signal.aborted)) return;
-          setAccount(account);
-          router.replace("/channels");
+          const onboardingAccount = { ...account, uxOnboarding: startOnboarding() };
+          if (!await saveAccountIfCurrent(onboardingAccount, () => !controller.signal.aborted)) return;
+          setAccount(onboardingAccount);
+          router.replace("/onboarding");
           return;
         }
       } catch (e) {

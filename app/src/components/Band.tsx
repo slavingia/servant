@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { space, typography, createThemedStyles } from "../lib/theme";
+import { appName } from "../lib/app-identity";
 
 // Navy band under the status bar, on every screen without a back button.
 export function Band({ right }: { right?: React.ReactNode }) {
@@ -10,7 +11,7 @@ export function Band({ right }: { right?: React.ReactNode }) {
     <View style={[styles.band, { paddingTop: insets.top }]}>
       <View style={styles.row}>
         <Text style={styles.mark} accessibilityRole="header">
-          Servant
+          {appName}
         </Text>
         {right}
       </View>

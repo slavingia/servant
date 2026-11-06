@@ -16,7 +16,7 @@ import { radius, space, typography, useTheme, createThemedStyles } from "../../l
 const TIERS = [
   { tier: 0, label: "No agent", hint: "They can't use the agent" },
   { tier: 1, label: "Tester", hint: "Their agent only files GitHub issues" },
-  { tier: 2, label: "Prototyper", hint: "Their agent builds design prototypes with a preview link" },
+  { tier: 2, label: "Design prototyper", hint: "Their agent builds interactive designs with a preview link" },
   { tier: 4, label: "Researcher", hint: "Their agent searches the web and uses skills. No GitHub, no files, no commands" },
   { tier: 3, label: "Design engineer", hint: "Their agent has full access" },
 ];

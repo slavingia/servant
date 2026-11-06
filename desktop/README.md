@@ -1,4 +1,17 @@
-# Servant for Mac
+# Servant UX for Mac
+
+This checkout builds a separately installable UX client: product name
+`Servant UX`, app ID `gov.irs.servant.ux.desktop`, URL scheme `servant-ux`, and
+storage under `~/Library/Application Support/Servant UX/`. It accepts both
+`servant-ux://pair` and ordinary `servant://pair` invites when they are pasted.
+Because the operating-system handler is intentionally distinct, opening an
+ordinary `servant://` link directly still targets the upstream Servant app.
+
+Binary updates and downloaded web-interface updates are disabled until the UX
+team has a dedicated signed release feed and desktop runtime. The upstream
+release repository, Firebase Hosting site, artifact names, signing identities,
+and `mac-shell-*` update namespace described later in this file are core Servant
+infrastructure; do not publish a Servant UX build to them.
 
 The Mac app packages the Expo web application with Electron. It bundles the app
 locally, opens external web links in the default browser, and saves its account
@@ -40,7 +53,8 @@ device token, account export, or credential file as the workspace configuration.
 Both `web/` and `workspace.json` are generated and ignored by Git.
 
 `npm run pack --prefix desktop` creates an unpacked app for inspection.
-`npm run dist --prefix desktop` exports the web app and creates DMG and ZIP files
+`npm run dist --prefix desktop` exports the web app and creates `Servant-UX-*`
+DMG and ZIP files
 in `desktop/dist/`. Packaged apps must use production HTTPS configuration; local
 test configuration is for development only.
 
@@ -52,11 +66,11 @@ The Mac app does not need the phone app or a QR code. On the Mac that will host 
 deploy/mac/install.sh            # add --tunnel so phones and other computers can reach it
 ```
 
-It installs the server as launch agents, adds a `servant` command, and prints a one-time `servant://pair` link for the owner. If `/Applications/Servant.app` is installed it opens the link and signs in. Otherwise, open the app, choose **Paste an invite link** and paste it.
+It installs the server as launch agents, adds a `servant` command, and prints a one-time `servant://pair` link for the owner. The installer's automatic open targets `/Applications/Servant.app`; for Servant UX, open the app, choose **Paste an invite link**, and paste the same link.
 
 Later, on the same Mac: `servant invite --owner` (a new device for you), `servant invite` (team link), `servant invite --name "Ann"` (one person). Without a public address, links point at `127.0.0.1` and work only on that Mac. Running the installer again deploys newer code and keeps the data.
 
-To join a server run by someone else, ask the admin for an invite link and paste it into the Mac app. `servant://` links opened from Terminal, Mail or a browser also open the Mac app.
+To join a server run by someone else, ask the admin for an invite link and paste it into the Mac app. Direct links for this app use `servant-ux://`; ordinary `servant://` links remain assigned to upstream Servant when it is installed.
 
 ## QR sign-in
 
@@ -213,6 +227,10 @@ actually released. Publishing the website does not deploy the pairing server or
 update the phone apps.
 
 ## Updates
+
+The update behavior below documents the upstream core app. Servant UX currently
+shows a clear "not configured" message for binary update checks and does not poll
+the shared `mac-shell-*` web-interface runtime, preventing cross-flavor updates.
 
 The app checks [the release repository](https://github.com/slavingia/servant-desktop-releases)
 10 seconds after launch, every 6 hours, and from **Servant → Check for Updates…**.

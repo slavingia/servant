@@ -13,6 +13,8 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { AppIcon } from "../../components/AppIcon";
 import { useSession } from "../../lib/session";
 import { createThemedStyles, useTheme, radius, space, typography } from "../../lib/theme";
+import { startOnboarding } from "../../lib/onboarding";
+import { appName } from "../../lib/app-identity";
 
 function Row({ label, value, onPress }: { label: string; value?: string; onPress?: () => void }) {
   const { colors } = useTheme();
@@ -57,6 +59,7 @@ export default function Settings() {
   const [challenge, setChallenge] = useState("");
   const [emailBusy, setEmailBusy] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
+  const [onboardingError, setOnboardingError] = useState<string | null>(null);
   useEffect(() => {
     if (!account) return;
     let live = true;
@@ -173,6 +176,18 @@ export default function Settings() {
     }
   };
 
+  const restartOnboarding = async () => {
+    setOnboardingError(null);
+    const updated = { ...account, uxOnboarding: startOnboarding() };
+    try {
+      await saveAccount(updated);
+      setAccount(updated);
+      router.push("/onboarding");
+    } catch {
+      setOnboardingError("Couldn't restart onboarding. Try again.");
+    }
+  };
+
   return (
     <View style={styles.root}>
     <ScrollView ref={scrollRef} style={styles.root} contentContainerStyle={styles.content} contentInsetAdjustmentBehavior="automatic">
@@ -238,7 +253,9 @@ export default function Settings() {
       <View style={styles.group}>
         <Row label="Notifications" onPress={() => router.push("/notifications")} />
         <Row label="Link a computer" onPress={() => router.push("/link-computer")} />
+        <Row label="Restart onboarding" onPress={() => void restartOnboarding()} />
       </View>
+      {onboardingError ? <Text accessibilityRole="alert" style={styles.photoError}>{onboardingError}</Text> : null}
 
       <Text accessibilityRole="header" style={styles.section}>Workspace</Text>
       <View style={styles.group}>
@@ -253,7 +270,7 @@ export default function Settings() {
       </Pressable>
     </ScrollView>
     <PhotoCropper source={cropSource} onCancel={() => setCropSource(null)} onDone={b64 => { setCropSource(null); void uploadPhoto(b64); }} />
-      <ConfirmDialog visible={confirming} title="Sign out of Servant?" description="You'll need a new invite to sign in again." confirmLabel="Sign out" onConfirm={() => void leave()} onCancel={() => setConfirming(false)} busy={leaving} error={error} />
+      <ConfirmDialog visible={confirming} title={`Sign out of ${appName}?`} description="You'll need a new invite to sign in again." confirmLabel="Sign out" onConfirm={() => void leave()} onCancel={() => setConfirming(false)} busy={leaving} error={error} />
     </View>
   );
 }

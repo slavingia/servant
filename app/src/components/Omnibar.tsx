@@ -7,6 +7,7 @@ import { api, ServerError, type Account, type Chat, type Conversation, type Pers
 import { useSession } from "../lib/session";
 import { matchesQuery, omnibarShortcuts, searchExcerpt } from "../lib/omnibar";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
+import { appName } from "../lib/app-identity";
 import { Button } from "./Button";
 import { AppIcon, type AppIconName } from "./AppIcon";
 
@@ -194,14 +195,14 @@ function SearchBar({ account, variant }: { account: Account; variant: "bar" | "s
   };
 
   return <>
-    {variant === "sidebar" ? <Pressable ref={trigger} accessibilityRole="button" accessibilityLabel="Search Servant" accessibilityHint="Find channels, people, messages, and quick actions" accessibilityState={{ expanded: visible }} onPress={open}
+    {variant === "sidebar" ? <Pressable ref={trigger} accessibilityRole="button" accessibilityLabel={`Search ${appName}`} accessibilityHint="Find channels, people, messages, and quick actions" accessibilityState={{ expanded: visible }} onPress={open}
       style={state => [styles.sidebarTrigger, ((state as { hovered?: boolean }).hovered || state.pressed) && styles.sidebarTriggerHovered]}>
       <AppIcon name="search" color={colors.onBrand} size={16} />
       <Text numberOfLines={1} style={styles.sidebarPlaceholder}>Search</Text>
       <Text style={styles.sidebarShortcut}>⌘K</Text>
     </Pressable> : <View style={[styles.header, { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right }]}>
       <View style={styles.headerRow}>
-        <Pressable ref={trigger} accessibilityRole="button" accessibilityLabel="Search Servant" accessibilityHint="Find channels, people, messages, and quick actions" accessibilityState={{ expanded: visible }} onPress={open} style={({ pressed }) => [styles.trigger, pressed && styles.triggerPressed]}>
+        <Pressable ref={trigger} accessibilityRole="button" accessibilityLabel={`Search ${appName}`} accessibilityHint="Find channels, people, messages, and quick actions" accessibilityState={{ expanded: visible }} onPress={open} style={({ pressed }) => [styles.trigger, pressed && styles.triggerPressed]}>
           <AppIcon name="search" color={colors.onBrand} size={18} />
           <Text numberOfLines={1} style={styles.placeholder}>Search</Text>
           {Platform.OS === "web" && width >= 600 ? <Text style={styles.shortcut}>⌘ / Ctrl K</Text> : null}
@@ -236,7 +237,7 @@ function SearchBar({ account, variant }: { account: Account; variant: "bar" | "s
             {actionError ? <Text accessibilityRole="alert" style={styles.actionError}>{actionError}</Text> : null}
             <FlatList ref={list} nativeID="servant-search-results" accessibilityRole={Platform.OS === "web" ? "listbox" : undefined} accessibilityLabel="Search results" data={rows} keyExtractor={row => row.id} extraData={{ selected, opening }} keyboardShouldPersistTaps="handled" style={[styles.results, mobile && styles.mobileResults]} contentContainerStyle={styles.resultContent}
               onScrollToIndexFailed={info => list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false })}
-              ListEmptyComponent={<View style={styles.empty}><Text accessibilityRole="header" style={styles.emptyTitle}>{searching ? "Searching Servant…" : currentResponse?.error ? "Search unavailable" : "No matches"}</Text><Text style={styles.emptyBody}>{searching ? "Looking through conversations you can access." : currentResponse?.error ? "Retry the search, or try a conversation name." : "Try a different name, topic, or phrase."}</Text></View>}
+              ListEmptyComponent={<View style={styles.empty}><Text accessibilityRole="header" style={styles.emptyTitle}>{searching ? `Searching ${appName}…` : currentResponse?.error ? "Search unavailable" : "No matches"}</Text><Text style={styles.emptyBody}>{searching ? "Looking through conversations you can access." : currentResponse?.error ? "Retry the search, or try a conversation name." : "Try a different name, topic, or phrase."}</Text></View>}
               renderItem={({ item }) => item.kind === "heading" ? <Text accessibilityRole="header" style={styles.groupTitle}>{item.title}</Text> :
                 <Pressable nativeID={`omnibar-${item.result.id}`} accessibilityRole={Platform.OS === "web" ? "option" : "button"} accessibilityLabel={`${item.result.title}. ${item.result.detail}`} accessibilityHint={item.result.id.startsWith("message:") ? "Open the thread containing this message" : undefined} accessibilityState={{ selected: item.index === selected, busy: opening === item.id, disabled: !!opening }} disabled={!!opening}
                   onPress={() => { void activate(item.result); }} onHoverIn={() => setActive(item.index)}

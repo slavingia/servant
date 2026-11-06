@@ -48,7 +48,7 @@ export function Sidebar() {
   const { sort, pending } = useChannelSort();
   const pathname = usePathname();
   // Thread, details and files belong to a channel or DM; keep it highlighted.
-  const params = useGlobalSearchParams<{ id?: string; conv?: string; kind?: string }>();
+  const params = useGlobalSearchParams<{ id?: string; conv?: string; kind?: string; studio?: string }>();
   const parentId = pathname === "/thread" ? params.conv : pathname === "/channel-info" || (pathname === "/files" && params.kind === "conversation") ? params.id : undefined;
   const isOpen = (c: Conversation) => pathname === `/c/${c.id}` || parentId === c.id;
   const [projectsOpen, setProjectsOpen] = useState(true);
@@ -80,7 +80,8 @@ export function Sidebar() {
       <View style={styles.search}><Omnibar variant="sidebar" /></View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         <NavItem icon="home" label="Home" count={unread.channels} selected={pathname === "/channels" || pathname === "/"} onPress={() => go(pathname, "/channels")} />
-        <NavItem icon="sparkles" label="Agent" count={unread.agent} selected={pathname === "/agent" || pathname.startsWith("/chat/") || (pathname === "/files" && params.kind === "chat")} onPress={() => go(pathname, "/agent")} />
+        <NavItem icon="sparkles" label="Agent" count={unread.agent} selected={pathname === "/agent" || (pathname.startsWith("/chat/") && params.studio !== "1") || (pathname === "/files" && params.kind === "chat")} onPress={() => go(pathname, "/agent")} />
+        <NavItem icon="code" label="Designs" selected={pathname === "/designs" || (pathname.startsWith("/chat/") && params.studio === "1")} onPress={() => go(pathname, "/designs")} />
         <NavItem icon="chat" label="Direct messages" count={unread.messages} selected={pathname === "/messages"} onPress={() => go(pathname, "/messages")} />
         <NavItem icon="people" label="People" selected={pathname === "/members" || pathname === "/invite"} onPress={() => go(pathname, "/members")} />
 

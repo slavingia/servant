@@ -2,7 +2,7 @@ import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, Menu, nativeTheme
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { APP_URL, DOWNLOAD_PAGE, allowedPermission, assetPath, externalUrl, inviteLink, isAppUrl, workspaceConfig } from './policy.mjs';
+import { APP_NAME, APP_URL, DOWNLOAD_PAGE, INTERNAL_SCHEME, INVITE_SCHEME, USER_DATA_NAME, allowedPermission, assetPath, externalUrl, inviteLink, isAppUrl, workspaceConfig } from './policy.mjs';
 import { createUpdates } from './updates.mjs';
 import { createWebUpdates } from './ota.mjs';
 
@@ -10,22 +10,28 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const bundledRoot = path.join(here, 'web');
 // The interface can be replaced by a signed update from the server (see ota.mjs).
 let webRoot = bundledRoot;
-app.setName('Servant');
+app.setName(APP_NAME);
+// Electron normally derives this path from the app name. Set it explicitly so
+// the UX client can be installed beside Servant without sharing credentials,
+// accounts, caches, or downloaded interface updates.
+app.setPath('userData', path.join(app.getPath('appData'), USER_DATA_NAME));
 // QA always uses a distinct profile and a separately configured test workspace.
 if (!app.isPackaged && process.env.SERVANT_DESKTOP_TEST_PROFILE) {
-  app.setName('Servant Test');
+  app.setName(`${APP_NAME} Test`);
   app.setPath('userData', path.resolve(process.env.SERVANT_DESKTOP_TEST_PROFILE));
 }
-protocol.registerSchemesAsPrivileged([{ scheme: 'servant-app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
+protocol.registerSchemesAsPrivileged([{ scheme: INTERNAL_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 const rawWorkspace = JSON.parse(fs.readFileSync(path.join(here, 'workspace.json'), 'utf8'));
 const workspace = rawWorkspace ? workspaceConfig(rawWorkspace, { allowLoopback: !app.isPackaged && !!process.env.SERVANT_DESKTOP_TEST_PROFILE }) : undefined;
 let window;
 const validSender = event => event.sender === window?.webContents && event.senderFrame === window.webContents.mainFrame && isAppUrl(event.senderFrame.url);
 const openExternal = value => { const url = externalUrl(value); if (url) void shell.openExternal(url); };
-const updates = createUpdates({ getWindow: () => window, openExternal });
+const updates = createUpdates({ getWindow: () => window, openExternal, enabled: Boolean(DOWNLOAD_PAGE) });
 const certificateFile = path.join(here, 'ota-certificate.pem');
-// Interface updates run in the installed app, and in a test profile; never from a source checkout.
-const webUpdatesEnabled = fs.existsSync(certificateFile) && (app.isPackaged || !!process.env.SERVANT_DESKTOP_TEST_PROFILE);
+// The upstream desktop uses mac-shell-* on shared Servant servers. Keep UX
+// interface updates off until it has a distinct runtime, or one client could
+// receive the other client's web bundle.
+const webUpdatesEnabled = false;
 let webUpdates = null;
 // An invite link opened before the window can take it (for example the one
 // deploy/mac/install.sh opens) waits here until the app asks for it.
@@ -43,10 +49,10 @@ app.on('open-url', (event, url) => { event.preventDefault(); openInvite(url); })
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
-  if (app.isPackaged) app.setAsDefaultProtocolClient('servant');
+  if (app.isPackaged) app.setAsDefaultProtocolClient(INVITE_SCHEME);
   app.on('second-instance', (event, argv) => { if (window?.isMinimized()) window.restore(); window?.show(); window?.focus(); argv.forEach(openInvite); });
   app.whenReady().then(async () => {
-    protocol.handle('servant-app', async request => {
+    protocol.handle(INTERNAL_SCHEME, async request => {
       let file = assetPath(webRoot, request.url);
       if (!file && new URL(request.url).href === APP_URL + '/') file = path.join(webRoot, 'index.html');
       if (!file || !['GET', 'HEAD'].includes(request.method)) return new Response('Not found', { status: 404 });
@@ -56,7 +62,7 @@ else {
       }
       const result = await net.fetch(pathToFileURL(file).href);
       const headers = new Headers(result.headers);
-      headers.set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: data:; font-src 'self' data:; connect-src 'self' https: http://127.0.0.1:* http://localhost:*; object-src 'none'; frame-src https://taxpayer-services-and-online-accounts.github.io https://platform.twitter.com; base-uri 'self'; form-action 'none'");
+      headers.set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: data:; font-src 'self' data:; connect-src 'self' https: http://127.0.0.1:* http://localhost:*; object-src 'none'; frame-src https: http://127.0.0.1:* http://localhost:*; base-uri 'self'; form-action 'none'");
       headers.set('X-Content-Type-Options', 'nosniff');
       return new Response(result.body, { status: result.status, headers });
     });
@@ -98,7 +104,7 @@ else {
         const file = path.join(app.getPath('userData'), 'account.enc');
         if (operation === 'remove') { fs.rmSync(file, { force: true }); return; }
         if (operation === 'get' && !fs.existsSync(file)) return null;
-        if (!await safeStorage.isAsyncEncryptionAvailable()) throw new Error('Unlock your Mac Keychain to use Servant');
+        if (!await safeStorage.isAsyncEncryptionAvailable()) throw new Error(`Unlock your Mac Keychain to use ${APP_NAME}`);
         if (operation === 'get') return (await safeStorage.decryptStringAsync(fs.readFileSync(file))).result;
         fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
         fs.writeFileSync(file + '.tmp', await safeStorage.encryptStringAsync(value), { mode: 0o600 });
@@ -116,7 +122,7 @@ else {
       { role: 'editMenu' },
       { label: 'View', submenu: [{ role: 'reload' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'togglefullscreen' }] },
       { role: 'windowMenu' },
-      { role: 'help', submenu: [{ label: 'Download the latest Servant', click: () => openExternal(DOWNLOAD_PAGE) }] },
+      ...(DOWNLOAD_PAGE ? [{ role: 'help', submenu: [{ label: `Download the latest ${APP_NAME}`, click: () => openExternal(DOWNLOAD_PAGE) }] }] : []),
     ]));
     if (webUpdatesEnabled) {
       webUpdates = createWebUpdates({
@@ -132,12 +138,12 @@ else {
     updates.start();
     startWebUpdates();
     app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); else window?.show(); });
-  }).catch(error => { dialog.showErrorBox('Servant could not start', error.message); app.quit(); });
+  }).catch(error => { dialog.showErrorBox(`${APP_NAME} could not start`, error.message); app.quit(); });
 }
 
 function createWindow() {
   window = new BrowserWindow({
-    width: 1200, height: 820, minWidth: 760, minHeight: 560, title: 'Servant', show: false,
+    width: 1200, height: 820, minWidth: 760, minHeight: 560, title: APP_NAME, show: false,
     // The sidebar draws under the inset traffic lights, like Slack and ChatGPT.
     titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 13 },
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#12161C' : '#FFFFFF',
@@ -166,7 +172,7 @@ function signedInServer() {
 
 const askRestart = async () => {
   if (process.env.SERVANT_DESKTOP_TEST_PROFILE) return; // test profiles apply it on the next launch
-  const options = { type: 'info', buttons: ['Restart Now', 'Later'], defaultId: 0, cancelId: 1, message: 'A Servant update is ready', detail: 'Restart to use it. Otherwise it starts the next time you open Servant.' };
+  const options = { type: 'info', buttons: ['Restart Now', 'Later'], defaultId: 0, cancelId: 1, message: `A ${APP_NAME} update is ready`, detail: `Restart to use it. Otherwise it starts the next time you open ${APP_NAME}.` };
   const { response } = window ? await dialog.showMessageBox(window, options) : await dialog.showMessageBox(options);
   if (response === 0) { app.relaunch(); app.quit(); }
 };

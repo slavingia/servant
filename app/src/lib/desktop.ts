@@ -20,7 +20,7 @@ export function isDesktop() {
   return typeof window !== "undefined" && window.servantDesktop?.platform === "macos";
 }
 
-// servant://pair links opened on the Mac (from Terminal, Mail or a browser).
+// Servant pair links opened on the Mac (from Terminal, Mail or a browser).
 // Calls back with the one that launched the app, then with each new one.
 export function watchDesktopInvites(callback: (link: string) => void): () => void {
   if (!isDesktop()) return () => {};

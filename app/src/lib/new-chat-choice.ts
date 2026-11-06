@@ -18,7 +18,7 @@ export function offered(projects: Projects | null, choice: NewChatChoice): boole
 
 export function choiceName(projects: Projects | null, choice: NewChatChoice): string {
   if (!offered(projects, choice)) return "Just the agent";
-  return choice === VIBE_CHOICE ? "Prototyping" : projects?.list.find(p => p.id === choice)?.name ?? "Just the agent";
+  return choice === VIBE_CHOICE ? "Design Studio" : projects?.list.find(p => p.id === choice)?.name ?? "Just the agent";
 }
 
 // The POST /v1/chats body for a choice. Prototypers always build prototypes, whatever they send.
