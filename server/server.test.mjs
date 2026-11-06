@@ -193,6 +193,12 @@ test("joining needs all three terms checks, and the acceptance is recorded", asy
   assert.ok(Object.values(saved.devices).some(d => d.id === user.termsAcceptances[0].deviceId));
 });
 
+test("the privacy policy is a public page", async () => {
+  const r = await fetch(base + "/privacy");
+  assert.equal(r.status, 200);
+  assert.match(await r.text(), /Servant privacy policy/);
+});
+
 test("everything except health and pairing needs a token", async () => {
   assert.equal((await api("GET", "/health")).status, 200);
   assert.equal((await api("GET", "/v1/chats")).status, 401);

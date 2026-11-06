@@ -14,6 +14,7 @@
 //   node server/server.mjs release <build> <notes.md>   post a build's notes to #whats-new
 
 import { joinPage } from "./join-page.mjs";
+import { PRIVACY_PAGE } from "./privacy-page.mjs";
 import { createEmailVerifier, commandSender, emailSettings, normalizeEmail } from "./email-verify.mjs";
 import http from "node:http";
 import crypto from "node:crypto";
@@ -669,6 +670,11 @@ async function handle(req, res, cfg) {
   if (method === "GET" && url.pathname === "/join") {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" });
     return res.end(joinPage(cfg.downloads));
+  }
+  // Privacy policy for the app stores (Google Play and App Store link here).
+  if (method === "GET" && url.pathname === "/privacy") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=300", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'" });
+    return res.end(PRIVACY_PAGE);
   }
   if (url.pathname.startsWith("/ota/") && ota().handle(req, res)) return undefined;
 
