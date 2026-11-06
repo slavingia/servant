@@ -17,6 +17,7 @@ const TIERS = [
   { tier: 0, label: "No agent", hint: "They can't use the agent" },
   { tier: 1, label: "Bug reporter", hint: "Their agent only files GitHub issues" },
   { tier: 2, label: "Vibe coder", hint: "Their agent builds design prototypes with a preview link" },
+  { tier: 4, label: "Researcher", hint: "Their agent searches the web and uses skills. No GitHub, no files, no commands" },
   { tier: 3, label: "Design engineer", hint: "Their agent has full access" },
 ];
 
@@ -60,7 +61,7 @@ export default function Members() {
   const statusOf = (person: Person) => person.id === account.user.id ? "" : presenceLabel(presence[person.id] ?? { ...person, online: false }, now, connected);
   // One line under the name: role or agent tier, the lifted token limit (owners only), presence.
   const describe = (person: Person, status: string) => [
-    person.owner ? "Workspace owner" : (person.agentTier && TIERS[person.agentTier]?.label) || "Member",
+    person.owner ? "Workspace owner" : (person.agentTier && TIERS.find(t => t.tier === person.agentTier)?.label) || "Member",
     owner && !person.owner && person.unlimitedTokens ? "No token limit" : null,
     status || null,
   ].filter(Boolean).join(" · ");

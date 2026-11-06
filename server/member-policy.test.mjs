@@ -65,3 +65,47 @@ test("profile setup creates private empty-memory profile and never overwrites ex
     assert.deepEqual(fs.readdirSync(target), ["config.yaml"]);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
+
+import { assertResearcherCapabilities, verifyResearcherUpstream, RESEARCHER_POLICY_VERSION, RESEARCHER_ALLOWED_TOOLS } from "./member-policy.mjs";
+
+const researcherAttestation = () => ({ features: { servant_researcher_isolation: true }, servant: { researcherPolicy: {
+  version: 1, allowedTools: [...RESEARCHER_ALLOWED_TOOLS], terminal: false, files: false, github: false,
+  persistentMemory: false, localContext: false, localMedia: false,
+} } });
+
+test("researcher constants match the bridge's reviewable policy, and it can never run a shell or read a file", () => {
+  const source = JSON.parse(fs.readFileSync(new URL("./researcher-policy.json", import.meta.url), "utf8"));
+  assert.equal(RESEARCHER_POLICY_VERSION, source.version);
+  assert.deepEqual([...RESEARCHER_ALLOWED_TOOLS].sort(), [...source.allowedTools].sort());
+  for (const tool of ["terminal", "process", "read_file", "write_file", "patch", "search_files", "execute_code", "delegate_task",
+    "browser_navigate", "memory", "session_search", "skill_manage", "cronjob", "send_message", "mcp"]) {
+    assert.ok(!RESEARCHER_ALLOWED_TOOLS.includes(tool), `${tool} must not be allowed`);
+  }
+  for (const domain of ["github.com", "*.github.com", "githubusercontent.com", "github.io", "ghcr.io"]) {
+    assert.ok(source.blockedWebDomains.includes(domain), `${domain} must be blocked`);
+  }
+});
+
+test("researcher turns need the bridge's own attestation", () => {
+  assert.doesNotThrow(() => assertResearcherCapabilities(researcherAttestation()));
+  assert.throws(() => assertResearcherCapabilities(attestation()), { code: "researcher_policy_unverified" });   // the member agent doesn't qualify
+  for (const field of ["terminal", "files", "github"]) {
+    const data = researcherAttestation(); data.servant.researcherPolicy[field] = true;
+    assert.throws(() => assertResearcherCapabilities(data), { code: "researcher_policy_unverified" });
+  }
+  for (const field of ["persistentMemory", "localContext", "localMedia"]) {
+    const data = researcherAttestation(); data.servant.researcherPolicy[field] = true;
+    assert.throws(() => assertResearcherCapabilities(data));
+  }
+  const extra = researcherAttestation(); extra.servant.researcherPolicy.allowedTools.push("terminal");
+  assert.throws(() => assertResearcherCapabilities(extra), { code: "researcher_policy_unverified" });
+  const fewer = researcherAttestation(); fewer.servant.researcherPolicy.allowedTools.pop();
+  assert.throws(() => assertResearcherCapabilities(fewer));
+});
+
+test("the full agent can't pass as a researcher", async () => {
+  const full = { features: { servant_researcher_isolation: false, servant_durable_media_runs: true }, servant: { bridgeVersion: 1 } };
+  await assert.rejects(verifyResearcherUpstream({ url: "http://127.0.0.1:8645", key: "k" }, { fetchImpl: async () => Response.json(full) }), { code: "researcher_policy_unverified" });
+  await assert.rejects(verifyResearcherUpstream({ url: "https://example.com", key: "k" }, { fetchImpl: async () => Response.json(researcherAttestation()) }), { code: "researcher_policy_unverified" });
+  await assert.rejects(verifyResearcherUpstream({ url: "http://127.0.0.1:8646", key: "" }), { code: "researcher_policy_unverified" });
+});

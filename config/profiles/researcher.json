@@ -1,0 +1,43 @@
+{
+  "model": "",
+  "toolsets": [
+    "servant_researcher"
+  ],
+  "platform_toolsets": {
+    "api_server": [
+      "servant_researcher"
+    ]
+  },
+  "mcp_servers": {},
+  "memory": {
+    "memory_enabled": false,
+    "user_profile_enabled": false,
+    "provider": ""
+  },
+  "context": {
+    "engine": "compressor"
+  },
+  "agent": {
+    "max_turns": 30
+  },
+  "security": {
+    "website_blocklist": {
+      "enabled": true,
+      "domains": [
+        "github.com",
+        "*.github.com",
+        "githubusercontent.com",
+        "*.githubusercontent.com",
+        "github.io",
+        "*.github.io",
+        "githubassets.com",
+        "*.githubassets.com",
+        "ghcr.io",
+        "gist.github.com",
+        "*.github.enterprise.irs.gov",
+        "github.enterprise.irs.gov"
+      ],
+      "shared_files": []
+    }
+  }
+}

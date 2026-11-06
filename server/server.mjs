@@ -31,12 +31,12 @@ import { createStateStore } from "./state-store.mjs";
 import { createDeviceLink, previewDeviceLink, approveDeviceLink, denyDeviceLink, pollDeviceLink, createSignInLink } from "./device-links.mjs";
 import { privateMessageView } from "./source-device.mjs";
 import { createChatMediaStore } from "./chat-media.mjs";
-import { createUsageStore, limitMessage, agentTierOf, AGENT_TIERS } from "./usage.mjs";
+import { createUsageStore, limitMessage, agentTierOf, AGENT_TIERS, RESEARCHER_TIER } from "./usage.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { supportsDurableRuns, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
 import { MAX_ITEMS, MAX_PEOPLE, MAX_PROJECTS, MAX_RELEASES, VIBE_PROJECT, accessOf, accessibleProjects, cleanDate, cleanDescription, cleanLevel, cleanLogin, cleanName, cleanNotes, cleanPath, cleanReleaseName, cleanRepo, cleanRules, cleanStage, cleanStages, cleanTitle, cleanUrl, cleanWorkflow, createProjectFiles, createProjectStore, expandPath, migrateFolders, needsMigration, newItem, newProject, newRelease, patchCell, projectInstructions, projectPeople, projectSharedWith, projectView, removeAccess, setAccess, validProjectId, vibeFolder, vibePreview } from "./projects.mjs";
 import { validTermsAcceptance } from "./terms.mjs";
-import { verifyMemberUpstream } from "./member-policy.mjs";
+import { verifyMemberUpstream, verifyResearcherUpstream } from "./member-policy.mjs";
 import { composeForward } from "./forward.mjs";
 import { stepDetail, THINKING_LINE, toolStatusLine, WRITING_LINE } from "./agent-status.mjs";
 import { validateUploads, normalizeMediaContent, hermesInput, mediaPage, createMediaDeltaFilter, MAX_UPLOAD_BODY, TEXT_PART_CHARS } from "./media.mjs";
@@ -127,7 +127,7 @@ export function loadConfig() {
     // non-owners use the restricted member bridge (docs/member-security.md).
     agentAccess: cfg.agentAccess === "limited" ? "limited" : "full",
     // Where new people start: 0 = no agent until an owner sets a tier (1 bug reporter, 2 vibe coder, 3 design engineer).
-    defaultAgentTier: [0, 1, 2, 3].includes(cfg.defaultAgentTier) ? cfg.defaultAgentTier : 0,
+    defaultAgentTier: [0, 1, 2, 3, 4].includes(cfg.defaultAgentTier) ? cfg.defaultAgentTier : 0,
     // Where the server can be reached from phones. Filled in by the tunnel script.
     publicUrl: process.env.SERVANT_PUBLIC_URL || cfg.publicUrl || "",
     // Stable URL that always returns {"url": "<current publicUrl>"}.
@@ -139,6 +139,7 @@ export function loadConfig() {
     upstreams: cfg.upstreams || {
       owner: { url: "http://127.0.0.1:8642", key: process.env.SERVANT_OWNER_KEY || "" },
       member: { url: "http://127.0.0.1:8643", key: process.env.SERVANT_MEMBER_KEY || "" },
+      researcher: { url: "http://127.0.0.1:8646", key: process.env.SERVANT_RESEARCHER_KEY || "" },
     },
   };
 }
@@ -398,14 +399,27 @@ function fullAgentAccess(cfg) {
 }
 
 function agentRole(role, cfg) {
+  // A researcher (tier 4) is never promoted to the full agent, whatever agentAccess says.
+  if (role === "researcher") return "researcher";
   return role === "owner" || fullAgentAccess(cfg) ? "owner" : "member";
 }
 
+// Which agent a person's chats run on: "researcher" for tier 4, otherwise the usual owner or member agent.
+function agentLane(user, cfg) {
+  if (user?.role === "researcher") return "researcher";
+  if (user && user.role !== "owner" && agentTierOf(user) === RESEARCHER_TIER) return "researcher";
+  return agentRole(user?.role, cfg);
+}
+
 function upstreamFor(user, cfg) {
-  const up = cfg.upstreams[agentRole(user.role, cfg)];
+  const up = cfg.upstreams[agentLane(user, cfg)];
   if (!up || !up.url || !up.key) return null;
   return up;
 }
+
+// Restricted agents prove what they can do before every turn: the member agent has no tools at all,
+// the researcher has web, search, vision and read-only skills but no shell and no files (so no GitHub).
+const verifyUpstream = (lane, up) => lane === "researcher" ? verifyResearcherUpstream(up) : lane === "owner" ? Promise.resolve() : verifyMemberUpstream(up);
 
 async function hermes(up, method, pathname, body, extraHeaders = {}, signal) {
   const res = await fetch(new URL(pathname, up.url), {
@@ -584,9 +598,13 @@ function migrateProjects() {
   });
 }
 // The chat's project (repo, workflow, rules, what the asker may do, notes and files), sent with every turn.
+const RESEARCHER_RULES = "This person is a researcher. You can search the web, read pages and files they attach, look at images, use skills and plan, and explain what you found with sources. You cannot use GitHub in any way: no gh, no git, no issues, no pull requests, no repositories. If they ask for that, say that GitHub is not available to them and offer to help another way, or to ask a design engineer. You cannot run commands or read or write files.";
 const BUG_REPORTER_RULES = "This person is a bug reporter. The only thing you do for them is file GitHub issues (with gh) in the project's repo: ask what happened, what they expected and the steps, then open one clear issue and share the link. Don't change code, push, or do any other work, and say so kindly if asked.";
 function chatContext(chat) {
-  const tier1 = agentTierOf(readState().users[chat.userId]) === 1 ? BUG_REPORTER_RULES : "";
+  const tier = agentTierOf(readState().users[chat.userId]);
+  const tier1 = tier === 1 ? BUG_REPORTER_RULES : "";
+  // A researcher's chat never carries a project's repo, workflow or GitHub rules.
+  if (chat.role === "researcher" || tier === RESEARCHER_TIER) return RESEARCHER_RULES;
   const base = chatContextBase(chat);
   return [base, tier1].filter(Boolean).join("\n\n");
 }
@@ -1052,7 +1070,7 @@ async function handle(req, res, cfg) {
     // fixing someone's name (a typo at invite time).
     const flags = ["vibeCoder", "unlimitedTokens"].filter(k => k in body);
     const tierSet = "agentTier" in body;
-    if (tierSet && (!Number.isInteger(body.agentTier) || body.agentTier < 0 || body.agentTier > 3)) return fail(res, 400, "bad_request", "agentTier is 0 (no agent), 1 (bug reporter), 2 (vibe coder) or 3 (design engineer)"), undefined;
+    if (tierSet && (!Number.isInteger(body.agentTier) || body.agentTier < 0 || body.agentTier > 4)) return fail(res, 400, "bad_request", "agentTier is 0 (no agent), 1 (bug reporter), 2 (vibe coder), 3 (design engineer) or 4 (researcher)"), undefined;
     const rename = typeof body.name === "string" ? body.name.replace(/\s+/g, " ").trim().slice(0, 40) : null;
     if ((!flags.length && !rename && !tierSet) || flags.some(k => typeof body[k] !== "boolean") || rename === "") return fail(res, 400, "bad_request", "Send a name, or vibeCoder/unlimitedTokens as true or false");
     const person = mutateAuthenticated(req, (state) => {
@@ -1139,16 +1157,17 @@ async function handle(req, res, cfg) {
     const creator = requireAuth(req).user;
     const creationUp = upstreamFor(creator, cfg);
     if (!creationUp) return fail(res, 503, "agent_unavailable", "The agent isn't set up on this server yet");
-    if (agentRole(creator.role, cfg) !== "owner") await verifyMemberUpstream(creationUp);
+    const lane = agentLane(creator, cfg);
+    if (lane !== "owner") await verifyUpstream(lane, creationUp);
     const chatId = id("cht");
     // Vibe coders always build prototypes. Anyone else may start the chat in a project
     // they're in, or ask for vibe coding (a prototype with a preview link) from the list.
     const tier = agentTierOf(readState().users[creator.id]);
     if (tier === 0) return fail(res, 403, "no_agent", noAgentMessage);
-    const vibe = tier === 2 || (tier === 3 && body.mode === "vibe");
+    const vibe = lane !== "researcher" && (tier === 2 || (tier === 3 && body.mode === "vibe"));
     if (vibe && !vibeProject()) return fail(res, 503, "vibe_unavailable", "Vibe coding isn't set up on this server");
     // Old builds send folderId, or project with ids this server may no longer know.
-    const wanted = body.projectId ?? body.folderId ?? (projects().byId(body.project) ? body.project : null);
+    const wanted = lane === "researcher" ? null : (body.projectId ?? body.folderId ?? (projects().byId(body.project) ? body.project : null));
     if (!vibe && wanted != null && !projectFor(creator, wanted)) return fail(res, 404, "not_found", "No such project");
     const projectId = vibe ? VIBE_PROJECT : wanted;
     const hermesSessionId = `servant_${creator.id}_${chatId}`;
@@ -1157,7 +1176,7 @@ async function handle(req, res, cfg) {
     const chat = {
       id: chatId,
       userId: creator.id,
-      role: creator.role,
+      role: lane === "researcher" ? "researcher" : creator.role,
       hermesSessionId,
       title: String(body.title || "New chat").slice(0, 80),
       // Always private to start. Sharing with the server or the project is a later choice, per chat.
@@ -1271,7 +1290,7 @@ async function handle(req, res, cfg) {
       return chatMediaStore().history(chat.id);
     };
     if (agentRole(chat.role, cfg) !== "owner") {
-      try { await verifyMemberUpstream(chatUp); }
+      try { await verifyUpstream(agentRole(chat.role, cfg), chatUp); }
       catch (error) { if (allowOffline) return cached(); throw error; }
     }
     const generation = chatMediaStore().beginSync(chat.id);
@@ -1462,10 +1481,12 @@ async function executePrivateTurn(turn, hooks, cfg) {
   const device = Object.values(initial.devices).find(d => d.id === turn.device_id && d.userId === turn.user_id && !d.revokedAt);
   const chat = requireChat(initial, turn.user_id, turn.chat_id);
   if (!user || !device || (chat.role === "owner" && user.role !== "owner")) throw requestError(403, "forbidden", "Access changed before this turn started");
+  // Someone moved to Researcher can't keep using an older chat that runs on the full or member agent.
+  if (user.role !== "owner" && agentTierOf(user) === RESEARCHER_TIER && chat.role !== "researcher") throw requestError(403, "forbidden", "Your access changed. Start a new chat");
   const up = upstreamFor({ role: turn.role }, cfg);
   if (!up) throw requestError(502, "agent_error", "The agent is unavailable");
   const full = agentRole(turn.role, cfg) === "owner";
-  if (!full) await verifyMemberUpstream(up);
+  if (!full) await verifyUpstream(agentRole(turn.role, cfg), up);
   if (!turn.run_id && usageStore().overLimit(user)) throw requestError(429, "usage_limit", limitText(user));
   const durable = !!turn.run_id || await supportsDurableRuns(up);
   // Legacy owner agents can read the exact saved input instead of receiving
@@ -1593,7 +1614,7 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
       const chatId = id("cht"), hermesSessionId = `servant_${user.id}_${chatId}`;
       const made = await hermes(up, "POST", "/api/sessions", { id: hermesSessionId, title: `Servant · ${user.name} · ${chatId.slice(-6)}` });
       if (!made.ok) throw new Error(`agent ${made.status}`);
-      const chat = { id: chatId, userId: user.id, role: user.role, hermesSessionId, title: title.slice(0, 80), shared: true,
+      const chat = { id: chatId, userId: user.id, role: agentLane(user, cfg) === "researcher" ? "researcher" : user.role, hermesSessionId, title: title.slice(0, 80), shared: true,
         startedAt: now(), createdAt: now(), updatedAt: now(), fromConversation: where };
       mutateState(s => { s.chats[chatId] = chat; });
       const text = `${user.name} asked for this in ${where}. Do the work here; others can follow along.\n\n${transcript}`.slice(0, INLINE_MESSAGE_CHARS);
@@ -1603,9 +1624,13 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
     askAgent: async ({ sessionId, sessionKey: key, fresh, text, restartText, attachments, onDelta, onUsage = () => {}, userId }) => {
       if (usageStore().overLimit(readState().users[userId])) return limitText(readState().users[userId]);
       const cfg = fixedCfg || loadConfig();
-      const up = upstreamFor({ role: "member" }, cfg);
+      // A researcher's @s runs on the researcher agent too, never the full one.
+      const asker = readState().users[userId];
+      const lane = asker ? agentLane(asker, cfg) : "member";
+      const up = lane === "researcher" ? upstreamFor(asker, cfg) : upstreamFor({ role: "member" }, cfg);
       if (!up) return "The agent isn't set up on this server yet";
-      if (!fullAgentAccess(cfg)) await verifyMemberUpstream(up);
+      if (lane === "researcher") await verifyResearcherUpstream(up);
+      else if (!fullAgentAccess(cfg)) await verifyMemberUpstream(up);
       let create = fresh;
       if (!fresh) {
         // Threads started on the other agent (before an access change) have

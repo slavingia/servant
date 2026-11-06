@@ -22,6 +22,18 @@ from gateway.platforms.base import MEDIA_TAG_CLEANUP_RE, validate_media_delivery
 
 _run_context = ContextVar("servant_run_context", default=None)
 POLICY = json.loads(Path(__file__).with_name("member-policy.json").read_text())
+# The researcher bridge: web, search, vision, skills and planning, and nothing that can run a shell
+# or touch a file, so gh and git are impossible. Anything outside this list fails closed.
+RESEARCHER = json.loads(Path(__file__).with_name("researcher-policy.json").read_text())
+RESEARCHER_TOOLS = frozenset(RESEARCHER["allowedTools"])
+
+
+def register_researcher_toolset():
+    """Hermes has no per-tool deny list, so give the researcher one toolset with exactly the allowed
+    tools (skills can be read but not edited, no shell, no files). Registered when the bridge starts."""
+    from toolsets import create_custom_toolset
+    create_custom_toolset(RESEARCHER["toolset"], "Servant researcher: web, vision, skills (read-only) and planning",
+                          tools=list(RESEARCHER["allowedTools"]))
 
 
 # Agents usually name a screenshot by its bare path ("Saved to /Users/me/x.png")
@@ -98,6 +110,39 @@ def validate_member_profile(config):
         raise RuntimeError("Member profile must have an empty tool allowlist")
 
 
+def validate_researcher_profile(config):
+    """The researcher profile: the checked-in toolsets only, no memory, no MCP, GitHub blocked."""
+    memory = config.get("memory", {})
+    if (memory.get("memory_enabled") is not False
+            or memory.get("user_profile_enabled") is not False
+            or memory.get("provider", "") != ""):
+        raise RuntimeError("Researcher profile must disable built-in user/memory stores and external memory")
+    if config.get("mcp_servers") or config.get("context", {}).get("engine", "compressor") != "compressor":
+        raise RuntimeError("Researcher profile must not configure MCP or an external context engine")
+    register_researcher_toolset()
+    if sorted(config.get("toolsets") or []) != sorted(RESEARCHER["allowedToolsets"]):
+        raise RuntimeError("Researcher profile must use exactly the checked-in toolsets")
+    if sorted(config.get("platform_toolsets", {}).get("api_server") or []) != sorted(RESEARCHER["allowedToolsets"]):
+        raise RuntimeError("Researcher profile must use the checked-in api_server tool selection")
+    block = config.get("security", {}).get("website_blocklist", {})
+    if block.get("enabled") is not True or not set(RESEARCHER["blockedWebDomains"]).issubset(set(block.get("domains") or [])):
+        raise RuntimeError("Researcher profile must block GitHub websites")
+
+
+def assert_researcher_agent(agent):
+    # Check the constructed agent, not just config: any tool beyond the allowlist, or any
+    # memory, fails closed before a model call.
+    names = set(getattr(agent, "valid_tool_names", None) or [])
+    if (not all(hasattr(agent, name) for name in ("tools", "_memory_store", "_memory_manager", "_memory_enabled", "_user_profile_enabled"))
+            or not names.issubset(RESEARCHER_TOOLS)
+            or getattr(agent, "_memory_store", None) is not None
+            or getattr(agent, "_memory_manager", None) is not None
+            or getattr(agent, "_memory_enabled", False)
+            or getattr(agent, "_user_profile_enabled", False)):
+        extra = sorted(names - RESEARCHER_TOOLS)
+        raise RuntimeError(f"Restricted researcher agent exposes tools or memory it must not have: {extra}")
+
+
 def assert_member_agent(agent):
     # Check the constructed surface, not just config. Unknown future tools and
     # automatic provider/plugin injection must fail closed before a model call.
@@ -145,6 +190,40 @@ def make_member_agent(adapter, kwargs):
     return agent
 
 
+def make_researcher_agent(adapter, kwargs):
+    from run_agent import AIAgent
+    from gateway.run import _resolve_runtime_agent_kwargs, _resolve_gateway_model, _load_gateway_config
+
+    validate_researcher_profile(_load_gateway_config())
+
+    class ResearcherAgent(AIAgent):
+        # Old supported Hermes does not have skip_background_review. Override
+        # its dispatch hook as well so no review can grow an independent toolset.
+        def _spawn_background_review(self, *args, **kwargs):
+            return None
+
+    runtime = _resolve_runtime_agent_kwargs()
+    model = runtime.pop("model", None) or _resolve_gateway_model()
+    runtime.pop("_fallback_notice", None)
+    params = inspect.signature(AIAgent.__init__).parameters
+    selected = {key: value for key, value in kwargs.items() if key in params}
+    selected.pop("route", None)
+    selected.update(runtime)
+    selected.update({
+        "model": model, "quiet_mode": True, "verbose_logging": False,
+        "enabled_toolsets": list(RESEARCHER["allowedToolsets"]), "skip_memory": True, "skip_context_files": True,
+        "load_soul_identity": False, "session_db": adapter._ensure_session_db(),
+        "platform": "api_server", "max_iterations": 30,
+    })
+    if "skip_background_review" in params:
+        selected["skip_background_review"] = True
+    if "memory_manager" in params:
+        selected["memory_manager"] = None
+    agent = ResearcherAgent(**selected)
+    assert_researcher_agent(agent)
+    return agent
+
+
 class _ObservedRunStreams(dict):
     """Observe this adapter's streams without patching any Hermes globals."""
     def __init__(self, adapter):
@@ -166,8 +245,10 @@ class _ObservedRunStreams(dict):
 
 
 class ServantAPIServerAdapter(APIServerAdapter):
-    def __init__(self, config, *, restricted_member=False):
-        self.restricted_member = restricted_member
+    def __init__(self, config, *, restricted_member=False, researcher=False):
+        # A researcher is a restricted member that is also allowed the web, search, vision and skills.
+        self.researcher = researcher
+        self.restricted_member = restricted_member or researcher
         super().__init__(config)
         self._run_streams = _ObservedRunStreams(self)
         self._servant_approval_receipts = {}
@@ -287,9 +368,16 @@ class ServantAPIServerAdapter(APIServerAdapter):
         data.setdefault("features", {})["servant_durable_media_runs"] = True
         data["features"]["servant_exact_approvals"] = True
         data["features"]["servant_steer"] = not self.restricted_member
-        data["features"]["servant_member_isolation"] = self.restricted_member
+        data["features"]["servant_member_isolation"] = self.restricted_member and not self.researcher
         data["servant"] = {"bridgeVersion": 1}
-        if self.restricted_member:
+        if self.researcher:
+            data["features"]["servant_researcher_isolation"] = True
+            data["servant"]["researcherPolicy"] = {
+                "version": RESEARCHER["version"], "allowedToolsets": list(RESEARCHER["allowedToolsets"]),
+                "allowedTools": sorted(RESEARCHER_TOOLS), "terminal": False, "files": False, "github": False,
+                "persistentMemory": False, "localContext": False, "localMedia": False,
+            }
+        elif self.restricted_member:
             data["servant"]["memberPolicy"] = {
                 "version": POLICY["version"], "allowedTools": [],
                 "persistentMemory": False, "localContext": False, "localMedia": False,
@@ -323,7 +411,7 @@ class ServantAPIServerAdapter(APIServerAdapter):
         if self.restricted_member:
             if args:
                 raise RuntimeError("Incompatible Hermes: positional agent creation")
-            agent = make_member_agent(self, kwargs)
+            agent = (make_researcher_agent if self.researcher else make_member_agent)(self, kwargs)
         else:
             agent = super()._create_agent(*args, **kwargs)
         context = _run_context.get()
@@ -331,7 +419,7 @@ class ServantAPIServerAdapter(APIServerAdapter):
 
         def run_conversation(*run_args, **run_kwargs):
             if self.restricted_member:
-                assert_member_agent(agent)
+                (assert_researcher_agent if self.researcher else assert_member_agent)(agent)
             if context is not None and context[0] == kwargs.get("session_id"):
                 run_kwargs["conversation_history"] = copy.deepcopy(context[1])
             result = original(*run_args, **run_kwargs)

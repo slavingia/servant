@@ -13,6 +13,7 @@ def main():
     parser.add_argument("--hermes-root", type=Path, required=True)
     parser.add_argument("--profile", type=Path, required=True)
     parser.add_argument("--member", action="store_true")
+    parser.add_argument("--researcher", action="store_true", help="web, search, vision and skills; no shell, no files, no GitHub")
     parser.add_argument("--port", type=int)
     parser.add_argument("--check", action="store_true", help="validate without starting the server")
     args = parser.parse_args()
@@ -23,14 +24,18 @@ def main():
     # No tools from kanban work or inherited outer-agent contexts may sneak in.
     os.environ.pop("HERMES_KANBAN_TASK", None)
     sys.path[:0] = [str(Path(__file__).resolve().parents[1] / "server"), str(root)]
-    from hermes_bridge import ServantAPIServerAdapter, validate_member_profile, verify_contract
+    from hermes_bridge import ServantAPIServerAdapter, validate_member_profile, validate_researcher_profile, verify_contract
     from hermes_cli.config import load_config, load_env
     from gateway.config import PlatformConfig
 
     verify_contract()
     config = load_config()
+    if args.member and args.researcher:
+        parser.error("Choose --member or --researcher, not both")
     if args.member:
         validate_member_profile(config)
+    if args.researcher:
+        validate_researcher_profile(config)
     if args.check:
         print("Servant Hermes contract and profile checks passed; no server started")
         return
@@ -41,10 +46,11 @@ def main():
         parser.error("Set a distinct API_SERVER_KEY of at least 32 characters for this bridge")
     for name, value in env.items():
         os.environ.setdefault(name, value)
-    port = args.port or (8643 if args.member else 8642)
+    port = args.port or (8646 if args.researcher else 8643 if args.member else 8642)
     adapter = ServantAPIServerAdapter(
         PlatformConfig(enabled=True, extra={"host": "127.0.0.1", "port": port, "key": key}),
         restricted_member=args.member,
+        researcher=args.researcher,
     )
 
     async def serve():

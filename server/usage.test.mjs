@@ -91,3 +91,13 @@ test('agent tiers scale the daily limit and tier 0 has no agent', () => {
   assert.equal(store.overLimit({ id: 'u', role: 'member', agentTier: 1 }), true);
   assert.equal(store.overLimit({ id: 'u', role: 'member', agentTier: 2 }), false);
 });
+
+test('tier 4 is the researcher: its own limit, never promoted, owner stays 3', () => {
+  assert.equal(agentTierOf({ role: 'member', agentTier: 4 }), 4);
+  assert.equal(agentTierOf({ role: 'owner', agentTier: 4 }), 3);
+  assert.equal(agentTierOf({ role: 'member', agentTier: 5 }), 1);
+  assert.ok(TIER_TOKEN_LIMITS[4] > 0);
+  const store = createUsageStore(':memory:');
+  assert.equal(store.limitFor({ role: 'member', agentTier: 4 }), TIER_TOKEN_LIMITS[4]);
+  assert.equal(store.overLimit({ id: 'r', role: 'member', agentTier: 4 }), false);
+});

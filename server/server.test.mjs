@@ -1,4 +1,4 @@
-import { restrictedTestCapabilities } from "./test-hermes-capabilities.mjs";
+import { restrictedTestCapabilities, researcherTestCapabilities } from "./test-hermes-capabilities.mjs";
 // node --test server/
 // Runs the real server against a fake Hermes API server that speaks the same
 // session + SSE protocol as gateway/platforms/api_server.py.
@@ -26,11 +26,11 @@ async function withAgentAccess(value, fn) {
 }
 process.env.SERVANT_DATA_DIR = dataDir;
 
-function fakeHermes(key, label) {
+function fakeHermes(key, label, capabilities = restrictedTestCapabilities) {
   const sessions = new Map();
   const calls = [];
   const server = http.createServer(async (req, res) => {
-    if (req.method === "GET" && req.url === "/v1/capabilities") return res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(restrictedTestCapabilities));
+    if (req.method === "GET" && req.url === "/v1/capabilities") return res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(capabilities));
     const chunks = [];
     for await (const c of req) chunks.push(c);
     const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : {};
@@ -91,6 +91,7 @@ function fakeHermes(key, label) {
 
 const owner = fakeHermes("owner-key", "owner-agent");
 const member = fakeHermes("member-key", "member-agent");
+const researcher = fakeHermes("researcher-key", "researcher-agent", researcherTestCapabilities);
 let server;
 let base;
 let mod;
@@ -98,6 +99,7 @@ let mod;
 before(async () => {
   await new Promise((r) => owner.server.listen(0, "127.0.0.1", r));
   await new Promise((r) => member.server.listen(0, "127.0.0.1", r));
+  await new Promise((r) => researcher.server.listen(0, "127.0.0.1", r));
   fs.writeFileSync(
     path.join(dataDir, "config.json"),
     JSON.stringify({
@@ -108,6 +110,7 @@ before(async () => {
       upstreams: {
         owner: { url: `http://127.0.0.1:${owner.server.address().port}`, key: "owner-key" },
         member: { url: `http://127.0.0.1:${member.server.address().port}`, key: "member-key" },
+        researcher: { url: `http://127.0.0.1:${researcher.server.address().port}`, key: "researcher-key" },
       },
     }),
   );
@@ -129,6 +132,7 @@ after(async () => {
   await server.shutdown();
   owner.server.close();
   member.server.close();
+  researcher.server.close();
   fs.rmSync(dataDir, { recursive: true, force: true });
 });
 
@@ -348,6 +352,68 @@ test("full access (default): a member's private chat uses the full agent and see
   assert.equal(deltas, "owner-agent heard: read the repo");
   assert.ok(owner.calls.length > ownerCalls, "went to the full agent");
   assert.equal(member.calls.length, memberCalls, "never touched the limited agent");
+});
+
+test("researcher (tier 4): runs only on the researcher agent, never the full one, even with full agent access on", async () => {
+  const boss = await pair("owner", "Research Owner");
+  const token = await pair("member", "Rae Researcher");
+  const me = (await api("GET", "/v1/people", { token: boss })).json.people.find((p) => p.name === "Rae Researcher");
+  const set = await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 4 } });
+  assert.equal(set.status, 200);
+  assert.deepEqual([set.json.person.agentTier, !!set.json.person.vibeCoder], [4, false]);
+  const created = await api("POST", "/v1/chats", { token, body: { project: "servant", mode: "vibe" } });
+  assert.equal(created.status, 201);
+  assert.equal(created.json.chat.mode, undefined, "never a vibe chat");
+  assert.equal(created.json.chat.projectId, undefined, "never tied to a project's repo");
+  const [o, m, r] = [owner.calls.length, member.calls.length, researcher.calls.length];
+  const sent = await api("POST", `/v1/chats/${created.json.chat.id}/messages`, { token, body: { text: "find me recent research on call-center wait times" } });
+  assert.equal(sent.status, 200, sent.text);
+  const deltas = parseSse(sent.text).filter((e) => e.event === "delta").map((e) => e.data.text).join("");
+  assert.equal(deltas, "researcher-agent heard: find me recent research on call-center wait times");
+  assert.equal(owner.calls.length, o, "never touched the full agent");
+  assert.equal(member.calls.length, m, "never touched the member agent");
+  assert.ok(researcher.calls.length > r, "went to the researcher agent");
+  // The agent is told the rules, and is never given a project's repo or GitHub workflow.
+  const turn = researcher.calls.slice(r).find((c) => c.url.endsWith("/chat/stream"));
+  const prompt = JSON.stringify(turn.body);
+  assert.match(prompt, /GitHub/);
+  assert.match(prompt, /no gh, no git/);
+  assert.doesNotMatch(prompt, /slavingia\/servant|design-prototypes/);
+});
+
+test("researcher (tier 4): a bridge that isn't the researcher bridge is refused, so the full agent can't stand in", async () => {
+  const boss = await pair("owner", "Research Owner Two");
+  const token = await pair("member", "Ray Researcher");
+  const me = (await api("GET", "/v1/people", { token: boss })).json.people.find((p) => p.name === "Ray Researcher");
+  await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 4 } });
+  const cfgFile = path.join(dataDir, "config.json");
+  const before = fs.readFileSync(cfgFile, "utf8");
+  const cfg = JSON.parse(before);
+  // Point the researcher lane at the FULL agent (which doesn't attest researcher isolation).
+  cfg.upstreams.researcher = { url: cfg.upstreams.owner.url, key: "owner-key" };
+  fs.writeFileSync(cfgFile, JSON.stringify(cfg));
+  try {
+    const [o, r] = [owner.calls.length, researcher.calls.length];
+    const created = await api("POST", "/v1/chats", { token, body: {} });
+    assert.notEqual(created.status, 201, "no chat on an unverified bridge");
+    const toolCalls = owner.calls.slice(o).filter((c) => c.url.includes("/chat/stream"));
+    assert.equal(toolCalls.length, 0, "nothing was ever sent to the full agent");
+    assert.equal(researcher.calls.length, r);
+  } finally { fs.writeFileSync(cfgFile, before); }
+});
+
+test("researcher (tier 4): an old chat on the full agent stops working once someone becomes a researcher", async () => {
+  const boss = await pair("owner", "Research Owner Three");
+  const token = await pair("member", "Rio Researcher");
+  const me = (await api("GET", "/v1/people", { token: boss })).json.people.find((p) => p.name === "Rio Researcher");
+  const old = await api("POST", "/v1/chats", { token, body: {} });
+  assert.equal(old.status, 201);
+  await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 4 } });
+  const o = owner.calls.length;
+  const sent = await api("POST", `/v1/chats/${old.json.chat.id}/messages`, { token, body: { text: "use gh to list issues" } });
+  const sawOwner = owner.calls.slice(o).some((c) => c.url.endsWith("/chat/stream"));
+  assert.equal(sawOwner, false, "the old full-agent chat can no longer run");
+  assert.ok(!sent.text.includes("owner-agent heard"), sent.text.slice(0, 200));
 });
 
 test("each agent chat is its own session: a separate Hermes session and session key per chat", async () => {

@@ -20,14 +20,17 @@ export function normalizeUsage(raw) {
 // Everyone but the owner may use up to this many tokens a day (server-local day).
 export const DAILY_TOKEN_LIMIT = 1_000_000;
 // Daily limits scale with the agent tier (see agentTierOf): 1 bug reporter, 2 vibe coder, 3 design engineer.
-export const TIER_TOKEN_LIMITS = { 0: 0, 1: 1_000_000, 2: 5_000_000, 3: 20_000_000 };
-export const AGENT_TIERS = { 0: "No agent", 1: "Bug reporter", 2: "Vibe coder", 3: "Design engineer" };
+export const TIER_TOKEN_LIMITS = { 0: 0, 1: 1_000_000, 2: 5_000_000, 3: 20_000_000, 4: 5_000_000 };
+// 4 = Researcher (11/6): web, search, vision and skills on a bridge with no shell or files, so no GitHub at all.
+// The number is a label, not a rank: it sits beside the others rather than above them.
+export const AGENT_TIERS = { 0: "No agent", 1: "Bug reporter", 2: "Vibe coder", 3: "Design engineer", 4: "Researcher" };
+export const RESEARCHER_TIER = 4;
 // Owners are tier 3. People who joined before tiers keep what they had (vibe coder = 2, otherwise 1);
 // everyone who joins now starts at 0 (agentTier is written when they join).
 export function agentTierOf(user) {
   if (!user) return 0;
   if (user.role === "owner") return 3;
-  if (Number.isInteger(user.agentTier) && user.agentTier >= 0 && user.agentTier <= 3) return user.agentTier;
+  if (Number.isInteger(user.agentTier) && user.agentTier >= 0 && user.agentTier <= 4) return user.agentTier;
   return user.vibeCoder ? 2 : 1;
 }
 export const startOfDay = (at = Date.now()) => { const d = new Date(at); d.setHours(0, 0, 0, 0); return d.getTime(); };
