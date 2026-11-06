@@ -1,15 +1,10 @@
 #!/usr/bin/env python3
-"""App Store Connect API helper for Servant. Reads a private config file,
-~/.config/servant/asc.json (or the path in SERVANT_ASC_CONFIG), with
-{"ASC_KEY_ID": ..., "ASC_ISSUER_ID": ..., "ASC_KEY_PATH": "<path to the .p8>"}.
-Never prints secrets."""
+"""App Store Connect API helper for Servant (IRS team). Reads the same private
+config the IRS app's Fastfile uses (~/.config/irs2go/testflight.json). Never
+prints secrets."""
 import json, os, sys, time, base64, subprocess, urllib.request, urllib.error
 
-CONFIG = os.path.expanduser(os.environ.get("SERVANT_ASC_CONFIG") or "~/.config/servant/asc.json")
-try:
-    cfg = json.load(open(CONFIG))
-except FileNotFoundError:
-    sys.exit(f"No App Store Connect config at {CONFIG}. Create it, or set SERVANT_ASC_CONFIG to its path (see the top of {__file__})")
+cfg = json.load(open(os.path.expanduser("~/.config/irs2go/testflight.json")))
 KID, ISS, KEY = cfg["ASC_KEY_ID"], cfg["ASC_ISSUER_ID"], os.path.expanduser(cfg["ASC_KEY_PATH"])
 
 

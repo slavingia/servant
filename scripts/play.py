@@ -1,22 +1,18 @@
 #!/usr/bin/env python3
-"""Google Play internal testing for Servant.
+"""Google Play internal testing for Servant (gov.irs.servant).
 
   play.py check                 does the app exist + can the key reach it?
   play.py upload <aab> [notes]  upload AAB, release it to the internal track (testers only)
 
 Tester lists are console-only (Testing > Internal testing > Testers).
 
-Credential: a Play Console service account key, path in PLAY_JSON_KEY (chmod 600).
-Package: app/app.json expo.android.package, or PLAY_PACKAGE.
+Credential: ~/.google-play/irs2go-release.json (IRS Play Console service account, chmod 600).
 Play cannot create apps via API; the app record must exist in Play Console first.
 """
 import json, os, sys, time, base64, urllib.request, urllib.error, subprocess
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PKG = os.environ.get("PLAY_PACKAGE") or json.load(open(os.path.join(ROOT, "app", "app.json")))["expo"]["android"]["package"]
-if not os.environ.get("PLAY_JSON_KEY"):
-    sys.exit("Set PLAY_JSON_KEY to your Play Console service account key (JSON)")
-KEY = os.path.expanduser(os.environ["PLAY_JSON_KEY"])
+PKG = "gov.irs.servant"
+KEY = os.path.expanduser(os.environ.get("PLAY_JSON_KEY", "~/.google-play/irs2go-release.json"))
 API = "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/" + PKG
 UP = "https://androidpublisher.googleapis.com/upload/androidpublisher/v3/applications/" + PKG
 

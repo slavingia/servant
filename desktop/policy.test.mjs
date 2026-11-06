@@ -25,7 +25,7 @@ test('workspace projection includes only public settings and production requires
   assert.throws(() => workspaceConfig({ ...value, server: 'http://external.test' }, { allowLoopback: true }));
 });
 test('only Developer ID builds install updates in place', () => {
-  assert.equal(teamIdentifier('Identifier=com.slavingia.servant.desktop\nTeamIdentifier=AB12CD34EF\nSealed Resources version=2'), 'AB12CD34EF');
+  assert.equal(teamIdentifier('Identifier=gov.irs.servant.desktop\nTeamIdentifier=AB12CD34EF\nSealed Resources version=2'), 'AB12CD34EF');
   for (const output of ['Signature=adhoc\nTeamIdentifier=not set', 'code object is not signed at all', '', undefined]) assert.equal(teamIdentifier(output), null);
   assert.equal(updateMode('AB12CD34EF'), 'install');
   assert.equal(updateMode(null), 'notify');

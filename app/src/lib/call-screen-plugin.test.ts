@@ -10,7 +10,7 @@ const { compileModsAsync } = require("expo/config-plugins");
 // The call plugin must not make MainActivity show over the lock screen all the time: with Servant
 // open, pressing lock twice opened the app without the PIN (Pixel 6a). iPhone keeps VoIP mode.
 test("the call plugin leaves the Android lock screen alone and keeps iPhone VoIP", async () => {
-  const exp = plugin({ name: "t", slug: "t", ios: { bundleIdentifier: "com.slavingia.servant" }, android: { package: "com.slavingia.servant" } });
+  const exp = plugin({ name: "t", slug: "t", ios: { bundleIdentifier: "gov.irs.servant" }, android: { package: "gov.irs.servant" } });
   const config = await compileModsAsync(exp, {
     projectRoot: fileURLToPath(new URL("../..", import.meta.url)),
     platforms: ["android", "ios"],

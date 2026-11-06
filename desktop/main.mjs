@@ -56,7 +56,7 @@ else {
       }
       const result = await net.fetch(pathToFileURL(file).href);
       const headers = new Headers(result.headers);
-      headers.set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: data:; font-src 'self' data:; connect-src 'self' https: http://127.0.0.1:* http://localhost:*; object-src 'none'; frame-src https://*.github.io https://platform.twitter.com; base-uri 'self'; form-action 'none'");
+      headers.set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: data:; font-src 'self' data:; connect-src 'self' https: http://127.0.0.1:* http://localhost:*; object-src 'none'; frame-src https://taxpayer-services-and-online-accounts.github.io https://platform.twitter.com; base-uri 'self'; form-action 'none'");
       headers.set('X-Content-Type-Options', 'nosniff');
       return new Response(result.body, { status: result.status, headers });
     });

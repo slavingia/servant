@@ -170,8 +170,8 @@ checks pass on the exact artifact being published.
 
 ## Publish the download page
 
-The dedicated Firebase Hosting site is **servant-desktop**, in your Firebase
-project (`$FIREBASE_PROJECT`), at <https://servant-desktop.web.app>. `downloads/index.html` is the
+The dedicated Firebase Hosting site is **servant-desktop**, in project
+**irs2go-apps**, at <https://servant-desktop.web.app>. `downloads/index.html` is the
 page source. Hosting serves only the HTML page and checksums in `desktop/dist/downloads/`.
 The Spark plan rejects executable uploads, so installers are published through
 [the dedicated GitHub Releases repository](https://github.com/slavingia/servant-desktop-releases).
@@ -204,7 +204,7 @@ Firebase distribution script does:
 cd desktop
 env -u GOOGLE_CLOUD_QUOTA_PROJECT -u GOOGLE_CLOUD_PROJECT \
   -u CLOUDSDK_CORE_PROJECT -u GOOGLE_APPLICATION_CREDENTIALS \
-  firebase deploy --only hosting --project "$FIREBASE_PROJECT" --config firebase.json
+  firebase deploy --only hosting --project irs2go-apps --config firebase.json
 ```
 
 After deployment, download both public artifacts and compare their SHA-256 values
