@@ -39,6 +39,22 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const refreshVersion = useRef(0);
   const resume = useRef<{ identity: string; cursor?: string } | null>(null);
 
+  // The server's name is saved at sign-in; pick up a rename (e.g. "Sahil's IRS Mac" -> "TSOA") once per session.
+  const serverIdentity = account ? `${account.serverKey}|${account.token}` : "";
+  useEffect(() => {
+    if (!account?.serverKey) return;
+    let live = true;
+    api.me(account, setAccount)
+      .then((d: { server?: { name?: string } }) => {
+        const name = d?.server?.name;
+        if (live && name && name !== account.serverName) setAccount({ ...account, serverName: name });
+      })
+      .catch(() => { /* Keep the saved name. */ });
+    return () => { live = false; };
+    // Once per signed-in account, not on every account object change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverIdentity]);
+
   // Agent replies have no live event; poll your chats for their unread count.
   const [agentUnread, setAgentUnread] = useState({ identity: "", count: 0 });
   const agentVersion = useRef(0);

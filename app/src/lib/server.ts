@@ -456,12 +456,12 @@ export const api = {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     try {
-  emailRequired: (a: Account) => request(a, "/v1/me").then(json<{ emailRequired?: boolean }>).then(d => d.emailRequired === true),
-  sendMyEmailCode: (a: Account, email: string) => request(a, "/v1/people/me/email", { method: "POST", body: JSON.stringify({ email }) }).then(json<{ challenge: string; email: string }>),
-  confirmMyEmail: (a: Account, challenge: string, code: string) => request(a, "/v1/people/me/email/confirm", { method: "POST", body: JSON.stringify({ challenge, code }) }).then(json<{ ok: boolean; email: string }>),
       return await request(a, `/v1/conversations/${id}/read`, { method: "POST", body: JSON.stringify({ messageIds }), signal: controller.signal });
     } finally { clearTimeout(timeout); }
   },
+  emailRequired: (a: Account) => request(a, "/v1/me").then(json<{ emailRequired?: boolean }>).then(d => d.emailRequired === true),
+  sendMyEmailCode: (a: Account, email: string) => request(a, "/v1/people/me/email", { method: "POST", body: JSON.stringify({ email }) }).then(json<{ challenge: string; email: string }>),
+  confirmMyEmail: (a: Account, challenge: string, code: string) => request(a, "/v1/people/me/email/confirm", { method: "POST", body: JSON.stringify({ challenge, code }) }).then(json<{ ok: boolean; email: string }>),
   presence: (a: Account, sessionId: string, active: boolean, signal?: AbortSignal) =>
     request(a, "/v1/presence", { method: "POST", body: JSON.stringify({ sessionId, active }), signal }),
   posts: (a: Account, id: string, before?: string) =>
