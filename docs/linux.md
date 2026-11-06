@@ -15,7 +15,7 @@ and a private agent chat).
 | --- | --- | --- |
 | `servant-supervisor` | `gov.irs.servant.supervisor` | Stable ingress on `127.0.0.1:8787`, API releases behind it |
 | `servant-worker` | `gov.irs.servant.worker` | Channel @agent jobs and notifications |
-| `servant-feedback` | `gov.irs.servant.feedback` | Shake-to-report feedback queue |
+| `servant-feedback` | `gov.irs.servant.feedback` | Feedback queue |
 | `servant-tunnel` (optional) | `gov.irs.servant.tunnel` | Cloudflare quick tunnel, for hosts with no public address |
 | `caddy` | none | HTTPS on the public port, forwarding to 8787 |
 

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createShakeDetector, feedbackGestureHint, feedbackPromptAllowed, supportsScreenshotFeedback, SHAKE } from "./feedback-trigger.ts";
+import { createShakeDetector, feedbackPromptAllowed, supportsScreenshotFeedback, SHAKE } from "./feedback-trigger.ts";
 
 const still = (t: number) => ({ x: 0, y: 0, z: 1, t });
 const jolt = (t: number, g = 2.6) => ({ x: g, y: 0, z: 1, t });
@@ -74,12 +74,21 @@ test("screenshot feedback only uses permission-free native platforms", () => {
   assert.equal(supportsScreenshotFeedback("web", 99), false);
 });
 
-test("gesture hints match screenshot support and avoid advertising phone gestures on web", () => {
-  assert.match(feedbackGestureHint("ios", "18.0"), /screenshot/);
-  assert.match(feedbackGestureHint("android", 34), /screenshot/);
-  assert.match(feedbackGestureHint("android", 33), /shake/);
-  assert.doesNotMatch(feedbackGestureHint("android", 33), /screenshot/);
-  assert.equal(feedbackGestureHint("web", 99), "");
+test("the shake gesture is never advertised in the app's own text", async () => {
+  // Shake and screenshot are a quiet way in, not something the screens explain. No screen text may name them.
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const root = path.resolve(import.meta.dirname, "..");
+  const files: string[] = [];
+  const walk = (dir: string) => { for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) walk(full); else if (/\.(tsx)$/.test(e.name)) files.push(full);
+  } };
+  walk(path.join(root, "app")); walk(path.join(root, "components"));
+  // Only words a person can read count: JSX text and quoted strings, not names in code like createShakeDetector.
+  const readable = (src: string) => [...src.matchAll(/"([^"\n]*)"|'([^'\n]*)'|`([^`]*)`|>([^<>{}\n]+)</g)].map(m => m[1] ?? m[2] ?? m[3] ?? m[4] ?? "").join("\n");
+  const offenders = files.filter(f => /(shake|take a screenshot)/i.test(readable(fs.readFileSync(f, "utf8").split("\n").filter(l => !/^\s*(\/\/|\*|\{\/\*)/.test(l) && !/^\s*(import|type Reason|if \(push)/.test(l)).join("\n"))));
+  assert.deepEqual(offenders, []);
 });
 
 test("prompt only where it makes sense", () => {

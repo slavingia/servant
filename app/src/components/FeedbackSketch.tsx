@@ -1,5 +1,5 @@
 import { useState, type ComponentRef, useRef } from "react";
-import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, PanResponder, Platform, Pressable, StatusBar, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, PanResponder, Platform, Pressable, StatusBar, StyleSheet, Text, TextInput, View, type LayoutChangeEvent } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { captureRef } from "react-native-view-shot";
 import Constants from "expo-constants";
@@ -8,25 +8,40 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSession } from "../lib/session";
 import { api } from "../lib/server";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
+import { pathFor, strokeWidthFor, toFraction, type Point } from "../lib/sketch-geometry";
 
 export type Shot = { uri: string; width: number; height: number; screen: string; via: string };
 
 const INK = "#E5173F";
 
-// The screenshot taken the moment you shake, shown back to you to circle
+// The screenshot taken the moment feedback starts, shown back to you to circle
 // what's wrong. Sends the marked-up image straight to the agent.
+//
+// Marks are kept as fractions of the picture, not pixels. The picture changes size while you work (the
+// keyboard opens for the note and the area shrinks), and fractions keep every mark on the same part of the screen.
+const DEFAULT_NOTE = "Fix";
 export function FeedbackSketch({ shot, onClose }: { shot: Shot | null; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { account } = useSession();
-  const [paths, setPaths] = useState<string[]>([]);
-  const [live, setLive] = useState("");
-  const [text, setText] = useState("");
+  const [paths, setPaths] = useState<Point[][]>([]);
+  const [live, setLive] = useState<Point[]>([]);
+  const [text, setText] = useState(DEFAULT_NOTE);
+  // How big the picture is drawn right now: state to redraw the marks, and a plain object the touch handlers
+  // (created once) can read.
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  const [measure] = useState({ width: 0, height: 0 });
+  const onCanvasLayout = (e: LayoutChangeEvent) => {
+    const { width, height } = e.nativeEvent.layout;
+    if (width === size.width && height === size.height) return;
+    Object.assign(measure, { width, height });
+    setSize({ width, height });
+  };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const canvas = useRef<ComponentRef<typeof View>>(null);
-  const [stroke] = useState({ d: "" });
+  const [stroke] = useState<{ points: Point[] }>({ points: [] });
   const requestId = useRef("");
 
   const [pan] = useState(() => PanResponder.create({
@@ -35,31 +50,33 @@ export function FeedbackSketch({ shot, onClose }: { shot: Shot | null; onClose: 
     onPanResponderTerminationRequest: () => false,
     onPanResponderGrant: (e) => {
       const { locationX: x, locationY: y } = e.nativeEvent;
-      stroke.d = `M${x.toFixed(1)} ${y.toFixed(1)} L${x.toFixed(1)} ${y.toFixed(1)}`;
-      setLive(stroke.d);
+      stroke.points = [toFraction(x, y, measure.width, measure.height)];
+      setLive(stroke.points);
     },
     onPanResponderMove: (e) => {
       const { locationX: x, locationY: y } = e.nativeEvent;
-      stroke.d += ` L${x.toFixed(1)} ${y.toFixed(1)}`;
-      setLive(stroke.d);
+      stroke.points = [...stroke.points, toFraction(x, y, measure.width, measure.height)];
+      setLive(stroke.points);
     },
     onPanResponderRelease: () => {
-      const done = stroke.d;
-      stroke.d = "";
-      setLive("");
-      if (done) setPaths((p) => [...p, done]);
+      const done = stroke.points;
+      stroke.points = [];
+      setLive([]);
+      if (done.length) setPaths((p) => [...p, done]);
     },
   }));
 
   if (!shot) return null;
-  const close = () => { setPaths([]); setText(""); setError(""); onClose(); };
+  const close = () => { setPaths([]); setLive([]); setText(DEFAULT_NOTE); setError(""); onClose(); };
+  // The note is required. It starts as "Fix"; clearing it leaves nothing to send.
+  const note = text.trim();
   const send = async () => {
-    if (busy || !account) return;
+    if (busy || !account || !note) return;
     setBusy(true); setError("");
     try {
       const data = await captureRef(canvas, { format: "jpg", quality: 0.8, result: "base64" });
       await api.sendFeedback(account, {
-        text: text.trim() || "Marked-up screenshot (no note)",
+        text: note,
         requestId: (requestId.current ||= `${Date.now()}-${Math.random().toString(36).slice(2)}`),
         context: { screen: shot.screen, platform: Platform.OS, version: Constants.expoConfig?.version || "", build: nativeBuildVersion || "development", via: shot.via },
         attachments: [{ name: "screenshot.jpg", data }],
@@ -83,11 +100,11 @@ export function FeedbackSketch({ shot, onClose }: { shot: Shot | null; onClose: 
           </Pressable>
         </View>
         <View style={styles.stage}>
-          <View ref={canvas} collapsable={false} style={[styles.canvas, { aspectRatio: shot.width / shot.height }]}>
+          <View ref={canvas} collapsable={false} onLayout={onCanvasLayout} style={[styles.canvas, { aspectRatio: shot.width / shot.height }]}>
             <Image source={{ uri: shot.uri }} style={StyleSheet.absoluteFill} resizeMode="stretch" />
             <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
-              {[...paths, live].filter(Boolean).map((d, i) => (
-                <Path key={i} d={d} stroke={INK} strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+              {[...paths, live].filter(points => points.length).map((points, i) => (
+                <Path key={i} d={pathFor(points, size.width, size.height)} stroke={INK} strokeWidth={strokeWidthFor(size.width)} strokeLinecap="round" strokeLinejoin="round" fill="none" />
               ))}
             </Svg>
           </View>
@@ -96,8 +113,10 @@ export function FeedbackSketch({ shot, onClose }: { shot: Shot | null; onClose: 
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         <View style={styles.footer}>
           <TextInput
-            accessibilityLabel="What's wrong"
-            placeholder="Add a note (optional)"
+            accessibilityLabel="What's wrong (required)"
+            accessibilityState={{ disabled: busy }}
+            aria-required
+            placeholder="What's wrong?"
             placeholderTextColor={colors.muted}
             value={text}
             onChangeText={setText}
@@ -106,7 +125,7 @@ export function FeedbackSketch({ shot, onClose }: { shot: Shot | null; onClose: 
             style={styles.input}
             returnKeyType="done"
           />
-          <Pressable accessibilityRole="button" accessibilityLabel="Send to agent" onPress={send} disabled={busy} style={({ pressed }) => [styles.send, pressed && { opacity: 0.8 }]}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Send to agent" accessibilityState={{ disabled: busy || !note }} onPress={send} disabled={busy || !note} style={({ pressed }) => [styles.send, !note && { opacity: 0.4 }, pressed && { opacity: 0.8 }]}>
             {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.sendText}>Send</Text>}
           </Pressable>
         </View>

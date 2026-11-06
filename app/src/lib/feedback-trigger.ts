@@ -45,13 +45,6 @@ export function supportsScreenshotFeedback(platform: string, version: number | s
   return platform === "ios" || (platform === "android" && Number(version) >= 34);
 }
 
-export function feedbackGestureHint(platform: string, version: number | string): string {
-  if (platform !== "ios" && platform !== "android") return "";
-  return supportsScreenshotFeedback(platform, version)
-    ? "You can also shake your phone or take a screenshot on the screen that's wrong."
-    : "You can also shake your phone on the screen that's wrong.";
-}
-
 // Screens where the prompt would be in the way or meaningless.
 export function feedbackPromptAllowed(pathname: string, paired: boolean): boolean {
   if (!paired) return false;
