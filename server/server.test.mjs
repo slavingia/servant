@@ -1210,6 +1210,20 @@ test("the invite web page opens the app by itself and needs no sign-in", async (
   const html = await r.text();
   assert.match(html, /servant:\/\/pair\?/);
   assert.match(html, /Copy invite link/);
+  const { joinPage } = await import("./join-page.mjs");
+  assert.doesNotMatch(joinPage({}), /Download for/);
+  assert.match(joinPage({ ios: "https://testflight.apple.com/join/x", android: "https://play.google.com/x" }), /Download for iPhone[\s\S]*Download for Android/);
+  assert.doesNotMatch(joinPage({ ios: "javascript:alert(1)" }), /javascript:/);
+  assert.match(r.headers.get("content-security-policy"), /default-src 'none'/);
+});
+
+test("the invite web page opens the app by itself and needs no sign-in", async () => {
+  const r = await fetch(base + "/join?code=ZFB5W-UKJ68");
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get("content-type"), /text\/html/);
+  const html = await r.text();
+  assert.match(html, /servant:\/\/pair\?/);
+  assert.match(html, /Copy invite link/);
   assert.match(r.headers.get("content-security-policy"), /default-src 'none'/);
 });
 
