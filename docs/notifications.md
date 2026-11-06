@@ -18,7 +18,7 @@ Store a private JSON file at `~/.config/servant/push.json`, or set `SERVANT_PUSH
 }
 ```
 
-Use directory mode 0700 and file mode 0600. Never commit credentials. The FCM service account needs `cloudmessaging.messages.create` on the Firebase project. The APNs key is restricted to production notifications for the app's bundle id (`com.slavingia.servant` by default; a server whose app uses another one sets `"push": { "apnsTopic": "<bundle id>" }` in `server/data/config.json`); release provisioning must include the production `aps-environment` entitlement. The release script uses the `Servant Push App Store` provisioning profile.
+Use directory mode 0700 and file mode 0600. Never commit credentials. The FCM service account needs `cloudmessaging.messages.create` on the Firebase project. The APNs key is restricted to production notifications for `gov.irs.servant`; release provisioning must include the production `aps-environment` entitlement. The release script uses the `Servant Push App Store` provisioning profile.
 
 Device tokens live in private server state. Jobs are persisted in `server/data/push.db` for up to one hour and re-check membership, preferences, archive status, device revocation, and message visibility before sending. Transient delivery failures retry with backoff; invalid tokens are removed without deleting a newly rotated token. Signing out removes the device registration. Ordinary channel jobs store message references. Legacy private-agent jobs may still contain reply text in this private on-Mac database; queue storage is not encrypted at rest. Agent replies are also stored as plain text in the job queue (previously only some legacy jobs were).
 

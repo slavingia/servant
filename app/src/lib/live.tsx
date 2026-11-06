@@ -39,7 +39,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const refreshVersion = useRef(0);
   const resume = useRef<{ identity: string; cursor?: string } | null>(null);
 
-  // The server's name is saved at sign-in; pick up a rename (e.g. "Sam's Mac" -> "Team server") once per session.
+  // The server's name is saved at sign-in; pick up a rename (e.g. "Sahil's IRS Mac" -> "TSOA") once per session.
   const serverIdentity = account ? `${account.serverKey}|${account.token}` : "";
   useEffect(() => {
     if (!account?.serverKey) return;

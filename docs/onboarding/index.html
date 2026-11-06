@@ -173,7 +173,7 @@
       </ol>
       <div class="ask"><b>Try asking the agent</b>What can you help a new UX researcher with?</div>
       <div class="ask"><b>In a channel thread</b>@agent summarise this thread in three bullets</div>
-      <div class="caution">Servant hasn't had an agency security review yet. Don't share customer data, personal information or anything sensitive in it.</div>
+      <div class="caution">Servant hasn't had an agency security review yet. Don't share taxpayer data, personal information or anything sensitive in it.</div>
     </div>
     <figure><div class="phone"><img src="shots/welcome.jpg" alt="Welcome screen with Join with invite link and Scan an invite code buttons" loading="lazy"></div>
       <figcaption><strong>Welcome screen</strong>What you see the first time you open Servant</figcaption></figure>
@@ -182,16 +182,16 @@
 
 <section id="jira"><div class="wrap">
   <h2>Jira tickets</h2>
-  <p class="lede">Ask the agent to file it. It writes a GitHub issue and adds the <code>jira-create</code> label, and the sync files the Jira ticket within 15 minutes.</p>
+  <p class="lede">Ask the agent to file it. It writes a GitHub issue and adds the <code>jira-create</code> label, and the sync files the TXE ticket within 15 minutes.</p>
   <div class="pair">
     <div>
       <ol class="steps">
         <li><strong>Ask the agent.</strong> Describe the problem in an Agent chat, or type @agent in the thread where it came up. Attach a screenshot if you have one.</li>
         <li><strong>It writes the GitHub issue.</strong> The issue's title becomes the Jira summary and its body the description. A <code>bug</code> label files a Bug, <code>story</code> or <code>enhancement</code> a Story, anything else a Task.</li>
-        <li><strong>The label files it in Jira.</strong> Within 15 minutes of the <code>jira-create</code> label going on, a Jira ticket is created, the issue title starts with its key, and a comment links to it. Each issue is filed only once.</li>
+        <li><strong>The label files it in Jira.</strong> Within 15 minutes of the <code>jira-create</code> label going on, a TXE ticket is created, the issue title starts with its key, and a comment links to it. Each issue is filed only once.</li>
         <li><strong>QA gets it back.</strong> When the pull request that fixes the issue is merged, the ticket moves to Ready for QA and is assigned to the QA tester.</li>
       </ol>
-      <div class="caution">Filing from issues the agent writes starts once the enterprise repository is set to watch the public one (<code>JIRA_CREATE_REPO</code>, in your app repository's Jira sync settings). Until then, add <code>jira-create</code> on the enterprise repository, or paste the issue into Jira yourself.</div>
+      <div class="caution">Filing from issues the agent writes starts once the enterprise repository is set to watch the public one (<code>JIRA_CREATE_REPO</code>, in expo-irs <code>docs/development/jira-github-sync.md</code>). Until then, add <code>jira-create</code> on the enterprise repository, or paste the issue into Jira yourself.</div>
       <p>Tickets filed in Jira directly still work the usual way. Once they're in Backlog, Selected for Development, To Do or In Progress, they appear as GitHub issues.</p>
       <div class="ask"><b>Ask the agent</b>File a Jira bug from this thread: steps to reproduce, expected and actual result, build number and device</div>
       <div class="ask"><b>Or for a story</b>File the wording notes in this thread as a Jira story with acceptance criteria</div>
@@ -202,7 +202,7 @@
 
 Steps to reproduce
 1. Set the phone language to Spanish
-2. Open the app and sign in
+2. Open the IRS app and sign in
 3. Open Notices
 
 Expected: dates read "3 de noviembre de 2026"
@@ -210,7 +210,7 @@ Actual: dates read "November 3, 2026"
 
 Build: 2026110207 · iPhone 15, iOS 26.1
 Labels: bug, jira-create</code></pre>
-      <div class="caution">Don't put customer data, account details or real names from a support case into an issue or ticket. Servant hasn't had an agency security review yet.</div>
+      <div class="caution">Don't put taxpayer data, account details or real names from a support case into an issue or ticket. Servant hasn't had an agency security review yet.</div>
     </div>
   </div>
 </div></section>
@@ -276,7 +276,7 @@ node scripts/test-instance.mjs invite --user &lt;existing-id&gt;  <span class="c
           <li>Repeat a few screens in dark appearance and at a large text size</li>
         </ol>
         <h4>Reporting a bug</h4>
-        <p>Report it from the screen that's wrong. Say what you did, what you expected and what happened. The screenshot and your build number go with the report. For a product tracked in Jira, ask the agent to file it there. See <a href="#jira">Jira tickets</a>.</p>
+        <p>Report it from the screen that's wrong. Say what you did, what you expected and what happened. The screenshot and your build number go with the report. For the IRS app, ask the agent to file it in Jira. See <a href="#jira">Jira tickets</a>.</p>
         <div class="caution">Test with made-up content. When you need a clean account, ask for an invite to the test server rather than creating extra people on the real one.</div>
       </div>
       <figure><div class="phone"><img src="shots/feedback.jpg" alt="Feedback screen" loading="lazy"></div>
@@ -292,7 +292,7 @@ node scripts/test-instance.mjs invite --user &lt;existing-id&gt;  <span class="c
         <p>Servant's visual rules live in <code>docs/design-system.md</code>. The essentials:</p>
         <ul class="plain">
           <li>A navy band (<code>#0A2240</code>) at the top with a white status bar</li>
-          <li>Buttons in brand blue (<code>#0071BC</code>) with white labels, never white or light blue on navy</li>
+          <li>Buttons in IRS blue (<code>#0071BC</code>) with white labels, never white or light blue on navy</li>
           <li>Tab titles left-aligned, 20pt in from the edge, with no Back button</li>
           <li>Pushed screens have a centred title and Back at 20pt</li>
           <li>Buttons say what they do in plain words. No icon when the word is obvious</li>
@@ -327,6 +327,7 @@ node scripts/test-instance.mjs invite --user &lt;existing-id&gt;  <span class="c
           <li>No full stop at the end of a one-sentence line</li>
           <li>Say "server", never "hub"</li>
           <li>Settings rows: the label is the thing you turn on, with a one-line subtitle that fits a 375pt screen in English and Spanish</li>
+          <li>For IRS products, say "the IRS app", never "IRS2Go"</li>
         </ul>
         <h4>How content reviews reach you</h4>
         <p>When an automated UX Research review finds a wording problem in a prototype, it tags you on GitHub with the finding, its priority and a link to the evidence. Reply on the issue or in #design-reviews.</p>
@@ -342,9 +343,9 @@ node scripts/test-instance.mjs invite --user &lt;existing-id&gt;  <span class="c
     <h3>UX researchers</h3>
     <p>You'll mostly use three places, and Servant ties them together.</p>
     <ul class="plain">
-      <li><a href="https://github.com/your-org/research-hub">Research Hub</a> (private): past study reports and the survey research catalog</li>
-      <li><a href="https://your-org.github.io/research-studio/">Research Studio</a>: build and run unmoderated studies in the browser</li>
-      <li><a href="https://github.com/your-org/design-prototypes">design-prototypes</a>: prototypes, published reviews and the research insights dashboard</li>
+      <li><a href="https://github.com/Taxpayer-Services-and-Online-Accounts/research-hub">Research Hub</a> (private): past study reports and the survey research catalog</li>
+      <li><a href="https://ash-webb.github.io/research-studio/">Research Studio</a>: build and run unmoderated studies in the browser</li>
+      <li><a href="https://github.com/Taxpayer-Services-and-Online-Accounts/design-prototypes">design-prototypes</a>: prototypes, published reviews and the research insights dashboard</li>
     </ul>
 
     <ol class="toc" aria-label="Researcher topics">
@@ -358,28 +359,28 @@ node scripts/test-instance.mjs invite --user &lt;existing-id&gt;  <span class="c
     <!-- 1 -->
     <div class="deep" id="rx-query">
       <h3><span class="num">1</span>Query the Research Hub on GitHub</h3>
-      <p>The Hub holds two kinds of evidence. Past study reports live under <code>research/</code>, one folder per study. The survey research catalog in <code>survey-research-catalog/</code> holds approved survey aggregates and comments for each product your team runs surveys on.</p>
+      <p>The Hub holds two kinds of evidence. Past study reports live under <code>research/</code>, one folder per study. The survey research catalog in <code>survey-research-catalog/</code> holds approved survey aggregates and comments for six products: the IRS app, Where's My Refund, Tax Pro Account, Individual Online Account, Business Tax Account and IRS.gov.</p>
 
       <h4>Find studies and files with the GitHub CLI</h4>
 <pre><code><span class="c"># Browse the study folders</span>
-gh api repos/your-org/research-hub/contents/research --jq '.[].name'
+gh api repos/Taxpayer-Services-and-Online-Accounts/research-hub/contents/research --jq '.[].name'
 <span class="o">Accessibility Program
 Business Tax Account
 Campus Roadshow Focus Groups
 Digital comms
-Website …</span>
+Direct File …</span>
 
 <span class="c"># Search the whole Hub for a phrase</span>
-gh search code "payment plan" --repo your-org/research-hub
-<span class="o">survey-research-catalog/data/products/mobile_app/2026-10-08/dim_code.csv
-survey-research-catalog/data/products/online_account/2026-10-09_v1.0-rc3-conditional/dim_code.csv …</span>
+gh search code "payment plan" --repo Taxpayer-Services-and-Online-Accounts/research-hub
+<span class="o">survey-research-catalog/data/products/irs_app/2026-10-08/dim_code.csv
+survey-research-catalog/data/products/iola/2026-10-09_v1.0-rc3-conditional/dim_code.csv …</span>
 
 <span class="c"># See what's being added or discussed</span>
-gh pr list -R your-org/research-hub</code></pre>
+gh pr list -R Taxpayer-Services-and-Online-Accounts/research-hub</code></pre>
 
       <h4>Ask the survey catalog a question</h4>
       <p>Build the catalog once on your computer. It needs Python 3 (the README asks for 3.12) and takes about 15 seconds.</p>
-<pre><code>gh repo clone your-org/research-hub
+<pre><code>gh repo clone Taxpayer-Services-and-Online-Accounts/research-hub
 cd research-hub/survey-research-catalog
 python3 catalog/build_catalog.py --canonical --database research_catalog.sqlite
 python3 catalog/validate_catalog.py --database research_catalog.sqlite
@@ -389,23 +390,23 @@ python3 catalog/validate_catalog.py --database research_catalog.sqlite
 python3 catalog/query_catalog.py --list-workflows
 <span class="o">catalog-status  evidence-freshness  rating-trends  feature-requests  technical-bugs
 segment-breakdown  period-comparison  search-comments  top-recent-themes</span></code></pre>
-      <p>Example: what were the top comment themes for the online account in the two latest published weeks?</p>
-<pre><code>python3 catalog/query_catalog.py --database research_catalog.sqlite --top-recent-themes online_account --periods 2
-<span class="o">1  Account, case, and processing status                   1058
+      <p>Example: what were the top comment themes for the Individual Online Account in the two latest published weeks?</p>
+<pre><code>python3 catalog/query_catalog.py --database research_catalog.sqlite --top-recent-themes iola --periods 2
+<span class="o">1  Refund, return, case, and processing status            1058
 2  Help, contact, escalation, and virtual assistance         566
 3  Navigation, search, content clarity, and guided use       503
-4  Payments, balances, and billing…                        456
+4  Payments, balances, payment plans, and offers…            456
    Weeks 2026-09-26 to 2026-10-09 · CONDITIONAL_PASS_RC3</span></code></pre>
       <p>More examples:</p>
 <pre><code><span class="c"># Monthly rating trends, complete months only</span>
 python3 catalog/query_catalog.py --database research_catalog.sqlite \
-  --workflow rating-trends --product status_tracker --grain month --complete-only --format json
+  --workflow rating-trends --product wmr --grain month --complete-only --format json
 
 <span class="c"># Bounded comment search: needs a product and a date range, returns at most 50 short excerpts</span>
 python3 catalog/query_catalog.py --database research_catalog.sqlite \
-  --search-comments "status" --product online_account --from-date 2026-10-02 --to-date 2026-10-15</code></pre>
+  --search-comments "refund status" --product iola --from-date 2026-10-02 --to-date 2026-10-15</code></pre>
       <div class="caution"><strong>Rules that keep findings honest.</strong> Use the published aggregates before comment text. Say the exact dates and release you used. A missing value means unavailable, never zero. Quote conditional release statuses as they're written. Label anything drawn from comment text as automated or exploratory. The full rules are in <code>survey-research-catalog/AGENTS.md</code>.</div>
-      <div class="ask"><b>Or ask in #ux-research</b>@agent what were the top online account comment themes in the two latest published weeks? Give the dates and release status</div>
+      <div class="ask"><b>Or ask in #ux-research</b>@agent what were the top IOLA comment themes in the two latest published weeks? Give the dates and release status</div>
     </div>
 
     <!-- 2 -->
@@ -417,7 +418,7 @@ python3 catalog/query_catalog.py --database research_catalog.sqlite \
       <h4>Build it</h4>
       <div class="browser wide"><img src="shots/rs-builder-tree.jpg" alt="Research Studio Study builder with the tree testing example loaded: title, study ID, welcome and consent fields" loading="lazy"></div>
       <ol class="steps">
-        <li>Open <a href="https://your-org.github.io/research-studio/">Research Studio</a>. It starts on Study builder.</li>
+        <li>Open <a href="https://ash-webb.github.io/research-studio/">Research Studio</a>. It starts on Study builder.</li>
         <li>Select <strong>+ New study</strong>, or pick a built-in example and select <strong>Load example</strong> to change it.</li>
         <li>Fill in the title, a study ID (lowercase letters, numbers and hyphens), the welcome text and the consent statement.</li>
         <li>Under activities, choose a method and select <strong>Add activity</strong>. Each method has its own settings.</li>
@@ -440,7 +441,7 @@ records | Records
       <p>Select <strong>Preview locally</strong> to take it yourself in a new tab. Previews are labelled and kept out of your results. It works on a phone too.</p>
       <div class="shots">
         <figure><div class="phone"><img src="shots/rs-p-welcome.jpg" alt="Participant welcome screen with consent checkbox and Agree and begin study button" loading="lazy"></div><figcaption><strong>Welcome and consent</strong></figcaption></figure>
-        <figure><div class="phone"><img src="shots/rs-p-tree.jpg" alt="Tree test on a phone, inside Records, showing two document folders" loading="lazy"></div><figcaption><strong>The tree test</strong>Inside Records</figcaption></figure>
+        <figure><div class="phone"><img src="shots/rs-p-tree.jpg" alt="Tree test on a phone, inside Records, showing Tax transcripts and Tax documents" loading="lazy"></div><figcaption><strong>The tree test</strong>Inside Records</figcaption></figure>
         <figure><div class="phone"><img src="shots/rs-p-done.jpg" alt="Study complete screen with an option to download the session" loading="lazy"></div><figcaption><strong>Done</strong>Participants can download their session</figcaption></figure>
       </div>
 
@@ -449,17 +450,17 @@ records | Records
         <li>Select <strong>Export study JSON</strong>. Keep the file: drafts aren't saved when you close the tab. <strong>Import JSON</strong> loads it again.</li>
         <li>To put it on the live site, add the file to the <code>studies/</code> folder, add a line to <code>studies/index.json</code>, and push.</li>
       </ol>
-<pre><code>gh repo clone your-org/research-studio &amp;&amp; cd research-studio
+<pre><code>gh repo clone ash-webb/research-studio &amp;&amp; cd research-studio
 cp ~/Downloads/records-tree-test.json studies/
 <span class="c"># add {"id": "records-tree-test", "title": "…", "config": "studies/records-tree-test.json"} to studies/index.json</span>
 npm test
 git add studies &amp;&amp; git commit -m "Add records tree test" &amp;&amp; git push</code></pre>
-      <p>The site republishes in a minute or two. The participant link is <code>https://your-org.github.io/research-studio/study.html?study=records-tree-test</code>. Only invited collaborators can push.</p>
+      <p>The site republishes in a minute or two. The participant link is <code>https://ash-webb.github.io/research-studio/study.html?study=records-tree-test</code>. Only invited collaborators can push.</p>
 
       <h4>See results</h4>
-      <div class="browser wide"><img src="shots/rs-results-method.jpg" alt="Results and insights for the tree test: one session, success one of one, direct path Records then a document folder" loading="lazy"></div>
+      <div class="browser wide"><img src="shots/rs-results-method.jpg" alt="Results and insights for the tree test: one session, success one of one, direct path Records then Tax transcripts" loading="lazy"></div>
       <p>Open <strong>Results &amp; insights</strong> and choose the study. You'll see sessions, success per activity, an analysis for each method and each participant's path. Download CSV or JSON for Excel or Power BI. While it's a demo, results only include studies taken in the same browser.</p>
-      <div class="ask"><b>Or ask the agent</b>Draft a Research Studio study JSON for a closed card sort of the app's Records tab with eight cards and three groups</div>
+      <div class="ask"><b>Or ask the agent</b>Draft a Research Studio study JSON for a closed card sort of the IRS app's Records tab with eight cards and three groups</div>
     </div>
 
     <!-- 3 -->
@@ -478,26 +479,26 @@ git add studies &amp;&amp; git commit -m "Add records tree test" &amp;&amp; git 
 python3 catalog/build_catalog.py --canonical --database research_catalog.sqlite
 python3 catalog/validate_catalog.py --database research_catalog.sqlite
 python3 -m unittest discover -s tests -v
-gh pr create -R your-org/research-hub --fill</code></pre>
+gh pr create -R Taxpayer-Services-and-Online-Accounts/research-hub --fill</code></pre>
       <div class="caution">Never commit raw exports, the generated <code>.sqlite</code> file, respondent identifiers or anything awaiting disclosure review. Pull request #483, which adds six more products, shows a complete example.</div>
 
       <h4>Creating a new dashboard</h4>
       <p>Dashboards live in design-prototypes, which publishes to a <strong>public</strong> website. Only published aggregates can go on them: no comment text, excerpts or respondent data. Get the owner's approval before publishing a new one.</p>
       <ol class="steps">
-        <li>Make a folder in design-prototypes, for example <code>status-research/</code>, and start the page from <code>components/starter.html</code>.</li>
+        <li>Make a folder in design-prototypes, for example <code>refund-research/</code>, and start the page from <code>components/starter.html</code>.</li>
         <li>Write <code>tools/build-data.py</code> that calls only the guarded catalog workflows and copies an explicit list of fields into <code>data.json</code>. Copy the one in <code>research-analytics/tools/</code>.</li>
         <li>Have the page read <code>data.json</code>. Show missing values as unavailable, keep each value's source and valid N, and don't combine products into one score.</li>
         <li>Add a README with the purpose, data boundary and how to refresh.</li>
         <li>Run <code>python3 scripts/build_catalog.py</code> so the page appears in the shared directory, then commit and push to main.</li>
       </ol>
-      <div class="ask"><b>Or ask the agent</b>Make a dashboard in design-prototypes of the status tracker's monthly ease ratings, using only governed workflows, modelled on research-analytics</div>
+      <div class="ask"><b>Or ask the agent</b>Make a dashboard in design-prototypes of Where's My Refund monthly ease ratings, using only governed workflows, modelled on research-analytics</div>
     </div>
 
     <!-- 4 -->
     <div class="deep" id="rx-update">
       <h3><span class="num">4</span>Update an existing dashboard</h3>
       <div class="browser wide"><img src="shots/dash-top.jpg" alt="Research insights dashboard showing common survey measures across products" loading="lazy"></div>
-      <p>The <a href="https://your-org.github.io/design-prototypes/research-analytics/">research insights dashboard</a> is rebuilt from the catalog, never edited by hand.</p>
+      <p>The <a href="https://taxpayer-services-and-online-accounts.github.io/design-prototypes/research-analytics/">research insights dashboard</a> is rebuilt from the catalog, never edited by hand.</p>
 <pre><code>cd design-prototypes
 git pull --ff-only
 python3 research-analytics/tools/build-data.py --catalog-root ../research-hub/survey-research-catalog
@@ -515,29 +516,29 @@ git add research-analytics &amp;&amp; git commit -m "Refresh research insights d
     <div class="deep" id="rx-review">
       <h3><span class="num">5</span>Automate research reviews and tag people for feedback</h3>
       <p>A monitor runs every three hours. It looks for new or changed prototypes in design-prototypes, reviews up to three against Research Hub evidence, and prepares a UX Research SME review for each. Every review is marked as an automated first pass, not human SME approval.</p>
-      <div class="browser wide"><img src="shots/review.jpg" alt="Published UX Research SME review page for a prototype, with findings, priorities and evidence" loading="lazy"></div>
+      <div class="browser wide"><img src="shots/review.jpg" alt="Published UX Research SME review page for the refund debt indicator, with findings, priorities and evidence" loading="lazy"></div>
       <h4>Publish a review and tag owners</h4>
       <ol class="steps">
         <li>Ask the agent to publish it. It becomes a page in the prototype's <code>design-review/</code> folder, with each finding's evidence, limits and test questions.</li>
-        <li>Design changes are tagged to <strong>@design-lead</strong> and content changes to <strong>@content-lead</strong>, on the prototype's feedback issue.</li>
+        <li>Design changes are tagged to <strong>@Hai-RS</strong> and content changes to <strong>@annie-content</strong>, on the prototype's feedback issue.</li>
         <li>Nothing that notifies someone goes out between 9pm and 8am Eastern. Tags written overnight are held and posted at 8am.</li>
       </ol>
-      <div class="ask"><b>Ask in #ux-research</b>@agent publish the review for the balance prototype and tag the design lead and the content lead</div>
+      <div class="ask"><b>Ask in #ux-research</b>@agent publish the review for the refund debt prototype and tag Hai for design and Annie for content</div>
       <h4>Doing it yourself on GitHub</h4>
 <pre><code><span class="c"># Comment on a feedback issue and tag owners</span>
 cat &gt; tag.md &lt;&lt;'EOF'
-@design-lead, this needs a design change:
-- rsme-01 (High): show a breakdown of the balance, the adjustment and the amount still due
+@Hai-RS, this needs a design change:
+- rsme-01 (High): show a breakdown of the refund, the offset and the amount still coming
 
-@content-lead, this needs a content change:
-- rsme-02 (Medium): spell out every acronym the first time it appears
+@annie-content, this needs a content change:
+- rsme-02 (Medium): spell out "Bureau of the Fiscal Service (BFS)" in every state
 
-Review: https://your-org.github.io/design-prototypes/balance-review/design-review/
+Review: https://taxpayer-services-and-online-accounts.github.io/design-prototypes/refund-debt-review/design-review/
 EOF
-gh issue comment 2686 -R your-org/mobile-app --body-file tag.md
+gh issue comment 2686 -R Taxpayer-Services-and-Online-Accounts/expo-irs --body-file tag.md
 
 <span class="c"># Ask for review on a pull request</span>
-gh pr edit 483 -R your-org/research-hub --add-reviewer &lt;github-login&gt;
+gh pr edit 483 -R Taxpayer-Services-and-Online-Accounts/research-hub --add-reviewer &lt;github-login&gt;
 
 <span class="c"># Find what's waiting on you</span>
 gh search issues --mentions @me --state open</code></pre>

@@ -1,6 +1,6 @@
 # Servant design system
 
-Servant uses Slack-like workspace navigation and message density with brand blue
+Servant uses Slack-like workspace navigation and message density with IRS blue
 and native system type. Home acts as a workspace sidebar:
 compact channels and direct messages lead into a shared message stream. Navigation,
 status, and management actions help people reach conversations without competing
@@ -61,7 +61,7 @@ The full-screen media viewer retains its dark canvas in both modes.
 
 | Token | Value | Purpose |
 | --- | --- | --- |
-| `navy` | `#004C97` | Brand blue fixed search strip and brand surfaces |
+| `navy` | `#004C97` | IRS blue fixed search strip and brand surfaces |
 | `blue` | `#0071BC` | Primary actions, links, and unread badges |
 | `blueDark` | `#205493` | Pressed actions and selected foregrounds |
 | `blueSoft` | `#E8F2FC` | Selected filters and quiet blue surfaces |
@@ -95,7 +95,7 @@ Spacing tokens are `xxs: 4`, `xs: 8`, `sm: 12`, `md: 16`, `side: 16`, `lg: 24`,
 avatars, buttons, and reaction chips use small rounded corners. Unread badges and
 date labels use pills. The signed-in
 content shell uses `radius.xl` on its top-left and top-right corners, with
-brand blue behind it. Content is clipped to those corners; bottom corners remain
+IRS blue behind it. Content is clipped to those corners; bottom corners remain
 square.
 
 Controls have at least a 44-point target. Primary buttons and fields are at least
@@ -130,7 +130,7 @@ message authors use 34. Agent avatars show `AI` in white on the brand blue.
 ## Shared components
 
 - `Band`: small brand header for Welcome before pairing.
-- `AppChrome` and `Omnibar`: a fixed brand blue search strip above navigation on
+- `AppChrome` and `Omnibar`: a fixed IRS blue search strip above navigation on
   every signed-in screen. Its 44-point search control uses the placeholder
   **Search**. Consume the top safe inset once; conversation keyboard offsets
   include the measured chrome height. The search panel supports Cmd/Ctrl+K,
