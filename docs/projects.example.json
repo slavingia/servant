@@ -38,7 +38,7 @@
         "Work directly on main, each prototype in a clearly named folder. No branches or pull requests unless asked.",
         "Public information and made-up sample data only.",
         "Run scripts/build_catalog.py and scripts/check_fourth_wall.py before pushing.",
-        "Vibe-coding chats work only inside their own folder."
+        "Prototyping chats work only inside their own folder."
       ],
       "owners": ["slavingia"],
       "access": {

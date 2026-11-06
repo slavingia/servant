@@ -27,7 +27,8 @@ const STATUS_WORDS = { todo: "to do", doing: "doing", done: "done", blocked: "bl
 // Each level includes the ones before it: merge ⊃ write ⊃ read.
 export const LEVELS = ["read", "write", "merge"];
 export const WORKFLOWS = ["main", "pr"];
-// Vibe-coding chats build prototypes in this project (it needs "path" and "pages").
+// Prototyping chats build in this project: its checkout's components/ and assets/ are the design kit the server serves
+// beside every prototype (it needs "path"; "pages" is only for chats made before prototypes moved onto the server).
 export const VIBE_PROJECT = "design-prototypes";
 // Text files up to this much are inlined for restricted (member) agents, which never get file paths.
 const INLINE_TEXT_TOTAL = 24000;
@@ -345,12 +346,24 @@ export function vibeFolder(chatId) {
   return `vibe-${chatId.replace(/^cht_/, "").replace(/[^A-Za-z0-9]/g, "").slice(0, 8).toLowerCase()}`;
 }
 
-function vibeLines(project, chat) {
+function vibeLines(project, chat, prototypes) {
   const folder = chat.vibeFolder;
+  // Prototyping on this server: plain files in the chat's own folder, served by the server itself.
+  if (chat.hosted === "server" && prototypes?.dir) {
+    const mine = `${prototypes.dir}/${folder}`;
+    return [
+      "This chat is a prototyping session for someone who isn't a programmer. They describe what they want; you build it as a clickable web page.",
+      `Build only inside ${mine}/ (create it if it doesn't exist). Start from ${prototypes.kit}/components/starter.html when you can: copy it to ${mine}/index.html and edit it. The design kit is served beside every prototype, so keep its relative links (../components/components.css, ../assets/...) exactly as they are in the starter. Use plain HTML, CSS and JavaScript only: no build step, no npm install, no servers.`,
+      "The server hosts the folder by itself the moment you save a file. There is nothing to commit, push or publish: don't use git or GitHub for this, and don't touch any other folder or any repository.",
+      prototypes.url ? `End every reply that changed the prototype with the preview link on its own line, exactly: PREVIEW: ${prototypes.url}` : "There is no public address for this server yet, so no preview link: tell them to ask the server owner.",
+      "Use plain words. No code, file paths, commands or git terms in your replies unless they ask. Keep replies short: what changed and what they might try next.",
+      "Use public information and made-up sample data only. Never touch other folders or other people's prototypes.",
+    ];
+  }
   return [
-    "This chat is a vibe-coding session for someone who isn't a programmer. They describe what they want; you build it.",
-    `Work only in the git repository at ${expandPath(project.path)} (GitHub: ${project.repo}), inside the folder ${folder}/. Create it from components/starter.html if it doesn't exist yet. Follow the repository's AGENTS.md, DESIGN.md and components/README.md.`,
-    "Each time they ask for something: make the change, keep the folder's README current, run `git pull --rebase` then commit and push to main (only the files in your folder plus regenerated catalog files), then wait for GitHub Pages to publish.",
+    "This chat is a prototyping session for someone who isn't a programmer. They describe what they want; you build it.",
+    `Work only in the git repository at ${expandPath(project.path)} (GitHub: ${project.repo}), inside the folder ${folder}/. Create it from components/starter.html if it doesn't exist yet. Follow the repository's AGENTS.md.`,
+    "Each time they ask for something: make the change, keep the folder's README current, run `git pull --rebase` then commit and push to main (only the files in your folder plus regenerated catalog files), then wait for the page to publish.",
     `End every reply that changed the prototype with the preview link on its own line, exactly: PREVIEW: ${previewUrl(project, folder)}`,
     "Use plain words. No code, file paths, commands or git terms in your replies unless they ask. Keep replies short: what changed and what they might try next.",
     "Use public information and made-up sample data only. Never touch other folders or other people's prototypes.",
@@ -373,11 +386,11 @@ export function accessText(name, level) {
  * transcript): where the code is, how the team works, the rules, what the
  * person asking may do, the upcoming releases, then the shared notes and files.
  */
-export function projectInstructions(project, { chat, asker, level, files, full, users = {}, today }) {
+export function projectInstructions(project, { chat, asker, level, files, full, users = {}, today, prototypes }) {
   if (!project) return "";
   const vibe = chat?.mode === "vibe";
   const repo = project.repo || project.path;
-  const lines = vibe ? vibeLines(project, chat) : [
+  const lines = vibe ? vibeLines(project, chat, prototypes) : [
     `This chat belongs to the project "${project.name}"${project.description ? ` (${project.description})` : ""}. Everyone's chats in this project share the context below.`
     + (repo ? ` Work in ${expandPath(project.path) || "its checkout"}${project.repo ? ` (GitHub: ${project.repo})` : ""} unless asked otherwise, and follow its AGENTS.md if it has one.` : ""),
   ];

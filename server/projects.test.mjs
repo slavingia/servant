@@ -121,10 +121,18 @@ test("what the agent is told: the workflow in plain words, the rules, and what t
   assert.match(tell(plain, users.usr_ana, { full: false }), /File "brief\.md":\ninline text/, "restricted agents get small text files inline, never paths");
   // Vibe coding: the prototype folder, the preview line, the project's rules, but no access line.
   const vibe = projectInstructions(prototypes, { chat: { mode: "vibe", vibeFolder: "vibe-abc12345" }, asker: users.usr_ana, level: null, files, full: true });
-  assert.match(vibe, /vibe-coding session/);
+  assert.match(vibe, /prototyping session/);
   assert.match(vibe, /PREVIEW: https:\/\/taxpayer-services-and-online-accounts\.github\.io\/design-prototypes\/vibe-abc12345\//);
-  assert.match(vibe, /- Vibe-coding chats work only inside their own folder\./);
+  assert.match(vibe, /- Prototyping chats work only inside their own folder\./);
   assert.doesNotMatch(vibe, /on their behalf/);
+  // Prototypes hosted by the server: its own folder, no git, the link from the server.
+  const hosted = projectInstructions(prototypes, { chat: { mode: "vibe", vibeFolder: "proto-aaaa", hosted: "server" }, asker: users.usr_ana, level: null, files, full: true, prototypes: { dir: "/data/prototypes", url: "https://tsoa.example.test/p/proto-aaaa/", kit: "/kit" } });
+  assert.match(hosted, /Build only inside \/data\/prototypes\/proto-aaaa\//);
+  assert.match(hosted, /\/kit\/components\/starter\.html/);
+  assert.match(hosted, /PREVIEW: https:\/\/tsoa\.example\.test\/p\/proto-aaaa\/$/m);
+  assert.match(hosted, /nothing to commit, push or publish/);
+  assert.doesNotMatch(hosted, /git pull|github\.io|GitHub:/);
+  assert.match(projectInstructions(prototypes, { chat: { mode: "vibe", vibeFolder: "proto-aaaa", hosted: "server" }, asker: users.usr_ana, level: null, files, full: true, prototypes: { dir: "/d", url: "", kit: "/k" } }), /no public address/);
   assert.equal(projectInstructions(null, {}), "");
 });
 

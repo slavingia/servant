@@ -106,6 +106,7 @@ before(async () => {
       port: 0,
       defaultAgentTier: 3,
       name: "Test server",
+      publicUrl: "https://tsoa.example.test",
       discoveryUrl: "https://example.test/hub.json",
       upstreams: {
         owner: { url: `http://127.0.0.1:${owner.server.address().port}`, key: "owner-key" },
@@ -834,10 +835,12 @@ test("vibe coding is an option for everyone: any member can pick it and gets a p
   const chat = (await api("POST", "/v1/chats", { token, body: { mode: "vibe" } })).json.chat;
   assert.equal(chat.mode, "vibe");
   assert.equal(chat.project.id, "design-prototypes");
-  assert.match(chat.previewUrl, /^https:\/\/taxpayer-services-and-online-accounts\.github\.io\/design-prototypes\/vibe-[a-z0-9]+\/$/);
+  assert.match(chat.previewUrl, /^https:\/\/tsoa\.example\.test\/p\/proto-[0-9a-f]{18}\/$/);
   await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "a page about refunds" } });
   const stream = await waitFor(() => [...owner.calls, ...member.calls].find((c) => c.url.endsWith("/chat/stream") && c.body.message === "a page about refunds"));
   assert.ok(stream.body.system_message.includes(`PREVIEW: ${chat.previewUrl}`));
+  assert.match(stream.body.system_message, /nothing to commit, push or publish|There is nothing to commit, push or publish/, "no git or GitHub in the loop");
+  assert.doesNotMatch(stream.body.system_message, /git pull|github\.io/);
   assert.match(stream.body.system_message, /- Public information and made-up sample data only/, "the project's rules come along");
   assert.doesNotMatch(stream.body.system_message, /on their behalf/, "vibe coders build in their own folder whatever their repo access");
   // Not asking for it still gives a plain chat.
@@ -870,11 +873,11 @@ test("vibe coders: owners mark them; their chats build a prototype and show a pr
   const chat = (await api("POST", "/v1/chats", { token, body: { projectId: "servant" } })).json.chat;
   assert.equal(chat.mode, "vibe");
   assert.equal(chat.project.id, "design-prototypes");
-  assert.match(chat.previewUrl, /^https:\/\/taxpayer-services-and-online-accounts\.github\.io\/design-prototypes\/vibe-[a-z0-9]+\/$/);
+  assert.match(chat.previewUrl, /^https:\/\/tsoa\.example\.test\/p\/proto-[0-9a-f]{18}\/$/);
   const before = owner.calls.length;
   await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "a page about refunds" } });
   const stream = owner.calls.slice(before).find((c) => c.url.endsWith("/chat/stream"));
-  assert.match(stream.body.system_message, /vibe-coding session/);
+  assert.match(stream.body.system_message, /prototyping session/);
   assert.ok(stream.body.system_message.includes(`PREVIEW: ${chat.previewUrl}`));
   // Unmarking stops new vibe chats; the old one keeps its mode.
   await api("PATCH", `/v1/people/${val}`, { token: boss, body: { vibeCoder: false } });
@@ -1883,3 +1886,25 @@ test("ten wrong codes lock out pairing from that address; good pairings don't co
   assert.equal((await api("POST", "/v1/pair", { body: { terms: ACCEPT, code } })).status, 429);
 });
 
+
+test("prototypes are served by the server itself: sandboxed, public by link, nothing escapes the folder", async () => {
+  const dir = path.join(dataDir, "prototypes", "proto-abcdef012345678901");
+  fs.mkdirSync(path.join(dir, "sub"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "index.html"), "<h1>Refunds</h1>");
+  fs.writeFileSync(path.join(dir, "sub", "page.css"), "body{}");
+  fs.writeFileSync(path.join(dataDir, "secret.txt"), "top secret");
+  fs.symlinkSync(path.join(dataDir, "secret.txt"), path.join(dir, "link.txt"));
+  const get = async (p, opts) => fetch(base + p, { redirect: "manual", ...opts });
+  const page = await get("/p/proto-abcdef012345678901/");
+  assert.equal(page.status, 200);
+  assert.equal(await page.text(), "<h1>Refunds</h1>");
+  assert.match(page.headers.get("content-type"), /text\/html/);
+  assert.match(page.headers.get("content-security-policy"), /^sandbox /, "the page can't reach this server's API or storage");
+  assert.equal((await get("/p/proto-abcdef012345678901/sub/page.css")).headers.get("content-type"), "text/css; charset=utf-8");
+  const slash = await get("/p/proto-abcdef012345678901");
+  assert.equal(slash.status, 301);
+  assert.equal(slash.headers.get("location"), "/p/proto-abcdef012345678901/");
+  for (const bad of ["/p/proto-abcdef012345678901/link.txt", "/p/proto-abcdef012345678901/../secret.txt", "/p/proto-abcdef012345678901/%2e%2e/secret.txt", "/p/proto-abcdef012345678901/.hidden", "/p/", "/p/proto-nope-nope-nope/", "/p/..%2f/", "/p/UPPER/"]) assert.equal((await get(bad)).status, 404, bad);
+  assert.equal((await get("/p/proto-abcdef012345678901/", { method: "POST" })).status, 405);
+  assert.equal((await get("/p/proto-abcdef012345678901/", { method: "HEAD" })).status, 200);
+});

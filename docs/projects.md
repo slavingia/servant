@@ -41,7 +41,7 @@ Reference files added in the app are stored under `project-files/<project id>/` 
 
 - `people` maps GitHub logins to Servant people, by display name or user id. A login that isn't mapped still counts for the rules and shows in the app as "GitHub: login"; it just isn't anyone's Servant account.
 - `id` is a lowercase slug (letters, digits, dashes); the app makes one from the name. It is what chats point at, so don't rename ids casually.
-- `repo` is `owner/name` on GitHub. `path` is where the agent works, on the Mac that runs the server. `pages` is an optional published site (GitHub Pages); vibe coding needs it.
+- `repo` is `owner/name` on GitHub. `path` is where the agent works, on the Mac that runs the server. `pages` is an optional published site; prototyping no longer needs it (see below).
 - `workflow` is `"main"` (straight to main: commit and push to main, no branches or pull requests) or `"pr"` (pull requests: branch, open a PR, merge after checks and review).
 - `rules` are free-text lines everyone in the project sees and the agent follows in every chat in the project.
 - `stages` are the steps every release item goes through, in order (up to 10, each up to 30 characters, no duplicates). New projects have none; the IRS app uses the five above. Owners set them in About.
@@ -80,12 +80,12 @@ Every turn of a chat in a project starts with the project's instructions (they a
    Upcoming releases (today is 2026-11-04), with what isn't done yet and who owns it:
    - November 17 (2026-11-17): Trump accounts: Design doing (Sahil Lavingia), Functional/508 QA to do (nobody yet), SAT blocked (Josh Struble: Waiting on test accounts), Content to do (nobody yet); DMAF: all done
    ```
-   A project with no upcoming releases gets no such block; vibe-coding chats never do.
+   A project with no upcoming releases gets no such block; prototyping chats never do.
 6. The project notes, then the reference files: paths for the full agent; small text files inline, and only the names of the rest, for the restricted member agent (which never gets local paths).
 
 A project without a repo or path (notes and files only) skips the workflow and access lines. If the person who started a chat is no longer in its project, the chat carries no project context.
 
-Vibe-coding chats always belong to the `design-prototypes` project and need its `path` and `pages`. They get the vibe-coding instructions (build inside the chat's own folder, push to main, end with the `PREVIEW:` link) plus the project's rules, but no access line: vibe coders build in their own folder whatever their repo access is. The New chat picker hides **Vibe coding** when that project isn't set up.
+Prototyping chats (called vibe coding before 11/6) always belong to the `design-prototypes` project, and need its `path`: the checkout's `components/` and `assets/` are the design kit. Each chat builds its prototype as plain files in `<data dir>/prototypes/<random folder>/`, and the server itself serves them at `<publicUrl>/p/<folder>/` (so through the same Cloudflare tunnel as everything else: no git, no GitHub, no Pages). The kit is served beside them at `/p/components/` and `/p/assets/`, so the starter page's relative links work. Anyone with a link can view a prototype; folder names are 18 random hex characters and nothing lists them. Pages are served with a `sandbox` Content-Security-Policy, so a prototype can't reach the server's API or storage. The agent gets a prototyping brief (build only in the chat's own folder, plain HTML/CSS/JS, end with the `PREVIEW:` link, never use git for it) plus the project's rules, but no access line. Chats made before this keep their old GitHub Pages link (`pages`). The New chat picker hides **Prototyping** when the project isn't set up.
 
 ## Moving from folders
 
@@ -95,8 +95,8 @@ For one release the old `/v1/folders` routes answer as projects under the old na
 
 ## API
 
-- Agent tiers: 0 no agent (where new people start; `defaultAgentTier` in config.json), 1 tester (files GitHub issues only), 2 vibe coder (design prototypes only), 3 design engineer (everything; owners). Owners set one with `PATCH /v1/people/<id>` `{ agentTier }`. Daily token limits scale with the tier (`TIER_TOKEN_LIMITS` in usage.mjs). People who joined before tiers keep what they had: vibe coders are tier 2, everyone else tier 1.
-- `GET /v1/projects` lists the projects you can see, plus `vibeCoder` and `vibe` (whether vibe coding is set up).
+- Agent tiers: 0 no agent (where new people start; `defaultAgentTier` in config.json), 1 tester (files GitHub issues only), 2 prototyper (design prototypes only), 3 design engineer (everything; owners). Owners set one with `PATCH /v1/people/<id>` `{ agentTier }`. Daily token limits scale with the tier (`TIER_TOKEN_LIMITS` in usage.mjs). People who joined before tiers keep what they had: vibe coders are tier 2, everyone else tier 1.
+- `GET /v1/projects` lists the projects you can see, plus `vibeCoder` and `vibe` (whether prototyping is set up).
 - `POST /v1/projects` `{ name, description?, notes?, repo?, path?, workflow?, rules?, stages? }` makes one you own.
 - `GET /v1/projects/<id>` returns the project (with `stages` and `releases`, soonest first; every item carries a cell for every stage, `{ status, owner, ownerName, note? }`) and `sharedChats` (teammates' chats shared with it).
 - `PATCH /v1/projects/<id>`: `notes` with write access; the rest (including `stages`) as an owner.

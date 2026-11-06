@@ -119,7 +119,7 @@ export default function Chats() {
   const rows = view === "archived" ? archived : active;
   const VIEWS = [{ key: "active", label: "Active" }, { key: "archived", label: "Archived" }] as const;
 
-  // One tap: a chat about the remembered choice (vibe coders always build prototypes).
+  // One tap: a chat about the remembered choice (prototypers always build prototypes).
   const start = async () => {
     if (starting) return;
     const project = projects && !projects.vibeCoder && offered(projects, choice) ? choice : null;
@@ -190,7 +190,7 @@ export default function Chats() {
               <AppIcon name="sparkles" size={32} color={colors.blue} />
               <Text accessibilityRole="header" style={styles.emptyTitle}>Start with a question</Text>
               <Text style={styles.emptyBody}>Ask the agent for help, then return to your conversation here.</Text>
-              <Button label={projects?.vibeCoder ? "Start vibe coding" : "New chat"} onPress={() => void start()} busy={starting} style={styles.emptyAction} />
+              <Button label={projects?.vibeCoder ? "Start prototyping" : "New chat"} onPress={() => void start()} busy={starting} style={styles.emptyAction} />
             </View>
           )
         }
@@ -221,7 +221,7 @@ export default function Chats() {
                       <Text style={[styles.rowTitle, styles.readTitle, unread > 0 && styles.unreadTitle]} numberOfLines={1}>{title}</Text>
                       <Text style={[styles.rowWhen, unread > 0 && styles.unreadWhen]}>{when(item.updatedAt)}</Text>
                     </View>
-                    {item.mode === "vibe" || item.project ? <Text style={styles.projectTag} numberOfLines={1}>{[item.project?.name, item.mode === "vibe" ? "Vibe coding" : null].filter(Boolean).join(" · ")}</Text> : null}
+                    {item.mode === "vibe" || item.project ? <Text style={styles.projectTag} numberOfLines={1}>{[item.project?.name, item.mode === "vibe" ? "Prototyping" : null].filter(Boolean).join(" · ")}</Text> : null}
                     <View style={styles.rowTop}>
                       {activeAgentTurn(item.latestTurn) ? <View style={styles.turnLive}>{item.latestTurn!.status === 'running'
                           ? <LiveStatus text={liveAgentLine(item.latestTurn)} style={styles.turnLiveText} />

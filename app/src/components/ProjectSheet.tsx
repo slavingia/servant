@@ -4,17 +4,17 @@ import { VIBE_CHOICE } from "../lib/new-chat-choice";
 import type { Project } from "../lib/server";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
-// The id for "Vibe coding" in the list; it isn't a project the server knows.
+// The id for "Prototyping" in the list; it isn't a project the server knows.
 export { VIBE_CHOICE };
 
-// "New chat" choices: talk to the agent as is, vibe code a prototype with a
+// "New chat" choices: talk to the agent as is, prototype with a
 // preview (when the server has the prototypes project), or work in a project.
 export function ProjectSheet({ visible, projects, vibe = true, selected = null, title = "New chat about", onPick, onClose }: { visible: boolean; projects: Project[]; vibe?: boolean; selected?: string | null; title?: string; onPick: (project: string | null) => void; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const options: { id: string | null; name: string; description?: string }[] = [
     { id: null, name: "Just the agent", description: "No project. Ask anything." },
-    ...(vibe ? [{ id: VIBE_CHOICE, name: "Vibe coding", description: "Describe a page or tool and get a live preview link." }] : []),
+    ...(vibe ? [{ id: VIBE_CHOICE, name: "Prototyping", description: "Describe a page or tool and get a live preview link." }] : []),
     ...projects.map(p => ({ id: p.id, name: p.name, description: p.description || p.repo || undefined })),
   ];
   return <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>

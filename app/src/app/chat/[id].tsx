@@ -162,7 +162,7 @@ function filesHeader(id: string, title: string, tint: string, extra: HeaderLink[
       </View> };
 }
 
-// Vibe coding: the latest prototype opens in the in-app browser.
+// Prototyping: the latest prototype opens in the in-app browser.
 export function openPreview(url: string) {
   // A fresh query string each time skips cached copies of the last publish.
   const fresh = `${url}${url.includes("?") ? "&" : "?"}v=${Date.now()}`;
@@ -213,11 +213,11 @@ function ContextSummary({ text }: { text: string }) {
   </View>;
 }
 
-// A "PREVIEW: <url>" line in a reply becomes a button.
+// A "PREVIEW: <url>" line in a reply becomes a button (https, or http for a local server).
 function ReplyText({ text, failed }: { text: string; failed?: boolean }) {
   const styles = useStyles();
   if (isContextSummary(text)) return <ContextSummary text={text} />;
-  const match = text.match(/(?:^|\n)PREVIEW:\s*(https:\/\/\S+)\s*$/);
+  const match = text.match(/(?:^|\n)PREVIEW:\s*(https?:\/\/\S+)\s*$/);
   if (!match) return <MessageText text={text} failed={failed} />;
   const body = text.slice(0, match.index).trimEnd();
   return <View>
@@ -333,7 +333,7 @@ function ChatConversation() {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projectShared, setProjectShared] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  // What this chat is about, changeable until the first message is sent. Vibe coding is set when a
+  // What this chat is about, changeable until the first message is sent. Prototyping is set when a
   // chat is made, so switching to or from it starts a fresh chat in place of this empty one.
   const [vibe, setVibe] = useState(false);
   const projects = useProjects();
@@ -859,7 +859,7 @@ function ChatConversation() {
           </Pressable>
         </View> : null}
         {showAbout ? <View style={styles.aboutRow}>
-          <Pressable testID="chat-about" accessibilityRole="button" accessibilityLabel={`About: ${aboutName}`} accessibilityHint="Change what this chat is about: a project, vibe coding or just the agent"
+          <Pressable testID="chat-about" accessibilityRole="button" accessibilityLabel={`About: ${aboutName}`} accessibilityHint="Change what this chat is about: a project, prototyping or just the agent"
             accessibilityState={{ busy: switching, expanded: choosing }} disabled={switching} hitSlop={{ top: 6, bottom: 6 }} onPress={() => setChoosing(true)}
             style={({ pressed }) => [styles.about, pressed && { opacity: 0.7 }]}>
             <Text style={styles.aboutLabel}>About</Text>
@@ -887,7 +887,7 @@ function MessageActions({ item, author, chatId, canForward, onForward, label, st
   const forwardable = canForward && /^msg_/.test(item.id) && (!!item.text || !!item.attachments?.length);
   const available = forwardable || !!text;
   const show = () => { if (available) { setCopied(null); setOpen(true); } };
-  const forward = () => { setOpen(false); onForward({ chatId, messageId: item.id, author, text: text.replace(/\n?PREVIEW:\s*https:\/\/\S+\s*$/, ""), files: item.attachments?.length ?? 0 }); };
+  const forward = () => { setOpen(false); onForward({ chatId, messageId: item.id, author, text: text.replace(/\n?PREVIEW:\s*https?:\/\/\S+\s*$/, ""), files: item.attachments?.length ?? 0 }); };
   const copy = async () => {
     try { setCopied(await Clipboard.setStringAsync(text) ? "Copied" : "Couldn't copy"); } catch { setCopied("Couldn't copy"); }
   };

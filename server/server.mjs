@@ -14,6 +14,7 @@
 //   node server/server.mjs release <build> <notes.md>   post a build's notes to #whats-new
 
 import { joinPage } from "./join-page.mjs";
+import { newFolder, servePrototype } from "./prototypes.mjs";
 import { PRIVACY_PAGE } from "./privacy-page.mjs";
 import { createEmailVerifier, commandSender, emailSettings, normalizeEmail } from "./email-verify.mjs";
 import http from "node:http";
@@ -48,6 +49,7 @@ import { createDocumentStore, DOCUMENT_CHUNK, DOCUMENT_CHUNK_BODY } from "./docu
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.SERVANT_DATA_DIR || path.join(HERE, "data");
+const PROTOTYPES_DIR = path.join(DATA_DIR, "prototypes");
 const CONFIG_FILE = path.join(DATA_DIR, "config.json");
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -573,7 +575,7 @@ function chatView(chat, viewer, users = {}) {
     // folderId/folderShared repeat projectId/projectShared for app builds from before projects.
     ...(chat.projectId ? { projectId: chat.projectId, folderId: chat.projectId, project: { id: chat.projectId, name: projects().byId(chat.projectId)?.name || chat.projectId },
       ...(chat.projectShared ? { projectShared: true, folderShared: true } : {}) } : {}),
-    ...(chat.mode === "vibe" ? { mode: "vibe", previewUrl: vibePreview(vibeProject(), chat) } : {}) };
+    ...(chat.mode === "vibe" ? { mode: "vibe", previewUrl: prototypePreview(chat) } : {}) };
   try { const u = usageStore().chatTotals(chat.id); if (u.turns) view.usage = u; } catch { /* stats never block a chat */ }
   if (viewer && chat.userId === viewer.id) {
     view.archived = !!chat.archivedAt;
@@ -605,6 +607,13 @@ let readmeCache;
 const projectReadme = repo => (readmeCache ??= createReadmeCache(path.join(DATA_DIR, "readme-cache")))(repo);
 const projects = () => projectStore ??= createProjectStore(loadConfig().projectsFile);
 const vibeProject = () => projects().byId(VIBE_PROJECT);
+// Where a prototype is served: this server, through its public address. Chats from before Prototyping moved onto the
+// server (no `hosted`) keep their old GitHub Pages link.
+function prototypePreview(chat) {
+  if (!chat.vibeFolder) return "";
+  if (chat.hosted === "server") { const origin = loadConfig().publicUrl.replace(/\/+$/, ""); return origin ? `${origin}/p/${chat.vibeFolder}/` : ""; }
+  return vibePreview(vibeProject(), chat);
+}
 // The project with this id, if this person is in it (or is an admin).
 function projectFor(user, pid, users = readState().users) {
   const data = projects().read();
@@ -638,7 +647,7 @@ function chatContextBase(chat) {
   const access = accessOf(project, users[chat.userId], users, data.people);
   // Whoever started the chat must still be in the project; otherwise the chat carries no project context.
   if (chat.mode !== "vibe" && !access.visible) return "";
-  return projectInstructions(project, { chat, asker: users[chat.userId], level: access.level, files: projectFiles(), full: agentRole(chat.role, loadConfig()) === "owner", users });
+  return projectInstructions(project, { chat, asker: users[chat.userId], level: access.level, files: projectFiles(), full: agentRole(chat.role, loadConfig()) === "owner", users, prototypes: { dir: PROTOTYPES_DIR, url: prototypePreview(chat), kit: expandPath(project.path) } });
 }
 const documents = () => documentStore ??= createDocumentStore(path.join(DATA_DIR, "chat-files"));
 let usageDb;
@@ -674,6 +683,8 @@ async function handle(req, res, cfg) {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" });
     return res.end(joinPage(cfg.downloads));
   }
+  // Prototypes built in Prototyping chats (prototypes.mjs): public by unguessable folder name, sandboxed.
+  if (url.pathname.startsWith("/p/") && servePrototype(req, res, url, { dir: PROTOTYPES_DIR, kitDir: expandPath(vibeProject()?.path) })) return undefined;
   // Privacy policy for the app stores (Google Play and App Store link here).
   if (method === "GET" && url.pathname === "/privacy") {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=300", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'" });
@@ -1276,7 +1287,7 @@ async function handle(req, res, cfg) {
     const tier = agentTierOf(readState().users[creator.id]);
     if (tier === 0) return fail(res, 403, "no_agent", noAgentMessage);
     const vibe = lane !== "researcher" && (tier === 2 || (tier === 3 && body.mode === "vibe"));
-    if (vibe && !vibeProject()) return fail(res, 503, "vibe_unavailable", "Vibe coding isn't set up on this server");
+    if (vibe && !vibeProject()) return fail(res, 503, "vibe_unavailable", "Prototyping isn't set up on this server");
     // Old builds send folderId, or project with ids this server may no longer know.
     const wanted = lane === "researcher" ? null : (body.projectId ?? body.folderId ?? (projects().byId(body.project) ? body.project : null));
     if (!vibe && wanted != null && !projectFor(creator, wanted)) return fail(res, 404, "not_found", "No such project");
@@ -1293,7 +1304,7 @@ async function handle(req, res, cfg) {
       // Always private to start. Sharing with the server or the project is a later choice, per chat.
       shared: false,
       ...(projectId ? { projectId } : {}),
-      ...(vibe ? { mode: "vibe", vibeFolder: vibeFolder(chatId) } : {}),
+      ...(vibe ? { mode: "vibe", vibeFolder: newFolder(), hosted: "server" } : {}),
       createdAt: now(),
       updatedAt: now(),
     };
