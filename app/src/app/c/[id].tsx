@@ -19,7 +19,7 @@ import { api, ServerError, type Conversation, type Upload, type Post, type LiveE
 import { useLive } from "../../lib/live";
 import { useSession } from "../../lib/session";
 import { askAgentAbout } from "../../lib/ask-agent";
-import { parseSlash, resolvePeople, splitDm } from "../../lib/slash-commands";
+import { helpText, parseSlash, resolvePeople, splitDm } from "../../lib/slash-commands";
 import { ChannelDetails } from "../channel-info";
 import { useWideLayout } from "../../lib/layout";
 import { useDetailsPanelOpen } from "../../lib/details-panel";
@@ -50,6 +50,8 @@ export default function ConversationScreen() {
   const [posts, setPosts] = useState<Post[] | null>(null);
   const [more, setMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The answer to a command like /help: shown plainly, not as an error. Tap it to dismiss.
+  const [note, setNote] = useState<string | null>(null);
   const [editing, setEditing] = useState<Post | null>(null);
   const [joining, setJoining] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
@@ -195,6 +197,11 @@ export default function ConversationScreen() {
         }
         case "leave": await api.leave(account, id); router.replace("/"); return true;
         case "call": void startCall(); return true;
+        case "archive": await (conv?.archived ? api.restoreChannel(account, id) : api.archiveChannel(account, id)); setError(null); router.replace("/"); return true;
+        case "new": router.push("/new-message"); return true;
+        case "browse": router.push("/browse"); return true;
+        case "people": router.push("/members"); return true;
+        case "help": setError(null); setNote(helpText(isChannel)); return true;
         case "files": openFiles(); return true;
         case "agent": return cmd.args ? send(`@s ${cmd.args}`) : need("a question");
         case "shrug": return send(`${cmd.args ? cmd.args + " " : ""}¯\\_(ツ)_/¯`);
@@ -339,6 +346,7 @@ export default function ConversationScreen() {
       </View> : null}
       <ConversationKeyboardView>
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+        {note ? <Text accessibilityLiveRegion="polite" selectable style={styles.note} onPress={() => setNote(null)}>{note}</Text> : null}
         {posts === null ? (
           <ActivityIndicator style={{ flex: 1 }} color={colors.blue} />
         ) : (
@@ -417,6 +425,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   headerActions: { flexDirection: "row", alignItems: "center", gap: space.md, paddingRight: Platform.OS === "web" ? space.side : 0 },
   headerLink: { ...typography.label, color: colors.blue },
   error: { ...typography.caption, paddingHorizontal: space.side, paddingVertical: space.sm, color: colors.red, backgroundColor: colors.redSoft },
+  note: { ...typography.caption, paddingHorizontal: space.side, paddingVertical: space.sm, color: colors.ink, backgroundColor: colors.surface },
   intro: { paddingHorizontal: space.side, paddingTop: space.md, paddingBottom: space.sm },
   introTitle: { ...typography.heading, color: colors.ink },
   introBody: { ...typography.body, marginTop: space.xs, color: colors.muted },

@@ -1,35 +1,54 @@
 // Slack-style commands typed in the message box: "/invite @maya", "/rename refund-desk".
 // The list shows while you type a "/" at the very start; Send runs the command instead of posting it.
 
-export type SlashCommand = { name: string; args: string; hint: string; description: string; channelOnly?: boolean };
+// Where a command works. Each one says so itself, so adding a command never needs another list edited.
+//   channel = a channel only, talk = channels and direct messages, agent = a chat with the agent, any = all of them.
+export type SlashWhere = "channel" | "talk" | "agent" | "any";
+export type SlashCommand = { name: string; args: string; hint: string; description: string; where: SlashWhere };
 
 export const SLASH_COMMANDS: Omit<SlashCommand, "args">[] = [
-  { name: "invite", hint: "@person …", description: "Add people to this channel", channelOnly: true },
-  { name: "rename", hint: "new-name", description: "Rename this channel", channelOnly: true },
-  { name: "leave", hint: "", description: "Leave this channel", channelOnly: true },
-  { name: "call", hint: "", description: "Start a call here (or join the one running)" },
-  { name: "agent", hint: "question", description: "Ask the agent about this conversation" },
-  { name: "dm", hint: "@person message", description: "Send someone a direct message" },
-  { name: "files", hint: "", description: "Everything shared here" },
-  { name: "shrug", hint: "message", description: "Add ¯\\_(ツ)_/¯ to your message" },
-  { name: "me", hint: "action", description: "Post in italics, like \"is out today\"" },
+  { name: "invite", hint: "@person …", description: "Add people to this channel", where: "channel" },
+  { name: "rename", hint: "new-name", description: "Rename this channel", where: "channel" },
+  { name: "leave", hint: "", description: "Leave this channel", where: "channel" },
+  { name: "call", hint: "", description: "Start a call here (or join the one running)", where: "talk" },
+  { name: "agent", hint: "question", description: "Ask the agent about this conversation", where: "talk" },
+  { name: "dm", hint: "@person message", description: "Send someone a direct message", where: "talk" },
+  { name: "files", hint: "", description: "Everything shared here", where: "talk" },
+  { name: "shrug", hint: "message", description: "Add ¯\\_(ツ)_/¯ to your message", where: "talk" },
+  { name: "me", hint: "action", description: "Post in italics, like \"is out today\"", where: "talk" },
+  // Added with the agent-chat commands (11/6). None of these needs the server to learn anything new.
+  { name: "archive", hint: "", description: "Archive this for you. Find it again under Archived", where: "any" },
+  { name: "new", hint: "", description: "Start a new message to someone", where: "any" },
+  { name: "browse", hint: "", description: "Find channels to join", where: "any" },
+  { name: "people", hint: "", description: "See everyone on the server", where: "any" },
+  { name: "stop", hint: "", description: "Stop the agent's current reply", where: "agent" },
+  { name: "help", hint: "", description: "Show what these commands do", where: "any" },
 ];
 
+const allowedHere = (c: Omit<SlashCommand, "args">, isChannel: boolean, agent: boolean) =>
+  c.where === "any" || (agent ? c.where === "agent" : c.where === "talk" || (c.where === "channel" && isChannel));
+
 /** The commands that match what's typed so far ("/" alone lists them all), or null when not typing one. */
-export function slashMatches(text: string, isChannel: boolean) {
+export function slashMatches(text: string, isChannel: boolean, agent = false) {
   const m = /^\/([a-z]*)$/i.exec(text);
   if (!m) return null;
   const q = m[1]!.toLowerCase();
-  return SLASH_COMMANDS.filter(c => (isChannel || !c.channelOnly) && c.name.startsWith(q));
+  return SLASH_COMMANDS.filter(c => allowedHere(c, isChannel, agent) && c.name.startsWith(q));
 }
 
 /** A full command ready to run, or null for ordinary text (including "/path/like/this" and "//"). */
-export function parseSlash(text: string, isChannel: boolean): SlashCommand | null {
+export function parseSlash(text: string, isChannel: boolean, agent = false): SlashCommand | null {
   const m = /^\/([a-z]+)(?:\s+([\s\S]*))?$/i.exec(text.trim());
   if (!m) return null;
   const def = SLASH_COMMANDS.find(c => c.name === m[1]!.toLowerCase());
-  if (!def || (def.channelOnly && !isChannel)) return null;
+  if (!def || !allowedHere(def, isChannel, agent)) return null;
   return { ...def, args: (m[2] ?? "").trim() };
+}
+
+/** The /help answer: one line per command that works in this kind of conversation. */
+export function helpText(isChannel: boolean, agent = false): string {
+  return SLASH_COMMANDS.filter(c => allowedHere(c, isChannel, agent))
+    .map(c => `/${c.name}${c.hint ? " " + c.hint : ""} — ${c.description}`).join("\n");
 }
 
 /** People named in a command: "@maya-ortiz", "@Maya", "maya". Returns matches and anything unknown. */

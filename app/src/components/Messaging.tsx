@@ -402,7 +402,7 @@ export function Composer({
   // Something else is attached (a forwarded message), so an empty box can send.
   canSendEmpty?: boolean;
   /** Slack-style "/" commands: the list shows while typing "/…" at the start. channel = channel-only ones too. */
-  commands?: { channel: boolean };
+  commands?: { channel: boolean; agent?: boolean };
 }) {
   const styles = useStyles();
   const wide = useWideLayout();
@@ -479,7 +479,7 @@ export function Composer({
   // @names of people here (and @s) show in blue as you type: a colored copy of the text sits
   // exactly under a see-through input (inputs can't color part of their text on the web).
   const mentionNames = new Set([...members.map(p => mentionText(p.name).toLowerCase()), ...(mentionAgent ? ["@s", "@agent"] : [])]);
-  const slash = commands && !busy && !onCancel ? slashMatches(text, commands.channel) : null;
+  const slash = commands && !busy && !onCancel ? slashMatches(text, commands.channel, commands.agent === true) : null;
   const latest = useRef({ text, selection });
   useLayoutEffect(() => { latest.current = { text, selection }; });
   const choose = (person: Person) => {

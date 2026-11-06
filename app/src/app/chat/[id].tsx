@@ -20,6 +20,7 @@ import { AgentProgress } from "../../components/AgentSteps";
 import { bufferAgentReply } from "../../lib/agent-events";
 import { messageDeviceLabel } from "../../lib/message-device";
 import { estimateCost, formatCost, formatTokens } from "../../lib/token-format";
+import { helpText, parseSlash } from "../../lib/slash-commands";
 import { api, sendMessage, ServerError, uploadPost, type Chat, type Project, type Message, type Upload } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { useLive } from "../../lib/live";
@@ -321,6 +322,8 @@ function ChatConversation() {
   const [steering, setSteering] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  // The answer to a command like /help: shown plainly, not as an error. Tap it to dismiss.
+  const [commandNote, setCommandNote] = useState<string | null>(null);
   const [heading, setHeading] = useState(title && title !== "New chat" ? title : "New chat");
   // The full agent takes any file, so a ZIP of a prototype can be hosted.
   const [showTitle, setShowTitle] = useState(false);
@@ -519,12 +522,34 @@ function ChatConversation() {
     return queued;
   };
 
+  // Commands typed in an agent chat (/archive, /stop, /new …). Returns true when handled, null for ordinary text.
+  const runCommand = async (text: string): Promise<boolean | null> => {
+    const cmd = parseSlash(text, false, true);
+    if (!cmd) return null;
+    setActionError(null); setCommandNote(null);
+    try {
+      switch (cmd.name) {
+        case "archive": await api.archiveChat(account, String(id)); router.replace("/agent"); return true;
+        case "stop":
+          if (!turn?.canStop) { setCommandNote("The agent isn't replying right now"); return true; }
+          await stop(); return true;
+        case "new": router.push("/new-message"); return true;
+        case "browse": router.push("/browse"); return true;
+        case "people": router.push("/members"); return true;
+        case "help": setCommandNote(helpText(false, true)); return true;
+      }
+    } catch (e) { setActionError(e instanceof Error ? e.message : `Couldn't run /${cmd.name}`); return false; }
+    return null;
+  };
+
   // The composer frees itself once the Mac accepts the message (or it fails
   // before that); the reply keeps streaming here without holding the box.
   const send = (text: string, attachments: Upload[] = []) => new Promise<boolean>(resolve => {
     let settled = false;
     const settle = (value: boolean) => { if (!settled) { settled = true; resolve(value); } };
-    void deliver(text, attachments, () => settle(true)).then(settle, () => settle(false));
+    // A typed command (/archive, /stop …) runs instead of being sent; anything else goes to the agent as before.
+    const command = !attachments.length && text.trim().startsWith("/") ? runCommand(text.trim()) : Promise.resolve(null);
+    void command.then(handled => handled !== null ? settle(handled) : deliver(text, attachments, () => settle(true)).then(settle, () => settle(false)), () => settle(false));
   });
 
   const deliver = async (text: string, attachments: Upload[], onAccepted: () => void) => {
@@ -822,6 +847,7 @@ function ChatConversation() {
           ? <AgentApprovalCard approval={turn.approval} busy={actionBusy} error={actionError} onAnswer={choice => { void answer(choice); }} /> : null}
         {turn && ['cancelled', 'interrupted', 'failed'].includes(turn.status) ? <View style={styles.turnStatus}><Text accessibilityLiveRegion="polite" style={styles.turnLabel}>{agentTurnLabel(turn)}</Text></View> : null}
         {actionError && !turn?.approval ? <Text accessibilityRole="alert" style={styles.sendError}>{actionError}</Text> : null}
+        {commandNote ? <Text accessibilityLiveRegion="polite" selectable style={styles.commandNote} onPress={() => setCommandNote(null)}>{commandNote}</Text> : null}
         {pendingForward && messages !== null && !loadError ? <View testID="forward-draft" style={styles.forwardDraft}>
           <View style={styles.forwardDraftCopy}>
             <ForwardBlock card={{ author: forwardAuthor || "Someone", where: forwardWhere || "", when: "", quote: forwardText || "" }} files={forwardFileCount} lines={3} />
@@ -840,7 +866,7 @@ function ChatConversation() {
           </Pressable>
           {aboutError ? <Text accessibilityRole="alert" style={styles.aboutError}>{aboutError}</Text> : null}
         </View> : null}
-        {messages !== null && !loadError ? <Composer autoFocus={compose === "1"} placeholder={pendingForward ? "Ask about this message, or just send" : "Message the agent"} onSend={send} allowFileAttachments={false} allowDocuments canSendEmpty={!!pendingForward} /> : null}
+        {messages !== null && !loadError ? <Composer autoFocus={compose === "1"} commands={{ channel: false, agent: true }} placeholder={pendingForward ? "Ask about this message, or just send" : "Message the agent"} onSend={send} allowFileAttachments={false} allowDocuments canSendEmpty={!!pendingForward} /> : null}
       </ConversationKeyboardView>
       </View>
       {previewOpen && previewUrl && canSplitPreview ? <PreviewPane url={previewUrl} version={previewVersion} stacked={stacked} onClose={() => setPreviewOpen(false)} /> : null}
@@ -974,6 +1000,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   text: { ...typography.body, color: colors.ink },
   failedText: { color: colors.red },
   usageLine: { ...typography.caption, color: colors.muted, textAlign: "center", paddingVertical: 2 },
+  commandNote: { ...typography.caption, color: colors.ink, backgroundColor: colors.surface, paddingHorizontal: space.side, paddingVertical: space.xs },
   sendError: { ...typography.caption, color: colors.red, backgroundColor: colors.redSoft, paddingHorizontal: space.side, paddingVertical: space.xs },
   typing: { ...typography.body, color: colors.muted, fontStyle: "italic" },
   empty: { alignItems: "center", marginTop: space.xxl, paddingHorizontal: space.side, paddingBottom: space.lg },
