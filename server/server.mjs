@@ -683,7 +683,7 @@ async function handle(req, res, cfg) {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" });
     return res.end(joinPage(cfg.downloads));
   }
-  if (url.pathname === "/robots.txt") return send(res, 200, "User-agent: *\nDisallow: /p/\n", { "Content-Type": "text/plain; charset=utf-8" }), undefined;
+  if (url.pathname === "/robots.txt") { res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" }); res.end("User-agent: *\nDisallow: /p/\n"); return undefined; }
   // Prototypes built in Prototyping chats (prototypes.mjs): public by unguessable folder name, sandboxed.
   if (url.pathname.startsWith("/p/") && servePrototype(req, res, url, { dir: PROTOTYPES_DIR, kitDir: expandPath(vibeProject()?.path), ip: clientIp(req) })) return undefined;
   // Privacy policy for the app stores (Google Play and App Store link here).
