@@ -134,6 +134,10 @@ export function loadConfig() {
     publicUrl: process.env.SERVANT_PUBLIC_URL || cfg.publicUrl || "",
     // Email code sign-in (docs/email-sign-in.md). Off unless enabled.
     emailVerification: cfg.emailVerification || {},
+    publicUrl: process.env.SERVANT_PUBLIC_URL || cfg.publicUrl || "",
+    // The website that serves the invite page (https://servant.com/join), and the download buttons it shows.
+    joinUrl: cfg.joinUrl || "",
+    downloads: cfg.downloads || {},
     // Stable URL that always returns {"url": "<current publicUrl>"}.
     discoveryUrl: process.env.SERVANT_DISCOVERY_URL || cfg.discoveryUrl || "",
     // Lets build scripts on this Mac post release notes. Never leaves the Mac.
