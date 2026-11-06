@@ -1803,7 +1803,7 @@ test("the owner removes someone who left the team: signed out everywhere, gone f
   assert.equal((await api("POST", `/v1/projects/${project.id}/people`, { token: owner, body: { userId: lee.id, level: "read" } })).status, 404, "can't add a removed person to a project");
 });
 
-test("agent tiers: new people have no agent; 1 bug reporter, 2 vibe coder, 3 design engineer", async () => {
+test("agent tiers: new people have no agent; 1 tester, 2 vibe coder, 3 design engineer", async () => {
   const cfgFile = path.join(dataDir, "config.json");
   const before = fs.readFileSync(cfgFile, "utf8");
   fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(before), defaultAgentTier: 0 }));

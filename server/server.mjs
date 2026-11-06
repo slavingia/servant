@@ -127,7 +127,7 @@ export function loadConfig() {
     // "full" (default): everyone's agent has full Hermes access. "limited":
     // non-owners use the restricted member bridge (docs/member-security.md).
     agentAccess: cfg.agentAccess === "limited" ? "limited" : "full",
-    // Where new people start: 0 = no agent until an owner sets a tier (1 bug reporter, 2 vibe coder, 3 design engineer).
+    // Where new people start: 0 = no agent until an owner sets a tier (1 tester, 2 vibe coder, 3 design engineer).
     defaultAgentTier: [0, 1, 2, 3, 4].includes(cfg.defaultAgentTier) ? cfg.defaultAgentTier : 0,
     // Where the server can be reached from phones. Filled in by the tunnel script.
     publicUrl: process.env.SERVANT_PUBLIC_URL || cfg.publicUrl || "",
@@ -604,7 +604,7 @@ function migrateProjects() {
 }
 // The chat's project (repo, workflow, rules, what the asker may do, notes and files), sent with every turn.
 const RESEARCHER_RULES = "This person is a researcher. You can search the web, read pages and files they attach, look at images, use skills and plan, and explain what you found with sources. You cannot use GitHub in any way: no gh, no git, no issues, no pull requests, no repositories. If they ask for that, say that GitHub is not available to them and offer to help another way, or to ask a design engineer. You cannot run commands or read or write files.";
-const BUG_REPORTER_RULES = "This person is a bug reporter. The only thing you do for them is file GitHub issues (with gh) in the project's repo: ask what happened, what they expected and the steps, then open one clear issue and share the link. Don't change code, push, or do any other work, and say so kindly if asked.";
+const BUG_REPORTER_RULES = "This person is a tester. The only thing you do for them is file GitHub issues (with gh) in the project's repo: ask what happened, what they expected and the steps, then open one clear issue and share the link. Don't change code, push, or do any other work, and say so kindly if asked.";
 function chatContext(chat) {
   const tier = agentTierOf(readState().users[chat.userId]);
   const tier1 = tier === 1 ? BUG_REPORTER_RULES : "";
@@ -1122,7 +1122,7 @@ async function handle(req, res, cfg) {
     // fixing someone's name (a typo at invite time).
     const flags = ["vibeCoder", "unlimitedTokens"].filter(k => k in body);
     const tierSet = "agentTier" in body;
-    if (tierSet && (!Number.isInteger(body.agentTier) || body.agentTier < 0 || body.agentTier > 4)) return fail(res, 400, "bad_request", "agentTier is 0 (no agent), 1 (bug reporter), 2 (vibe coder), 3 (design engineer) or 4 (researcher)"), undefined;
+    if (tierSet && (!Number.isInteger(body.agentTier) || body.agentTier < 0 || body.agentTier > 4)) return fail(res, 400, "bad_request", "agentTier is 0 (no agent), 1 (tester), 2 (vibe coder), 3 (design engineer) or 4 (researcher)"), undefined;
     const rename = typeof body.name === "string" ? body.name.replace(/\s+/g, " ").trim().slice(0, 40) : null;
     if ((!flags.length && !rename && !tierSet) || flags.some(k => typeof body[k] !== "boolean") || rename === "") return fail(res, 400, "bad_request", "Send a name, or vibeCoder/unlimitedTokens as true or false");
     const person = mutateAuthenticated(req, (state) => {

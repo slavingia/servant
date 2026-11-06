@@ -267,7 +267,7 @@ export default function ThreadScreen() {
         )}
         {!unavailable ? <TypingLine names={typingNames} /> : null}
         {unavailable ? null : editing ? (
-          <Composer members={conversation?.members} mentionAgent me={me} key={`edit-${editing.id}`} placeholder="Edit message" initial={editing.text} sendLabel="Save" onSend={saveEdit} onCancel={() => setEditing(null)} />
+          <Composer members={conversation?.members} mentionAgent me={me} key={`edit-${editing.id}`} placeholder="Edit message" autoFocus initial={editing.text} sendLabel="Save" onSend={saveEdit} onCancel={() => setEditing(null)} />
         ) : (
           <Composer members={conversation?.members} mentionAgent me={me} key="reply" draftKey={`thread:${conv}:${root}`} placeholder="Reply" onSend={send} onTyping={ping} />
         )}
