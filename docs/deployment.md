@@ -76,9 +76,9 @@ continues to work when that environment variable is absent.
 1. Run `node --test server/` and the app's applicable checks against the code to
    stage. Tests use temporary data and fake upstreams; do not substitute the
    production data directory for a test fixture.
-2. Customize `server/com.servant.supervisor.plist.example`,
-   `server/com.servant.worker.plist.example`, and
-   `server/com.servant.tunnel.plist.example`. Replace the staged release ID
+2. Customize `server/gov.irs.servant.supervisor.plist.example`,
+   `server/gov.irs.servant.worker.plist.example`, and
+   `server/gov.irs.servant.tunnel.plist.example`. Replace the staged release ID
    placeholders and check executable, data, bootstrap, and log paths. The
    supervisor uses `SERVANT_INITIAL_RELEASE` only when no saved selection exists.
    The worker always uses its independently pinned `SERVANT_WORKER_RELEASE`.
@@ -185,7 +185,7 @@ For a worker code upgrade, stage a compatible release, then signal the running
 worker without unloading its launch agent:
 
 ```sh
-launchctl kill SIGTERM "gui/$(id -u)/com.servant.worker"
+launchctl kill SIGTERM "gui/$(id -u)/gov.irs.servant.worker"
 ```
 
 Wait for that process to exit. It stops claiming new work, finishes its current

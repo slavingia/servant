@@ -18,9 +18,7 @@
 #   --runtime DIR       Runtime directory (~/.local/share/servant)
 #   --data DIR          Data directory (kept from an existing install, else
 #                       <runtime>/data)
-#   --label PREFIX      launchd label prefix (com.servant; an existing install
-#                       keeps the prefix it already runs under)
-#   --which-label       Print the label prefix this run would use, then exit
+#   --label PREFIX      launchd label prefix (gov.irs.servant)
 #   --node PATH         Use this Node 22.13+
 #   --no-open           Print the sign-in link without opening the Mac app
 set -euo pipefail
@@ -35,7 +33,7 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 [[ -f "$REPO/server/server.mjs" ]] || die "run from a Servant checkout"
 
 NAME="Servant" TUNNEL=0 OWNER_URL="" OWNER_KEY="" PORT=8787 NODE_BIN="" OPEN=1
-RUNTIME="$HOME/.local/share/servant" DATA="" LABEL="" WHICH_LABEL=0
+RUNTIME="$HOME/.local/share/servant" DATA="" LABEL="gov.irs.servant"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --name) NAME="$2"; shift 2 ;;
@@ -46,38 +44,18 @@ while [[ $# -gt 0 ]]; do
     --runtime) RUNTIME="$2"; shift 2 ;;
     --data) DATA="$2"; shift 2 ;;
     --label) LABEL="$2"; shift 2 ;;
-    --which-label) WHICH_LABEL=1; shift ;;
     --node) NODE_BIN="$2"; shift 2 ;;
     --no-open) OPEN=0; shift ;;
-    -h|--help) sed -n 2,26p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,24p "$0"; exit 0 ;;
     *) die "unknown option $1" ;;
   esac
 done
 [[ "$PORT" =~ ^[0-9]+$ ]] || die "--port must be a number"
+[[ "$LABEL" =~ ^[A-Za-z0-9.-]+$ ]] || die "--label may use letters, digits, . and -"
 [[ "$RUNTIME" = /* ]] || die "--runtime must be an absolute path"
 
 AGENTS="$HOME/Library/LaunchAgents"
 DOMAIN="gui/$(id -u)"
-
-# An install that is already running keeps its launchd labels, whatever prefix
-# it was set up with, so running this again never starts a second copy. It is
-# found by its supervisor agent: loaded, and running this runtime's bootstrap.
-existing_label() {
-  local f label script
-  for f in "$AGENTS"/*.supervisor.plist; do
-    [[ -f "$f" ]] || continue
-    label="$(plutil -extract Label raw -o - "$f" 2>/dev/null)" || continue
-    [[ "$label" == *.supervisor ]] || continue
-    script="$(plutil -extract ProgramArguments.1 raw -o - "$f" 2>/dev/null)" || continue
-    [[ "$script" == "$RUNTIME/bootstrap/run-supervisor.sh" ]] || continue
-    launchctl print "$DOMAIN/$label" >/dev/null 2>&1 || continue
-    echo "${label%.supervisor}"; return 0
-  done
-  return 1
-}
-if [[ -z "$LABEL" ]]; then LABEL="$(existing_label || echo com.servant)"; fi
-[[ "$LABEL" =~ ^[A-Za-z0-9.-]+$ ]] || die "--label may use letters, digits, . and -"
-if [[ $WHICH_LABEL == 1 ]]; then echo "$LABEL"; exit 0; fi
 plist() { echo "$AGENTS/$LABEL.$1.plist"; }
 
 # Keep the data directory of an existing install.

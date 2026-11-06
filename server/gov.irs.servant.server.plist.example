@@ -2,9 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.servant.server</string>
+  <key>Label</key><string>gov.irs.servant.server</string>
   <key>ProgramArguments</key>
-  <!-- Install with com.servant.tunnel.plist; see docs/deployment.md. -->
+  <!-- Install with gov.irs.servant.tunnel.plist; see docs/deployment.md. -->
   <array><string>/bin/bash</string><string>/Users/you/servant/server/run-api.sh</string></array>
   <key>EnvironmentVariables</key>
   <dict>

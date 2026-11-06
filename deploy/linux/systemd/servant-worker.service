@@ -1,5 +1,5 @@
 # Channel @agent jobs and notifications, pinned to SERVANT_WORKER_RELEASE
-# (/etc/servant/worker.env). Same as launchd com.servant.worker. Stopping
+# (/etc/servant/worker.env). Same as launchd gov.irs.servant.worker. Stopping
 # sends SIGTERM: it finishes the current job, then exits.
 [Unit]
 Description=Servant durable worker

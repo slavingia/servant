@@ -1,4 +1,4 @@
-# Shake-to-report feedback queue. Same as launchd com.servant.feedback.
+# Shake-to-report feedback queue. Same as launchd gov.irs.servant.feedback.
 # Runs from the worker's pinned release.
 [Unit]
 Description=Servant feedback worker
