@@ -4,7 +4,7 @@ import { createAssist, findAsk, recentContext } from './meeting-assist.mjs';
 
 test('the wake phrase is found the ways whisper writes it', () => {
   assert.equal(findAsk('Hey servant, what is the mileage rate?'), 'what is the mileage rate?');
-  assert.equal(findAsk('hey Servant. look up policy memo 2025-32'), 'look up policy memo 2025-32');
+  assert.equal(findAsk('hey Servant. look up Rev. Proc. 2025-32'), 'look up Rev. Proc. 2025-32');
   assert.equal(findAsk('Hey agent what time is it'), 'what time is it');
   assert.equal(findAsk('Okay, S, define de minimis'), 'define de minimis');
   assert.equal(findAsk('hey'), null);
@@ -26,7 +26,7 @@ function rig({ research } = {}) {
   const a = createAssist({
     people: () => [{ id: 'p1', userId: 'ann', name: 'Ann', muted: false, liveFile: 'a.webm' }, { id: 'p2', userId: 'bo', name: 'Bo', muted: false, liveFile: 'b.webm' }],
     transcribe: async (file) => { const q = feed[file[0] === 'a' ? 'ann' : 'bo']; const segs = q.splice(0); return { seconds: segs.length ? 8 : 0, segments: segs.map(text => ({ fromMs: 0, text })) }; },
-    research: research || (async (o) => { asked.push(o); return 'It is 72.5 cents per mile (agency.gov).'; }),
+    research: research || (async (o) => { asked.push(o); return 'It is 72.5 cents per mile (IRS.gov).'; }),
     onCards: (c) => changes.push(c.map(x => x.status).join()),
     now: () => t, log: { error() {} },
   });

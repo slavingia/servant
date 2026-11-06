@@ -119,7 +119,7 @@ before(async () => {
     people: { patgh: "Pat Projects" },
     projects: [
       { id: "servant", name: "Servant", description: "The team app", repo: "slavingia/servant", path: "~/servant", workflow: "main", rules: ["Never rewrite pushed history"], owners: ["bossgh"], access: { merge: ["bossgh"], write: ["patgh"], read: ["Ro Reader"] } },
-      { id: "design-prototypes", name: "Design prototypes", repo: "your-org/design-prototypes", path: "~/design-prototypes", pages: "https://your-org.github.io/design-prototypes/", workflow: "main", rules: ["Public information and made-up sample data only"] },
+      { id: "design-prototypes", name: "Design prototypes", repo: "Taxpayer-Services-and-Online-Accounts/design-prototypes", path: "~/design-prototypes", pages: "https://taxpayer-services-and-online-accounts.github.io/design-prototypes/", workflow: "main", rules: ["Public information and made-up sample data only"] },
       { id: "secret", name: "Secret", access: { merge: ["nobody-here"] } },
     ],
   }));
@@ -201,11 +201,11 @@ test("everything except health and pairing needs a token", async () => {
 
 test("email code sign-in: off by default, then required, wrong/expired/outsider codes refused", async () => {
   const { emailAllowed } = await import("./email-verify.mjs");
-  assert.equal(emailAllowed("a@example.gov", ["example.gov"]), true);
-  assert.equal(emailAllowed("a@mail.example.gov", ["example.gov"]), true);
+  assert.equal(emailAllowed("a@irs.gov", ["irs.gov"]), true);
+  assert.equal(emailAllowed("a@mail.irs.gov", ["irs.gov"]), true);
   const old = await pair("member", "Early Joiner");
   const otherEarly = await pair("member", "Other Early");
-  for (const bad of ["a@example.gov.evil.com", "a@notexample.gov", "a@example.com", "a@evilexample.gov"]) assert.equal(emailAllowed(bad, ["example.gov"]), false, bad);
+  for (const bad of ["a@irs.gov.evil.com", "a@notirs.gov", "a@irs.com", "a@evilirs.gov"]) assert.equal(emailAllowed(bad, ["irs.gov"]), false, bad);
   const off = await api("GET", "/v1/pair/email");
   assert.deepEqual(off.json, { required: false, domains: [] });
   const file = path.join(dataDir, "config.json");
@@ -214,24 +214,19 @@ test("email code sign-in: off by default, then required, wrong/expired/outsider 
   globalThis.__servantEmailSend = async (m) => { sent.push(m); };
   fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(before), emailVerification: { enabled: true } }));
   try {
-    // No default domain: turned on with no domains, the feature refuses to start and says why.
-    const { emailSettings } = await import("./email-verify.mjs");
-    assert.match(emailSettings({ emailVerification: { enabled: true } }).error, /domains is empty/);
-    assert.deepEqual((await api("GET", "/v1/pair/email")).json, { required: false, domains: [] });
-    fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(before), emailVerification: { enabled: true, domains: ["example.gov"] } }));
-    assert.deepEqual((await api("GET", "/v1/pair/email")).json, { required: true, domains: ["example.gov"] });
+    assert.deepEqual((await api("GET", "/v1/pair/email")).json, { required: true, domains: ["irs.gov"] });
     const code = mod.createInvite({ name: "Email Tester", role: "member" });
     const join = extra => api("POST", "/v1/pair", { body: { code, device: "Test phone", terms: ACCEPT, ...extra } });
     assert.equal((await join({})).json.error?.code, "email_required");
     const start = e => api("POST", "/v1/pair/email", { body: { code, email: e } });
     assert.equal((await start("x@gmail.com")).json.error?.code, "email_not_allowed");
     assert.equal((await start("nope")).json.error?.code, "email_invalid");
-    assert.equal((await api("POST", "/v1/pair/email", { body: { code: "ZZZZ-ZZZZ", email: "a@example.gov" } })).status, 403);
+    assert.equal((await api("POST", "/v1/pair/email", { body: { code: "ZZZZ-ZZZZ", email: "a@irs.gov" } })).status, 403);
     assert.equal(sent.length, 0);
-    const ok = await start("Pat.Tester@EXAMPLE.gov");
+    const ok = await start("Pat.Tester@IRS.gov");
     assert.equal(ok.status, 200, ok.text);
     assert.equal(sent.length, 1);
-    assert.equal(sent[0].to, "pat.tester@example.gov");
+    assert.equal(sent[0].to, "pat.tester@irs.gov");
     assert.match(sent[0].code, /^\d{6}$/);
     assert.ok(!JSON.stringify(ok.json).includes(sent[0].code));
     const wrong = sent[0].code === "000000" ? "111111" : "000000";
@@ -239,14 +234,14 @@ test("email code sign-in: off by default, then required, wrong/expired/outsider 
     const good = await join({ emailChallenge: ok.json.challenge, emailCode: sent[0].code });
     assert.equal(good.status, 201, good.text);
     const saved = createStateStore({ directory: dataDir }).read();
-    assert.equal(saved.users[good.json.user.id].email, "pat.tester@example.gov");
+    assert.equal(saved.users[good.json.user.id].email, "pat.tester@irs.gov");
     // the code works once
     const code2 = mod.createInvite({ name: "Second", role: "member" });
     const again = await api("POST", "/v1/pair", { body: { code: code2, device: "x", terms: ACCEPT, emailChallenge: ok.json.challenge, emailCode: sent[0].code } });
     assert.equal(again.json.error?.code, "email_code_expired");
     // #41: the same confirmed email from another device signs in as the same person, not a second one
     const team = (await mod.joinLink({ fresh: true })).code;
-    const start2 = await api("POST", "/v1/pair/email", { body: { code: team, email: "pat.tester@example.gov" } });
+    const start2 = await api("POST", "/v1/pair/email", { body: { code: team, email: "pat.tester@irs.gov" } });
     assert.equal(start2.status, 200, start2.text);
     const back = await api("POST", "/v1/pair", { body: { code: team, device: "Desktop", terms: ACCEPT, emailChallenge: start2.json.challenge, emailCode: sent.at(-1).code } });
     assert.equal(back.status, 201, back.text);
@@ -254,8 +249,8 @@ test("email code sign-in: off by default, then required, wrong/expired/outsider 
     // Someone who joined before email codes adds their email from inside the app.
     const me0 = (await api("GET", "/v1/me", { token: old })).json;
     assert.equal(me0.emailRequired, true);
-    assert.equal((await api("POST", "/v1/people/me/email", { token: old, body: { email: "pat.tester@example.gov" } })).json.error?.code, "email_taken", "an address someone else confirmed can't be claimed");
-    const mine = await api("POST", "/v1/people/me/email", { token: old, body: { email: "early@example.gov" } });
+    assert.equal((await api("POST", "/v1/people/me/email", { token: old, body: { email: "pat.tester@irs.gov" } })).json.error?.code, "email_taken", "an address someone else confirmed can't be claimed");
+    const mine = await api("POST", "/v1/people/me/email", { token: old, body: { email: "early@irs.gov" } });
     assert.equal(mine.status, 200, mine.text);
     const bad = await api("POST", "/v1/people/me/email/confirm", { token: old, body: { challenge: mine.json.challenge, code: "x" } });
     assert.equal(bad.json.error?.code, "email_code_wrong");
@@ -734,7 +729,7 @@ test("releases: items move through the project's stages; writers plan, whoever o
   // Dates relative to today, so "upcoming" stays upcoming whenever this runs.
   const inDays = n => { const d = new Date(Date.now() + n * 86400000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
   const stages = ["Build", "Design", "Functional/508 QA", "SAT", "Content"];
-  const project = (await api("POST", "/v1/projects", { token: lead, body: { name: "Website", repo: "example/website", path: "~/website", stages } })).json.project;
+  const project = (await api("POST", "/v1/projects", { token: lead, body: { name: "IRS app", repo: "example/expo-irs", path: "~/expo-irs", stages } })).json.project;
   assert.deepEqual([project.stages, project.releases], [stages, []]);
   const P = `/v1/projects/${project.id}`;
   await api("POST", `${P}/people`, { token: lead, body: { userId: devId, level: "write" } });
@@ -833,7 +828,7 @@ test("vibe coding is an option for everyone: any member can pick it and gets a p
   const chat = (await api("POST", "/v1/chats", { token, body: { mode: "vibe" } })).json.chat;
   assert.equal(chat.mode, "vibe");
   assert.equal(chat.project.id, "design-prototypes");
-  assert.match(chat.previewUrl, /^https:\/\/your-org\.github\.io\/design-prototypes\/vibe-[a-z0-9]+\/$/);
+  assert.match(chat.previewUrl, /^https:\/\/taxpayer-services-and-online-accounts\.github\.io\/design-prototypes\/vibe-[a-z0-9]+\/$/);
   await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "a page about refunds" } });
   const stream = await waitFor(() => [...owner.calls, ...member.calls].find((c) => c.url.endsWith("/chat/stream") && c.body.message === "a page about refunds"));
   assert.ok(stream.body.system_message.includes(`PREVIEW: ${chat.previewUrl}`));
@@ -869,7 +864,7 @@ test("vibe coders: owners mark them; their chats build a prototype and show a pr
   const chat = (await api("POST", "/v1/chats", { token, body: { projectId: "servant" } })).json.chat;
   assert.equal(chat.mode, "vibe");
   assert.equal(chat.project.id, "design-prototypes");
-  assert.match(chat.previewUrl, /^https:\/\/your-org\.github\.io\/design-prototypes\/vibe-[a-z0-9]+\/$/);
+  assert.match(chat.previewUrl, /^https:\/\/taxpayer-services-and-online-accounts\.github\.io\/design-prototypes\/vibe-[a-z0-9]+\/$/);
   const before = owner.calls.length;
   await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "a page about refunds" } });
   const stream = owner.calls.slice(before).find((c) => c.url.endsWith("/chat/stream"));

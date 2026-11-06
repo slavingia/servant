@@ -24,7 +24,9 @@
     "githubassets.com",
     "*.githubassets.com",
     "ghcr.io",
-    "gist.github.com"
+    "gist.github.com",
+    "*.github.enterprise.irs.gov",
+    "github.enterprise.irs.gov"
   ],
   "toolset": "servant_researcher",
   "allowedTools": [

@@ -2,7 +2,7 @@
 // agent reply: who asked, where (private agent chat or channel), and the token
 // counts Hermes reported. No prompt text is stored here.
 import { DatabaseSync } from "node:sqlite";
-import { classifyTopic, topicReport, productContext } from "./usage-topics.mjs";
+import { classifyTopic, topicReport } from "./usage-topics.mjs";
 
 const int = value => (Number.isFinite(Number(value)) && Number(value) > 0 ? Math.floor(Number(value)) : 0);
 
@@ -37,15 +37,7 @@ export const startOfDay = (at = Date.now()) => { const d = new Date(at); d.setHo
 export const limitMessage = (limit = DAILY_TOKEN_LIMIT) =>
   `You've reached today's limit of ${limit.toLocaleString("en-US")} tokens. It resets at midnight`;
 
-// topics(): { name, context } from config.json usageTopics, read on each use so edits apply without a restart.
-export function createUsageStore(file, { limit = DAILY_TOKEN_LIMIT, clock = Date.now, topics = () => ({}) } = {}) {
-  let cached = { key: null, re: null };
-  const context = () => {
-    const words = topics()?.context || [];
-    const key = JSON.stringify(words);
-    if (cached.key !== key) cached = { key, re: productContext(words) };
-    return cached.re;
-  };
+export function createUsageStore(file, { limit = DAILY_TOKEN_LIMIT, clock = Date.now } = {}) {
   const db = new DatabaseSync(file);
   db.exec(`PRAGMA journal_mode=WAL;
     CREATE TABLE IF NOT EXISTS token_usage (
@@ -71,7 +63,7 @@ export function createUsageStore(file, { limit = DAILY_TOKEN_LIMIT, clock = Date
     record({ eventId, userId, source, usage, chatId, text, at = Date.now() }) {
       const u = normalizeUsage(usage);
       if (!u || !userId) return false;
-      const topic = text == null ? {} : classifyTopic(text, context());
+      const topic = text == null ? {} : classifyTopic(text);
       return insert.run(eventId ?? null, String(userId), source === "channel" ? "channel" : "chat", u.input, u.output, u.total, at, chatId ? String(chatId) : null, topic.theme ?? null, topic.kind ?? null).changes > 0;
     },
     // What one conversation has used so far, for the line above its composer.
@@ -99,7 +91,7 @@ export function createUsageStore(file, { limit = DAILY_TOKEN_LIMIT, clock = Date
     backfillTopics(texts) {
       const set = db.prepare("UPDATE token_usage SET theme=?, kind=? WHERE event_id=? AND theme IS NULL");
       let n = 0;
-      for (const [eventId, text] of Object.entries(texts)) { const t = classifyTopic(text, context()); n += Number(set.run(t.theme, t.kind, eventId).changes); }
+      for (const [eventId, text] of Object.entries(texts)) { const t = classifyTopic(text); n += Number(set.run(t.theme, t.kind, eventId).changes); }
       return n;
     },
     // Tokens by survey-feedback theme, read against what survey respondents said.
@@ -110,7 +102,7 @@ export function createUsageStore(file, { limit = DAILY_TOKEN_LIMIT, clock = Date
         FROM token_usage WHERE at >= ? AND theme IS NOT NULL GROUP BY theme`).all(since)
         .map(r => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, typeof v === "bigint" ? Number(v) : v])));
       const unlabelled = Number(db.prepare("SELECT COUNT(*) AS n FROM token_usage WHERE at >= ? AND theme IS NULL").get(since).n);
-      return { ...topicReport(rows, { name: topics()?.name }), unlabelledTurns: unlabelled };
+      return { ...topicReport(rows), unlabelledTurns: unlabelled };
     },
     close: () => db.close(),
   };

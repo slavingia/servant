@@ -441,7 +441,9 @@ export function migrateFolders(state, store, files, folderFilesDir) {
       delete c.folderId; delete c.folderShared;
     }
     if (typeof c.project === "string") {
-      if (!c.projectId && store.byId(c.project)) c.projectId = c.project;
+      // The old hard-coded list called the IRS app "expo".
+      const id = c.project === "expo" && !store.byId("expo") ? "expo-irs" : c.project;
+      if (!c.projectId && store.byId(id)) c.projectId = id;
       delete c.project;
     }
   }

@@ -116,7 +116,7 @@ export default function Pair() {
           accessibilityLabel={code ? "Six-digit code" : "Work email"}
           value={code ? digits : email}
           onChangeText={code ? (t) => setDigits(t.replace(/\D/g, "").slice(0, 6)) : setEmail}
-          placeholder={code ? "123456" : "you@agency.gov"}
+          placeholder={code ? "123456" : "you@irs.gov"}
           placeholderTextColor={colors.muted}
           style={styles.input}
           autoFocus

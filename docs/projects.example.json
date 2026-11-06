@@ -1,8 +1,8 @@
 {
   "people": {
-    "alexlee": "Alex Lee",
-    "samkim": "Sam Kim",
-    "jordanpark": "Jordan Park"
+    "slavingia": "Sahil Lavingia",
+    "gianfrancopiana": "Gianfranco Piana",
+    "JoshStruble": "Josh Struble"
   },
   "projects": [
     {
@@ -10,7 +10,7 @@
       "name": "Servant",
       "description": "The team chat app: phone app, server, agent bridge and Mac app",
       "repo": "slavingia/servant",
-      "visibility": "public",
+      "visibility": "private",
       "path": "~/servant",
       "workflow": "main",
       "rules": [
@@ -18,46 +18,47 @@
         "Run the server tests and the app's tsc and npm test before pushing.",
         "Deploy the API with server/deploy.mjs and the worker with worker-swap.sh."
       ],
-      "owners": ["alexlee"],
+      "owners": ["slavingia"],
       "access": {
-        "merge": ["alexlee"],
-        "write": ["jordanpark"],
+        "merge": ["slavingia"],
+        "write": ["gianfrancopiana"],
         "read": []
       }
     },
     {
       "id": "design-prototypes",
       "name": "Design prototypes",
-      "description": "Clickable prototypes of our screens, published on GitHub Pages",
-      "repo": "your-org/design-prototypes",
+      "description": "Clickable prototypes of IRS screens, published on GitHub Pages",
+      "repo": "Taxpayer-Services-and-Online-Accounts/design-prototypes",
       "visibility": "private",
-      "path": "~/design-prototypes",
-      "pages": "https://your-org.github.io/design-prototypes/",
+      "path": "~/design-prototypes-daily",
+      "pages": "https://taxpayer-services-and-online-accounts.github.io/design-prototypes/",
       "workflow": "main",
       "rules": [
         "Work directly on main, each prototype in a clearly named folder. No branches or pull requests unless asked.",
         "Public information and made-up sample data only.",
+        "Run scripts/build_catalog.py and scripts/check_fourth_wall.py before pushing.",
         "Vibe-coding chats work only inside their own folder."
       ],
-      "owners": ["alexlee"],
+      "owners": ["slavingia"],
       "access": {
-        "merge": ["alexlee", "samkim"],
-        "write": ["jordanpark", "rileychen", "taylormoss"],
-        "read": ["docs-bot"]
+        "merge": ["slavingia", "JoshStruble"],
+        "write": ["mweingartenIRS", "Hai-RS", "psprugh-irs", "ash-webb", "Cbillings-irs", "HKGIT2026", "RRichburg-irs", "aaronfrazer-irs"],
+        "read": ["df-irs-svc", "sdssvc"]
       }
     },
     {
-      "id": "website",
-      "name": "Website",
-      "description": "The public website",
-      "repo": "your-org/website",
+      "id": "expo-irs",
+      "name": "The IRS app",
+      "description": "The IRS app for iPhone and Android (expo-irs)",
+      "repo": "Taxpayer-Services-and-Online-Accounts/expo-irs",
       "visibility": "internal",
-      "path": "~/website",
+      "path": "~/expo-irs",
       "workflow": "pr",
       "rules": [
-        "Every change goes through a pull request. Merge with `gh pr merge --squash` once the checks pass, then report the PR link and the merge commit.",
-        "Say \"sign in\", never \"log in\".",
-        "Production rollouts happen only on the owner's go.",
+        "Every change goes through a pull request. Merge with `gh pr merge --squash --admin` once the checks pass, then report the PR link and the merge commit.",
+        "Say \"the IRS app\", never \"IRS2Go\".",
+        "Store and production rollouts happen only on the owner's go.",
         "Never enable a feature flag just because the fixture tests pass.",
         "Follow AGENTS.md in the repo."
       ],
@@ -69,8 +70,8 @@
           "date": "2026-11-17",
           "items": [
         {
-          "id": "itm_account-settings",
-          "title": "Account settings",
+          "id": "itm_trump-accounts",
+          "title": "Trump accounts",
           "stages": {
             "Build": { "status": "todo", "owner": null },
             "Design": { "status": "todo", "owner": null },
@@ -80,8 +81,8 @@
           }
         },
         {
-          "id": "itm_search",
-          "title": "Search",
+          "id": "itm_dmaf",
+          "title": "DMAF",
           "stages": {
             "Build": { "status": "todo", "owner": null },
             "Design": { "status": "todo", "owner": null },
@@ -91,8 +92,8 @@
           }
         },
         {
-          "id": "itm_help-center",
-          "title": "Help center",
+          "id": "itm_dut",
+          "title": "DUT",
           "stages": {
             "Build": { "status": "todo", "owner": null },
             "Design": { "status": "todo", "owner": null },
@@ -115,11 +116,11 @@
           ]
         }
       ],
-      "owners": ["alexlee"],
+      "owners": ["slavingia"],
       "access": {
-        "merge": ["alexlee", "samkim"],
-        "write": ["jordanpark", "rileychen", "taylormoss", "morgan-dev"],
-        "read": ["caseynguyen", "docs-bot"]
+        "merge": ["slavingia", "JoshStruble"],
+        "write": ["onequbitaway", "jparso09", "joeirs", "mweingartenIRS", "alexbudz", "psprugh-irs", "ash-webb", "jclift3-tr", "irs-Rohan", "Cbillings-irs", "HKGIT2026", "RRichburg-irs"],
+        "read": ["Hai-RS", "sps-irs", "df-irs-svc", "sdssvc"]
       }
     }
   ]
