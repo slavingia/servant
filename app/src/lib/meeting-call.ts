@@ -146,7 +146,9 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
     peer.addTransceiver("video", { direction: "recvonly" });
     const remote: Remote = { participantId: publisherId, name: screen ? `${name}'s screen` : name, stream: null, hasVideo, ...(screen ? { screen: true } : {}) };
     peer.addEventListener("track", (e: any) => {
-      const stream = e.streams?.[0] ?? remote.stream ?? null;
+      // Only trust a stream the sender named. Reusing remote.stream here kept the audio-only stream
+      // the first track made, so the video track that came next never reached the tile on phones.
+      const stream = e.streams?.[0] ?? null;
       if (stream) remote.stream = stream;
       else {
         // The server sends bare RTP with no stream id, so phones get no stream either: build one
