@@ -42,7 +42,7 @@ export type Message = { id: string; role: "user" | "assistant"; text: string; at
 export type LeaderboardPeriod = "day" | "week" | "month" | "all";
 export type LeaderboardRow = { rank: number; user: { id: string; name: string }; input: number; output: number; total: number; turns: number; chat: number; channel: number };
 export type TopicRow = { id: string; name: string; tokens: number; turns: number; bugTokens: number; featureTokens: number; comments: number; bugSignals: number; featureSignals: number; share: number; feedbackShare: number; index: number };
-export type TopicReport = { source: { name: string; dataset: string; period: string[]; comments: number }; irsAppTokens: number; otherTokens: number; otherTurns: number; unlabelledTurns: number; themes: TopicRow[] };
+export type TopicReport = { source: { name: string; dataset: string; period: string[]; comments: number }; product?: string; productTokens?: number; irsAppTokens?: number; otherTokens: number; otherTurns: number; unlabelledTurns: number; themes: TopicRow[] };
 export type Leaderboard = { period: LeaderboardPeriod; since: number; topics?: TopicReport; totals: { input: number; output: number; total: number; turns: number }; people: LeaderboardRow[] };
 
 // ----- channels, direct messages, threads -----

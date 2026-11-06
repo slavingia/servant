@@ -45,6 +45,9 @@ export function voipPayload(notification) {
   const n = privateNotification(notification);
   return n.call ? { meetingId: n.call.meetingId, caller: n.call.caller, place: n.call.place, sentAt: Date.now() } : null;
 }
+// The iOS bundle id. A server whose app uses another one sets config.json push.apnsTopic.
+export const DEFAULT_APNS_TOPIC = 'com.slavingia.servant';
+export const apnsTopic = (c, voip = false) => (c?.apnsTopic || DEFAULT_APNS_TOPIC) + (voip ? '.voip' : '');
 export function createPushTransport(config, fetcher = fetch) {
   let google = null;
   let apple = null;
@@ -99,7 +102,7 @@ export function createPushTransport(config, fetcher = fetch) {
       const timer = setTimeout(() => finish(new Error('APNS_TIMEOUT')), 15000);
       client.on('error', () => finish(new Error('APNS_CONNECTION_FAILED')));
       const req = client.request({ ':method': 'POST', ':path': '/3/device/' + device.token,
-        authorization: 'bearer ' + authorization, 'apns-topic': voip ? 'gov.irs.servant.voip' : 'gov.irs.servant', 'apns-push-type': voip ? 'voip' : 'alert',
+        authorization: 'bearer ' + authorization, 'apns-topic': apnsTopic(c, voip), 'apns-push-type': voip ? 'voip' : 'alert',
         'apns-priority': '10', 'apns-expiration': String(Math.floor(Date.now() / 1000) + (voip ? 45 : 3600)),
         ...(voip ? {} : { 'apns-collapse-id': crypto.createHash('sha256').update(privateNotification(notification).group).digest('hex') }),
       });

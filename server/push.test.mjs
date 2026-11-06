@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createPushService, defaults, isMention, notificationPayload, previewText, wantsNotification, updatePushRegistration, updateVoipRegistration, updatePreferences } from './push.mjs';
 import { createMessaging } from './messaging.mjs';
-import { fcmMessage, apnsPayload, voipPayload } from './push-transport.mjs';
+import { fcmMessage, apnsPayload, voipPayload, apnsTopic } from './push-transport.mjs';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'servant-push-'));
 const user = { id: 'u_alice', name: 'Alice Smith' };
@@ -266,4 +266,11 @@ test('call registrations are removed with the device push registration', () => {
   const device = { id: 'd', push: { token: 'x' }, voip: { token: 'y' }, ringsCalls: true };
   updatePushRegistration({ devices: { d: device } }, device, { token: null });
   assert.equal(device.voip, undefined); assert.equal(device.ringsCalls, undefined);
+});
+
+test('APNs topic comes from config, with .voip added for call pushes', () => {
+  assert.equal(apnsTopic({}), 'com.slavingia.servant');
+  assert.equal(apnsTopic({}, true), 'com.slavingia.servant.voip');
+  assert.equal(apnsTopic({ apnsTopic: 'org.example.app' }), 'org.example.app');
+  assert.equal(apnsTopic({ apnsTopic: 'org.example.app' }, true), 'org.example.app.voip');
 });

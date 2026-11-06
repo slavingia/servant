@@ -61,16 +61,24 @@ test("a conversation's running total is kept per chat", () => {
 });
 
 test("tokens are labelled by survey theme, and the report sets them against survey comments", async () => {
-  const { classifyTopic } = await import("./usage-topics.mjs");
-  assert.deepEqual(classifyTopic("Payment plan: user is not able to save the changes to the scheduled payment"), { theme: "MANAGE_MODIFY_OR_REINSTATE", kind: "technical_bug" });
-  assert.equal(classifyTopic("Round search box more pill shape").theme, "NOT_IRS_APP");
+  const { classifyTopic, productContext, topicReport } = await import("./usage-topics.mjs");
+  const ctx = productContext(["payment plan", "scheduled payment"]);
+  assert.deepEqual(classifyTopic("Payment plan: user is not able to save the changes to the scheduled payment", ctx), { theme: "MANAGE_MODIFY_OR_REINSTATE", kind: "technical_bug" });
+  assert.equal(classifyTopic("Round search box more pill shape", ctx).theme, "OTHER");
+  assert.equal(classifyTopic("Payment plan cancel flow").theme, "OTHER", "no product words configured: everything is other work");
+  assert.equal(productContext([]), null);
+  assert.ok(productContext(["(unbalanced"]).test("an (unbalanced word"), "a bad pattern is matched literally");
+  // Rows labelled by older servers still count as other work.
+  const old = topicReport([{ theme: "NOT_IRS_APP", total: 40, turns: 2 }, { theme: "OTHER", total: 10, turns: 1 }, { theme: "AUTOPAY_OR_WITHDRAWAL", total: 5, turns: 1 }]);
+  assert.deepEqual([old.otherTokens, old.otherTurns, old.productTokens], [50, 3, 5]);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "servant-usage-"));
-  const store = createUsageStore(path.join(dir, "usage.db"));
+  const store = createUsageStore(path.join(dir, "usage.db"), { topics: () => ({ name: "Payments", context: ["payment plan"] }) });
   store.record({ eventId: "a", userId: "u", usage: { total_tokens: 900 }, text: "Fix the payment plan cancel flow" });
   store.record({ eventId: "b", userId: "u", usage: { total_tokens: 100 }, text: "Add a pill search box" });
   store.record({ eventId: "c", userId: "u", usage: { total_tokens: 50 } });
   const r = store.topics();
-  assert.equal(r.irsAppTokens, 900); assert.equal(r.otherTokens, 100); assert.equal(r.unlabelledTurns, 1);
+  assert.equal(r.productTokens, 900); assert.equal(r.irsAppTokens, 900, "older app builds read this name"); assert.equal(r.product, "Payments");
+  assert.equal(r.otherTokens, 100); assert.equal(r.unlabelledTurns, 1);
   assert.equal(r.themes[0].id, "STATUS_CANCELLATION_OR_DEFAULT"); assert.equal(r.themes[0].bugTokens, 900);
   assert.equal(store.backfillTopics({ c: "x", b: "again" }), 1);
   assert.equal(store.topics().unlabelledTurns, 0);

@@ -1,6 +1,7 @@
 // Email code verification for sign-in: prove you can read mail at an allowed
-// (default irs.gov) address before the invite works. Off unless the owner turns
-// it on in config.json: emailVerification: { enabled, domains, mailer }.
+// address before the invite works. Off unless the owner turns it on in
+// config.json: emailVerification: { enabled, domains, mailer }. There is no
+// default domain: enabled with no domains stays off and says why.
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 
@@ -8,9 +9,17 @@ const TTL_MS = 10 * 60 * 1000;
 const MAX_TRIES = 5;
 const MAX_SENDS_PER_EMAIL = 5; // per 10 minutes
 
+export const NO_DOMAINS_MESSAGE = "Email code sign-in is off: emailVerification.enabled is true but emailVerification.domains is empty. Add your organization's domains, e.g. \"domains\": [\"agency.gov\"] (docs/email-sign-in.md).";
+let warned = false;
+
 export function emailSettings(cfg = {}) {
   const v = cfg.emailVerification || {};
-  const domains = (Array.isArray(v.domains) && v.domains.length ? v.domains : ["irs.gov"]).map((d) => String(d).toLowerCase().replace(/^@/, ""));
+  const domains = (Array.isArray(v.domains) ? v.domains : []).map((d) => String(d).trim().toLowerCase().replace(/^@/, "")).filter(Boolean);
+  if (v.enabled === true && !domains.length) {
+    // Refuse to start rather than guess whose addresses to accept.
+    if (!warned) { warned = true; console.error(`[servant] ${NO_DOMAINS_MESSAGE}`); }
+    return { enabled: false, domains: [], mailer: v.mailer || null, error: NO_DOMAINS_MESSAGE };
+  }
   return { enabled: v.enabled === true, domains, mailer: v.mailer || null };
 }
 
@@ -19,7 +28,7 @@ export function normalizeEmail(raw) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) && e.length <= 254 ? e : "";
 }
 
-// Exact domain or a real subdomain (mail.irs.gov), never a look-alike (irs.gov.evil.com).
+// Exact domain or a real subdomain (mail.agency.gov), never a look-alike (agency.gov.evil.com).
 export function emailAllowed(email, domains) {
   const host = email.split("@")[1] || "";
   return domains.some((d) => host === d || host.endsWith(`.${d}`));

@@ -62,7 +62,7 @@ export default function Settings() {
     let live = true;
     api.emailRequired(account).then(v => { if (live) setEmailNeeded(v); }).catch(() => {});
     return () => { live = false; };
-  }, [account?.user.id]);
+  }, [account]);
   if (!account) return null;
   const owner = account.user.role === "owner";
   const sendEmail = async () => {
@@ -217,7 +217,7 @@ export default function Settings() {
           <Text style={styles.photoLink}>Confirm your work email</Text>
         </Pressable> : emailStep === "email" ? <>
           <TextInput testID="email-input" value={emailDraft} onChangeText={setEmailDraft} autoFocus autoCapitalize="none" autoCorrect={false} keyboardType="email-address"
-            accessibilityLabel="Work email" returnKeyType="send" onSubmitEditing={() => void sendEmail()} placeholder="you@irs.gov" placeholderTextColor={colors.muted} style={styles.nameInput} />
+            accessibilityLabel="Work email" returnKeyType="send" onSubmitEditing={() => void sendEmail()} placeholder="you@agency.gov" placeholderTextColor={colors.muted} style={styles.nameInput} />
           {emailError ? <Text accessibilityRole="alert" style={styles.photoError}>{emailError}</Text> : null}
           <View style={styles.nameActions}>
             <Pressable accessibilityRole="button" disabled={emailBusy} onPress={() => { setEmailStep(null); setEmailError(null); }} style={styles.nameAction}><Text style={styles.photoLink}>Cancel</Text></Pressable>

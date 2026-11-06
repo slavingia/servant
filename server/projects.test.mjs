@@ -7,8 +7,8 @@ import { accessOf, accessibleProjects, cleanDate, cleanLogin, cleanOwner, cleanR
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "servant-projects-"));
 const users = {
-  usr_sahil: { id: "usr_sahil", name: "Sahil Lavingia", role: "owner" },
-  usr_josh: { id: "usr_josh", name: "Josh Struble", role: "member" },
+  usr_alex: { id: "usr_alex", name: "Alex Lee", role: "owner" },
+  usr_sam: { id: "usr_sam", name: "Sam Kim", role: "member" },
   usr_ana: { id: "usr_ana", name: "Ana Ruiz", role: "member" },
   usr_gone: { id: "usr_gone", name: "Gone Person", role: "member", removedAt: 1 },
 };
@@ -43,38 +43,38 @@ test("the example file: three projects, GitHub logins mapped to people, unmapped
   const file = path.join(tmp(), "projects.json");
   fs.writeFileSync(file, JSON.stringify(example));
   const data = createProjectStore(file).read();
-  assert.deepEqual(data.projects.map(p => [p.id, p.workflow]), [["servant", "main"], ["design-prototypes", "main"], ["expo-irs", "pr"]]);
-  const irs = data.projects[2];
-  const people = projectPeople(irs, users, data.people);
-  assert.deepEqual(people.find(p => p.id === "usr_sahil"), { key: "slavingia", id: "usr_sahil", name: "Sahil Lavingia", github: "slavingia", level: "merge", owner: true });
-  assert.deepEqual(people.find(p => p.id === "usr_josh"), { key: "JoshStruble", id: "usr_josh", name: "Josh Struble", github: "JoshStruble", level: "merge", owner: false });
-  assert.deepEqual(people.find(p => p.key === "Hai-RS"), { key: "Hai-RS", name: "Hai-RS", github: "Hai-RS", level: "read", owner: false });
-  assert.equal(people.length, 18);
+  assert.deepEqual(data.projects.map(p => [p.id, p.workflow]), [["servant", "main"], ["design-prototypes", "main"], ["website", "pr"]]);
+  const site = data.projects[2];
+  const people = projectPeople(site, users, data.people);
+  assert.deepEqual(people.find(p => p.id === "usr_alex"), { key: "alexlee", id: "usr_alex", name: "Alex Lee", github: "alexlee", level: "merge", owner: true });
+  assert.deepEqual(people.find(p => p.id === "usr_sam"), { key: "samkim", id: "usr_sam", name: "Sam Kim", github: "samkim", level: "merge", owner: false });
+  assert.deepEqual(people.find(p => p.key === "caseynguyen"), { key: "caseynguyen", name: "caseynguyen", github: "caseynguyen", level: "read", owner: false });
+  assert.equal(people.length, 8);
   assert.equal(people[0].level, "merge", "sorted by level, merge first");
-  // Ana isn't in the IRS app project, so she doesn't see it; Sahil (admin) and Josh do.
+  // Ana isn't in the website project, so she doesn't see it; Alex (admin) and Sam do.
   assert.deepEqual(accessibleProjects(data, users.usr_ana, users).map(x => x.project.id), []);
-  assert.deepEqual(accessibleProjects(data, users.usr_josh, users).map(x => x.project.id), ["design-prototypes", "expo-irs"]);
-  assert.equal(accessibleProjects(data, users.usr_sahil, users).length, 3);
+  assert.deepEqual(accessibleProjects(data, users.usr_sam, users).map(x => x.project.id), ["design-prototypes", "website"]);
+  assert.equal(accessibleProjects(data, users.usr_alex, users).length, 3);
   // Names resolve case-insensitively; removed people don't resolve.
-  assert.equal(resolvePerson("josh struble", users, {}).id, "usr_josh");
+  assert.equal(resolvePerson("sam kim", users, {}).id, "usr_sam");
   assert.equal(resolvePerson("Gone Person", users, {}).id, undefined);
-  assert.equal(resolvePerson("joshstruble", users, data.people).id, "usr_josh", "login case doesn't matter either");
+  assert.equal(resolvePerson("SamKim", users, data.people).id, "usr_sam", "login case doesn't matter either");
 });
 
 test("access: merge includes write includes read; owners can edit and merge; admins edit everything", () => {
-  const project = { ...newProject({ name: "P" }, "usr_josh", new Set()), access: { merge: [], write: [], read: ["usr_ana"] } };
+  const project = { ...newProject({ name: "P" }, "usr_sam", new Set()), access: { merge: [], write: [], read: ["usr_ana"] } };
   const anyone = { id: "usr_x", name: "X", role: "member" };
-  assert.deepEqual(accessOf(project, users.usr_josh, users, {}), { level: "merge", owner: true, canEdit: true, canWrite: true, visible: true });
+  assert.deepEqual(accessOf(project, users.usr_sam, users, {}), { level: "merge", owner: true, canEdit: true, canWrite: true, visible: true });
   assert.deepEqual(accessOf(project, users.usr_ana, users, {}), { level: "read", owner: false, canEdit: false, canWrite: false, visible: true });
   assert.deepEqual(accessOf(project, anyone, users, {}), { level: null, owner: false, canEdit: false, canWrite: false, visible: false });
-  assert.deepEqual(accessOf(project, users.usr_sahil, users, {}), { level: null, owner: false, canEdit: true, canWrite: true, visible: true }, "admin: can edit, but no repo access of their own");
+  assert.deepEqual(accessOf(project, users.usr_alex, users, {}), { level: null, owner: false, canEdit: true, canWrite: true, visible: true }, "admin: can edit, but no repo access of their own");
   setAccess(project, "usr_ana", "write");
   assert.deepEqual(project.access, { merge: [], write: ["usr_ana"], read: [] });
   assert.equal(accessOf(project, users.usr_ana, users, {}).canWrite, true);
   setAccess(project, "usr_ana", "merge", true);
-  assert.deepEqual(project.owners, ["usr_josh", "usr_ana"]);
+  assert.deepEqual(project.owners, ["usr_sam", "usr_ana"]);
   setAccess(project, "usr_ana", "read", false);
-  assert.deepEqual([project.owners, project.access.read], [["usr_josh"], ["usr_ana"]]);
+  assert.deepEqual([project.owners, project.access.read], [["usr_sam"], ["usr_ana"]]);
   // Listed twice (by login and by id): the higher level wins, and removing takes every key away.
   const people = { anagh: "Ana Ruiz" };
   project.access.merge.push("anagh");
@@ -86,31 +86,31 @@ test("access: merge includes write includes read; owners can edit and merge; adm
   // Shared chats open to everyone in the project, nobody else.
   const data = { people: {}, projects: [project] };
   const chat = { projectId: "p", projectShared: true };
-  assert.equal(projectSharedWith(data, users, chat, users.usr_josh), true);
+  assert.equal(projectSharedWith(data, users, chat, users.usr_sam), true);
   assert.equal(projectSharedWith(data, users, chat, anyone), false);
-  assert.equal(projectSharedWith(data, users, { projectId: "p" }, users.usr_josh), false);
-  const view = projectView(project, accessOf(project, users.usr_josh, users, {}), users.usr_josh, users, {}, [{ projectId: "p", userId: "usr_josh" }, { projectId: "p", userId: "usr_ana", projectShared: true }]);
-  assert.deepEqual([view.chatCount, view.sharedCount, view.role, view.owner, view.access, view.canEdit], [1, 1, "owner", { id: "usr_josh", name: "Josh Struble" }, "merge", true]);
+  assert.equal(projectSharedWith(data, users, { projectId: "p" }, users.usr_sam), false);
+  const view = projectView(project, accessOf(project, users.usr_sam, users, {}), users.usr_sam, users, {}, [{ projectId: "p", userId: "usr_sam" }, { projectId: "p", userId: "usr_ana", projectShared: true }]);
+  assert.deepEqual([view.chatCount, view.sharedCount, view.role, view.owner, view.access, view.canEdit], [1, 1, "owner", { id: "usr_sam", name: "Sam Kim" }, "merge", true]);
 });
 
 test("what the agent is told: the workflow in plain words, the rules, and what the asker may do", () => {
   const data = createProjectStore((() => { const f = path.join(tmp(), "p.json"); fs.writeFileSync(f, JSON.stringify(example)); return f; })()).read();
-  const [servant, prototypes, irs] = data.projects;
+  const [servant, prototypes, site] = data.projects;
   const tell = (project, asker, extra = {}) => projectInstructions(project, { chat: { mode: undefined }, asker, level: accessOf(project, asker, users, data.people).level, files, full: true, ...extra });
-  const main = tell(servant, users.usr_sahil);
+  const main = tell(servant, users.usr_alex);
   assert.match(main, /project "Servant" \(The team chat app/);
   assert.match(main, new RegExp(`Work in ${expandPath("~/servant").replace(/\//g, "\\/")} \\(GitHub: slavingia\\/servant\\)`));
   assert.match(main, /How we work: push to main, no PRs\. Commit directly to main and push\. Don't create feature branches or open pull requests\./);
   assert.match(main, /Rules for this project.*\n- Iterate on main with small follow-up commits/);
-  assert.match(main, /Sahil Lavingia can merge: push and merge for them/);
-  const pr = tell(irs, users.usr_josh);
+  assert.match(main, /Alex Lee can merge: push and merge for them/);
+  const pr = tell(site, users.usr_sam);
   assert.match(pr, /How we work: open a PR, merge after checks\. Work on a branch and open a pull request; merge it only after the checks pass/);
   assert.doesNotMatch(pr, /push to main/);
-  assert.match(pr, /- Say "the IRS app", never "IRS2Go"\./);
+  assert.match(pr, /- Say "sign in", never "log in"\./);
   // Each access level reads differently; someone not in the project gets the strictest line.
-  assert.match(tell(irs, { id: "usr_ana", name: "Ana Ruiz" }), /Ana Ruiz has no access to this project's repository: don't push, merge or change it on their behalf/);
-  assert.match(tell(irs, { id: "usr_hai", name: "Hai" }, { level: "read" }), /Hai can read only: don't push or merge on their behalf; propose changes or open a PR for someone with write\./);
-  assert.match(tell(irs, { id: "usr_x", name: "Mo" }, { level: "write" }), /Mo can write but not merge: push following the workflow above, but never merge on their behalf/);
+  assert.match(tell(site, { id: "usr_ana", name: "Ana Ruiz" }), /Ana Ruiz has no access to this project's repository: don't push, merge or change it on their behalf/);
+  assert.match(tell(site, { id: "usr_hai", name: "Hai" }, { level: "read" }), /Hai can read only: don't push or merge on their behalf; propose changes or open a PR for someone with write\./);
+  assert.match(tell(site, { id: "usr_x", name: "Mo" }, { level: "write" }), /Mo can write but not merge: push following the workflow above, but never merge on their behalf/);
   // Notes and files come after the rules; a project without a repo has no workflow or access lines.
   const plain = { ...newProject({ name: "Refunds", notes: "Audience: taxpayers." }, "usr_ana", new Set()), files: [{ id: "fil_1", name: "brief.md", size: 11 }] };
   const notesOnly = tell(plain, users.usr_ana);
@@ -122,7 +122,7 @@ test("what the agent is told: the workflow in plain words, the rules, and what t
   // Vibe coding: the prototype folder, the preview line, the project's rules, but no access line.
   const vibe = projectInstructions(prototypes, { chat: { mode: "vibe", vibeFolder: "vibe-abc12345" }, asker: users.usr_ana, level: null, files, full: true });
   assert.match(vibe, /vibe-coding session/);
-  assert.match(vibe, /PREVIEW: https:\/\/taxpayer-services-and-online-accounts\.github\.io\/design-prototypes\/vibe-abc12345\//);
+  assert.match(vibe, /PREVIEW: https:\/\/your-org\.github\.io\/design-prototypes\/vibe-abc12345\//);
   assert.match(vibe, /- Vibe-coding chats work only inside their own folder\./);
   assert.doesNotMatch(vibe, /on their behalf/);
   assert.equal(projectInstructions(null, {}), "");
@@ -134,7 +134,7 @@ test("migration: folders become projects (owner merges, members write), chats an
   // A file written by hand before the upgrade keeps its projects; folders are added after them.
   store.mutate(data => {
     data.projects.push({ id: "design-prototypes", name: "Design prototypes", path: "~/d", pages: "https://x/", workflow: "main", rules: [], owners: [], access: { merge: [], write: [], read: [] }, files: [] });
-    data.projects.push({ id: "expo-irs", name: "The IRS app", path: "~/e", workflow: "pr", rules: [], owners: [], access: { merge: [], write: [], read: [] }, files: [] });
+    data.projects.push({ id: "website", name: "Website", path: "~/e", workflow: "pr", rules: [], owners: [], access: { merge: [], write: [], read: [] }, files: [] });
   });
   const projectFiles = createProjectFiles(path.join(dir, "project-files"));
   const folderFiles = path.join(dir, "folder-files");
@@ -143,32 +143,30 @@ test("migration: folders become projects (owner merges, members write), chats an
   const state = {
     users: {
       usr_ana: { id: "usr_ana", name: "Ana Ruiz", folders: {
-        fld_aaaaaaaaaaaa: { id: "fld_aaaaaaaaaaaa", name: "Refund tracker", notes: "Plain words.", members: ["usr_josh"], files: [{ id: "fil_1", name: "spec.md", size: 4 }], createdAt: 1, updatedAt: 2 },
+        fld_aaaaaaaaaaaa: { id: "fld_aaaaaaaaaaaa", name: "Refund tracker", notes: "Plain words.", members: ["usr_sam"], files: [{ id: "fil_1", name: "spec.md", size: 4 }], createdAt: 1, updatedAt: 2 },
         fld_bbbbbbbbbbbb: { id: "fld_bbbbbbbbbbbb", name: "Refund tracker", notes: "", files: [], createdAt: 3, updatedAt: 3 } } },
-      usr_josh: { id: "usr_josh", name: "Josh Struble" },
+      usr_sam: { id: "usr_sam", name: "Sam Kim" },
     },
     chats: {
       c1: { id: "c1", userId: "usr_ana", folderId: "fld_aaaaaaaaaaaa", folderShared: true },
-      c2: { id: "c2", userId: "usr_josh", folderId: "fld_aaaaaaaaaaaa" },
-      c3: { id: "c3", userId: "usr_josh", folderId: "fld_gone" },
+      c2: { id: "c2", userId: "usr_sam", folderId: "fld_aaaaaaaaaaaa" },
+      c3: { id: "c3", userId: "usr_sam", folderId: "fld_gone" },
       c4: { id: "c4", userId: "usr_ana", project: "design-prototypes", mode: "vibe" },
       c5: { id: "c5", userId: "usr_ana", project: "mac" },
-      c6: { id: "c6", userId: "usr_ana", project: "expo" },
     },
   };
   assert.equal(needsMigration(state), true);
   assert.equal(migrateFolders(state, store, projectFiles, folderFiles), 2);
   const data = store.read();
-  assert.deepEqual(data.projects.map(p => p.id), ["design-prototypes", "expo-irs", "refund-tracker", "refund-tracker-2"]);
+  assert.deepEqual(data.projects.map(p => p.id), ["design-prototypes", "website", "refund-tracker", "refund-tracker-2"]);
   const tracker = data.projects[2];
-  assert.deepEqual([tracker.owners, tracker.access, tracker.notes, tracker.files.length], [["usr_ana"], { merge: ["usr_ana"], write: ["usr_josh"], read: [] }, "Plain words.", 1]);
-  assert.equal(accessOf(tracker, state.users.usr_josh, state.users, {}).level, "write");
+  assert.deepEqual([tracker.owners, tracker.access, tracker.notes, tracker.files.length], [["usr_ana"], { merge: ["usr_ana"], write: ["usr_sam"], read: [] }, "Plain words.", 1]);
+  assert.equal(accessOf(tracker, state.users.usr_sam, state.users, {}).level, "write");
   assert.deepEqual(state.chats.c1, { id: "c1", userId: "usr_ana", projectId: "refund-tracker", projectShared: true });
-  assert.deepEqual(state.chats.c2, { id: "c2", userId: "usr_josh", projectId: "refund-tracker" });
-  assert.deepEqual(state.chats.c3, { id: "c3", userId: "usr_josh" }, "a folder that no longer exists is simply dropped");
+  assert.deepEqual(state.chats.c2, { id: "c2", userId: "usr_sam", projectId: "refund-tracker" });
+  assert.deepEqual(state.chats.c3, { id: "c3", userId: "usr_sam" }, "a folder that no longer exists is simply dropped");
   assert.deepEqual(state.chats.c4, { id: "c4", userId: "usr_ana", projectId: "design-prototypes", mode: "vibe" }, "old hard-coded project ids stay when the file knows them");
   assert.deepEqual(state.chats.c5, { id: "c5", userId: "usr_ana" }, "ids the file doesn't know (mac) go");
-  assert.deepEqual(state.chats.c6, { id: "c6", userId: "usr_ana", projectId: "expo-irs" }, "the old 'expo' id maps to expo-irs");
   assert.equal(state.users.usr_ana.folders, undefined);
   assert.equal(fs.readFileSync(projectFiles.pathOf("refund-tracker", { id: "fil_1" }), "utf8"), "spec");
   assert.equal(needsMigration(state), false);
@@ -177,12 +175,12 @@ test("migration: folders become projects (owner merges, members write), chats an
 });
 
 test("ids and cleaning: readable slugs, repos as owner/name, GitHub usernames", () => {
-  assert.equal(slugId("  The IRS app! "), "the-irs-app");
+  assert.equal(slugId("  The Big App! "), "the-big-app");
   assert.equal(slugId("Servant", new Set(["servant", "servant-2"])), "servant-3");
   assert.equal(slugId("***"), "project");
   assert.equal(cleanRepo("https://github.com/slavingia/servant.git"), "slavingia/servant");
   assert.throws(() => cleanRepo("not a repo"), /owner\/name/);
-  assert.equal(cleanLogin("@JoshStruble"), "JoshStruble");
+  assert.equal(cleanLogin("@SamKim"), "SamKim");
   assert.throws(() => cleanLogin("-bad"), /GitHub username/);
   assert.throws(() => newProject({ name: " " }, "usr_a", new Set()), /Give the project a name/);
   assert.throws(() => newProject({ name: "P", workflow: "trunk" }, "usr_a", new Set()), /"main" or "pr"/);
@@ -194,30 +192,30 @@ test("releases: the example's November 17 drop, cells default to \"to do, nobody
   const file = path.join(tmp(), "projects.json");
   fs.writeFileSync(file, JSON.stringify(example));
   const store = createProjectStore(file);
-  const irs = store.byId("expo-irs");
-  assert.deepEqual(irs.stages, ["Build", "Design", "Functional/508 QA", "SAT", "Content"]);
-  assert.deepEqual(irs.releases.map(r => [r.name, r.date, r.items.map(i => i.title)]), [["November 17", "2026-11-17", ["Trump accounts", "DMAF", "DUT", "Guest mode"]]]);
-  const view = projectView(irs, accessOf(irs, users.usr_josh, users, example.people), users.usr_josh, users, example.people);
-  assert.deepEqual(view.stages, irs.stages);
+  const site = store.byId("website");
+  assert.deepEqual(site.stages, ["Build", "Design", "Functional/508 QA", "SAT", "Content"]);
+  assert.deepEqual(site.releases.map(r => [r.name, r.date, r.items.map(i => i.title)]), [["November 17", "2026-11-17", ["Account settings", "Search", "Help center", "Guest mode"]]]);
+  const view = projectView(site, accessOf(site, users.usr_sam, users, example.people), users.usr_sam, users, example.people);
+  assert.deepEqual(view.stages, site.stages);
   assert.deepEqual(view.releases[0].items[0].stages["SAT"], { status: "todo", owner: null, ownerName: "" });
   // Items keep no cell until someone sets one; the view still shows every stage, and unknown ones are dropped.
   const item = newItem({ title: " Guest mode " });
   assert.equal(item.title, "Guest mode");
   assert.deepEqual(item.stages, {});
   item.stages.Old = { status: "done", owner: "usr_ana" };
-  const shown = releaseView({ id: "rel_x", name: "Dec 1", date: "2026-12-01", items: [item] }, irs, users);
-  assert.deepEqual(Object.keys(shown.items[0].stages), irs.stages);
+  const shown = releaseView({ id: "rel_x", name: "Dec 1", date: "2026-12-01", items: [item] }, site, users);
+  assert.deepEqual(Object.keys(shown.items[0].stages), site.stages);
   // A cell carries status, owner and an optional note; the view names the owner.
-  patchCell(irs, item, "SAT", { status: "blocked", owner: "usr_josh", note: "  Waiting on test accounts " }, users, example.people);
-  assert.deepEqual(item.stages.SAT, { status: "blocked", owner: "usr_josh", note: "Waiting on test accounts" });
-  patchCell(irs, item, "SAT", { note: "" }, users, example.people);
+  patchCell(site, item, "SAT", { status: "blocked", owner: "usr_sam", note: "  Waiting on test accounts " }, users, example.people);
+  assert.deepEqual(item.stages.SAT, { status: "blocked", owner: "usr_sam", note: "Waiting on test accounts" });
+  patchCell(site, item, "SAT", { note: "" }, users, example.people);
   assert.equal(item.stages.SAT.note, undefined);
-  assert.deepEqual(releaseView({ id: "r", name: "n", date: "2026-12-01", items: [item] }, irs, users).items[0].stages.SAT, { status: "blocked", owner: "usr_josh", ownerName: "Josh Struble" });
+  assert.deepEqual(releaseView({ id: "r", name: "n", date: "2026-12-01", items: [item] }, site, users).items[0].stages.SAT, { status: "blocked", owner: "usr_sam", ownerName: "Sam Kim" });
   // Saved releases come back as written; releases are listed soonest first whatever order the file has.
-  store.mutate(data => { const p = data.projects.find(x => x.id === "expo-irs"); p.releases.unshift(newRelease({ name: "December 15", date: "2026-12-15" }, 5)); p.releases[1].items.push(item); });
-  const again = projectView(store.byId("expo-irs"), { level: "merge", canEdit: true, canWrite: true }, users.usr_sahil, users, example.people);
+  store.mutate(data => { const p = data.projects.find(x => x.id === "website"); p.releases.unshift(newRelease({ name: "December 15", date: "2026-12-15" }, 5)); p.releases[1].items.push(item); });
+  const again = projectView(store.byId("website"), { level: "merge", canEdit: true, canWrite: true }, users.usr_alex, users, example.people);
   assert.deepEqual(again.releases.map(r => r.name), ["November 17", "December 15"]);
-  assert.equal(again.releases[0].items[4].stages.SAT.ownerName, "Josh Struble");
+  assert.equal(again.releases[0].items[4].stages.SAT.ownerName, "Sam Kim");
   // Hand-written files: bad entries are dropped or defaulted, never crash the store.
   fs.writeFileSync(file, JSON.stringify({ projects: [{ id: "p", stages: ["Build", 3, ""], releases: [{ id: "r1", name: "", date: "soon", items: [{ id: "i1" }, "junk"] }, { name: "no id" }, null] }] }));
   const p = store.byId("p");
@@ -236,15 +234,15 @@ test("releases: cleaning stages, dates, titles, statuses and owners", () => {
   assert.throws(() => newRelease({ name: "Nov", date: "next week" }), /Dates look like/);
   assert.throws(() => newItem({ title: "" }), /Give the item a name/);
   assert.throws(() => cleanStatus("waiting"), /todo, doing, done or blocked/);
-  const project = { ...newProject({ name: "P", stages: ["Build", "SAT"] }, "usr_sahil", new Set()), access: { merge: ["usr_sahil"], write: ["usr_josh"], read: [] } };
+  const project = { ...newProject({ name: "P", stages: ["Build", "SAT"] }, "usr_alex", new Set()), access: { merge: ["usr_alex"], write: ["usr_sam"], read: [] } };
   assert.equal(cleanStage(project, "SAT"), "SAT");
   assert.throws(() => cleanStage(project, "QA"), /one of this project's stages/);
   assert.equal(cleanOwner(project, null, users, {}), null);
-  assert.equal(cleanOwner(project, "usr_josh", users, {}), "usr_josh");
+  assert.equal(cleanOwner(project, "usr_sam", users, {}), "usr_sam");
   assert.throws(() => cleanOwner(project, "usr_ana", users, {}), /isn't in this project/, "not in the project");
   assert.throws(() => cleanOwner(project, "usr_gone", users, {}), /isn't in this project/, "removed");
   assert.throws(() => cleanOwner(project, "usr_nobody", users, {}), /isn't in this project/);
-  const item = newItem({ title: "DUT" });
+  const item = newItem({ title: "Search" });
   assert.throws(() => patchCell(project, item, "SAT", { note: 7 }, users, {}), /note is text/);
   assert.throws(() => patchCell(project, item, "SAT", { status: "later" }, users, {}), /todo, doing/);
   assert.deepEqual(item.stages.SAT, { status: "todo", owner: null }, "nothing changes when the change is bad");
@@ -253,26 +251,25 @@ test("releases: cleaning stages, dates, titles, statuses and owners", () => {
 test("what the agent is told about releases: the next drops, each item's open stages and their owners", () => {
   const file = path.join(tmp(), "projects.json");
   fs.writeFileSync(file, JSON.stringify(example));
-  const irs = createProjectStore(file).byId("expo-irs");
-  const [trump, dmaf, dut, guest] = irs.releases[0].items;
-  patchCell(irs, trump, "SAT", { status: "blocked", owner: "usr_josh", note: "Waiting on test accounts" }, users, example.people);
-  patchCell(irs, trump, "Build", { status: "done", owner: "usr_sahil" }, users, example.people);
-  patchCell(irs, trump, "Design", { status: "doing", owner: "usr_sahil" }, users, example.people);
-  for (const s of irs.stages) patchCell(irs, dmaf, s, { status: "done", owner: "usr_josh" }, users, example.people);
-  const lines = releaseLines(irs, users, "2026-11-04");
+  const site = createProjectStore(file).byId("website");
+  const [settings, search] = site.releases[0].items;
+  patchCell(site, settings, "SAT", { status: "blocked", owner: "usr_sam", note: "Waiting on test accounts" }, users, example.people);
+  patchCell(site, settings, "Build", { status: "done", owner: "usr_alex" }, users, example.people);
+  patchCell(site, settings, "Design", { status: "doing", owner: "usr_alex" }, users, example.people);
+  for (const s of site.stages) patchCell(site, search, s, { status: "done", owner: "usr_sam" }, users, example.people);
+  const lines = releaseLines(site, users, "2026-11-04");
   assert.match(lines, /^Upcoming releases \(today is 2026-11-04\), with what isn't done yet and who owns it:\n- November 17 \(2026-11-17\): /);
-  assert.match(lines, /Trump accounts: Design doing \(Sahil Lavingia\), Functional\/508 QA to do \(nobody yet\), SAT blocked \(Josh Struble: Waiting on test accounts\), Content to do \(nobody yet\); DMAF: all done; DUT: Build to do/);
+  assert.match(lines, /Account settings: Design doing \(Alex Lee\), Functional\/508 QA to do \(nobody yet\), SAT blocked \(Sam Kim: Waiting on test accounts\), Content to do \(nobody yet\); Search: all done; Help center: Build to do/);
   assert.doesNotMatch(lines, /Build done/, "finished stages are left out");
   // Past releases are left out; with nothing coming up there is no block at all. A project without stages says so.
-  assert.equal(releaseLines(irs, users, "2026-11-18"), "");
-  irs.releases.push(newRelease({ name: "Spring", date: "2027-03-01" }));
-  assert.match(releaseLines(irs, users, "2026-11-18"), /^Upcoming releases.*\n- Spring \(2027-03-01\): no items yet$/);
-  assert.match(releaseLines({ ...irs, stages: [] }, users, "2026-11-04"), /Trump accounts: no stages; DMAF: no stages/);
+  assert.equal(releaseLines(site, users, "2026-11-18"), "");
+  site.releases.push(newRelease({ name: "Spring", date: "2027-03-01" }));
+  assert.match(releaseLines(site, users, "2026-11-18"), /^Upcoming releases.*\n- Spring \(2027-03-01\): no items yet$/);
+  assert.match(releaseLines({ ...site, stages: [] }, users, "2026-11-04"), /Account settings: no stages; Search: no stages/);
   // It sits in every project chat's instructions, after the access line and before the notes; vibe chats skip it.
-  const tell = asker => projectInstructions(irs, { chat: {}, asker, level: "write", files, full: true, users, today: "2026-11-04" });
-  const sys = tell(users.usr_josh);
+  const tell = asker => projectInstructions(site, { chat: {}, asker, level: "write", files, full: true, users, today: "2026-11-04" });
+  const sys = tell(users.usr_sam);
   assert.ok(sys.indexOf("can write but not merge") < sys.indexOf("Upcoming releases"), "after the access line");
-  assert.match(sys, /SAT blocked \(Josh Struble: Waiting on test accounts\)/);
-  assert.doesNotMatch(projectInstructions({ ...irs, pages: "https://example.test/" }, { chat: { mode: "vibe", vibeFolder: "vibe-1" }, asker: users.usr_josh, level: null, files, full: true, users, today: "2026-11-04" }), /Upcoming releases/);
-  void [dut, guest];
+  assert.match(sys, /SAT blocked \(Sam Kim: Waiting on test accounts\)/);
+  assert.doesNotMatch(projectInstructions({ ...site, pages: "https://example.test/" }, { chat: { mode: "vibe", vibeFolder: "vibe-1" }, asker: users.usr_sam, level: null, files, full: true, users, today: "2026-11-04" }), /Upcoming releases/);
 });
