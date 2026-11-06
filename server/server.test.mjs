@@ -243,6 +243,9 @@ test("email code sign-in: off by default, then required, wrong/expired/outsider 
     const team = (await mod.joinLink({ fresh: true })).code;
     const start2 = await api("POST", "/v1/pair/email", { body: { code: team, email: "pat.tester@irs.gov" } });
     assert.equal(start2.status, 200, start2.text);
+    const back = await api("POST", "/v1/pair", { body: { code: team, device: "Desktop", terms: ACCEPT, emailChallenge: start2.json.challenge, emailCode: sent.at(-1).code } });
+    assert.equal(back.status, 201, back.text);
+    assert.equal(back.json.user.id, good.json.user.id);
     // Someone who joined before email codes adds their email from inside the app.
     const me0 = (await api("GET", "/v1/me", { token: old })).json;
     assert.equal(me0.emailRequired, true);
@@ -258,9 +261,6 @@ test("email code sign-in: off by default, then required, wrong/expired/outsider 
     // a challenge for the join flow can't confirm an account email
     const other = await api("POST", "/v1/people/me/email/confirm", { token: otherEarly, body: { challenge: ok.json.challenge, code: "000000" } });
     assert.ok(other.json.error);
-    const back = await api("POST", "/v1/pair", { body: { code: team, device: "Desktop", terms: ACCEPT, emailChallenge: start2.json.challenge, emailCode: sent.at(-1).code } });
-    assert.equal(back.status, 201, back.text);
-    assert.equal(back.json.user.id, good.json.user.id);
   } finally {
     delete globalThis.__servantEmailSend;
     fs.writeFileSync(file, before);
@@ -1149,6 +1149,8 @@ test("the team link won't make a second person with a name that's already here (
   assert.equal(again.status, 409, again.text);
   assert.equal(again.json.error.code, "name_taken");
   assert.match(again.json.error.message, /Link a computer/);
+  const spaced = await api("POST", "/v1/pair", { body: { terms: ACCEPT, code, name: "Joshua   Twice" } });
+  assert.equal(spaced.status, 409, "extra spaces inside the name don't make a different person");
   const other = await api("POST", "/v1/pair", { body: { terms: ACCEPT, code, name: "Joshua Once" } });
   assert.equal(other.status, 201, other.text);
 });
@@ -1219,8 +1221,6 @@ test("the invite web page opens the app by itself and needs no sign-in", async (
         decoder.push(chunk);
       }
     } catch {}
-  const spaced = await api("POST", "/v1/pair", { body: { terms: ACCEPT, code, name: "Joshua   Twice" } });
-  assert.equal(spaced.status, 409, "extra spaces inside the name don't make a different person");
   })();
   return { got, close: () => ctrl.abort() };
 }

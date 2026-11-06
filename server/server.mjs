@@ -1143,8 +1143,6 @@ async function handle(req, res, cfg) {
     try { messaging?.personChanged(user.id); } catch (e) { console.error("[servant] person update", e); }
     return send(res, 200, { user: { id: user.id, name, role: user.role } });
   }
-  if (method === "PATCH" && parts[1] === "people" && parts.length === 3 && parts[2] !== "me") {
-    const body = await readAuthorizedBody(req);
   // Someone who joined before email codes attaches a confirmed work email to their account. Once it is on file,
   // joining with that email on a new device signs in as them, and no one else can claim the address.
   if (method === "POST" && parts[1] === "people" && parts[2] === "me" && parts[3] === "email" && (parts.length === 4 || (parts.length === 5 && parts[4] === "confirm"))) {
@@ -1171,6 +1169,8 @@ async function handle(req, res, cfg) {
       return fail(res, error.status, error.code, error.message), undefined;
     }
   }
+  if (method === "PATCH" && parts[1] === "people" && parts.length === 3 && parts[2] !== "me") {
+    const body = await readAuthorizedBody(req);
     // Owners only (the `true` below): vibe coder, unlimited agent tokens (no daily cap), and
     // fixing someone's name (a typo at invite time).
     const flags = ["vibeCoder", "unlimitedTokens"].filter(k => k in body);
