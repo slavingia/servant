@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { clearAccount, loadAccount, api, type Account } from "./server";
+import { clearAccount, loadAccount, saveAccount, api, type Account } from "./server";
 
 type Session = {
   ready: boolean;
@@ -24,6 +24,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (!active) return;
       setAccount(a);
       setReady(true);
+      // The server decides who this device is. After two accounts are merged the id saved
+      // at sign-in is stale, so "You" and the profile photo would point at the old person.
+      if (a?.serverKey) void api.me(a).then((me: { user?: { id?: string; name?: string; role?: Account["user"]["role"] } }) => {
+        const u = me?.user;
+        if (!active || !u?.id || (u.id === a.user.id && u.name === a.user.name && u.role === a.user.role)) return;
+        const fixed = { ...a, user: { ...a.user, id: u.id, name: u.name ?? a.user.name, role: u.role ?? a.user.role } };
+        setAccount(fixed);
+        void saveAccount(fixed);
+      }).catch(() => { /* offline: keep the saved identity */ });
     }).catch(() => {
       if (!active) return;
       setLoadError("Couldn't read your saved account. Unlock your device and try again.");
