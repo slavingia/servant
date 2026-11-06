@@ -220,6 +220,7 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
       conversationId: m.conversation_id,
       status: m.status === "live" && !call ? "recorded" : m.status,
       startedBy: person(m.started_by),
+      host: m.started_by === userId,
       startedAt: m.started_at,
       endedAt: m.ended_at,
       title: m.title,
@@ -227,7 +228,7 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
       iceServers: iceServers(),
       participants: call ? [...call.participants.values()].map(p => ({
         id: p.id, user: person(p.userId), publishing: p.tracks.size > 0, you: p.userId === userId, joinedAt: p.joinedAt,
-        hasVideo: p.kinds.has("video") && !p.cameraOff, hasAudio: p.kinds.has("audio"), muted: !!p.muted, ...(p.screen ? { screen: true } : {}),
+        hasVideo: p.kinds.has("video") && !p.cameraOff, hasAudio: p.kinds.has("audio"), muted: !!p.muted, muteSeq: p.muteSeq || 0, ...(p.screen ? { screen: true } : {}),
       })) : [],
       steps,
       transcript: m.status === "done" ? st.transcript.get(m.id)?.text || "" : null,
@@ -552,6 +553,18 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
       if (!p || p.userId !== user.id) return fail(res, 404, "not_found", "You're not on this call"), true;
       p.muted = !!body.muted; p.cameraOff = !!body.cameraOff;
       return send(res, 200, { ok: true }), true;
+    }
+    // The host (whoever started the call) can mute someone. The server can't silence their track, so
+    // it bumps a counter on their participant; their app sees it on the next poll and mutes itself.
+    // They can unmute again, so it never locks anyone out.
+    if (sub === "mute") {
+      const m = requireMeeting(id, user.id);
+      if (m.started_by !== user.id) return fail(res, 403, "not_host", "Only the person who started the call can mute others"), true;
+      const call = calls.get(m.id);
+      const p = call?.participants.get(String(body.participantId || ""));
+      if (!p || p.screen) return fail(res, 404, "not_found", "That person isn't on the call"), true;
+      p.muted = true; p.muteSeq = (p.muteSeq || 0) + 1;
+      return send(res, 200, { meeting: view(m, user.id) }), true;
     }
     if (sub === "leave") {
       const m = requireMeeting(id, user.id);

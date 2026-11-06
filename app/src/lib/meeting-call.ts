@@ -28,7 +28,7 @@ export function callsSupported() {
 }
 
 export type Remote = { participantId: string; name: string; stream: Stream; hasVideo: boolean; muted?: boolean; /** Someone's shared screen rather than their camera. */ screen?: boolean };
-export type Person = { id: string; name: string; you: boolean; hasAudio: boolean; hasVideo: boolean; muted: boolean };
+export type Person = { id: string; name: string; you: boolean; muteSeq: number; hasAudio: boolean; hasVideo: boolean; muted: boolean };
 export type CallState = {
   status: "starting" | "connecting" | "live" | "ended" | "failed";
   error: string | null;
@@ -37,6 +37,8 @@ export type CallState = {
   /** Everyone in the call, you included, for the people list. */
   people: Person[];
   muted: boolean;
+  /** You started the call, so you can mute others. */
+  host?: boolean;
   cameraOff: boolean;
   /** Your own screen share, while it is on. */
   sharing: boolean;
@@ -178,14 +180,22 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
     state.remotes = state.remotes.filter(r => r.participantId !== publisherId);
   }
 
+  let seenMuteSeq = 0;
   async function sync() {
     if (closed) return;
     try {
       const m = await api.meeting(account, meetingId);
       if (m.status !== "live") { state.status = "ended"; emit(); await stop(false); return; }
       state.startedAt = m.startedAt; state.conversationId = m.conversationId;
-      state.people = m.participants.filter(p => !p.screen).map(p => ({ id: p.id, name: p.you ? "You" : p.user.name, you: p.you, hasAudio: p.hasAudio, hasVideo: p.hasVideo, muted: !!p.muted || !p.hasAudio }))
+      state.people = m.participants.filter(p => !p.screen).map(p => ({ id: p.id, name: p.you ? "You" : p.user.name, you: p.you, muteSeq: p.muteSeq || 0, hasAudio: p.hasAudio, hasVideo: p.hasVideo, muted: !!p.muted || !p.hasAudio }))
         .sort((a, b) => Number(b.you) - Number(a.you));
+      state.host = !!m.host;
+      // The host muted you: mute your own mic, once per ask. You can unmute yourself afterwards.
+      const me = m.participants.find(p => p.id === participantId);
+      if (me && (me.muteSeq || 0) > seenMuteSeq) {
+        seenMuteSeq = me.muteSeq || 0;
+        if (!state.muted) { state.muted = true; for (const t of state.local?.getAudioTracks?.() ?? []) t.enabled = false; report(); }
+      }
       const others = m.participants.filter(p => !p.you && p.id !== participantId && p.publishing);
       for (const p of others) {
         const known = state.remotes.find(r => r.participantId === p.id);
@@ -293,6 +303,7 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
   return {
     start,
     leave: () => stop(true),
+    muteOther: (id: string) => api.muteParticipant(account, meetingId, id).then(() => undefined),
     end: async () => { await stop(true); return api.endMeeting(account, meetingId); },
     toggleScreen: () => (screenPc ? stopScreen() : startScreen()),
     toggleMute() {

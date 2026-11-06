@@ -6,6 +6,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-cont
 import { CallPulse } from "../../components/CallPulse";
 import { startRingSound } from "../../lib/ring-sound";
 import { CallVideo } from "../../components/CallVideo";
+import { AppIcon } from "../../components/AppIcon";
 import { PreCall } from "../../components/PreCall";
 import { useSession } from "../../lib/session";
 import { systemCalls } from "../../lib/servant-call";
@@ -125,7 +126,10 @@ function Meeting({ preset }: { preset?: CallPreset }) {
           <View key={r.participantId} style={[styles.tile, stage ? styles.tileSmall : { width: `${100 / columns - 2}%` as const }]}>
             {r.stream ? <CallVideo stream={r.stream} style={StyleSheet.absoluteFill} /> : null}
             {!r.hasVideo ? <View style={styles.noVideo}><Text style={styles.initial}>{r.name.slice(0, 1).toUpperCase()}</Text></View> : null}
-            <Text style={styles.name}>{r.muted ? `${r.name} · Muted` : r.name}</Text>
+            <View style={styles.nameRow}>
+              {r.muted ? <AppIcon name="micOff" size={12} color="#FFFFFF" /> : null}
+              <Text style={styles.nameText}>{r.muted ? `${r.name} · Muted` : r.name}</Text>
+            </View>
           </View>
         ))}
       </ScrollView>
@@ -137,7 +141,12 @@ function Meeting({ preset }: { preset?: CallPreset }) {
               <View key={p.id} accessible accessibilityLabel={`${p.name}${p.muted ? ", muted" : ""}`} style={styles.personRow}>
                 <View style={styles.personDot}><Text style={styles.personInitial}>{p.name.slice(0, 1).toUpperCase()}</Text></View>
                 <Text style={styles.personName} numberOfLines={1}>{p.name}</Text>
-                {p.muted ? <Text style={styles.personMeta}>Muted</Text> : null}
+                <View accessible={false} style={styles.personMic}><AppIcon name={p.muted ? "micOff" : "mic"} size={18} color={p.muted ? "#E5484D" : "#C9D3E0"} /></View>
+                {state.host && !p.you && !p.muted ? (
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Mute ${p.name}`} hitSlop={8} onPress={() => void call.current?.muteOther(p.id)} style={styles.muteBtn}>
+                    <Text style={styles.personMeta}>Mute</Text>
+                  </Pressable>
+                ) : null}
               </View>
             ))}
           </ScrollView>
@@ -184,6 +193,10 @@ const styles = StyleSheet.create({
   personDot: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#0071BC", alignItems: "center", justifyContent: "center" },
   personInitial: { ...typography.bodyStrong, color: "#FFFFFF" },
   personName: { ...typography.body, color: "#FFFFFF", flex: 1 },
+  personMic: { width: 24, alignItems: "center" },
+  muteBtn: { minHeight: 32, paddingHorizontal: space.sm, borderRadius: radius.pill, justifyContent: "center", backgroundColor: "#243045" },
+  nameRow: { position: "absolute", left: space.xs, bottom: space.xs, flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(0,0,0,0.45)", paddingHorizontal: space.xs, paddingVertical: 2, borderRadius: radius.sm },
+  nameText: { ...typography.label, color: "#FFFFFF" },
   personMeta: { ...typography.label, color: "#C9D3E0" },
   calling: { flex: 1, alignItems: "center", justifyContent: "center", gap: space.sm },
   callingText: { ...typography.bodyStrong, color: "#FFFFFF" },

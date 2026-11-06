@@ -247,5 +247,13 @@ test('mute and camera-off show for everyone; only you can set yours', async () =
     assert.equal(me().hasVideo, false, 'camera off shows the initial');
     await t.call('POST', `/v1/meetings/${id}/state`, { participantId: pid, muted: false, cameraOff: false });
     assert.equal(me().muted, false);
+    // Only the host (Ann started the call) can mute someone else; the asked person's app mutes itself.
+    assert.equal((await t.call('POST', `/v1/meetings/${id}/mute`, { participantId: pid }, users.bo)).status, 403, 'Bo is not the host');
+    assert.equal(me().muteSeq, 0);
+    assert.equal((await t.call('POST', `/v1/meetings/${id}/mute`, { participantId: pid })).status, 200);
+    assert.equal(me().muted, true);
+    assert.equal(me().muteSeq, 1, 'the person is told to mute');
+    assert.equal(t.meetings.view(id, 'ann').host, true);
+    assert.equal(t.meetings.view(id, 'bo').host, false);
   } finally { await t.close(); }
 });

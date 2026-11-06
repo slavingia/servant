@@ -89,7 +89,7 @@ export type Meeting = {
   title: string | null;
   error: string | null;
   iceServers: IceServer[];
-  participants: { id: string; user: { id: string; name: string }; publishing: boolean; you: boolean; joinedAt: number; hasVideo: boolean; hasAudio: boolean; muted?: boolean; screen?: boolean }[];
+  participants: { id: string; user: { id: string; name: string }; publishing: boolean; you: boolean; joinedAt: number; hasVideo: boolean; hasAudio: boolean; muted?: boolean; muteSeq?: number; screen?: boolean }[];
   steps: MeetingStep[];
   transcript: string | null;
 };
@@ -97,6 +97,8 @@ export type Conversation = {
   id: string;
   kind: "channel" | "dm";
   name: string | null;
+  /** You started this call, so you can mute others. */
+  host?: boolean;
   title: string;
   topic: string;
   private: boolean;
@@ -470,3 +472,6 @@ export const api = {
     request(a, "/v1/releases/latest").then(json<{ release: Release | null }>).then((d) => d.release),
   signOut: (a: Account) => request(a, "/v1/signout", { method: "POST" }).catch(() => undefined),
 };
+  /** Host only: ask someone on the call to mute. */
+  muteParticipant: (a: Account, id: string, participantId: string) =>
+    request(a, `/v1/meetings/${id}/mute`, { method: "POST", body: JSON.stringify({ participantId }) }).then(json<{ meeting: Meeting }>).then((d) => d.meeting),
