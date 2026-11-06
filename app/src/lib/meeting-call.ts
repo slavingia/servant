@@ -3,7 +3,7 @@
 // and microphone to the server once, and receives everyone else on separate
 // connections, so people can come and go without renegotiating.
 import { Platform } from "react-native";
-import { api, ServerError, type Account, type Meeting } from "./server";
+import { api, ServerError, type Account, type Meeting, type ResearchCard } from "./server";
 
 type Stream = any;
 type Peer = any;
@@ -39,6 +39,8 @@ export type CallState = {
   muted: boolean;
   /** You started the call, so you can mute others. */
   host?: boolean;
+  /** Research during the call ("hey servant"). */
+  research?: { available: boolean; on: boolean; cards: ResearchCard[] };
   cameraOff: boolean;
   /** Your own screen share, while it is on. */
   sharing: boolean;
@@ -190,6 +192,7 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
       state.people = m.participants.filter(p => !p.screen).map(p => ({ id: p.id, name: p.id === participantId ? "You" : p.you ? `${p.user.name} (other device)` : p.user.name, you: p.id === participantId, muteSeq: p.muteSeq || 0, hasAudio: p.hasAudio, hasVideo: p.hasVideo, muted: !!p.muted || !p.hasAudio }))
         .sort((a, b) => Number(b.you) - Number(a.you));
       state.host = !!m.host;
+      state.research = m.research;
       // The host muted you: mute your own mic, once per ask. You can unmute yourself afterwards.
       const me = m.participants.find(p => p.id === participantId);
       if (me && (me.muteSeq || 0) > seenMuteSeq) {
@@ -304,6 +307,7 @@ export function createCall(account: Account, meetingId: string, onChange: (s: Ca
   return {
     start,
     leave: () => stop(true),
+    startResearch: () => api.startMeetingResearch(account, meetingId).then((m) => { state.research = m.research; emit(); }),
     muteOther: (id: string) => api.muteParticipant(account, meetingId, id).then(() => undefined),
     end: async () => { await stop(true); return api.endMeeting(account, meetingId); },
     toggleScreen: () => (screenPc ? stopScreen() : startScreen()),

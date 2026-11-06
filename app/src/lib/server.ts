@@ -91,8 +91,11 @@ export type Meeting = {
   iceServers: IceServer[];
   participants: { id: string; user: { id: string; name: string }; publishing: boolean; you: boolean; joinedAt: number; hasVideo: boolean; hasAudio: boolean; muted?: boolean; muteSeq?: number; screen?: boolean }[];
   steps: MeetingStep[];
+  /** Research during the call: "hey servant" questions and their answers. */
+  research?: { available: boolean; on: boolean; cards: ResearchCard[] };
   transcript: string | null;
 };
+export type ResearchCard = { n: number; askedBy: string; question: string; answer: string | null; status: "working" | "done" | "failed"; at: number };
 export type Conversation = {
   id: string;
   kind: "channel" | "dm";
@@ -486,6 +489,9 @@ export const api = {
   /** Host only: ask someone on the call to mute. */
   muteParticipant: (a: Account, id: string, participantId: string) =>
     request(a, `/v1/meetings/${id}/mute`, { method: "POST", body: JSON.stringify({ participantId }) }).then(json<{ meeting: Meeting }>).then((d) => d.meeting),
+  /** Host only: turn on Research for the rest of the call. */
+  startMeetingResearch: (a: Account, id: string) =>
+    request(a, `/v1/meetings/${id}/research`, { method: "POST", body: "{}" }).then(json<{ meeting: Meeting }>).then((d) => d.meeting),
   endMeeting: (a: Account, id: string) =>
     request(a, `/v1/meetings/${id}/end`, { method: "POST", body: "{}" }).then(json<{ meeting: Meeting }>).then((d) => d.meeting),
   meetingStep: (a: Account, id: string, n: number, action: "accept" | "skip") =>

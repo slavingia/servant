@@ -46,6 +46,7 @@ function Meeting({ preset }: { preset?: CallPreset }) {
   const [unsupported] = useState(() => !callsSupported());
   const [ending, setEnding] = useState(false);
   const [showPeople, setShowPeople] = useState(false);
+  const [showResearch, setShowResearch] = useState(false);
   // The call lives outside this screen: going back or switching tabs keeps you in it (a bar on
   // every screen brings you back). Only Leave or End takes you out.
   const active = useActiveCall();
@@ -76,6 +77,15 @@ function Meeting({ preset }: { preset?: CallPreset }) {
       { text: "Cancel", style: "cancel" },
       { text: "End for all", style: "destructive", onPress: () => void end() },
     ]);
+  };
+  // Research sends what is said on the call to the agent, so the host confirms and everyone is told.
+  const researchPress = () => {
+    if (state.research?.on) { setShowResearch(v => !v); return; }
+    const title = "Turn on Research?";
+    const body = "Say \"hey servant\" and a question, and the agent looks it up for everyone on the call. To do this, what is said on the call is sent to the agent. Everyone is told it's on, and it stays on until the call ends.";
+    const go = () => { void call.current?.startResearch().then(() => setShowResearch(true)).catch(() => undefined); };
+    if (Platform.OS === "web") { if (typeof window !== "undefined" && window.confirm(`${title}\n\n${body}`)) go(); return; }
+    Alert.alert(title, body, [{ text: "Cancel", style: "cancel" }, { text: "Turn on", onPress: go }]);
   };
   const end = async () => {
     setEnding(true);
@@ -133,6 +143,20 @@ function Meeting({ preset }: { preset?: CallPreset }) {
           </View>
         ))}
       </ScrollView>
+      {showResearch && state.research?.on && !done ? (
+        <View testID="research-tray" accessibilityLabel="Research" style={styles.people}>
+          <Text style={styles.peopleTitle}>Research</Text>
+          <ScrollView style={{ maxHeight: 220 }}>
+            {state.research.cards.length === 0 ? <Text style={styles.personMeta}>Say "hey servant" and a question</Text> : null}
+            {[...state.research.cards].reverse().map(c => (
+              <View key={c.n} accessible accessibilityLabel={`${c.askedBy} asked ${c.question}. ${c.status === "working" ? "Looking it up" : c.answer ?? ""}`} style={styles.card}>
+                <Text style={styles.cardAsk}>{c.askedBy}: {c.question}</Text>
+                <Text style={[styles.cardAnswer, c.status === "failed" && { color: "#E5484D" }]}>{c.status === "working" ? "Looking it up…" : c.answer}</Text>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      ) : null}
       {showPeople && !done ? (
         <View testID="people-list" accessibilityLabel="People on the call" style={styles.people}>
           <Text style={styles.peopleTitle}>{state.people.length === 1 ? "One person on the call" : `${state.people.length} people on the call`}</Text>
@@ -166,6 +190,7 @@ function Meeting({ preset }: { preset?: CallPreset }) {
             <Control label={state.muted ? "Unmute" : "Mute"} active={state.muted} onPress={() => call.current?.toggleMute()} />
             {hasCamera ? <Control label={state.cameraOff ? "Camera on" : "Camera off"} active={state.cameraOff} onPress={() => call.current?.toggleCamera()} /> : null}
             {screenShareSupported() && state.status === "live" ? <Control label={state.sharing ? "Stop sharing" : "Share screen"} active={state.sharing} onPress={() => void call.current?.toggleScreen()} /> : null}
+            {state.research?.on || (state.host && state.research?.available) ? <Control label={state.research?.on && state.research.cards.some(c => c.status === "working") ? "Research…" : "Research"} active={showResearch && !!state.research?.on} onPress={researchPress} /> : null}
             <Control label="People" active={showPeople} onPress={() => setShowPeople(v => !v)} />
             <Control label="Leave" onPress={leave} />
           </View>
@@ -194,6 +219,9 @@ const styles = StyleSheet.create({
   personInitial: { ...typography.bodyStrong, color: "#FFFFFF" },
   personName: { ...typography.body, color: "#FFFFFF", flex: 1 },
   personMic: { width: 24, alignItems: "center" },
+  card: { paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#243045" },
+  cardAsk: { ...typography.label, color: "#C9D3E0" },
+  cardAnswer: { ...typography.body, color: "#FFFFFF", marginTop: 2 },
   muteBtn: { minHeight: 32, paddingHorizontal: space.sm, borderRadius: radius.pill, justifyContent: "center", backgroundColor: "#243045" },
   nameRow: { position: "absolute", left: space.xs, bottom: space.xs, flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(0,0,0,0.45)", paddingHorizontal: space.xs, paddingVertical: 2, borderRadius: radius.sm },
   nameText: { ...typography.label, color: "#FFFFFF" },

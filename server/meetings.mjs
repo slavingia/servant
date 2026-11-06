@@ -18,6 +18,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
+import { createAssist, liveTranscribe, TICK_MS } from "./meeting-assist.mjs";
 
 const MAX_PARTICIPANTS = 12;
 const MAX_MEETING_MS = 4 * 60 * 60 * 1000;
@@ -144,7 +145,7 @@ export async function transcribeAudio(file, { workdir, language, config = {} }) 
  * @param {(file:string, o:object) => Promise<Array<{fromMs:number,text:string}>>} [o.transcribe]
  * @param {() => Promise<any>} [o.loadWebrtc]
  */
-export function createMeetings({ dir, messaging, users, config = () => ({}), summarize, transcribe, loadWebrtc = () => import("./werift.mjs"), log = console, now = Date.now }) {
+export function createMeetings({ dir, messaging, users, config = () => ({}), summarize, transcribe, research, liveTranscribe: liveTx, loadWebrtc = () => import("./werift.mjs"), log = console, now = Date.now }) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(path.join(dir, "meetings.db"));
   db.exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL;
@@ -163,7 +164,8 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
       conversation_id TEXT NOT NULL, message_seq INTEGER, status TEXT NOT NULL DEFAULT 'open',
       acted_by TEXT, acted_seq INTEGER, PRIMARY KEY (meeting_id, n)
     );
-    CREATE TABLE IF NOT EXISTS transcripts (meeting_id TEXT PRIMARY KEY, text TEXT NOT NULL);`);
+    CREATE TABLE IF NOT EXISTS transcripts (meeting_id TEXT PRIMARY KEY, text TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS research_cards (meeting_id TEXT PRIMARY KEY, json TEXT NOT NULL);`);
   const q = (s) => db.prepare(s);
   const st = {
     get: q("SELECT * FROM meetings WHERE id = ?"),
@@ -186,6 +188,8 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
     byCard: q("SELECT * FROM meetings WHERE card_seq = ? OR notes_seq = ?"),
     saveTranscript: q("INSERT OR REPLACE INTO transcripts VALUES (?, ?)"),
     transcript: q("SELECT text FROM transcripts WHERE meeting_id = ?"),
+    saveCards: q("INSERT OR REPLACE INTO research_cards VALUES (?, ?)"),
+    cards: q("SELECT json FROM research_cards WHERE meeting_id = ?"),
   };
 
   /** @type {Map<string, any>} meetingId -> live call */
@@ -230,9 +234,49 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
         id: p.id, user: person(p.userId), publishing: p.tracks.size > 0, you: p.userId === userId, joinedAt: p.joinedAt,
         hasVideo: p.kinds.has("video") && !p.cameraOff, hasAudio: p.kinds.has("audio"), muted: !!p.muted, muteSeq: p.muteSeq || 0, ...(p.screen ? { screen: true } : {}),
       })) : [],
+      research: researchView(m, call),
       steps,
       transcript: m.status === "done" ? st.transcript.get(m.id)?.text || "" : null,
     };
+  }
+  // Research during the call: off until the host turns it on; everyone sees the state and the cards.
+  const researchAvailable = () => cfg().research === true && !!research;
+  function researchView(m, call) {
+    const saved = (() => { try { return JSON.parse(st.cards.get(m.id)?.json || "[]"); } catch { return []; } })();
+    const cards = call?.assist ? call.assist.cards : saved;
+    return { available: researchAvailable(), on: !!call?.assist, cards: cards.map(c => ({ n: c.n, askedBy: c.asker, question: c.question, answer: c.answer, status: c.status, at: c.at })) };
+  }
+  function liveFor(m, call, p) {
+    if (!call.assist || p.screen || p.liveRecorder || !p.tracks.has("audio")) return;
+    const w = call.webrtc; if (!w) return;
+    try {
+      p.liveFile = path.join(meetingDir(m.id), `${p.id}.live.webm`);
+      p.liveRecorder = new w.MediaRecorder({ path: p.liveFile, numOfTracks: 1 });
+      p.liveRecorder.onError?.subscribe?.(e => log.error("[servant] live recorder:", e?.message || e));
+      p.liveRecorder.addTrack(p.tracks.get("audio").track).catch?.(e => log.error("[servant] live record track:", e.message));
+    } catch (e) { log.error("[servant] live recorder:", e.message); p.liveRecorder = null; p.liveFile = null; }
+  }
+  function startResearch(m, call, user) {
+    if (call.assist) return;
+    const tx = liveTx || ((file, from) => liveTranscribe(file, from, { workdir: meetingDir(m.id), language: cfg().language, config: cfg() }));
+    call.assist = createAssist({
+      people: () => [...call.participants.values()].filter(p => !p.screen).map(p => ({ id: p.id, userId: p.userId, name: person(p.userId).name, muted: !!p.muted, liveFile: p.liveFile || null })),
+      transcribe: tx,
+      research: ({ question, context, asker }) => research({ question, context, asker, room: m.conversation_id }),
+      onCards: (cards) => { st.saveCards.run(m.id, JSON.stringify(cards)); changed(m); },
+      log,
+      cards: [],
+    });
+    for (const p of call.participants.values()) liveFor(m, call, p);
+    call.assistTimer = setInterval(() => void call.assist?.tick(), TICK_MS);
+    call.assistTimer.unref?.();
+    messaging.agentPost(m.conversation_id, `${person(user.id).name} turned on Research for this call\n\nSay "hey servant" and a question. The agent looks it up and shows the answer in the call. To do this, what is said on the call is sent to the agent`);
+  }
+  async function stopResearch(call) {
+    clearInterval(call.assistTimer);
+    call.assist?.stop();
+    const cards = call.assist?.cards;
+    if (cards?.length) { try { st.saveCards.run(call.id, JSON.stringify(cards)); } catch {} }
   }
   const stepView = (s) => ({ n: s.n, text: s.text, owner: s.owner, conversationId: s.conversation_id, status: s.status,
     actedBy: s.acted_by ? person(s.acted_by) : null, threadId: s.acted_seq ? String(s.acted_seq) : null });
@@ -296,7 +340,7 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
     const id = newId("meet");
     st.insert.run(id, conversationId, user.id, now(), process.pid);
     fs.mkdirSync(meetingDir(id), { recursive: true, mode: 0o700 });
-    const call = { id, conversationId, participants: new Map(), emptySince: now(), timer: null };
+    const call = { id, conversationId, participants: new Map(), emptySince: now(), timer: null, assist: null, assistTimer: null, webrtc: null };
     calls.set(id, call);
     call.timer = setInterval(() => sweep(call), 5000);
     call.timer.unref?.();
@@ -333,6 +377,7 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
     checkSdp(sdp);
     const tracks = screen ? 0 : sentTrackCount(sdp);
     const { w, pc } = await newPeer();
+    call.webrtc ??= w;
     const p = { id: newId("part"), userId: user.id, pc, tracks: new Map(), kinds: new Set(), recorder: null, joinedAt: now(), watchers: new Set(), pli: null, ...(screen ? { screen: true, ownerId: String(screenOf) } : {}) };
     if (tracks) {
       const file = path.join(meetingDir(m.id), `${p.id}.webm`);
@@ -347,6 +392,7 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
         // Only the first video track counts for a screen share; audio is never forwarded.
         if (p.screen && track.kind !== "video") return;
         p.recorder?.addTrack(track).catch?.(e => log.error("[servant] meeting record track:", e.message));
+        if (track.kind === "audio") liveFor(m, call, p);
         if (track.kind === "video") p.pli ??= setInterval(() => t.receiver.sendRtcpPLI(track.ssrc).catch(() => {}), 2000);
         changed(m);
       });
@@ -412,6 +458,7 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
     for (const other of [...call.participants.values()]) if (other.screen && other.ownerId === p.id) await leave(call, other.id);
     for (const w of p.watchers) w.close();
     await p.recorder?.stop().catch(e => log.error("[servant] meeting recorder stop:", e.message));
+    await p.liveRecorder?.stop().catch(() => {});
     await p.pc.close().catch(() => {});
     if (!call.participants.size) call.emptySince = now();
     const m = st.get.get(call.id);
@@ -423,6 +470,7 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
     if (call) {
       calls.delete(meetingId);
       clearInterval(call.timer);
+      await stopResearch(call);
       await Promise.all([...call.participants.keys()].map(pid => leave(call, pid)));
     }
     if (!st.end.run(now(), meetingId).changes && !call) return;
@@ -566,6 +614,17 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
       p.muted = true; p.muteSeq = (p.muteSeq || 0) + 1;
       return send(res, 200, { meeting: view(m, user.id) }), true;
     }
+    // The host turns Research on for the rest of the call (it can't be switched off mid-call:
+    // what was already said has been sent to the agent, and everyone was told).
+    if (sub === "research") {
+      const m = requireMeeting(id, user.id);
+      const call = calls.get(m.id);
+      if (!researchAvailable()) return fail(res, 404, "not_available", "Research isn't set up on this server"), true;
+      if (m.started_by !== user.id) return fail(res, 403, "not_host", "Only the person who started the call can turn on Research"), true;
+      if (!call) return fail(res, 409, "meeting_ended", "This meeting has ended"), true;
+      startResearch(m, call, user);
+      return send(res, 200, { meeting: view(m, user.id) }), true;
+    }
     if (sub === "leave") {
       const m = requireMeeting(id, user.id);
       const call = calls.get(m.id);
@@ -600,6 +659,7 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
       const call = calls.get(id);
       calls.delete(id);
       clearInterval(call.timer);
+      await stopResearch(call);
       await Promise.all([...call.participants.keys()].map(pid => leave(call, pid)));
       st.end.run(now(), id);
       db.prepare("UPDATE meetings SET owner_pid = NULL WHERE id = ?").run(id);

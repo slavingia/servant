@@ -8,13 +8,13 @@ import { createMeetings, mergeTranscript, parseNotes, sentTrackCount, transcript
 
 const users = { ann: { id: 'ann', name: 'Ann', role: 'owner' }, bo: { id: 'bo', name: 'Bo', role: 'member' }, cy: { id: 'cy', name: 'Cy', role: 'member' } };
 
-function setup({ summarize, transcribe } = {}) {
+function setup({ summarize, transcribe, research, config } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'servant-meetings-'));
   let meetings;
   const agentTurns = [];
   const messaging = createMessaging({ file: ':memory:', users: () => users, agentName: () => 'Agent', messageExtras: m => meetings?.messageExtras(m),
     askAgent: async ({ text }) => { agentTurns.push(text); return 'On it'; } });
-  meetings = createMeetings({ dir, messaging, users: () => users, log: { error() {} },
+  meetings = createMeetings({ dir, messaging, users: () => users, log: { error() {} }, research, config: () => config || {},
     summarize: summarize || (async () => JSON.stringify({ title: 'Launch sync', summary: 'Ann and Bo planned the launch', notes: ['Ship Friday'],
       steps: [{ text: 'Draft the launch post', owner: 'Bo', room: 'general' }, { text: 'Book the design review', owner: 'Ann', room: '#design' }, { text: 'Invented room step', room: 'nowhere' }] })),
     transcribe: transcribe || (async file => file.includes('ann') ? [{ fromMs: 0, text: 'Let us ship Friday' }] : [{ fromMs: 2000, text: 'I will draft the post' }]),
@@ -256,4 +256,29 @@ test('mute and camera-off show for everyone; only you can set yours', async () =
     assert.equal(t.meetings.view(id, 'ann').host, true);
     assert.equal(t.meetings.view(id, 'bo').host, false);
   } finally { await t.close(); }
+});
+
+test('research: the host turns it on, everyone is told, and it is off unless the server allows it', async () => {
+  const off = setup();
+  const g0 = off.messaging.ensureGeneral();
+  for (const u of Object.values(users)) off.messaging.joinDefaults(u.id);
+  const m0 = (await off.call('POST', '/v1/meetings', { conversationId: g0.id })).body;
+  assert.equal(off.meetings.view(m0.meeting.id, 'ann').research.available, false);
+  assert.equal((await off.call('POST', `/v1/meetings/${m0.meeting.id}/research`, {})).status, 404);
+  await off.close();
+
+  const t = setup({ research: async () => 'x', config: { research: true } });
+  const g1 = t.messaging.ensureGeneral();
+  for (const u of Object.values(users)) t.messaging.joinDefaults(u.id);
+  const id = (await t.call('POST', '/v1/meetings', { conversationId: g1.id })).body.meeting.id;
+  const v = () => t.meetings.view(id, 'ann').research;
+  assert.deepEqual([v().available, v().on, v().cards.length], [true, false, 0]);
+  assert.equal((await t.call('POST', `/v1/meetings/${id}/research`, {}, users.bo)).status, 403, 'only the host');
+  assert.equal(v().on, false);
+  const res = await t.call('POST', `/v1/meetings/${id}/research`, {});
+  assert.equal(res.status, 200);
+  assert.equal(v().on, true);
+  assert.equal(res.body.meeting.research.on, true);
+  await t.meetings.finish(id);
+  await t.close();
 });
