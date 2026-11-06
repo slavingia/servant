@@ -320,7 +320,7 @@ export function releaseView(release, project, users) {
 export const localDate = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 /**
  * The next few releases for the agent: each item's unfinished stages and who owns
- * them, so a chat in the project knows "11/17: Trump accounts, SAT blocked (Josh)".
+ * them, so a chat in the project knows "11/17: Account settings, SAT blocked (Sam)".
  */
 export function releaseLines(project, users, today = localDate()) {
   const upcoming = sortedReleases(project).filter(r => r.date >= today).slice(0, 5);

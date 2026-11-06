@@ -1,7 +1,7 @@
 Servant 1.0.0 (16)
 
 What's new
-- A cleaner IRS-inspired design, a single Search bar, rounded conversation surfaces, and filled icons in the Liquid Glass tabs.
+- A cleaner design, a single Search bar, rounded conversation surfaces, and filled icons in the Liquid Glass tabs.
 - Photos and videos from people and agents, with full-screen playback and a gallery for the conversation's attachments.
 - Agent replies keep working when you leave the app. Return to see the saved response, or use Stop to interrupt a running task.
 - Owner approval requests appear in the Agent inbox. Review the action and choose Allow once or Deny.

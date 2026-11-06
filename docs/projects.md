@@ -14,7 +14,7 @@ Reference files added in the app are stored under `project-files/<project id>/` 
 
 ```json
 {
-  "people": { "slavingia": "Sahil Lavingia" },
+  "people": { "alexlee": "Alex Lee" },
   "projects": [
     {
       "id": "servant",
@@ -29,11 +29,11 @@ Reference files added in the app are stored under `project-files/<project id>/` 
       "stages": ["Build", "Design", "Functional/508 QA", "SAT", "Content"],
       "releases": [
         { "id": "rel_november-17", "name": "November 17", "date": "2026-11-17", "items": [
-          { "id": "itm_trump-accounts", "title": "Trump accounts", "stages": { "SAT": { "status": "blocked", "owner": "usr_abc123", "note": "Waiting on test accounts" } } }
+          { "id": "itm_account-settings", "title": "Account settings", "stages": { "SAT": { "status": "blocked", "owner": "usr_abc123", "note": "Waiting on test accounts" } } }
         ] }
       ],
-      "owners": ["slavingia"],
-      "access": { "merge": ["slavingia"], "write": ["gianfrancopiana"], "read": [] }
+      "owners": ["alexlee"],
+      "access": { "merge": ["alexlee"], "write": ["jordanpark"], "read": [] }
     }
   ]
 }
@@ -51,13 +51,13 @@ Reference files added in the app are stored under `project-files/<project id>/` 
 
 What the levels mean inside Servant: anyone listed sees the project, can start chats in it and can read chats others shared with it; `write` also edits the notes and files; the rest (name, description, repo, path, workflow, rules, people) is for owners. For the repo, the levels tell the agent what it may do on that person's behalf, below.
 
-The full example for our three projects is [projects.example.json](projects.example.json). Copy it to `server/data/projects.json` and fix the `people` names to match the names people use on your server. The IRS app project in it carries the five stages and the November 17 release (Trump accounts, DMAF, DUT, Guest mode, every stage to do and unowned). Nothing copies that into a live file on its own: paste the `stages` and `releases` keys into your `expo-irs` project by hand, or add the release in the app.
+The full example for our three projects is [projects.example.json](projects.example.json). Copy it to `server/data/projects.json` and fix the `people` names to match the names people use on your server. The website project in it carries the five stages and the November 17 release (Account settings, Search, Help center, Guest mode, every stage to do and unowned). Nothing copies that into a live file on its own: paste the `stages` and `releases` keys into your `website` project by hand, or add the release in the app.
 
 ## Releases
 
-A release is a date and the items shipping in it; an item is a feature ("Trump accounts"). Every item moves through the project's stages, and each stage of each item is one cell: a status (**To do**, **Doing**, **Done**, **Blocked**), an owner and an optional note. Those cells are the per-person to-dos.
+A release is a date and the items shipping in it; an item is a feature ("Account settings"). Every item moves through the project's stages, and each stage of each item is one cell: a status (**To do**, **Doing**, **Done**, **Blocked**), an owner and an optional note. Those cells are the per-person to-dos.
 
-In the app's **Releases** tab, upcoming releases come first (soonest first, today counts), then past ones. On phones each item is a card with a chip per stage (a short stage name, the status word and the owner's initials); on wide screens each release is a table of items by stages. Tapping a cell opens its editor: status, owner (anyone in the project) and note. The **My to-dos** strip at the top lists every cell assigned to you that isn't done, across the project's releases ("Trump accounts · SAT · Nov 17"). Status colors are done green, doing IRS blue, blocked red, to do neutral, always with the word beside the color.
+In the app's **Releases** tab, upcoming releases come first (soonest first, today counts), then past ones. On phones each item is a card with a chip per stage (a short stage name, the status word and the owner's initials); on wide screens each release is a table of items by stages. Tapping a cell opens its editor: status, owner (anyone in the project) and note. The **My to-dos** strip at the top lists every cell assigned to you that isn't done, across the project's releases ("Account settings · SAT · Nov 17"). Status colors are done green, doing brand blue, blocked red, to do neutral, always with the word beside the color.
 
 Who can do what: anyone who can read sees releases; anyone who can write adds, renames and removes releases and items and changes any cell; the person a cell is assigned to can change that cell (status, owner, note) even with read access only; stages are the owners' call, like the rules. The page re-reads the project every few seconds while open, so teammates' changes show up without a pull.
 
@@ -78,7 +78,7 @@ Every turn of a chat in a project starts with the project's instructions (they a
 5. The next releases (up to five whose date is today or later), one line each with every item's unfinished stages and their owners; finished stages are left out, a finished item says `all done`, an empty release says `no items yet`:
    ```
    Upcoming releases (today is 2026-11-04), with what isn't done yet and who owns it:
-   - November 17 (2026-11-17): Trump accounts: Design doing (Sahil Lavingia), Functional/508 QA to do (nobody yet), SAT blocked (Josh Struble: Waiting on test accounts), Content to do (nobody yet); DMAF: all done
+   - November 17 (2026-11-17): Account settings: Design doing (Alex Lee), Functional/508 QA to do (nobody yet), SAT blocked (Sam Kim: Waiting on test accounts), Content to do (nobody yet); Search: all done
    ```
    A project with no upcoming releases gets no such block; vibe-coding chats never do.
 6. The project notes, then the reference files: paths for the full agent; small text files inline, and only the names of the rest, for the restricted member agent (which never gets local paths).

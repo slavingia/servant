@@ -752,15 +752,15 @@ test("releases: items move through the project's stages; writers plan, whoever o
   const rel = view.releases[0];
   assert.deepEqual([rel.name, rel.date, rel.items], ["November 17", nov, []]);
   const R = `${P}/releases/${rel.id}`;
-  assert.equal((await api("POST", `${R}/items`, { token: ro, body: { title: "Trump accounts" } })).status, 403);
+  assert.equal((await api("POST", `${R}/items`, { token: ro, body: { title: "Account settings" } })).status, 403);
   assert.equal((await api("POST", `${R}/items`, { token: dev, body: { title: " " } })).status, 400);
-  for (const title of ["Trump accounts", "DMAF", "DUT", "Guest mode"]) view = (await api("POST", `${R}/items`, { token: dev, body: { title } })).json.project;
+  for (const title of ["Account settings", "Search", "Help center", "Guest mode"]) view = (await api("POST", `${R}/items`, { token: dev, body: { title } })).json.project;
   const items = view.releases[0].items;
-  assert.deepEqual(items.map(i => i.title), ["Trump accounts", "DMAF", "DUT", "Guest mode"]);
+  assert.deepEqual(items.map(i => i.title), ["Account settings", "Search", "Help center", "Guest mode"]);
   assert.deepEqual(items[0].stages, Object.fromEntries(stages.map(s => [s, { status: "todo", owner: null, ownerName: "" }])), "every stage starts as to do, nobody yet");
-  const trump = `${R}/items/${items[0].id}`;
+  const settings = `${R}/items/${items[0].id}`;
   // One cell: a known stage, a real status, an owner who is in the project.
-  const cell = (token, body) => api("PATCH", `${trump}/stages`, { token, body });
+  const cell = (token, body) => api("PATCH", `${settings}/stages`, { token, body });
   assert.equal((await cell(dev, { stage: "QA", status: "doing" })).status, 400);
   assert.equal((await cell(dev, { stage: "SAT", status: "soon" })).status, 400);
   assert.equal((await cell(dev, { stage: "SAT", owner: outId })).status, 404);
@@ -778,7 +778,7 @@ test("releases: items move through the project's stages; writers plan, whoever o
   const chat = (await api("POST", "/v1/chats", { token: dev, body: { projectId: project.id } })).json.chat;
   await api("POST", `/v1/chats/${chat.id}/messages`, { token: dev, body: { text: "what's left for the 17th?" } });
   const stream = await waitFor(() => [...owner.calls, ...member.calls].find(c => c.url.endsWith("/chat/stream") && c.body.message === "what's left for the 17th?"));
-  assert.match(stream.body.system_message, new RegExp(`Upcoming releases \\(today is \\d{4}-\\d{2}-\\d{2}\\), with what isn't done yet and who owns it:\\n- November 17 \\(${nov}\\): Trump accounts: Build to do \\(nobody yet\\), Design to do \\(nobody yet\\), Functional/508 QA to do \\(nobody yet\\), SAT blocked \\(Rae Reader: Waiting on test accounts\\), Content to do \\(nobody yet\\); DMAF: Build to do`));
+  assert.match(stream.body.system_message, new RegExp(`Upcoming releases \\(today is \\d{4}-\\d{2}-\\d{2}\\), with what isn't done yet and who owns it:\\n- November 17 \\(${nov}\\): Account settings: Build to do \\(nobody yet\\), Design to do \\(nobody yet\\), Functional/508 QA to do \\(nobody yet\\), SAT blocked \\(Rae Reader: Waiting on test accounts\\), Content to do \\(nobody yet\\); Search: Build to do`));
   // Taking a stage out hides its column; the cells are kept and come back with it.
   assert.deepEqual(Object.keys((await api("PATCH", P, { token: lead, body: { stages: ["Build", "SAT"] } })).json.project.releases[0].items[0].stages), ["Build", "SAT"]);
   assert.equal((await api("PATCH", P, { token: lead, body: { stages } })).json.project.releases[0].items[0].stages.SAT.status, "blocked");
@@ -787,9 +787,9 @@ test("releases: items move through the project's stages; writers plan, whoever o
   view = (await api("PATCH", R, { token: dev, body: { name: "November 18", date: inDays(14) } })).json.project;
   assert.deepEqual([view.releases[0].name, view.releases[0].date], ["November 18", inDays(14)]);
   assert.equal((await api("PATCH", R, { token: dev, body: { date: "2026-02-30" } })).status, 400);
-  assert.equal((await api("PATCH", trump, { token: dev, body: { title: "Trump Accounts" } })).json.project.releases[0].items[0].title, "Trump Accounts");
-  assert.equal((await api("DELETE", trump, { token: ro })).status, 403);
-  assert.deepEqual((await api("DELETE", `${R}/items/${items[3].id}`, { token: dev })).json.project.releases[0].items.map(i => i.title), ["Trump Accounts", "DMAF", "DUT"]);
+  assert.equal((await api("PATCH", settings, { token: dev, body: { title: "Account Settings" } })).json.project.releases[0].items[0].title, "Account Settings");
+  assert.equal((await api("DELETE", settings, { token: ro })).status, 403);
+  assert.deepEqual((await api("DELETE", `${R}/items/${items[3].id}`, { token: dev })).json.project.releases[0].items.map(i => i.title), ["Account Settings", "Search", "Help center"]);
   assert.equal((await api("DELETE", `${R}/items/itm_nope`, { token: dev })).status, 404);
   assert.equal((await api("PATCH", `${P}/releases/rel_nope`, { token: dev, body: { name: "x" } })).status, 404);
   // The server lists releases by date; the app splits upcoming from past.

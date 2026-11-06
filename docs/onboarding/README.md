@@ -18,8 +18,7 @@ All captures were taken on November 1, 2026:
   made-up people and messages. The test invite QR code is covered. The dev-only
   error toast was hidden before capture.
 - Research Studio v0.3.5 (`ae79f19`): the live site, tree testing example.
-- design-prototypes: the live research insights dashboard and the refund debt
-  UX Research SME review.
+- design-prototypes: the live research insights dashboard and a UX Research SME review.
 
 Command output in the guide is from real runs that day. The dashboard refresh
 check passed against research-hub branch `codex/multisurvey-onboarding-2026-10-18`;

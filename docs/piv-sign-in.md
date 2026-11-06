@@ -36,8 +36,8 @@ Microsoft Entra certificate-based authentication is a free Entra feature. It wor
 
 A Login.gov account can hold several verified emails, so ask for `all_emails` and decide on those, not just `email`.
 
-1. **Match the domain against the official list, not a `.gov` suffix.** A bare `.gov` check would admit city, county, state, tribal and special-district staff. In CISA's published `.gov` data (cisagov/dotgov-data, `current-full.csv`, read 11/05/2026) there are 17,025 domains and only 1,319 are federal: 1,172 executive, 121 legislative, 24 judicial and 2 other. The rest are city (9,599), county (3,061), state or territory (1,488), special district (1,158), tribal (294), school district (77) and interstate (29). `current-federal.csv` is the federal-only file; it includes `irs.gov` and `treasury.gov`. Decide which federal branches count (executive only, or all federal).
-2. **Match the exact domain or a subdomain of a listed domain** (`name@irs.gov`, `name@mail.irs.gov`), never a substring.
+1. **Match the domain against the official list, not a `.gov` suffix.** A bare `.gov` check would admit city, county, state, tribal and special-district staff. In CISA's published `.gov` data (cisagov/dotgov-data, `current-full.csv`, read 11/05/2026) there are 17,025 domains and only 1,319 are federal: 1,172 executive, 121 legislative, 24 judicial and 2 other. The rest are city (9,599), county (3,061), state or territory (1,488), special district (1,158), tribal (294), school district (77) and interstate (29). `current-federal.csv` is the federal-only file; it lists each agency's own domains, for example `usa.gov`. Decide which federal branches count (executive only, or all federal).
+2. **Match the exact domain or a subdomain of a listed domain** (`name@agency.gov`, `name@mail.agency.gov`), never a substring.
 3. **Federal does not mean the whole federal workforce.** Contractors usually have non-`.gov` addresses, and the military uses `.mil`, which this list does not cover. Make the allowed domains an owner setting, so `.mil` or a named contractor domain can be added deliberately.
 4. **An email proves a mailbox, not employment.** Someone who leaves an agency may keep Login.gov access to that address until the agency removes it. Treat it as "can read mail at that address," and let the owner remove people (Servant already does this and revokes every device).
 5. **Higher bar when it matters.** Ask for the PIV/CAC `acr_values` on the owner's own sign-in and when adding a new device, and keep the card's certificate subject (`x509_subject`) as extra evidence.
@@ -65,7 +65,7 @@ The same route works for an agency IdP later: configure another issuer, with `gr
 
 ## Build order
 
-1. Server: OIDC verifier with tests against a mock issuer (discovery, key rotation, wrong `aud`, expired, replayed nonce) and a federal-domain matcher with tests (exact, subdomain, look-alike such as `irs.gov.evil.com`, `.mil`, city `.gov`).
+1. Server: OIDC verifier with tests against a mock issuer (discovery, key rotation, wrong `aud`, expired, replayed nonce) and a federal-domain matcher with tests (exact, subdomain, look-alike such as `agency.gov.evil.com`, `.mil`, city `.gov`).
 2. `POST /v1/pair/oidc` and the user fields, with integration tests beside the pairing tests.
 3. App and Mac: "Sign in with Login.gov" next to the invite code, in the system browser.
 4. Owner settings: join rule, allowed domains, require card for the owner and new devices.

@@ -29,7 +29,7 @@ function useRun(onChange: (project: Project) => void) {
   return { busy, error, setError, run };
 }
 
-// Status colors with their words: done green, doing IRS blue, blocked red, to do neutral.
+// Status colors with their words: done green, doing brand blue, blocked red, to do neutral.
 function useTones() {
   const { colors } = useTheme();
   return {
