@@ -35,7 +35,7 @@ from `4e9114c`, so this release preserves that parallel fix.
   prior release; its compatibility was exercised before deployment.
 - QR approval continues to work with phone build 25 or later. Phone build **27**,
   containing the owner indicators and scanner correction, is available in the
-  existing IRS TestFlight group (`VALID / IN_BETA_TESTING` with verified group
+  existing TestFlight group (`VALID / IN_BETA_TESTING` with verified group
   membership), Firebase `servant-internal` group, and Google Play internal track
   (`completed`, with the uploaded bundle hash verified).
 - No Servant chat announcements or production QA accounts/messages were created.

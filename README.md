@@ -41,7 +41,7 @@ Everything runs on your computer. There is no hosted Servant service, and nothin
 
 **Shame board** (You → Shame board; formerly the token leaderboard): agent tokens used across the server and by person, for today, the last 7 or 30 days, or all time. Each finished agent reply is credited to the person who asked, in their agent chats and in channels (@agent). Servant stores only the counts Hermes reports (input, output, total) in `usage.db`, never prompt text. Each person also shows an estimated dollar cost at list prices ($3 per million tokens in, $15 per million out), not a bill. Everyone on the server can see the shame board. The goal is productivity, meaning pull requests merged per million tokens, not raw token use. Usage before this feature was not recorded.
 
-**Shame board by topic**: below the people list, tokens are grouped by the survey-feedback theme each request was about (payment plan setup, manage or change, notices, and so on) and set against how many real-user survey comments and bug reports mention the same theme. Each reply is labelled once from its request (keyword match, labels only, no text stored). Work that is not IRS app related, like Servant itself, counts as other. Themes come from `design-prototypes/app-analytics/survey-feedback`; refresh with `node server/build-survey-themes.mjs <survey-feedback-data.js>`, and label older rows with `node server/backfill-usage-topics.mjs`.
+**Shame board by topic**: below the people list, tokens are grouped by the survey-feedback theme each request was about and set against how many real-user survey comments and bug reports mention the same theme. It is off until `usageTopics` in `server/data/config.json` lists the words that mark a request as product work (`{ "name": "Our app", "context": ["word", "phrase"] }`); everything else, like Servant itself, counts as other. Each reply is labelled once from its request (keyword match, labels only, no text stored). Themes come from your survey-feedback export; refresh with `node server/build-survey-themes.mjs <survey-feedback-data.js>`, and label older rows with `node server/backfill-usage-topics.mjs`.
 
 Agent chats start private, like ChatGPT: only you and the owner (admin) can read a new one. Open **•••** at the top of any chat and turn on **Share with** your server to let everyone read it and give feedback; turn it off to make it private again. Shared chats are read-only to everyone but their author: only the author can send, steer, stop, approve actions, change sharing or delete. Chats that quote a DM or private channel can never be shared. Shared chats appear on the Agent tab under **Shared by others** (**Everyone's conversations** for the owner). The owner can always read every chat.
 
@@ -104,7 +104,7 @@ private conversations.
 - The agent API listens on localhost only. Only the server can reach it.
 - The owner can revoke any device right away.
 - Crash diagnostics are sent to Google Firebase Crashlytics in native builds. Message encryption does not cover crash telemetry or the model provider. The [external-service inventory](docs/ato-data-flows.md) records those boundaries for security review.
-- Federal use needs an agency security review (ATO) before any real taxpayer data goes through Servant. Until then, use it only for non-sensitive work.
+- Federal use needs an agency security review (ATO) before any real customer or personal data goes through Servant. Until then, use it only for non-sensitive work.
 
 ## Build your own client (MCP)
 

@@ -26,4 +26,4 @@ How the encryption works is in [docs/encryption.md](docs/encryption.md) and [doc
 
 ## Use with sensitive information
 
-Servant is not approved for taxpayer, personnel or other sensitive data. Do not put it through Servant until your own organization has approved it.
+Servant is not approved for customer, personnel or other sensitive data. Do not put it through Servant until your own organization has approved it.
