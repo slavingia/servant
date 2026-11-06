@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>gov.irs.servant.feedback</string>
+  <key>Label</key><string>com.servant.feedback</string>
   <key>ProgramArguments</key>
   <array><string>/opt/homebrew/bin/node</string><string>/Users/you/servant/server/feedback-worker.mjs</string></array>
   <key>EnvironmentVariables</key>

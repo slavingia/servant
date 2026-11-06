@@ -1,5 +1,5 @@
 # Stable loopback ingress on 127.0.0.1:8787 plus the API releases behind it.
-# Same as launchd gov.irs.servant.supervisor on the Mac. API deploys go through
+# Same as launchd com.servant.supervisor on the Mac. API deploys go through
 # its control socket (servant status / deploy.mjs deploy), never a restart.
 [Unit]
 Description=Servant API supervisor

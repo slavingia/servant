@@ -1,6 +1,6 @@
 # Optional: Cloudflare quick tunnel + discovery publisher, for a host with no
 # public address. Most Linux servers use Caddy or a load balancer instead.
-# Same as launchd gov.irs.servant.tunnel. Enabled by install.sh --tunnel.
+# Same as launchd com.servant.tunnel. Enabled by install.sh --tunnel.
 [Unit]
 Description=Servant Cloudflare tunnel
 After=servant-supervisor.service
