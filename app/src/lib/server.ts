@@ -199,7 +199,26 @@ function deviceLabel() {
   return isDesktop() ? "Mac" : Platform.OS === "ios" ? "iPhone" : Platform.OS === "android" ? "Android phone" : "Browser";
 }
 
-export async function pair(invite: Invite, name?: string, terms: TermsAcceptance = termsAcceptance()): Promise<Account> {
+// Email code sign-in: `emailChallenge` comes from sendEmailCode, `emailCode` is what the person typed.
+export type EmailProof = { challenge: string; code: string };
+export async function sendEmailCode(invite: Invite, email: string): Promise<{ challenge: string; email: string }> {
+  if (!validServerKey(invite.serverKey)) throw new ServerError("This invite needs an encryption key. Ask your admin for a new invite.", 0, "encryption_required");
+  const serverUrl = invite.discovery ? await discover(invite.discovery) : trim(invite.server!);
+  let res: SecureResponse;
+  try {
+    res = await secureFetch(serverUrl, invite.serverKey, "/v1/pair/email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: invite.code, email }),
+    });
+  } catch {
+    throw new ServerError("The server isn't reachable right now");
+  }
+  if (!res.ok) throw await readError(res);
+  return res.json();
+}
+
+export async function pair(invite: Invite, name?: string, terms: TermsAcceptance = termsAcceptance(), email?: EmailProof): Promise<Account> {
   if (!validServerKey(invite.serverKey)) throw new ServerError("This invite needs an encryption key. Ask your admin for a new invite.", 0, "encryption_required");
   const serverUrl = invite.discovery ? await discover(invite.discovery) : trim(invite.server!);
   let res: SecureResponse;
@@ -207,7 +226,7 @@ export async function pair(invite: Invite, name?: string, terms: TermsAcceptance
     res = await secureFetch(serverUrl, invite.serverKey, "/v1/pair", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: invite.code, device: deviceLabel(), terms, ...(name ? { name } : {}) }),
+      body: JSON.stringify({ code: invite.code, device: deviceLabel(), terms, ...(name ? { name } : {}), ...(email ? { emailChallenge: email.challenge, emailCode: email.code } : {}) }),
     });
   } catch {
     throw new ServerError("The server isn't reachable right now");

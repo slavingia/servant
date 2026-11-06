@@ -196,6 +196,50 @@ test("joining needs all three terms checks, and the acceptance is recorded", asy
 test("everything except health and pairing needs a token", async () => {
   assert.equal((await api("GET", "/health")).status, 200);
   assert.equal((await api("GET", "/v1/chats")).status, 401);
+test("email code sign-in: off by default, then required, wrong/expired/outsider codes refused", async () => {
+  const { emailAllowed } = await import("./email-verify.mjs");
+  assert.equal(emailAllowed("a@irs.gov", ["irs.gov"]), true);
+  assert.equal(emailAllowed("a@mail.irs.gov", ["irs.gov"]), true);
+  for (const bad of ["a@irs.gov.evil.com", "a@notirs.gov", "a@irs.com", "a@evilirs.gov"]) assert.equal(emailAllowed(bad, ["irs.gov"]), false, bad);
+  const off = await api("GET", "/v1/pair/email");
+  assert.deepEqual(off.json, { required: false, domains: [] });
+  const file = path.join(dataDir, "config.json");
+  const before = fs.readFileSync(file, "utf8");
+  const sent = [];
+  globalThis.__servantEmailSend = async (m) => { sent.push(m); };
+  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(before), emailVerification: { enabled: true } }));
+  try {
+    assert.deepEqual((await api("GET", "/v1/pair/email")).json, { required: true, domains: ["irs.gov"] });
+    const code = mod.createInvite({ name: "Email Tester", role: "member" });
+    const join = extra => api("POST", "/v1/pair", { body: { code, device: "Test phone", terms: ACCEPT, ...extra } });
+    assert.equal((await join({})).json.error?.code, "email_required");
+    const start = e => api("POST", "/v1/pair/email", { body: { code, email: e } });
+    assert.equal((await start("x@gmail.com")).json.error?.code, "email_not_allowed");
+    assert.equal((await start("nope")).json.error?.code, "email_invalid");
+    assert.equal((await api("POST", "/v1/pair/email", { body: { code: "ZZZZ-ZZZZ", email: "a@irs.gov" } })).status, 403);
+    assert.equal(sent.length, 0);
+    const ok = await start("Pat.Tester@IRS.gov");
+    assert.equal(ok.status, 200, ok.text);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].to, "pat.tester@irs.gov");
+    assert.match(sent[0].code, /^\d{6}$/);
+    assert.ok(!JSON.stringify(ok.json).includes(sent[0].code));
+    const wrong = sent[0].code === "000000" ? "111111" : "000000";
+    assert.equal((await join({ emailChallenge: ok.json.challenge, emailCode: wrong })).json.error?.code, "email_code_wrong");
+    const good = await join({ emailChallenge: ok.json.challenge, emailCode: sent[0].code });
+    assert.equal(good.status, 201, good.text);
+    const saved = createStateStore({ directory: dataDir }).read();
+    assert.equal(saved.users[good.json.user.id].email, "pat.tester@irs.gov");
+    // the code works once
+    const code2 = mod.createInvite({ name: "Second", role: "member" });
+    const again = await api("POST", "/v1/pair", { body: { code: code2, device: "x", terms: ACCEPT, emailChallenge: ok.json.challenge, emailCode: sent[0].code } });
+    assert.equal(again.json.error?.code, "email_code_expired");
+  } finally {
+    delete globalThis.__servantEmailSend;
+    fs.writeFileSync(file, before);
+  }
+});
+
   assert.equal((await api("GET", "/v1/me", { token: "nope" })).status, 401);
 });
 

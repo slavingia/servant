@@ -3,7 +3,7 @@ import { ActivityIndicator, KeyboardAvoidingView, Pressable, Platform, ScrollVie
 import { router, useLocalSearchParams } from "expo-router";
 import { Button } from "../components/Button";
 import { TERMS_CHECKS, termsAcceptance } from "../lib/terms";
-import { pair, ServerError } from "../lib/server";
+import { pair, sendEmailCode, ServerError, type EmailProof } from "../lib/server";
 import { useSession } from "../lib/session";
 import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
@@ -24,16 +24,45 @@ export default function Pair() {
   const [busy, setBusy] = useState(false);
   const [agreed, setAgreed] = useState<string[]>([]);
   const [accepted, setAccepted] = useState(false);
+  // Email code step: "email" (type your address) → "code" (type the six digits). Only when the server asks for it.
+  const [emailStep, setEmailStep] = useState<null | "email" | "code">(null);
+  const [email, setEmail] = useState("");
+  const [challenge, setChallenge] = useState("");
+  const [digits, setDigits] = useState("");
+  const [proof, setProof] = useState<EmailProof | undefined>(undefined);
+  const invite = () => ({ code: String(params.code || ""), serverKey: params.key, discovery: params.d || undefined, server: direct });
 
-  const run = async (withName?: string) => {
+  const sendCode = async () => {
     setError(null);
     setBusy(true);
     try {
-      const a = await pair({ code: String(params.code || ""), serverKey: params.key, discovery: params.d || undefined, server: direct }, withName, termsAcceptance());
+      const out = await sendEmailCode(invite(), email.trim());
+      setChallenge(out.challenge);
+      setEmail(out.email);
+      setDigits("");
+      setEmailStep("code");
+    } catch (e) {
+      setError(e instanceof ServerError ? e.message : "Couldn't send the code. Try again");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const run = async (withName?: string, withProof: EmailProof | undefined = proof) => {
+    setError(null);
+    setBusy(true);
+    try {
+      const a = await pair(invite(), withName, termsAcceptance(), withProof);
       setAccount(a);
       router.replace("/channels");
     } catch (e) {
-      if (e instanceof ServerError && e.code === "name_required") setAskName(true);
+      if (e instanceof ServerError && e.code === "email_required") { setEmailStep("email"); }
+      else if (e instanceof ServerError && (e.code === "email_code_wrong" || e.code === "email_code_expired")) {
+        setProof(undefined);
+        if (e.code === "email_code_expired") setEmailStep("email");
+        setError(e.message);
+      }
+      else if (e instanceof ServerError && e.code === "name_required") { setEmailStep(null); setAskName(true); }
       else setError(e instanceof ServerError ? e.message : "Couldn't join. Try again");
     } finally {
       setBusy(false);
@@ -62,6 +91,46 @@ export default function Pair() {
         <Button label="Agree and join" disabled={!all} onPress={() => { setAccepted(true); run(); }} style={{ marginTop: space.lg }} />
         <Button label="Cancel" kind="link" onPress={() => router.replace(account ? "/channels" : "/welcome")} style={{ marginTop: 8 }} />
       </ScrollView>
+    );
+  }
+  if (emailStep) {
+    const code = emailStep === "code";
+    const submit = () => {
+      if (code) {
+        const p = { challenge, code: digits.trim() };
+        setProof(p);
+        run(undefined, p);
+      } else sendCode();
+    };
+    const ready = code ? digits.replace(/\D/g, "").length === 6 : /\S+@\S+\.\S+/.test(email.trim());
+    return (
+      <KeyboardAvoidingView style={styles.form} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <ScrollView contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
+        <Text accessibilityRole="header" style={styles.title}>{code ? "Enter your code" : "What’s your work email?"}</Text>
+        <Text style={[styles.body, styles.left]}>{code ? `We sent a six-digit code to ${email}. It works for ten minutes.` : "We’ll email you a six-digit code to confirm it’s you."}</Text>
+        <Text style={styles.label}>{code ? "Code" : "Work email"}</Text>
+        <TextInput
+          key={emailStep}
+          accessibilityLabel={code ? "Six-digit code" : "Work email"}
+          value={code ? digits : email}
+          onChangeText={code ? (t) => setDigits(t.replace(/\D/g, "").slice(0, 6)) : setEmail}
+          placeholder={code ? "123456" : "you@irs.gov"}
+          placeholderTextColor={colors.muted}
+          style={styles.input}
+          autoFocus
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType={code ? "number-pad" : "email-address"}
+          autoComplete={code ? "one-time-code" : "email"}
+          textContentType={code ? "oneTimeCode" : "emailAddress"}
+          returnKeyType={code ? "join" : "send"}
+          onSubmitEditing={() => ready && submit()}
+        />
+        {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+        <Button label={code ? "Join workspace" : "Send code"} onPress={submit} busy={busy} disabled={!ready} style={{ marginTop: space.lg }} />
+        {code ? <Button label="Send a new code" kind="link" onPress={() => { setError(null); setEmailStep("email"); }} style={{ marginTop: 8 }} /> : null}
+        </ScrollView>
+      </KeyboardAvoidingView>
     );
   }
   if (error && !askName) {

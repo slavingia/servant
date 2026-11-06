@@ -13,6 +13,7 @@
 //   node server/server.mjs people | remove-person <name or id>   list people / remove someone who left
 //   node server/server.mjs release <build> <notes.md>   post a build's notes to #whats-new
 
+import { createEmailVerifier, commandSender, emailSettings } from "./email-verify.mjs";
 import http from "node:http";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -130,6 +131,8 @@ export function loadConfig() {
     defaultAgentTier: [0, 1, 2, 3, 4].includes(cfg.defaultAgentTier) ? cfg.defaultAgentTier : 0,
     // Where the server can be reached from phones. Filled in by the tunnel script.
     publicUrl: process.env.SERVANT_PUBLIC_URL || cfg.publicUrl || "",
+    // Email code sign-in (docs/email-sign-in.md). Off unless enabled.
+    emailVerification: cfg.emailVerification || {},
     // Stable URL that always returns {"url": "<current publicUrl>"}.
     discoveryUrl: process.env.SERVANT_DISCOVERY_URL || cfg.discoveryUrl || "",
     // Lets build scripts on this Mac post release notes. Never leaves the Mac.
@@ -309,6 +312,8 @@ function readBody(req, limit = MAX_BODY) {
 }
 
 // Per-IP limiter on failed pairing codes. Successful pairings don't count, so
+const emailVerifier = createEmailVerifier({ now: () => now(), send: (m, settings) => (globalThis.__servantEmailSend || commandSender)(m, settings) });
+
 // a whole team can pair from one office network.
 const pairFailures = new Map();
 const PAIR_WINDOW_MS = 10 * 60 * 1000;
@@ -662,7 +667,7 @@ async function handle(req, res, cfg) {
     // initial rollout. New devices/pairing remain encrypted, and the grant is
     // bounded by an explicit expiry stored in private transactional state.
     const legacy = authenticate(req, readState());
-    if (url.pathname === "/v1/pair" || parts[1] === "device-links" || !legacy || !Number.isSafeInteger(legacy.device.legacyPlaintextUntil) || legacy.device.legacyPlaintextUntil <= now()) {
+    if (url.pathname === "/v1/pair" || url.pathname === "/v1/pair/email" || parts[1] === "device-links" || !legacy || !Number.isSafeInteger(legacy.device.legacyPlaintextUntil) || legacy.device.legacyPlaintextUntil <= now()) {
       return fail(res, 426, "encryption_required", "Update Servant and open a new invite from your admin to enable encryption");
     }
     res.setHeader("Deprecation", "true");
@@ -700,10 +705,47 @@ async function handle(req, res, cfg) {
 
   if (method === "POST" && url.pathname === "/v1/pair") {
     const ip = clientIp(req);
+  if (method === "GET" && url.pathname === "/v1/pair/email") {
+    const s = emailSettings(cfg);
+    return send(res, 200, { required: s.enabled, domains: s.enabled ? s.domains : [] });
+  }
+  if (method === "POST" && url.pathname === "/v1/pair/email") {
+    const ip = clientIp(req);
+    const settings = emailSettings(cfg);
+    if (!settings.enabled) return fail(res, 404, "not_found", "Email codes are off");
+    if (!pairAllowed(ip)) return fail(res, 429, "rate_limited", "Too many tries. Wait ten minutes");
+    const body = await readBody(req);
+    const inviteKey = sha256(normalizeCode(body.code));
+    const invite = readState().invites[inviteKey];
+    if (!invite || invite.usedAt || invite.revokedAt || invite.expiresAt < now()) {
+      pairFailed(ip);
+      return fail(res, 403, "invalid_invite", "That invite link doesn't work. Ask for a new one");
+    }
+    try {
+      const out = await emailVerifier.start({ email: body.email, inviteKey }, settings);
+      return send(res, 200, { challenge: out.id, email: out.email, expiresInSeconds: 600 });
+    } catch (error) {
+      if (!error.status) throw error;
+      return fail(res, error.status, error.code, error.message);
+    }
+  }
+
     if (!pairAllowed(ip)) return fail(res, 429, "rate_limited", "Too many tries. Wait ten minutes");
     const body = await readBody(req);
     const { token, user, isNew } = mutateState(state => {
       const key = sha256(normalizeCode(body.code));
+    const emailSettingsNow = emailSettings(cfg);
+    let verifiedEmail = null;
+    if (emailSettingsNow.enabled) {
+      const inviteKey = sha256(normalizeCode(body.code));
+      const inv = readState().invites[inviteKey];
+      // Only check the code for a live invite; a bad invite falls through to its own error.
+      if (inv && !inv.usedAt && !inv.revokedAt && inv.expiresAt >= now()) {
+        if (!body.emailChallenge) return fail(res, 400, "email_required", "Confirm your work email to join");
+        try { verifiedEmail = emailVerifier.check({ id: body.emailChallenge, code: body.emailCode, inviteKey }, { keep: true }); }
+        catch (error) { if (!error.status) throw error; pairFailed(ip); return fail(res, error.status, error.code, error.message); }
+      }
+    }
       const invite = state.invites[key];
       if (!invite || invite.usedAt || invite.revokedAt || invite.expiresAt < now()) {
         pairFailed(ip);
@@ -722,6 +764,7 @@ async function handle(req, res, cfg) {
       const deviceId = id("dev");
       // Every acceptance is kept: who, which version, which checks, when, on which device.
       user.termsAcceptances = [...(user.termsAcceptances || []), { ...terms, acceptedAt: now(), deviceId }];
+      if (verifiedEmail) { user.email = verifiedEmail; user.emailVerifiedAt = now(); }
       state.users[user.id] = user;
       state.devices[sha256(token)] = {
         id: deviceId, userId: user.id, label: String(body.device || "Phone").slice(0, 80),
@@ -731,6 +774,7 @@ async function handle(req, res, cfg) {
     });
     messaging?.joinDefaults(user.id);
     // A new person's first unread: a question from the agent, with quick answers. Never blocks pairing.
+    if (verifiedEmail) emailVerifier.consume(body.emailChallenge);
     if (isNew) { try { messaging?.welcomeFromAgent(user.id); } catch (error) { console.error("[servant] welcome", error); } }
     return send(res, 201, { token, user: { id: user.id, name: user.name, role: user.role }, server: { name: cfg.name }, hub: { name: cfg.name } });
   }
