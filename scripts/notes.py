@@ -14,7 +14,8 @@ Firebase gets the same text through firebase.sh --notes.
 import os, subprocess, sys, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-APP_ID = "6828900254"
+# The App Store Connect app id (the number in the app's App Store Connect URL).
+APP_ID = os.environ.get("ASC_APP_ID", "")
 
 
 def server(build, path):
@@ -24,6 +25,9 @@ def server(build, path):
 
 
 def testflight(build, text):
+    if not APP_ID:
+        print("Set ASC_APP_ID to the app's App Store Connect id to post TestFlight notes")
+        return False
     sys.path.insert(0, os.path.join(ROOT, "scripts"))
     from asc import api
     deadline = time.time() + 1800

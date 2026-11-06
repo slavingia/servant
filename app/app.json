@@ -8,7 +8,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "gov.irs.servant",
+      "bundleIdentifier": "com.slavingia.servant",
       "infoPlist": {
         "NSCameraUsageDescription": "Servant uses the camera for invite codes and meeting video."
       },
@@ -23,7 +23,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "gov.irs.servant",
+      "package": "com.slavingia.servant",
       "blockedPermissions": [
         "android.permission.READ_MEDIA_IMAGES"
       ],
