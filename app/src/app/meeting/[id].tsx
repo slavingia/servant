@@ -100,6 +100,8 @@ function Meeting({ preset }: { preset?: CallPreset }) {
   // Joined without a camera (none, or refused): there is nothing to turn on.
   const hasCamera = !!state.local?.getVideoTracks?.().length;
   const columns = stage ? Math.min(4, Math.max(1, tiles.length)) : tiles.length <= 1 ? 1 : width > 700 ? 3 : 2;
+  // Explicit pixel sizes: on Android, aspectRatio with a percentage width inside a wrapping row collapses to zero height, so remote tiles were invisible (people couldn't see or hear anyone).
+  const tileWidth = Math.max(80, Math.floor((width - space.xs * 2 - space.xs * (columns - 1)) / columns) - 1);
   const done = state.status === "ended" || state.status === "failed";
   const statusLine = state.status === "starting" ? "Starting your camera…"
     : state.status === "connecting" ? "Connecting…"
@@ -133,7 +135,7 @@ function Meeting({ preset }: { preset?: CallPreset }) {
       ) : null}
       <ScrollView contentContainerStyle={styles.grid} style={stage ? styles.strip : state.status === "live" && !anyone ? { flex: 0 } : undefined} horizontal={false}>
         {tiles.map(r => (
-          <View key={r.participantId} style={[styles.tile, stage ? styles.tileSmall : { width: `${100 / columns - 2}%` as const }]}>
+          <View key={r.participantId} style={[styles.tile, stage ? styles.tileSmall : { width: tileWidth, height: Math.round(tileWidth * 3 / 4) }]}>
             {r.stream ? <CallVideo stream={r.stream} style={StyleSheet.absoluteFill} /> : null}
             {!r.hasVideo ? <View style={styles.noVideo}><Text style={styles.initial}>{r.name.slice(0, 1).toUpperCase()}</Text></View> : null}
             <View style={styles.nameRow}>
