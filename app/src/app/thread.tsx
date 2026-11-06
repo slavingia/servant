@@ -269,7 +269,7 @@ export default function ThreadScreen() {
         {unavailable ? null : editing ? (
           <Composer members={conversation?.members} mentionAgent me={me} key={`edit-${editing.id}`} placeholder="Edit message" initial={editing.text} sendLabel="Save" onSend={saveEdit} onCancel={() => setEditing(null)} />
         ) : (
-          <Composer members={conversation?.members} mentionAgent me={me} key="reply" placeholder="Reply" onSend={send} onTyping={ping} />
+          <Composer members={conversation?.members} mentionAgent me={me} key="reply" draftKey={`thread:${conv}:${root}`} placeholder="Reply" onSend={send} onTyping={ping} />
         )}
       </ConversationKeyboardView>
     </View>

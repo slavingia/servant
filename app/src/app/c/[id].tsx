@@ -404,7 +404,7 @@ export default function ConversationScreen() {
         ) : editing ? (
           <Composer members={conv?.members} mentionAgent me={me} key={`edit-${editing.id}`} placeholder="Edit message" initial={editing.text} sendLabel="Save" onSend={saveEdit} onCancel={() => setEditing(null)} />
         ) : (
-          <Composer autoFocus={compose === "1"} members={conv?.members} mentionAgent me={me} key={`new-${id}`} placeholder={conv ? `Message ${title}` : "Message"} onSend={send} onTyping={ping} commands={{ channel: isChannel }} />
+          <Composer autoFocus={compose === "1"} members={conv?.members} mentionAgent me={me} key={`new-${id}`} draftKey={`c:${id}`} placeholder={conv ? `Message ${title}` : "Message"} onSend={send} onTyping={ping} commands={{ channel: isChannel }} />
         )}
       </ConversationKeyboardView>
       </View>

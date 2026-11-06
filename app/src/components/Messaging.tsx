@@ -17,6 +17,7 @@ import { usePhotos } from "../lib/photos";
 import { useWideLayout } from "../lib/layout";
 import { shortTime } from "../lib/time-label";
 import { validateAttachmentSelection } from "../lib/media";
+import { getDraft, loadDrafts, setDraft } from "../lib/drafts";
 import { Attachments, DraftAttachments, attachmentsFromFiles, pickAttachments, pickDocuments, type DraftAttachment } from "./Attachments";
 import { AppIcon } from "./AppIcon";
 import { MessageText } from "./MessageText";
@@ -381,6 +382,7 @@ export function Composer({
   mentionAgent = false,
   canSendEmpty = false,
   commands,
+  draftKey,
 }: {
   placeholder: string;
   onSend: (text: string, attachments?: Upload[]) => Promise<boolean>;
@@ -403,6 +405,8 @@ export function Composer({
   canSendEmpty?: boolean;
   /** Slack-style "/" commands: the list shows while typing "/…" at the start. channel = channel-only ones too. */
   commands?: { channel: boolean; agent?: boolean };
+  /** Keeps the unsent text for this conversation when you leave and come back. */
+  draftKey?: string;
 }) {
   const styles = useStyles();
   const wide = useWideLayout();
@@ -419,7 +423,15 @@ export function Composer({
       hide.remove();
     };
   }, []);
-  const [text, setText] = useState(initial);
+  const [text, setText] = useState(() => initial || (draftKey ? getDraft(draftKey) : ""));
+  useEffect(() => {
+    if (!draftKey) return;
+    let live = true;
+    // After a restart the saved copy arrives a moment later; never overwrite typing.
+    void loadDrafts().then(() => { const saved = getDraft(draftKey); if (live && saved) setText(current => current || saved); });
+    return () => { live = false; };
+  }, [draftKey]);
+  useEffect(() => { if (draftKey) setDraft(draftKey, text); }, [draftKey, text]);
   const [busy, setBusy] = useState(false);
   const [files, setFiles] = useState<DraftAttachment[]>([]);
   const [picking, setPicking] = useState(false);
@@ -461,7 +473,7 @@ export function Composer({
     node.addEventListener("paste", onPaste);
     return () => node.removeEventListener("paste", onPaste);
   }, []);
-  const [selection, setSelection] = useState({ start: initial.length, end: initial.length });
+  const [selection, setSelection] = useState(() => ({ start: text.length, end: text.length }));
   const [insertedSelection, setInsertedSelection] = useState<{ start: number; end: number }>();
   const [copiedSelected, setCopiedSelected] = useState(false);
   // The phone's own Copy toolbar did not appear for some people, so highlighted text also gets a Copy button.
