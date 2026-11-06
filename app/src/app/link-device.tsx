@@ -79,6 +79,7 @@ function LinkDeviceRequest({ id, serverKey, account }: { id?: string; serverKey?
           <Text style={styles.label}>Check that this number matches your Mac</Text>
           <Text selectable style={styles.code}>{preview.code}</Text>
           <Text style={styles.device}>{preview.device}</Text>
+          {preview.agent ? <Text style={styles.description}>This is an agent or other automation. Everything it posts shows as "Posted by agent" under your name.</Text> : null}
         </View>
         <Text style={styles.description}>Only approve a computer you control. It will be able to read your conversations and send messages as you.</Text>
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}

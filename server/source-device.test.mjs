@@ -20,3 +20,12 @@ test('private projection ignores supplied provenance and requires a local user-m
   assert.ok(!('sourceDevice' in privateMessageView(fake, { role: 'owner' }, new Map())));
   assert.ok(!('sourceDevice' in privateMessageView({ ...fake, role: 'assistant' }, { role: 'owner' }, map)));
 });
+
+test('an agent sign-in is marked, and its label reaches everyone, unlike mobile and computer', () => {
+  assert.equal(sourceDeviceKind({ label: 'Anything', agent: true }), 'agent');
+  for (const label of ['Hermes on Mac', 'hermes', 'MCP client', 'Agent', 'Automation']) assert.equal(sourceDeviceKind({ label }), 'agent');
+  assert.equal(sourceDeviceKind({ label: 'Hermes-lookalike-phone' }), null);
+  assert.equal(sourceDeviceKind({ label: 'Mac' }), 'computer');
+  for (const role of ['owner', 'member', undefined]) assert.deepEqual(sourceDeviceFields('agent', { role }), { sourceDevice: { kind: 'agent', label: 'Posted by agent' } });
+  assert.deepEqual(sourceDeviceFields('mobile', { role: 'member' }), {});
+});

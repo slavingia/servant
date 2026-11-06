@@ -72,10 +72,10 @@ export async function call<T = any>(w: Workspace & { token?: string }, method: s
  * Sign in as a new device. Prints a code; approve it on your phone (You → Link a computer → scan,
  * or open the servant://link-device link). Saves the device token to ~/.config/servant-mcp.
  */
-export async function link(w: Workspace, deviceName = "MCP client", log: (s: string) => void = console.error): Promise<Account> {
+export async function link(w: Workspace, deviceName = "MCP client", log: (s: string) => void = console.error, { agent = true }: { agent?: boolean } = {}): Promise<Account> {
   const server = await discover(w);
   const ws = { ...w, server };
-  const start = await call<{ id: string; secret: string; code: string; expiresAt: number; intervalMs: number }>(ws, "POST", "/v1/device-links", { device: deviceName });
+  const start = await call<{ id: string; secret: string; code: string; expiresAt: number; intervalMs: number }>(ws, "POST", "/v1/device-links", { device: deviceName, ...(agent ? { agent: true } : {}) });
   const approveLink = `servant://link-device?${new URLSearchParams({ id: start.id, key: w.serverKey })}`;
   log(`Approve this sign-in on your phone: You → Link a computer, then scan or open\n  ${approveLink}\nCode: ${start.code} (check it matches on your phone)`);
   while (Date.now() < start.expiresAt) {

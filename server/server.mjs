@@ -672,7 +672,7 @@ async function handle(req, res, cfg) {
   if (parts[0] === "v1" && parts[1] === "device-links") {
     if (method === "POST" && parts.length === 2) {
       const body = await readBody(req);
-      const link = mutateState(state => createDeviceLink(state, { device: body?.device, ip: clientIp(req) }));
+      const link = mutateState(state => createDeviceLink(state, { device: body?.device, ip: clientIp(req), agent: body?.agent === true }));
       return send(res, 201, link);
     }
     if (method === "POST" && parts.length === 4 && parts[3] === "poll") {

@@ -49,3 +49,19 @@ test("compact grouping preserves author, date, reply and five-minute boundaries"
   const midnight = new Date(2026, 10, 3).getTime();
   assert.equal(canCompactPost({ ...post, createdAt: midnight - 1 }, { ...post, createdAt: midnight + 1 }, "owner"), false);
 });
+
+test("posts from an agent's sign-in say so to everyone, not just the owner", () => {
+  const message = { ...post, sourceDevice: { kind: "agent", label: "Untrusted arbitrary name" } };
+  for (const viewer of ["owner", "member", undefined]) assert.equal(messageDeviceLabel(viewer, message), "Posted by agent");
+  assert.equal(parseSourceDevice({ kind: "agent" })?.label, "Posted by agent");
+  // The agent's own replies keep their normal Agent tag, not a device line.
+  assert.equal(messageDeviceLabel("owner", { ...message, user: { id: "agent", agent: true } }), null);
+  assert.equal(messageDeviceLabel("member", { ...message, pending: true }), null);
+});
+
+test("a post from an agent sign-in never merges into the person's own run of messages", () => {
+  const mine = { user: { id: "u" }, createdAt: at, sourceDevice: mobile };
+  const posted = { user: { id: "u" }, createdAt: at + 1000, sourceDevice: { kind: "agent", label: "Posted by agent" } };
+  assert.equal(canCompactPost(mine, posted, "member"), false);
+  assert.equal(canCompactPost(posted, { ...posted, createdAt: at + 2000 }, "member"), true);
+});

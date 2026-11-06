@@ -11,7 +11,7 @@ export type DesktopLinkSession = {
   intervalMs: number;
   workspace: DesktopWorkspace;
 };
-export type DeviceLinkPreview = { id: string; device: string; code: string; expiresAt: number; status: "pending" | "approved" };
+export type DeviceLinkPreview = { id: string; device: string; agent?: boolean; code: string; expiresAt: number; status: "pending" | "approved" };
 
 async function withDeadline<T>(operation: (signal: AbortSignal) => Promise<T>, parent?: AbortSignal): Promise<T> {
   const controller = new AbortController();

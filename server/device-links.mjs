@@ -32,7 +32,7 @@ function checkSecret(record, secret) {
   }
 }
 
-export function createDeviceLink(state, { device, ip }, at = Date.now()) {
+export function createDeviceLink(state, { device, ip, agent = false }, at = Date.now()) {
   const ipHash = hash(String(ip || 'unknown'));
   let total = 0, fromIp = 0;
   for (const [key, entry] of Object.entries(state.invites)) {
@@ -50,7 +50,7 @@ export function createDeviceLink(state, { device, ip }, at = Date.now()) {
   const digits = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
   const code = digits.slice(0, 3) + ' ' + digits.slice(3);
   const label = typeof device === 'string' ? device.replace(/[\p{C}]/gu, '').trim().slice(0, 80) : '';
-  const record = { kind: 'desktop-link', secretHash: hash(secret), ipHash, device: label || 'Mac', code, createdAt: at, expiresAt: at + DEVICE_LINK_TTL_MS };
+  const record = { kind: 'desktop-link', secretHash: hash(secret), ipHash, device: label || 'Mac', ...(agent === true ? { agent: true } : {}), code, createdAt: at, expiresAt: at + DEVICE_LINK_TTL_MS };
   state.invites[PREFIX + id] = record;
   return { id, secret, code, expiresAt: record.expiresAt, intervalMs: 2000 };
 }
@@ -58,7 +58,7 @@ export function createDeviceLink(state, { device, ip }, at = Date.now()) {
 export function previewDeviceLink(state, id, at = Date.now()) {
   const record = lookup(state, id, at);
   available(record);
-  return { id, device: record.device, code: record.code, expiresAt: record.expiresAt, status: record.approvedAt ? 'approved' : 'pending' };
+  return { id, device: record.device, ...(record.agent ? { agent: true } : {}), code: record.code, expiresAt: record.expiresAt, status: record.approvedAt ? 'approved' : 'pending' };
 }
 
 export function approveDeviceLink(state, id, auth, at = Date.now()) {
@@ -95,7 +95,7 @@ export function pollDeviceLink(state, id, secret, at = Date.now()) {
   const token = random();
   state.devices[hash(token)] = {
     id: `dev_${crypto.randomBytes(9).toString('base64url')}`, userId: user.id,
-    label: record.device, createdAt: at, lastSeenAt: at,
+    label: record.device, ...(record.agent ? { agent: true } : {}), createdAt: at, lastSeenAt: at,
   };
   record.usedAt = at;
   // The token exists only in this response. It is never stored in the link or

@@ -257,7 +257,7 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
     setMenu(true);
     if (Platform.OS !== "web") void Haptics.selectionAsync().catch(() => {});
   };
-  const label = `${post.user.name}, ${when(post.createdAt)}${deviceLabel ? `, sent from ${deviceLabel}` : ""}. ${post.deleted ? "Message deleted" : working ? "Working on it…" : post.text}${post.replyCount ? `. ${post.replyCount} ${post.replyCount === 1 ? "reply" : "replies"}` : ""}`;
+  const label = `${post.user.name}, ${when(post.createdAt)}${deviceLabel ? (post.sourceDevice?.kind === "agent" ? ", posted by an agent" : `, sent from ${deviceLabel}`) : ""}. ${post.deleted ? "Message deleted" : working ? "Working on it…" : post.text}${post.replyCount ? `. ${post.replyCount} ${post.replyCount === 1 ? "reply" : "replies"}` : ""}`;
   return (
     <>
     <Pressable onLongPress={actions} delayLongPress={400} accessible={false} style={[styles.post, compact && styles.postCompact, menu && { backgroundColor: colors.surface }]}>
@@ -268,7 +268,8 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
           <View style={styles.meta}>
             {!compact ? <Text style={styles.author}>{post.user.name}</Text> : null}
             {!compact && post.user.agent ? <Text style={styles.agentTag}>Agent</Text> : null}
-            <Text style={styles.time}>{when(post.createdAt)}{deviceLabel ? <Text testID={`message-device-${post.id}`} accessibilityLabel={`Sent from ${deviceLabel}`}> · {deviceLabel}</Text> : null}</Text>
+            {post.sourceDevice?.kind === "agent" ? <Text testID={`message-device-${post.id}`} accessibilityLabel="Posted by an agent, not typed by this person" style={styles.agentTag}>{deviceLabel}</Text> : null}
+            <Text style={styles.time}>{when(post.createdAt)}{deviceLabel && post.sourceDevice?.kind !== "agent" ? <Text testID={`message-device-${post.id}`} accessibilityLabel={`Sent from ${deviceLabel}`}> · {deviceLabel}</Text> : null}</Text>
           </View>
         ) : null}
         {post.deleted ? (
