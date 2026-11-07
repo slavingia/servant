@@ -67,8 +67,6 @@ export default function Welcome() {
           <Button label="Continue" onPress={join} disabled={!text.trim()} style={styles.action} />
           {desktopWorkspace ? <Button label="Sign in with your phone" kind="secondary" onPress={() => setUseInvite(false)} style={[styles.action, { marginTop: space.sm }]} /> : null}
           {Platform.OS !== "web" ? <Button label="Scan an invite code" kind="secondary" onPress={() => router.push("/scan")} style={[styles.action, { marginTop: space.sm }]} /> : null}
-
-          <Text style={styles.note}>For non-sensitive work only. Don't share taxpayer information here until your agency approves Servant for it</Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -83,5 +81,4 @@ const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create
   inputError: { borderColor: colors.red },
   action: { marginTop: space.md, marginHorizontal: space.side },
   error: { ...typography.caption, marginTop: space.xs, marginHorizontal: space.side, color: colors.red },
-  note: { ...typography.caption, marginTop: space.xl, marginHorizontal: space.side, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line, color: colors.muted },
 }));
