@@ -364,3 +364,7 @@ Private operational evidence is retained at:
 ~/.local/share/servant/receipts/migration-20261030T234755Z.json
 ~/.local/share/servant/receipts/live-verification-2026-10-30T23-51-07-962Z.json
 ```
+
+## In-app feedback
+
+Feedback from the app (shake, screenshot or You, then Feedback) becomes a GitHub issue. No AI reads it. The server files it with the owner's `gh` login in the repo named by `feedbackRepo` in `config.json` (default `slavingia/servant`; `gh auth login` must have been run as the server's user). The reporter's text goes in a code fence, so mentions, links and references in it do nothing, and the report id in the issue body makes a retry find the existing issue instead of filing a second one. If GitHub can't be reached the report stays saved and shows "Needs retry" in the app. A `feedback` label is used when the repo has one. Screenshots stay on the server and are not uploaded to GitHub.

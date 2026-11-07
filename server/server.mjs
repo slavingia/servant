@@ -27,7 +27,8 @@ import { createOta } from "./ota.mjs";
 import { createRecordings } from "./recordings.mjs";
 import { createMeetings, NOTES_PROMPT as MEETING_NOTES_PROMPT } from "./meetings.mjs";
 import os from "node:os";
-import { createFeedback, feedbackPrompt, feedbackResult } from "./feedback.mjs";
+import { execFile } from "node:child_process";
+import { createFeedback, fileIssue } from "./feedback.mjs";
 import { createPushService, preferences, previewText, updatePushRegistration, updateVoipRegistration, updatePreferences } from "./push.mjs";
 import { createPushTransport } from "./push-transport.mjs";
 import { createSecureTransport, serverIdentity } from "./secure-transport.mjs";
@@ -136,6 +137,8 @@ export function loadConfig() {
     defaultAgentTier: [0, 1, 2, 3, 4].includes(cfg.defaultAgentTier) ? cfg.defaultAgentTier : 0,
     // Email code sign-in (docs/email-sign-in.md). Off unless enabled.
     emailVerification: cfg.emailVerification || {},
+    // Where in-app feedback goes: a GitHub issue here, filed with the owner's gh login (no AI involved).
+    feedbackRepo: typeof cfg.feedbackRepo === "string" ? cfg.feedbackRepo : "slavingia/servant",
     // Where the server can be reached from phones. Filled in by the tunnel script.
     publicUrl: process.env.SERVANT_PUBLIC_URL || cfg.publicUrl || "",
     // The website that serves the invite page (https://servant.com/join), and the download buttons it shows.
@@ -1708,14 +1711,13 @@ async function executePrivateTurn(turn, hooks, cfg) {
   } : undefined };
 }
 
-// Runs in a separate worker so deploying/restarting the API cannot lose a report.
+// Runs in a separate worker so deploying/restarting the API cannot lose a report. No AI: the report becomes a GitHub issue.
+const ghExec = (args, input) => new Promise((resolve, reject) => {
+  const child = execFile("gh", args, { timeout: 30000, maxBuffer: 1024 * 1024 }, (error, stdout) => error ? reject(error) : resolve(stdout));
+  if (input !== undefined) child.stdin.end(input);
+});
 export async function runFeedback(report) {
-  const up = upstreamFor({ role: "owner" }, loadConfig());
-  if (!up) throw new Error("Development agent unavailable");
-  const sid = `servant_feedback_${report.id}`;
-  const made = await hermes(up, "POST", "/api/sessions", { id: sid, title: `Servant feedback ${report.id}` });
-  if (!made.ok && made.status !== 409) throw new Error("Could not create feedback session");
-  return feedbackResult(await streamTurn(up, sid, hermesInput(feedbackPrompt(report), report.images || []), "servant:development-feedback", () => {}));
+  return fileIssue(report, { repo: loadConfig().feedbackRepo, exec: ghExec });
 }
 
 function createServices(fixedCfg, { externalWorker = false, autoDrain = true } = {}) {
