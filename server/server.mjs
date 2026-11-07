@@ -672,6 +672,71 @@ const sessionKey = (user, chatId) => `servant:${user.id}:${chatId}`;
 // Chats made before this change and already shared stay shared until their author
 // stops; chats from before sharing existed (no "shared" field) stay private.
 const chatShared = chat => chat.shared === true;
+
+// Research plan collaborators. The author of a Research Studio study plan may
+// name teammates as "view" or "edit". Only people who currently hold
+// Researcher access qualify, and that is checked again on every request, so a
+// tier change, removal, private forward, or deleted chat fails closed without
+// rewriting the stored list. Edit collaborators send text turns on the same
+// restricted Researcher lane; each turn is billed to, and keeps the memory
+// scope of, the person who sends it. Only the author changes collaborators,
+// sharing, archive state, or deletes the plan.
+const RESEARCH_STUDY_TITLE_PREFIX = "[Research study] ";
+const MAX_RESEARCH_COLLABORATORS = 10;
+const COLLABORATOR_ACCESS = ["view", "edit"];
+const hasCollaborators = chat => !!chat?.collaborators && Object.keys(chat.collaborators).length > 0;
+function researchPlanChat(chat) {
+  return !!chat && !chat.deletedAt && chat.role === "researcher" && !chat.privateForward &&
+    typeof chat.title === "string" && chat.title.startsWith(RESEARCH_STUDY_TITLE_PREFIX);
+}
+function researchCollaboratorEligible(person, cfg = loadConfig()) {
+  return !!person && !isRemoved(person) && agentLane(person, cfg) === "researcher";
+}
+function collaboratorAccess(chat, viewer, users = readState().users, cfg) {
+  if (!viewer || !chat || chat.userId === viewer.id) return null;
+  const access = chat.collaborators?.[viewer.id];
+  if (!COLLABORATOR_ACCESS.includes(access) || !researchPlanChat(chat)) return null;
+  if (!users[chat.userId] || isRemoved(users[chat.userId])) return null;
+  return researchCollaboratorEligible(users[viewer.id], cfg ?? loadConfig()) ? access : null;
+}
+function collaboratorViews(chat, users, cfg = loadConfig()) {
+  return Object.entries(chat.collaborators || {})
+    .filter(([, access]) => COLLABORATOR_ACCESS.includes(access))
+    .map(([userId, access]) => ({ id: userId, name: users[userId]?.name || "Former member", access,
+      active: researchCollaboratorEligible(users[userId], cfg) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+// Once someone other than the author has written in a chat, every user
+// message names its sender so readers can tell the voices apart.
+function withSenders(chat, messages, users) {
+  const authors = agentTurns.messageAuthors(chat.id);
+  if (![...authors.values()].some(userId => userId !== chat.userId)) return messages;
+  return messages.map(message => {
+    if (message?.role !== "user") return message;
+    const userId = authors.get(message.id) || chat.userId;
+    return { ...message, sentBy: { id: userId, name: users[userId]?.name || "Former member" } };
+  });
+}
+// The author, or an edit collaborator who still qualifies, may write turns.
+function requireChatWriter(state, userId, chatId) {
+  const chat = state.chats[chatId];
+  if (chat && chat.userId !== userId && collaboratorAccess(chat, state.users[userId], state.users) === "edit") return chat;
+  return requireChat(state, userId, chatId);
+}
+function cleanCollaborators(value) {
+  if (!Array.isArray(value) || value.length > MAX_RESEARCH_COLLABORATORS) {
+    throw requestError(400, "bad_request", `collaborators must be a list of up to ${MAX_RESEARCH_COLLABORATORS} people`);
+  }
+  const out = {};
+  for (const entry of value) {
+    const userId = typeof entry?.id === "string" ? entry.id : "";
+    if (!userId || !COLLABORATOR_ACCESS.includes(entry.access) || Object.hasOwn(out, userId)) {
+      throw requestError(400, "bad_request", "Each collaborator needs a person and view or edit access");
+    }
+    out[userId] = entry.access;
+  }
+  return out;
+}
 // "Forward" on an agent chat message: post it, with a server-written header,
 // into a channel or DM the person is in. Agent chat documents stay on disk
 // with the chat and are named instead of copied.
@@ -688,7 +753,7 @@ async function forwardChatMessage(req, res, { chat, author, user, device, messag
 }
 
 function canReadChat(chat, viewer) {
-  return !!chat && !chat.deletedAt && !!viewer && (chat.userId === viewer.id || viewer.role === "owner" || chatShared(chat) || projectSharedWith(projects().read(), readState().users, chat, viewer));
+  return !!chat && !chat.deletedAt && !!viewer && (chat.userId === viewer.id || viewer.role === "owner" || chatShared(chat) || projectSharedWith(projects().read(), readState().users, chat, viewer) || !!collaboratorAccess(chat, viewer));
 }
 // A chat shows in lists only once someone has sent something in it. Tapping
 // New chat and backing out leaves nothing behind in the list.
@@ -730,13 +795,38 @@ function chatView(chat, viewer, users = {}) {
   try { const u = usageStore().chatTotals(chat.id); if (u.turns) view.usage = u; } catch { /* stats never block a chat */ }
   if (viewer && chat.userId === viewer.id) {
     view.archived = !!chat.archivedAt;
+    // Present only on study plans, so a client can tell the server supports it.
+    if (researchPlanChat(chat)) view.collaborators = collaboratorViews(chat, readState().users);
   }
   if (viewer && chat.userId !== viewer.id) {
     const author = users[chat.userId];
     view.author = { id: chat.userId, name: author?.name || "Former member" };
+    // Original clients treat every chat by someone else as read-only, so this
+    // stays true; Servant UX reads canSend for edit collaborators.
     view.readOnly = true;
+    const access = collaboratorAccess(chat, viewer);
+    if (access) {
+      view.collaboration = { access };
+      if (access === "edit") view.canSend = true;
+    }
   }
   return view;
+}
+
+// What an edit collaborator may do on someone else's research plan: read it,
+// send text turns, follow and stop their own turns, and mark it read.
+function collaboratorRoute(method, parts) {
+  const [, , , section, turnId, action] = parts;
+  if (method === "GET") {
+    if (parts.length === 3) return true;
+    if (parts.length === 4) return ["messages", "media", "turns"].includes(section);
+    return parts.length === 6 && section === "turns" && !!turnId && action === "events";
+  }
+  if (method === "POST") {
+    if (parts.length === 4) return section === "messages" || section === "read";
+    return parts.length === 6 && section === "turns" && !!turnId && action === "stop";
+  }
+  return false;
 }
 
 // ---------- routes ----------
@@ -1521,7 +1611,7 @@ async function handle(req, res, cfg) {
   if (method === "GET" && parts.length === 2) {
     const viewer = currentState.users[user.id] || user;
     const others = url.searchParams.get("scope") === "org"
-      ? Object.values(currentState.chats).filter(c => c.userId !== user.id && canReadChat(c, viewer) && (viewer.role === "owner" || chatShared(c)))
+      ? Object.values(currentState.chats).filter(c => c.userId !== user.id && canReadChat(c, viewer) && (viewer.role === "owner" || chatShared(c) || !!collaboratorAccess(c, viewer, currentState.users, cfg)))
       : [];
     // A chat's time is its last activity. The chat record only moves when a
     // message is sent or a turn ends, so a reply that streams for an hour
@@ -1631,7 +1721,10 @@ async function handle(req, res, cfg) {
 
   const viewer = currentState.users[user.id] || user;
   const visible = currentState.chats[parts[2]];
-  if (visible && visible.userId !== user.id && canReadChat(visible, viewer)) {
+  // An edit collaborator on a research plan uses the author's routes below,
+  // limited to reading and sending text turns.
+  const collaborating = !!visible && visible.userId !== user.id && collaboratorAccess(visible, viewer, currentState.users, cfg) === "edit";
+  if (visible && visible.userId !== user.id && !collaborating && canReadChat(visible, viewer)) {
     // Someone else's shared chat (or any chat, for the owner): read only.
     // A shared chat's messages can be forwarded to a channel or DM for feedback.
     if (method === "POST" && parts[3] === "messages" && parts[5] === "forward" && parts.length === 6 && chatShared(visible)) {
@@ -1647,12 +1740,15 @@ async function handle(req, res, cfg) {
       return send(res, 200, mediaPage(chatMediaStore().media(visible.id, { id: visible.userId, name: author?.name || "Former member" }, cfg.agentName || "Agent"), url.searchParams));
     }
     const sources = agentTurns.messageSources(visible.id);
-    return send(res, 200, { chat: chatView(visible, viewer, currentState.users), messages: history.map(message => privateMessageView(message, viewer, sources)), latestTurn: null, upstreamUnavailable: false });
+    return send(res, 200, { chat: chatView(visible, viewer, currentState.users), messages: withSenders(visible, history.map(message => privateMessageView(message, viewer, sources)), currentState.users), latestTurn: null, upstreamUnavailable: false });
   }
-  const chat = mine.find((c) => c.id === parts[2]);
+  const chat = collaborating ? visible : mine.find((c) => c.id === parts[2]);
   if (!chat) return fail(res, 404, "not_found", "No such chat");
+  if (collaborating && !collaboratorRoute(method, parts)) {
+    return fail(res, 403, "read_only", "Only the person who started this research plan can do that");
+  }
 
-  if (method === "GET" && parts.length === 3) return send(res, 200, { chat: chatView(chat, user) });
+  if (method === "GET" && parts.length === 3) return send(res, 200, { chat: chatView(chat, user, currentState.users) });
 
   if (method === "PATCH" && parts.length === 3) {
     const body = await readAuthorizedBody(req);
@@ -1661,12 +1757,14 @@ async function handle(req, res, cfg) {
     const nextProject = Object.hasOwn(body, "projectId") ? body.projectId : body.folderId;
     const hasProjectShared = Object.hasOwn(body, "projectShared") || Object.hasOwn(body, "folderShared");
     const nextShared = Object.hasOwn(body, "projectShared") ? body.projectShared : body.folderShared;
-    if (typeof body.shared !== "boolean" && !hasProject && !hasProjectShared) return fail(res, 400, "bad_request", "shared must be true or false");
+    const hasCollaboratorList = Object.hasOwn(body, "collaborators");
+    if (typeof body.shared !== "boolean" && !hasProject && !hasProjectShared && !hasCollaboratorList) return fail(res, 400, "bad_request", "shared must be true or false");
     if (typeof body.shared !== "boolean" && body.shared !== undefined) return fail(res, 400, "bad_request", "shared must be true or false");
     if (hasProjectShared && typeof nextShared !== "boolean") return fail(res, 400, "bad_request", "projectShared must be true or false");
     if (hasProject && nextProject !== null && !validProjectId(nextProject)) return fail(res, 400, "bad_request", "projectId must be a project or null");
     if (hasProject && chat.role === "prototype") return fail(res, 409, "prototype_scope", "Prototype workspaces stay in Design Studio");
     if (body.shared && chat.privateForward) return fail(res, 409, "forward_private", "This chat includes a message from a private conversation, so it stays private");
+    const nextCollaborators = hasCollaboratorList ? cleanCollaborators(body.collaborators) : null;
     let updated;
     mutateAuthenticated(req, (state, current) => {
       updated = requireChat(state, current.user.id, chat.id);
@@ -1684,6 +1782,19 @@ async function handle(req, res, cfg) {
         if (nextShared && !updated.projectId) throw requestError(400, "bad_request", "Put this chat in a project first");
         if (nextShared && updated.privateForward) throw requestError(409, "forward_private", "This chat includes a message from a private conversation, so it stays private");
         if (nextShared) updated.projectShared = true; else delete updated.projectShared;
+      }
+      if (nextCollaborators) {
+        const people = Object.keys(nextCollaborators);
+        if (people.length) {
+          if (!researchPlanChat(updated)) throw requestError(409, "not_research_plan", "Only Research Studio study plans can have collaborators");
+          if (agentLane(current.user, cfg) !== "researcher") throw requestError(403, "forbidden", "Your Researcher access changed. You can remove collaborators, but not add them");
+          for (const userId of people) {
+            if (userId === updated.userId || !researchCollaboratorEligible(state.users[userId], cfg)) {
+              throw requestError(400, "collaborator_ineligible", "Collaborators need Researcher access from a workspace owner");
+            }
+          }
+          updated.collaborators = nextCollaborators;
+        } else delete updated.collaborators;
       }
     });
     return send(res, 200, { chat: chatView(updated, user) });
@@ -1720,7 +1831,7 @@ async function handle(req, res, cfg) {
     const authorize = () => {
       const latest = readState();
       const current = requireAuth(req, latest);
-      const active = requireChat(latest, current.user.id, chat.id);
+      const active = requireChatWriter(latest, current.user.id, chat.id);
       requirePrototypeChatScope(active);
       if (forTurn) requireAgentChatAccess(current.user, active);
       return current;
@@ -1752,7 +1863,7 @@ async function handle(req, res, cfg) {
 
   // The author has seen every finished reply (others reading a shared chat never get here).
   if (method === "POST" && parts[3] === "read" && parts.length === 4) {
-    requireChat(readState(), requireAuth(req).user.id, chat.id);
+    requireChatWriter(readState(), requireAuth(req).user.id, chat.id);
     agentTurns.markChatRead(chat.id, user.id);
     return send(res, 200, { unread: 0 });
   }
@@ -1767,7 +1878,7 @@ async function handle(req, res, cfg) {
     messages.sort((a, b) => a.at - b.at);
     const current = requireAuth(req);
     const sources = agentTurns.messageSources(chat.id);
-    return send(res, 200, { messages: messages.map(message => privateMessageView(message, current.user, sources)), latestTurn, upstreamUnavailable });
+    return send(res, 200, { messages: withSenders(chat, messages.map(message => privateMessageView(message, current.user, sources)), readState().users), latestTurn, upstreamUnavailable });
   }
 
   if (method === "GET" && parts[3] === "media" && parts.length === 4) {
@@ -1779,7 +1890,7 @@ async function handle(req, res, cfg) {
   const ownTurn = turnId => {
     const latest = readState();
     const current = requireAuth(req, latest);
-    requireChat(latest, current.user.id, chat.id);
+    requireChatWriter(latest, current.user.id, chat.id);
     if (!agentTurns.owns(turnId, chat.id, current.user.id)) throw requestError(404, "not_found", "No such turn");
     return current;
   };
@@ -1827,6 +1938,11 @@ async function handle(req, res, cfg) {
 
   if (method === "POST" && parts[3] === "messages" && parts.length === 4) {
     const body = await readAuthorizedBody(req, MAX_UPLOAD_BODY);
+    // Collaborators add text only: no files, and nothing forwarded from a
+    // channel or DM into someone else's research plan.
+    if (collaborating && (body.forward != null || (body.attachments != null && !(Array.isArray(body.attachments) && body.attachments.length === 0)))) {
+      return fail(res, 400, "collaborator_text_only", "Collaborators can send text messages only");
+    }
     const requestedResearchHandoff = chat.researchHandoff && !chat.researchHandoff.acceptedAt ? { ...chat.researchHandoff } : null;
     let text = String(body.text || "").trim();
     const inline = Array.isArray(body.attachments) ? body.attachments.filter(a => !a?.upload) : body.attachments;
@@ -1842,7 +1958,7 @@ async function handle(req, res, cfg) {
       if (!messaging) return fail(res, 404, "not_found", "That message is unavailable");
       const source = messaging.forwardSource(body.forward, user.id);
       // A DM or private channel must not leak into a chat the server can read.
-      if (source.private && (chatShared(readState().chats[chat.id] || chat) || (readState().chats[chat.id] || chat).projectShared)) return fail(res, 409, "forward_private", "Messages from private conversations go into a private chat");
+      if (source.private && (chatShared(readState().chats[chat.id] || chat) || (readState().chats[chat.id] || chat).projectShared || hasCollaborators(readState().chats[chat.id] || chat))) return fail(res, 409, "forward_private", "Messages from private conversations go into a private chat");
       privateForward = source.private;
       ({ text, attachments } = composeForward({ text, attachments }, source));
     }
@@ -1888,7 +2004,7 @@ async function handle(req, res, cfg) {
     let retryResearchDevice;
     try {
       turn = mutateAuthenticated(req, (state, current) => {
-        const active = requireChat(state, current.user.id, chat.id);
+        const active = requireChatWriter(state, current.user.id, chat.id);
         requireAgentChatAccess(current.user, active);
         if (requestedResearchHandoff) {
           if (!active.researchHandoff || active.researchHandoff.id !== requestedResearchHandoff.id || active.researchHandoff.acceptedAt) {
@@ -1909,7 +2025,7 @@ async function handle(req, res, cfg) {
           requireResearchPrototypeHandoff(current.user, active.researchHandoff, text);
           queuedResearchHandoffId = active.researchHandoff.id;
         }
-        if (privateForward && (chatShared(active) || active.projectShared)) throw requestError(409, "forward_private", "Messages from private conversations go into a private chat");
+        if (privateForward && (chatShared(active) || active.projectShared || hasCollaborators(active))) throw requestError(409, "forward_private", "Messages from private conversations go into a private chat");
         let queued;
         if (!retryResearchTurnId) {
           queued = agentTurns.enqueue({
@@ -1947,7 +2063,10 @@ async function handle(req, res, cfg) {
       // makes deleted attachments downloadable or opens a new subscription.
       const latest = readState();
       const current = requireAuth(req, latest);
-      if (latest.chats[chat.id]?.userId !== current.user.id) throw requestError(404, "not_found", "No such chat");
+      const active = latest.chats[chat.id];
+      if (active?.userId !== current.user.id && !(active && collaboratorAccess(active, latest.users[current.user.id], latest.users) === "edit")) {
+        throw requestError(404, "not_found", "No such chat");
+      }
       return current;
     });
   }
@@ -1996,7 +2115,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
   const initial = readState();
   const user = initial.users[turn.user_id];
   const device = Object.values(initial.devices).find(d => d.id === turn.device_id && d.userId === turn.user_id && !d.revokedAt);
-  const chat = requireChat(initial, turn.user_id, turn.chat_id);
+  const chat = requireChatWriter(initial, turn.user_id, turn.chat_id);
   if (!user || !device || (chat.role === "owner" && user.role !== "owner")) throw requestError(403, "forbidden", "Access changed before this turn started");
   // Someone moved to Researcher can't keep using an arbitrary older full-agent
   // chat. Only explicitly marked, folder-scoped prototype chats are allowed.
@@ -2036,7 +2155,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
     if (assistantMessage) return;
     const latest = readState();
     const active = latest.chats[turn.chat_id];
-    if (!active || active.userId !== turn.user_id) throw requestError(404, "not_found", "That chat is gone");
+    if (!active || (active.userId !== turn.user_id && collaboratorAccess(active, latest.users[turn.user_id], latest.users) !== "edit")) throw requestError(404, "not_found", "That chat is gone");
     const normalized = normalizeMediaContent(content);
     assistantMessage = active.deletedAt
       ? { id: id("msg"), role: "assistant", text: normalized.text, at: now(), attachments: [] }
@@ -2045,7 +2164,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
   };
   const onAccepted = () => {
     const latest = readState();
-    requireChat(latest, turn.user_id, turn.chat_id);
+    requireChatWriter(latest, turn.user_id, turn.chat_id);
     if (!Object.values(latest.devices).some(d => d.id === turn.device_id && d.userId === turn.user_id && !d.revokedAt)) throw requestError(401, "unauthorized", "Device removed");
     if (turn.research_handoff_id && !researchHandoffConsumed) {
       mutateState(state => {

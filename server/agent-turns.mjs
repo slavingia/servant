@@ -369,12 +369,12 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
   // The accepted user message ID is already stable in every compatible worker
   // (chat-media.accept uses chatId:user:turnId). Project this API-owned snapshot
   // without requiring the independent worker to rewrite cached messages/events.
-  const sourceMap = rows => new Map(rows.map(t => [
-    `msg_${crypto.createHash('sha256').update(`${t.chat_id}:user:${t.id}`).digest('hex').slice(0, 32)}`,
-    t.source_device_kind,
-  ]));
+  const userMessageId = t => `msg_${crypto.createHash('sha256').update(`${t.chat_id}:user:${t.id}`).digest('hex').slice(0, 32)}`;
+  const sourceMap = rows => new Map(rows.map(t => [userMessageId(t), t.source_device_kind]));
 return { unreadByChat, markChatRead, enqueue, replay, releaseResearchHandoff, abandonResearchHandoff, researchHandoffRetryable, rearmResearchHandoff, reconcileResearchHandoffs, processNext, recoverInterrupted, requestStop, requestApproval, requestSteer, markSteered, requeueSteer, drainOutbox,
     messageSources: chatId => sourceMap(db.prepare('SELECT id,chat_id,source_device_kind FROM private_turns WHERE chat_id=?').all(chatId)),
+    // Who sent each user message; a research plan can have edit collaborators.
+    messageAuthors: chatId => new Map(db.prepare('SELECT id,chat_id,user_id FROM private_turns WHERE chat_id=?').all(chatId).map(t => [userMessageId(t), t.user_id])),
     turnMessageSources: id => sourceMap(db.prepare('SELECT id,chat_id,source_device_kind FROM private_turns WHERE id=?').all(id)),
     get: id => view(row(id)),
     owns: (id, chatId, userId) => { const t = row(id); return !!t && t.chat_id === chatId && t.user_id === userId; },

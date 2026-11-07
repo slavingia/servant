@@ -115,6 +115,34 @@ access. The server also persists the upstream lane that created each prototype
 session, so adding or removing a dedicated prototype upstream cannot silently
 reroute an existing chat to a different agent.
 
+## Research plan collaborators
+
+The author of a Research Studio study plan (a `[Research study]` chat on the
+restricted Researcher lane) can add up to ten teammates as **View** or **Edit**
+from the chat's options. This adds one optional `collaborators` field to the
+existing `PATCH /v1/chats/:id` request; there is no new endpoint, chat, message
+type, or pairing change.
+
+- Only people the server currently treats as Researchers (tier 4, not admins)
+  can be added. Onboarding preferences never qualify someone. The server
+  re-evaluates every collaborator on every request, so a tier change, removal,
+  a private forward into the plan, or deletion ends access without rewriting
+  the stored list. The author sees a paused collaborator as paused.
+- View collaborators read the plan. Edit collaborators may also send text
+  turns, with no files or forwarded messages, to the same restricted
+  Researcher agent. Each turn is checked, billed, and memory-scoped to the
+  person who sends it. Only the author changes collaborators or sharing,
+  archives, or deletes the plan. An author who loses Researcher access may
+  remove collaborators but not add them.
+- Collaborators do not share the plan with the workspace. Research Studio lists
+  plans opened to you under **Shared with you**. Once anyone other than the
+  author writes in a plan, each user message names its sender.
+- Original clients ignore the new fields. Collaborator chats still report
+  `readOnly: true`, so an older client shows the plan read-only; Servant UX
+  reads `canSend` for edit collaborators. A server without collaborator support
+  rejects the change, and the client reports it as not saved. Rolling the server
+  back to a release without this field ends collaborator access.
+
 ## Research Hub connector milestone
 
 Research Hub evidence is an optional, backwards-compatible input to the same

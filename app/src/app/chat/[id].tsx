@@ -21,7 +21,9 @@ import { bufferAgentReply } from "../../lib/agent-events";
 import { messageDeviceLabel } from "../../lib/message-device";
 import { estimateCost, formatCost, formatTokens } from "../../lib/token-format";
 import { helpText, parseSlash } from "../../lib/slash-commands";
-import { api, sendMessage, ServerError, uploadPost, type Chat, type Project, type Message, type Upload } from "../../lib/server";
+import { api, sendMessage, ServerError, uploadPost, type Chat, type Person, type Project, type Message, type ResearchCollaborator, type Upload } from "../../lib/server";
+import { ResearchCollaborators } from "../../components/ResearchCollaborators";
+import { collaborationNotice, collaboratorCandidates, collaboratorPayload, type CollaboratorCandidate } from "../../lib/research-collaborators";
 import { useSession } from "../../lib/session";
 import { useLive } from "../../lib/live";
 import { useProjects } from "../../lib/projects-store";
@@ -67,6 +69,8 @@ function SharedChatView() {
   const [error, setError] = useState<string | null>(null);
   const [showTitle, setShowTitle] = useState(false);
   const [forwarding, setForwarding] = useState<ForwardTarget | null>(null);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const load = useCallback(async () => {
     if (!account || !id) return;
     try {
@@ -85,14 +89,32 @@ function SharedChatView() {
   const media = useMemo(() => mediaFromMessages(messages ?? [], authorName, "Agent"), [messages, authorName]);
   if (!account) return null;
   const data = [...(messages ?? [])].reverse();
+  const access = chat?.collaboration?.access ?? null;
+  const notice = access ? collaborationNotice(access, authorName) : null;
+  // An edit collaborator on a research plan sends text to the same restricted
+  // Researcher agent; the server checks their access again on every message.
+  const send = async (text: string) => {
+    if (!chat?.canSend || sending) return false;
+    setSending(true); setSendError(null);
+    try {
+      await sendMessage(account, String(id), text, () => {}, undefined, undefined, [], randomUUID());
+      await load();
+      return true;
+    } catch (e) {
+      setSendError(e instanceof ServerError ? e.message : "Couldn't send. Check your connection and try again.");
+      await load();
+      return false;
+    } finally { setSending(false); }
+  };
   return (
     <MediaGalleryProvider key={id} scope={{ kind: "chat", id }} items={media}>
+    <ConversationKeyboardView>
     <View style={styles.root}>
       <Stack.Screen options={{ title: chat?.title || title || "Conversation", headerTitle: titleButton(showTitle, setShowTitle), ...filesHeader(String(id), chat?.title || title || "Conversation", colors.blue) }} />
       {showTitle ? <FullTitle title={chat?.title || title || "Conversation"} onClose={() => setShowTitle(false)} /> : null}
       <View style={styles.sharedBanner}>
-        <Text style={styles.turnLabel}>{authorName}'s conversation</Text>
-        <Text style={styles.turnDetail}>{chat?.shared === true ? `Shared with ${account.serverName}. Read only: give feedback in a channel or DM.`
+        <Text style={styles.turnLabel}>{notice ? notice.title : `${authorName}'s conversation`}</Text>
+        <Text style={styles.turnDetail}>{notice ? notice.body : chat?.shared === true ? `Shared with ${account.serverName}. Read only: give feedback in a channel or DM.`
           : chat?.projectShared ? "Shared with their project. Read only."
             : "Private. You can see it because you're an admin."}</Text>
       </View>
@@ -105,12 +127,14 @@ function SharedChatView() {
           </View> : undefined}
           renderItem={({ item }) => {
             const theirs = item.role === "user";
+            const senderName = item.sentBy?.name || authorName;
+            const senderId = item.sentBy?.id || chat?.author?.id;
             const timestamp = typeof item.at === "number" ? item.at : item.at ? new Date(item.at).getTime() : NaN;
-            return <MessageActions item={item} author={theirs ? authorName : "Agent"} canForward={chat?.shared !== false} onForward={setForwarding} chatId={String(id)} style={styles.message} label={theirs ? `${authorName}'s message` : "Agent response"}>
-              <Avatar name={theirs ? authorName : "Agent"} agent={!theirs} userId={theirs ? chat?.author?.id : undefined} size={34} tapToMessage={theirs} />
+            return <MessageActions item={item} author={theirs ? senderName : "Agent"} canForward={chat?.shared !== false} onForward={setForwarding} chatId={String(id)} style={styles.message} label={theirs ? `${senderName}'s message` : "Agent response"}>
+              <Avatar name={theirs ? senderName : "Agent"} agent={!theirs} userId={theirs ? senderId : undefined} size={34} tapToMessage={theirs && senderId !== account.user.id} />
               <View style={styles.messageCopy}>
                 <View style={styles.messageMeta}>
-                  <Text style={styles.author}>{theirs ? authorName : "Agent"}</Text>
+                  <Text style={styles.author}>{theirs ? senderName : "Agent"}</Text>
                   {!theirs ? <Text style={styles.agentTag}>Agent</Text> : null}
                   {Number.isFinite(timestamp) ? <Text style={styles.time}>{when(timestamp)}</Text> : null}
                 </View>
@@ -120,8 +144,14 @@ function SharedChatView() {
             </MessageActions>;
           }} />
       )}
+      {chat?.canSend ? <View style={styles.collaboratorComposer}>
+        {sending ? <Text accessibilityLiveRegion="polite" style={styles.turnDetail}>The Researcher agent is working on your message…</Text> : null}
+        {sendError ? <Text accessibilityRole="alert" style={styles.shareError}>{sendError}</Text> : null}
+        <Composer placeholder="Message the Researcher agent about this plan" onSend={text => send(text)} allowAttachments={false} allowFileAttachments={false} clearOnSend />
+      </View> : null}
       {forwarding ? <ForwardSheet target={forwarding} onClose={() => setForwarding(null)} /> : null}
     </View>
+    </ConversationKeyboardView>
     </MediaGalleryProvider>
   );
 }
@@ -239,7 +269,7 @@ function ReplyText({ text, failed }: { text: string; failed?: boolean }) {
 }
 
 // Header "•••": chat options. Your own chat is private until you choose to share it with the server; Files lives here too.
-function OptionsSheet({ id, title, shared, projectId, projectShared, canMoveProject, onProject, onProjectShared, onChange, onClose }: { id: string; title: string; shared: boolean | null; projectId: string | null; projectShared: boolean; canMoveProject: boolean; onProject: (projectId: string | null) => void; onProjectShared: (shared: boolean) => void; onChange: (shared: boolean) => void; onClose: () => void }) {
+function OptionsSheet({ id, title, shared, projectId, projectShared, canMoveProject, collaborators, onProject, onProjectShared, onChange, onCollaborators, onClose }: { id: string; title: string; shared: boolean | null; projectId: string | null; projectShared: boolean; canMoveProject: boolean; collaborators: ResearchCollaborator[] | null; onProject: (projectId: string | null) => void; onProjectShared: (shared: boolean) => void; onChange: (shared: boolean) => void; onCollaborators: (next: ResearchCollaborator[]) => void; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const { account } = useSession();
@@ -247,6 +277,9 @@ function OptionsSheet({ id, title, shared, projectId, projectShared, canMoveProj
   const [error, setError] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [choosing, setChoosing] = useState(false);
+  const [people, setPeople] = useState<Person[] | null>(null);
+  const [collabSaving, setCollabSaving] = useState(false);
+  const [collabError, setCollabError] = useState<string | null>(null);
   useEffect(() => {
     if (!account || !canMoveProject) return;
     api.projects(account).then(r => setProjects(r.projects)).catch(() => setProjects([]));
@@ -266,6 +299,21 @@ function OptionsSheet({ id, title, shared, projectId, projectShared, canMoveProj
     try { onProjectShared((await api.shareChatWithProject(account, id, next)).projectShared === true); }
     catch (e) { onProjectShared(!next); setError(e instanceof ServerError ? e.message : "Couldn't change sharing"); }
     finally { setSaving(false); }
+  };
+  const loadPeople = () => {
+    if (people) return;
+    api.people(account).then(r => setPeople(r.people)).catch(() => { setPeople([]); setCollabError("Couldn't load people. Try again."); });
+  };
+  const candidates: CollaboratorCandidate[] | null = people && collaborators
+    ? collaboratorCandidates(people, { me: account.user.id, current: collaborators })
+    : null;
+  // The server's answer replaces the list, so names, access and paused status are what it stored.
+  const saveCollaborators = async (next: ResearchCollaborator[]) => {
+    if (collabSaving) return;
+    setCollabSaving(true); setCollabError(null);
+    try { onCollaborators(await api.setChatCollaborators(account, id, collaboratorPayload(next))); }
+    catch (e) { setCollabError(e instanceof ServerError ? e.message : "Couldn't change collaborators"); }
+    finally { setCollabSaving(false); }
   };
   const change = async (next: boolean) => {
     onChange(next); setSaving(true); setError(null);
@@ -305,6 +353,8 @@ function OptionsSheet({ id, title, shared, projectId, projectShared, canMoveProj
             </Pressable>)}
           </View> : null}
         </> : null}
+        {collaborators ? <ResearchCollaborators collaborators={collaborators} candidates={candidates} saving={collabSaving} error={collabError}
+          onChange={next => { void saveCollaborators(next); }} onAdding={loadPeople} /> : null}
         <Pressable testID="open-files" accessibilityRole="button" onPress={() => { onClose(); router.push({ pathname: "/files", params: { kind: "chat", id, title } }); }} style={styles.menuAction}><Text style={styles.menuActionText}>Files</Text></Pressable>
         <Pressable accessibilityRole="button" onPress={onClose} style={styles.menuAction}><Text style={styles.menuActionText}>Done</Text></Pressable>
       </Pressable>
@@ -343,6 +393,8 @@ function ChatConversation() {
   const [showTitle, setShowTitle] = useState(false);
   const [forwarding, setForwarding] = useState<ForwardTarget | null>(null);
   const [shared, setShared] = useState<boolean | null>(null);
+  // Present only for a research study plan on a server that supports collaborators.
+  const [collaborators, setCollaborators] = useState<ResearchCollaborator[] | null>(null);
   const [sharing, setSharing] = useState(false);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projectShared, setProjectShared] = useState(false);
@@ -369,6 +421,7 @@ function ChatConversation() {
       if (c.title && c.title !== "New chat") setHeading(h => h === "New chat" ? c.title : h);
       setChatUsage(c.usage ?? null);
       setShared(c.shared !== false);
+      setCollaborators(Array.isArray(c.collaborators) ? c.collaborators : null);
       setProjectId(c.projectId ?? null);
       setProjectShared(c.projectShared === true);
       setPreviewUrl(c.mode === "vibe" && c.previewUrl ? c.previewUrl : null);
@@ -804,7 +857,7 @@ function ChatConversation() {
     <View style={styles.root}>
       <Stack.Screen options={{ title: heading, headerTitle: titleButton(showTitle, setShowTitle, headerLinks.length), ...filesHeader(String(id), heading, colors.blue, headerLinks, false) }} />
       {showTitle ? <FullTitle title={heading} onClose={() => setShowTitle(false)} /> : null}
-      {sharing ? <OptionsSheet id={String(id)} title={heading} shared={shared} projectId={projectId} projectShared={projectShared} canMoveProject={canChangeAbout} onProject={setProjectId} onProjectShared={setProjectShared} onChange={setShared} onClose={() => setSharing(false)} /> : null}
+      {sharing ? <OptionsSheet id={String(id)} title={heading} shared={shared} projectId={projectId} projectShared={projectShared} canMoveProject={canChangeAbout} collaborators={collaborators} onProject={setProjectId} onProjectShared={setProjectShared} onChange={setShared} onCollaborators={setCollaborators} onClose={() => setSharing(false)} /> : null}
       {choosing && projects && canChangeAbout ? <ProjectSheet visible projects={projects.list} vibe={mayCreateDesign(projects.agentTier, projects.vibe)} selected={about} title="This chat is about" onPick={project => { void pickAbout(project); }} onClose={() => setChoosing(false)} /> : null}
       <View style={[styles.split, stacked && previewOpen && styles.splitStacked]}>
       <View style={[styles.chatColumn, stacked && previewOpen && styles.chatColumnStacked]}>
@@ -831,16 +884,19 @@ function ChatConversation() {
             }
             renderItem={({ item }) => {
               const mine = item.role === "user";
+              // A research plan's edit collaborators write here too; name them.
+              const other = mine && item.sentBy && item.sentBy.id !== account.user.id ? item.sentBy : null;
+              const senderName = other ? other.name : account.user.name;
               const working = !mine && item.pending;
               const queued = item.queuedTurn;
               const timestamp = typeof item.at === "number" ? item.at : item.at ? new Date(item.at).getTime() : NaN;
               const deviceLabel = messageDeviceLabel(account.user.role, item);
-              return <MessageActions item={item} author={mine ? account.user.name : "Agent"} canForward={!queued && !item.pending && !item.failed} onForward={setForwarding} chatId={String(id)}
-                label={mine ? `Your message${queued ? ", waiting" : item.pending ? ", not yet received" : deviceLabel ? `, sent from ${deviceLabel}` : ""}` : "Agent response"} style={[styles.message, item.failed && styles.failed, item.pending && mine && styles.unconfirmed, queued && styles.queuedMessage]}>
-                <Avatar name={mine ? account.user.name : "Agent"} agent={!mine} userId={mine ? account.user.id : undefined} size={34} />
+              return <MessageActions item={item} author={mine ? senderName : "Agent"} canForward={!queued && !item.pending && !item.failed} onForward={setForwarding} chatId={String(id)}
+                label={other ? `${other.name}'s message` : mine ? `Your message${queued ? ", waiting" : item.pending ? ", not yet received" : deviceLabel ? `, sent from ${deviceLabel}` : ""}` : "Agent response"} style={[styles.message, item.failed && styles.failed, item.pending && mine && styles.unconfirmed, queued && styles.queuedMessage]}>
+                <Avatar name={mine ? senderName : "Agent"} agent={!mine} userId={mine ? (other ? other.id : account.user.id) : undefined} size={34} />
                 <View style={styles.messageCopy}>
                   <View style={styles.messageMeta}>
-                    <Text style={styles.author}>{mine ? account.user.name : "Agent"}</Text>
+                    <Text style={styles.author}>{mine ? senderName : "Agent"}</Text>
                     {!mine ? <Text style={styles.agentTag}>Agent</Text> : null}
                     {Number.isFinite(timestamp) || deviceLabel ? <Text style={styles.time}>{Number.isFinite(timestamp) ? when(timestamp) : null}{deviceLabel ? <Text testID={`message-device-${item.id}`} accessibilityLabel={`Sent from ${deviceLabel}`}>{Number.isFinite(timestamp) ? " · " : ""}{deviceLabel}</Text> : null}</Text> : null}
                   </View>
@@ -1019,6 +1075,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   previewBarLink: { minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center" },
   headerLinkText: { ...typography.label, color: colors.blue },
   shareError: { ...typography.meta, color: colors.red, marginTop: space.xxs },
+  collaboratorComposer: { gap: space.xxs, paddingTop: space.xs, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   message: { flexDirection: "row", paddingHorizontal: space.side, paddingVertical: space.sm, gap: 10 },
   messageCopy: { flex: 1, minWidth: 0 },
   messageMeta: { flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", gap: space.xs, marginBottom: 1 },

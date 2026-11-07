@@ -4,17 +4,21 @@ import { Stack } from "expo-router";
 import { AppIcon, type AppIconName } from "../components/AppIcon";
 import { PageTitle } from "../components/Band";
 import { Button } from "../components/Button";
+import { ResearchCollaborators } from "../components/ResearchCollaborators";
 import {
   buildResearchPreviewPrompt,
   createResearchPreviewState,
   RESEARCH_PREVIEW_DIRECTIONS,
   RESEARCH_PREVIEW_EVIDENCE,
+  RESEARCH_PREVIEW_ME,
+  RESEARCH_PREVIEW_PEOPLE,
   RESEARCH_PREVIEW_STUDY,
   RESEARCH_PREVIEW_TASKS,
   researchPreviewAllowed,
   researchPreviewReducer,
 } from "../lib/research-preview";
 import { researchTask, type ResearchFieldId, type ResearchTaskKind } from "../lib/research-studio";
+import { accessLabel, collaborationNotice, collaboratorCandidates, type PlanCollaborator } from "../lib/research-collaborators";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
 
 const taskIcons: Record<ResearchTaskKind, AppIconName> = {
@@ -36,6 +40,8 @@ export default function ResearchPreview() {
   const [selectedEvidence, setSelectedEvidence] = useState<string[]>(RESEARCH_PREVIEW_EVIDENCE.map(item => item.id));
   const [preview, dispatch] = useReducer(researchPreviewReducer, undefined, createResearchPreviewState);
   const [showPrompt, setShowPrompt] = useState(false);
+  const [collaborators, setCollaborators] = useState<PlanCollaborator[]>([]);
+  const [viewingAs, setViewingAs] = useState<string | null>(null);
   const selectedDirection = RESEARCH_PREVIEW_DIRECTIONS.find(direction => direction.id === preview.directionId) ?? null;
   const prompt = useMemo(() => preview.approved ? buildResearchPreviewPrompt({
     title,
@@ -74,7 +80,11 @@ export default function ResearchPreview() {
     setSelectedEvidence(RESEARCH_PREVIEW_EVIDENCE.map(item => item.id));
     dispatch({ type: "reset" });
     setShowPrompt(false);
+    setCollaborators([]);
+    setViewingAs(null);
   };
+  const viewer = collaborators.find(person => person.id === viewingAs) ?? null;
+  const viewerNotice = viewer ? collaborationNotice(viewer.access, "The plan's author") : null;
 
   return <View style={styles.root}>
     <Stack.Screen options={{ title: "Research Studio preview" }} />
@@ -237,8 +247,42 @@ export default function ResearchPreview() {
           </View> : null}
         </View> : null}
 
-        <Button label="Reset sample preview" kind="link" onPress={reset} />
       </>}
+
+      <View style={styles.divider} />
+      <Text accessibilityRole="header" style={styles.flowTitle}>Collaborate on the research plan</Text>
+      <Text style={styles.flowDescription}>In the live app this sits in a study plan's chat options. Only teammates with Researcher access can be added. Sample people only; nothing is saved or sent.</Text>
+      <View style={styles.collaboratorCard}>
+        <ResearchCollaborators collaborators={collaborators} saving={false} error={null}
+          candidates={collaboratorCandidates(RESEARCH_PREVIEW_PEOPLE, { me: RESEARCH_PREVIEW_ME, current: collaborators })}
+          onChange={next => {
+            setCollaborators(next.map(person => ({ ...person, active: true })));
+            if (viewingAs && !next.some(person => person.id === viewingAs)) setViewingAs(null);
+          }} />
+      </View>
+      {collaborators.length ? <>
+        <Text accessibilityRole="header" style={styles.sectionTitle}>What a collaborator sees</Text>
+        <View accessibilityRole="radiogroup" accessibilityLabel="Preview as collaborator" style={styles.prototypeOptions}>
+          {collaborators.map(person => {
+            const selected = viewingAs === person.id;
+            return <Pressable key={person.id} accessibilityRole="radio" accessibilityState={{ checked: selected }} onPress={() => setViewingAs(selected ? null : person.id)}
+              style={({ pressed }) => [styles.prototypeOption, selected && styles.prototypeOptionSelected, pressed && styles.pressed]}>
+              <View style={[styles.radio, selected && styles.radioSelected]}>{selected ? <View style={styles.radioDot} /> : null}</View>
+              <Text style={styles.prototypeOptionLabel}>{person.name}</Text>
+              <Text style={styles.selectedChip}>{accessLabel(person.access)}</Text>
+            </Pressable>;
+          })}
+        </View>
+        {viewer && viewerNotice ? <View style={styles.boundaryCard}>
+          <Text style={styles.boundaryTitle}>{viewerNotice.title}</Text>
+          <Text style={styles.boundaryBody}>{viewerNotice.body}</Text>
+          <Text style={styles.help}>{viewer.access === "edit"
+            ? "A text-only message box appears under the plan. Files and forwarded messages are not available to collaborators."
+            : "No message box. The plan opens read-only."}</Text>
+        </View> : null}
+      </> : null}
+
+      <Button label="Reset sample preview" kind="link" onPress={reset} />
     </ScrollView>
   </View>;
 }
@@ -246,6 +290,7 @@ export default function ResearchPreview() {
 const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   content: { width: "100%", maxWidth: 820, alignSelf: "center", paddingBottom: space.xxl },
+  collaboratorCard: { marginHorizontal: space.side, paddingHorizontal: space.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.background },
   previewBanner: { flexDirection: "row", alignItems: "flex-start", gap: space.sm, marginHorizontal: space.side, marginTop: space.md, padding: space.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.blue, backgroundColor: colors.blueSoft },
   previewBannerIcon: { width: 32, height: 32, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, backgroundColor: colors.background },
   previewBannerCopy: { flex: 1, minWidth: 0 },

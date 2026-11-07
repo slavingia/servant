@@ -13,6 +13,7 @@ import {
   researchTask,
   type ResearchTaskKind,
 } from "../lib/research-studio";
+import { accessLabel, sharedResearchPlans } from "../lib/research-collaborators";
 import { api, ServerError, type Chat } from "../lib/server";
 import { useSession } from "../lib/session";
 import { shortTime as when } from "../lib/time-label";
@@ -31,6 +32,7 @@ export default function ResearchStudio() {
   const listRef = useRef<FlatList<Chat>>(null);
   useScrollToTop(listRef);
   const [work, setWork] = useState<Chat[] | null>(null);
+  const [sharedWithMe, setSharedWithMe] = useState<Chat[]>([]);
   const [agentTier, setAgentTier] = useState<number | null | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [accessError, setAccessError] = useState<string | null>(null);
@@ -43,9 +45,10 @@ export default function ResearchStudio() {
       api.projects(account),
     ]);
     if (chats.status === "fulfilled") {
-      // Research Studio is personal work for now. Sharing remains the ordinary
-      // chat/message flow, so another client's shared chats are never relabeled.
+      // Your own research work, plus study plans someone added you to as a
+      // collaborator. Chats shared with the whole workspace are not relabeled.
       setWork(researchChats(chats.value.mine));
+      setSharedWithMe(sharedResearchPlans(chats.value.others));
       setLoadError(null);
     } else {
       setLoadError(chats.reason instanceof ServerError ? chats.reason.message : "Couldn't load your research work");
@@ -80,6 +83,7 @@ export default function ResearchStudio() {
     router.push({ pathname: "/research-new", params: { kind } });
   };
   const open = (chat: Chat) => router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, research: "1" } });
+  const openShared = (chat: Chat) => router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, readOnly: "1", author: chat.author?.name ?? "" } });
 
   return <View style={styles.root}>
     <Stack.Screen options={{ title: "Research Studio" }} />
@@ -111,6 +115,24 @@ export default function ResearchStudio() {
             <AppIcon name={unlocked ? "chevronRight" : "lock"} size={16} color={colors.muted} />
           </Pressable>)}
         </View>
+        {sharedWithMe.length ? <>
+          <Text accessibilityRole="header" style={styles.sectionTitle}>Shared with you</Text>
+          {sharedWithMe.map(item => {
+            const access = item.collaboration!.access;
+            return <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={`${researchDisplayTitle(item)}, from ${item.author?.name ?? "a teammate"}, ${accessLabel(access)}`}
+              accessibilityHint="Open shared research plan" onPress={() => openShared(item)} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
+              <View style={styles.rowIcon}><AppIcon name={taskIcons.study} size={18} color={colors.blueDark} /></View>
+              <View style={styles.rowCopy}>
+                <View style={styles.rowTitleLine}>
+                  <Text numberOfLines={1} style={styles.rowTitle}>{researchDisplayTitle(item)}</Text>
+                  <Text style={styles.when}>{when(item.updatedAt)}</Text>
+                </View>
+                <Text numberOfLines={1} style={styles.rowMeta}>{item.author?.name ?? "A teammate"} · {accessLabel(access)}</Text>
+              </View>
+              <AppIcon name="chevronRight" size={16} color={colors.muted} />
+            </Pressable>;
+          })}
+        </> : null}
         <View style={styles.listHeading}>
           <Text accessibilityRole="header" style={styles.sectionTitle}>Your research work</Text>
           {loadError && work !== null ? <Button compact kind="secondary" label="Retry" onPress={() => { void load(); }} /> : null}

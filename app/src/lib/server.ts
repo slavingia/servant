@@ -48,8 +48,12 @@ export type NewChatOptions = {
   /** Server-validated Research Hub authorization bound to a prototype's first prompt. */
   researchHandoff?: ResearchPrototypeHandoff;
 };
-export type Chat = { usage?: { input: number; output: number; total: number; turns: number }; projectId?: string; projectShared?: boolean; project?: { id: string; name: string }; mode?: "vibe"; agentRole?: AgentRole; previewUrl?: string; previewReady?: boolean; researchHandoff?: { state: "pending" | "bound" }; files?: boolean; id: string; title: string; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; latestTurn?: AgentTurn | null };
-export type Message = { id: string; role: "user" | "assistant"; text: string; at?: number | string | null; attachments?: Attachment[]; pending?: boolean; interrupted?: boolean; sourceDevice?: SourceDevice };
+// Research plan collaborators: the author's study plan can be opened to
+// teammates who hold Researcher access, as view or edit (docs/ux-client.md).
+export type CollaboratorAccess = "view" | "edit";
+export type ResearchCollaborator = { id: string; name: string; access: CollaboratorAccess; active: boolean };
+export type Chat = { collaborators?: ResearchCollaborator[]; collaboration?: { access: CollaboratorAccess }; canSend?: boolean; usage?: { input: number; output: number; total: number; turns: number }; projectId?: string; projectShared?: boolean; project?: { id: string; name: string }; mode?: "vibe"; agentRole?: AgentRole; previewUrl?: string; previewReady?: boolean; researchHandoff?: { state: "pending" | "bound" }; files?: boolean; id: string; title: string; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; latestTurn?: AgentTurn | null };
+export type Message = { sentBy?: { id: string; name: string }; id: string; role: "user" | "assistant"; text: string; at?: number | string | null; attachments?: Attachment[]; pending?: boolean; interrupted?: boolean; sourceDevice?: SourceDevice };
 
 // ----- token leaderboard -----
 export type LeaderboardPeriod = "day" | "week" | "month" | "all";
@@ -466,6 +470,15 @@ export const api = {
   // The author has seen every finished reply in this agent conversation.
   readChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/read`, { method: "POST", body: "{}" }).then(() => undefined),
   chat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}`).then((r) => r.json()).then((d) => d.chat as Chat),
+  // Author only. The server answers with the stored list; a server without
+  // collaborator support has no list, so the change is reported as not saved.
+  setChatCollaborators: (a: Account, id: string, collaborators: { id: string; access: CollaboratorAccess }[]) =>
+    request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ collaborators }) })
+      .then(json<{ chat: Chat }>)
+      .then(d => {
+        if (!Array.isArray(d.chat?.collaborators)) throw new ServerError("This server doesn't support research plan collaborators yet", 0, "unsupported");
+        return d.chat.collaborators;
+      }),
   setChatShared: (a: Account, id: string, shared: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ shared }) }).then((r) => r.json()).then((d) => d.chat as Chat),
   // Projects: shared bodies of work with notes, files, rules and who can read, write or merge (docs/projects.md).
   projects: (a: Account) => request(a, "/v1/projects").then(json<{ projects: Project[]; vibeCoder: boolean; agentTier?: number; vibe: boolean }>),

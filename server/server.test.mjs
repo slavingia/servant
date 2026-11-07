@@ -1810,6 +1810,99 @@ test("a chat the author chooses to share: others read, only the author writes", 
   assert.equal((await api("GET", `/v1/chats/${chat.id}/turns`, { token: b })).status, 403);
 });
 
+test("research plan collaborators: view reads, edit sends text on the researcher lane, only the author manages access", async () => {
+  const boss = await pair("owner", "Plan Owner Admin");
+  const author = await pair("member", "Pia Plan Author");
+  const viewer = await pair("member", "Vic Plan Viewer");
+  const editor = await pair("member", "Eli Plan Editor");
+  const outsider = await pair("member", "Mo Plan Member");
+  const people = (await api("GET", "/v1/people", { token: boss })).json.people;
+  const idOf = name => people.find(p => p.name === name).id;
+  const setTier = async (name, agentTier) => assert.equal((await api("PATCH", `/v1/people/${idOf(name)}`, { token: boss, body: { agentTier } })).status, 200);
+  for (const name of ["Pia Plan Author", "Vic Plan Viewer", "Eli Plan Editor"]) await setTier(name, 4);
+  const created = await api("POST", "/v1/chats", { token: author, body: { title: "[Research study] Refund letters", requiredAgentRole: "researcher" } });
+  assert.equal(created.status, 201, created.text);
+  const plan = created.json.chat;
+  assert.deepEqual(plan.collaborators, [], "study plans report collaborator support");
+  assert.equal((await api("POST", `/v1/chats/${plan.id}/messages`, { token: author, body: { text: "draft a study plan" } })).status, 200);
+
+  // Only people who currently hold Researcher access, never the author, and only on study plans.
+  const bad = async (token, collaborators, status, code) => {
+    const r = await api("PATCH", `/v1/chats/${plan.id}`, { token, body: { collaborators } });
+    assert.equal(r.status, status, r.text);
+    if (code) assert.equal(r.json.error?.code ?? r.json.code, code, r.text);
+  };
+  await bad(author, [{ id: idOf("Mo Plan Member"), access: "view" }], 400, "collaborator_ineligible");
+  await bad(author, [{ id: idOf("Pia Plan Author"), access: "edit" }], 400, "collaborator_ineligible");
+  await bad(author, [{ id: idOf("Vic Plan Viewer"), access: "admin" }], 400);
+  await bad(author, [{ id: idOf("Vic Plan Viewer"), access: "view" }, { id: idOf("Vic Plan Viewer"), access: "edit" }], 400);
+  const other = (await api("POST", "/v1/chats", { token: author, body: { title: "Quick question", requiredAgentRole: "researcher" } })).json.chat;
+  assert.equal(other.collaborators, undefined, "ordinary researcher chats have no collaborator list");
+  const notPlan = await api("PATCH", `/v1/chats/${other.id}`, { token: author, body: { collaborators: [{ id: idOf("Vic Plan Viewer"), access: "view" }] } });
+  assert.equal(notPlan.status, 409, notPlan.text);
+
+  const added = await api("PATCH", `/v1/chats/${plan.id}`, { token: author, body: { collaborators: [
+    { id: idOf("Vic Plan Viewer"), access: "view" }, { id: idOf("Eli Plan Editor"), access: "edit" },
+  ] } });
+  assert.equal(added.status, 200, added.text);
+  assert.deepEqual(added.json.chat.collaborators.map(c => [c.name, c.access, c.active]), [["Eli Plan Editor", "edit", true], ["Vic Plan Viewer", "view", true]]);
+  assert.equal(added.json.chat.shared, false, "collaborators do not share the plan with the workspace");
+  assert.equal((await api("GET", `/v1/chats/${plan.id}/messages`, { token: outsider })).status, 404, "everyone else still can't see it");
+  assert.ok(!(await api("GET", "/v1/chats?scope=org", { token: outsider })).json.orgChats.some(c => c.id === plan.id));
+
+  // View: listed and readable, never writable.
+  const viewList = (await api("GET", "/v1/chats?scope=org", { token: viewer })).json.orgChats.find(c => c.id === plan.id);
+  assert.ok(viewList, "listed for the viewer");
+  assert.deepEqual([viewList.readOnly, viewList.collaboration?.access, viewList.canSend], [true, "view", undefined]);
+  assert.equal((await api("GET", `/v1/chats/${plan.id}/messages`, { token: viewer })).status, 200);
+  assert.equal((await api("POST", `/v1/chats/${plan.id}/messages`, { token: viewer, body: { text: "hi" } })).status, 403);
+  await bad(viewer, [], 403);
+
+  // Edit: text turns on the restricted researcher agent; nothing else the author controls.
+  const editList = (await api("GET", "/v1/chats?scope=org", { token: editor })).json.orgChats.find(c => c.id === plan.id);
+  assert.deepEqual([editList.readOnly, editList.collaboration?.access, editList.canSend], [true, "edit", true], "old clients still see read-only");
+  const before = [owner.calls.length, member.calls.length, researcher.calls.length, prototype.calls.length];
+  const sent = await api("POST", `/v1/chats/${plan.id}/messages`, { token: editor, body: { text: "add accessibility criteria" } });
+  assert.equal(sent.status, 200, sent.text);
+  assert.match(parseSse(sent.text).filter(e => e.event === "delta").map(e => e.data.text).join(""), /^researcher-agent heard: add accessibility criteria/);
+  assert.deepEqual([owner.calls.length, member.calls.length, prototype.calls.length], [before[0], before[1], before[3]], "only the researcher agent");
+  assert.ok(researcher.calls.length > before[2]);
+  assert.equal((await api("POST", `/v1/chats/${plan.id}/messages`, { token: editor, body: { text: "see file", attachments: [{ name: "a.png", type: "image/png", data: "AA==" }] } })).status, 400, "text only");
+  await bad(editor, [], 403);
+  assert.equal((await api("PATCH", `/v1/chats/${plan.id}`, { token: editor, body: { shared: true } })).status, 403);
+  assert.equal((await api("POST", `/v1/chats/${plan.id}/archive`, { token: editor })).status, 403);
+  assert.equal((await api("DELETE", `/v1/chats/${plan.id}`, { token: editor })).status, 403);
+  const read = await api("GET", `/v1/chats/${plan.id}/messages`, { token: editor });
+  assert.equal(read.status, 200, read.text);
+  const own = (await api("GET", `/v1/chats/${plan.id}/messages`, { token: author })).json.messages.filter(m => m.role === "user");
+  assert.deepEqual(own.map(m => [m.text, m.sentBy?.name]), [["draft a study plan", "Pia Plan Author"], ["add accessibility criteria", "Eli Plan Editor"]], "user messages name their sender");
+
+  // Losing Researcher access ends both kinds of access at once; the stored list is untouched.
+  await setTier("Eli Plan Editor", 1);
+  assert.equal((await api("GET", `/v1/chats/${plan.id}/messages`, { token: editor })).status, 404);
+  assert.equal((await api("POST", `/v1/chats/${plan.id}/messages`, { token: editor, body: { text: "still here?" } })).status, 404);
+  assert.ok(!(await api("GET", "/v1/chats?scope=org", { token: editor })).json.orgChats.some(c => c.id === plan.id));
+  assert.equal((await api("GET", `/v1/chats/${plan.id}`, { token: author })).json.chat.collaborators.find(c => c.name === "Eli Plan Editor").active, false);
+  await setTier("Eli Plan Editor", 4);
+  assert.equal((await api("GET", `/v1/chats/${plan.id}/messages`, { token: editor })).status, 200, "restored with the tier");
+
+  // A private forward or removal from the list fails closed.
+  mod.mutateStateForTest(state => { state.chats[plan.id].privateForward = true; });
+  assert.equal((await api("GET", `/v1/chats/${plan.id}/messages`, { token: viewer })).status, 404);
+  mod.mutateStateForTest(state => { delete state.chats[plan.id].privateForward; });
+  const removed = await api("PATCH", `/v1/chats/${plan.id}`, { token: author, body: { collaborators: [{ id: idOf("Eli Plan Editor"), access: "view" }] } });
+  assert.equal(removed.status, 200, removed.text);
+  assert.equal((await api("GET", `/v1/chats/${plan.id}/messages`, { token: viewer })).status, 404, "removed");
+  assert.equal((await api("POST", `/v1/chats/${plan.id}/messages`, { token: editor, body: { text: "edit?" } })).status, 403, "downgraded to view");
+
+  // An author without Researcher access can remove collaborators but not add them.
+  await setTier("Pia Plan Author", 1);
+  await bad(author, [{ id: idOf("Vic Plan Viewer"), access: "view" }], 403);
+  const cleared = await api("PATCH", `/v1/chats/${plan.id}`, { token: author, body: { collaborators: [] } });
+  assert.equal(cleared.status, 200, cleared.text);
+  assert.equal((await api("GET", `/v1/chats/${plan.id}/messages`, { token: editor })).status, 404);
+});
+
 test("people can't see chats the author made private", async () => {
   const a = await pair("member", "Ed");
   const b = await pair("member", "Flo");

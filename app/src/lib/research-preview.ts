@@ -5,6 +5,15 @@ import {
   type ResearchTaskKind,
 } from "./research-studio.ts";
 
+/** Synthetic teammates for the collaborator picker. Never real people or accounts. */
+export const RESEARCH_PREVIEW_ME = "preview-you";
+export const RESEARCH_PREVIEW_PEOPLE: readonly { id: string; name: string; agentTier: number; owner?: boolean }[] = [
+  { id: "preview-researcher-a", name: "Sample Researcher A", agentTier: 4 },
+  { id: "preview-researcher-b", name: "Sample Researcher B", agentTier: 4 },
+  { id: "preview-member", name: "Sample Member", agentTier: 1 },
+  { id: "preview-admin", name: "Sample Admin", agentTier: 4, owner: true },
+];
+
 export type ResearchPreviewEvidence = {
   id: string;
   kind: "Theme" | "Issue";
