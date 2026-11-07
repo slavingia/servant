@@ -436,8 +436,9 @@ test("researcher (tier 4): runs only on the researcher agent, never the full one
   const set = await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 4 } });
   assert.equal(set.status, 200);
   assert.deepEqual([set.json.person.agentTier, !!set.json.person.vibeCoder], [4, false]);
-  const created = await api("POST", "/v1/chats", { token, body: { project: "servant", mode: "vibe" } });
+  const created = await api("POST", "/v1/chats", { token, body: { project: "servant", mode: "vibe", requiredAgentRole: "researcher" } });
   assert.equal(created.status, 201);
+  assert.equal(created.json.chat.agentRole, "researcher", "client can verify the restricted lane");
   assert.equal(created.json.chat.mode, undefined, "never a vibe chat");
   assert.equal(created.json.chat.projectId, undefined, "never tied to a project's repo");
   const [o, m, r] = [owner.calls.length, member.calls.length, researcher.calls.length];
@@ -454,6 +455,23 @@ test("researcher (tier 4): runs only on the researcher agent, never the full one
   assert.match(prompt, /GitHub/);
   assert.match(prompt, /no gh, no git/);
   assert.doesNotMatch(prompt, /slavingia\/servant|design-prototypes/);
+});
+
+test("research chat creation fails closed before starting a session when Researcher access is absent", async () => {
+  const boss = await pair("owner", "Research Gate Owner");
+  const token = await pair("member", "Remy Research Gate");
+  const me = (await api("GET", "/v1/people", { token: boss })).json.people.find((p) => p.name === "Remy Research Gate");
+  await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 4 } });
+  await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 3 } });
+  const sessionsBefore = [...owner.calls, ...member.calls, ...researcher.calls].filter((call) => call.url.endsWith("/api/sessions")).length;
+
+  const denied = await api("POST", "/v1/chats", { token, body: { title: "Research brief", requiredAgentRole: "researcher" } });
+  assert.equal(denied.status, 403);
+  assert.match(denied.json.error.message, /Researcher access is required/);
+  const invalid = await api("POST", "/v1/chats", { token, body: { requiredAgentRole: "owner" } });
+  assert.equal(invalid.status, 400);
+  const sessionsAfter = [...owner.calls, ...member.calls, ...researcher.calls].filter((call) => call.url.endsWith("/api/sessions")).length;
+  assert.equal(sessionsAfter, sessionsBefore, "no upstream session is created for a rejected lane");
 });
 
 test("researcher (tier 4): a bridge that isn't the researcher bridge is refused, so the full agent can't stand in", async () => {

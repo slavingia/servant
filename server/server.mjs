@@ -570,6 +570,9 @@ function chatLastMessage(latestTurn, mirrored) {
 }
 function chatView(chat, viewer, users = {}) {
   const view = { id: chat.id, title: chat.title, createdAt: chat.createdAt, updatedAt: chat.updatedAt, shared: chatShared(chat),
+    // Optional capability marker: older clients ignore it, while Research Studio
+    // can verify that a newly-created chat is actually on the restricted lane.
+    ...(chat.role === "researcher" ? { agentRole: "researcher" } : {}),
     // The full agent takes any file (ZIPs, PDFs, prototypes); others take media.
     ...(agentRole(chat.role, loadConfig()) === "owner" ? { files: true } : {}),
     // folderId/folderShared repeat projectId/projectShared for app builds from before projects.
@@ -1278,9 +1281,16 @@ async function handle(req, res, cfg) {
   if (method === "POST" && parts.length === 2) {
     const body = await readAuthorizedBody(req);
     const creator = requireAuth(req).user;
+    const requiredAgentRole = body.requiredAgentRole;
+    if (requiredAgentRole !== undefined && requiredAgentRole !== "researcher") {
+      return fail(res, 400, "bad_request", "requiredAgentRole must be researcher");
+    }
+    const lane = agentLane(creator, cfg);
+    if (requiredAgentRole && lane !== requiredAgentRole) {
+      return fail(res, 403, "forbidden", "Researcher access is required. Ask a workspace owner to grant it.");
+    }
     const creationUp = upstreamFor(creator, cfg);
     if (!creationUp) return fail(res, 503, "agent_unavailable", "The agent isn't set up on this server yet");
-    const lane = agentLane(creator, cfg);
     if (lane !== "owner") await verifyUpstream(lane, creationUp);
     const chatId = id("cht");
     // Vibe coders always build prototypes. Anyone else may start the chat in a project
@@ -1312,6 +1322,7 @@ async function handle(req, res, cfg) {
     try {
       mutateAuthenticated(req, (state, current) => {
         if (current.user.role !== creator.role || current.user.id !== creator.id) throw requestError(403, "forbidden", "Your access changed. Start a new chat");
+        if (requiredAgentRole && agentLane(current.user, cfg) !== requiredAgentRole) throw requestError(403, "forbidden", "Your Researcher access changed. Start a new chat");
         state.chats[chatId] = chat;
       });
     } catch (error) {

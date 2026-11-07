@@ -5,10 +5,12 @@ import {
   agentAccessLabel,
   chooseRole,
   completeOnboarding,
+  completeRoleIntro,
   firstActionForRole,
   moveOnboarding,
   normalizeOnboarding,
   onboardingRequired,
+  roleIntroRequired,
   startOnboarding,
   toggleGoal,
 } from "./onboarding.ts";
@@ -66,6 +68,20 @@ test("role and goal choices are resumable until completion", () => {
   state = completeOnboarding(state, 60);
   assert.equal(state.completedAt, 60);
   assert.equal(onboardingRequired(state), false);
+  assert.equal(roleIntroRequired(state), true);
+
+  state = completeRoleIntro(state, 70);
+  assert.equal(state.roleIntroCompletedAt, 70);
+  assert.equal(roleIntroRequired(state), false);
+});
+
+test("legacy accounts skip role introduction and milestone-one accounts receive it once", () => {
+  assert.equal(roleIntroRequired(undefined), false);
+  const completed = completeOnboarding(toggleGoal(chooseRole(startOnboarding(1), "ux-researcher", 2), "research-design-review", 3), 4);
+  assert.equal(roleIntroRequired(completed), true);
+  const normalized = normalizeOnboarding({ ...completed, roleIntroCompletedAt: 5 }, 6);
+  assert.equal(normalized.roleIntroCompletedAt, 5);
+  assert.equal(roleIntroRequired(normalized), false);
 });
 
 test("completion requires both a role and a goal", () => {
@@ -77,9 +93,9 @@ test("completion requires both a role and a goal", () => {
 
 test("first actions reflect the selected discipline without implying access", () => {
   assert.deepEqual(firstActionForRole("ux-researcher"), {
-    label: "Open your research agent",
-    description: "Frame a question or study plan with the researcher tools granted by your workspace owner.",
-    href: "/agent",
+    label: "Open Research Studio",
+    description: "Plan studies, synthesize evidence, and review designs with the researcher tools granted by your workspace owner.",
+    href: "/research",
   });
   assert.deepEqual(firstActionForRole("product-designer"), {
     label: "Create your first design",
@@ -91,8 +107,8 @@ test("first actions reflect the selected discipline without implying access", ()
     description: "Review designs shared with your team. A workspace owner can grant Design prototyper or Design engineer access when you need to create one.",
     href: "/designs",
   });
-  assert.equal(firstActionForRole("ux-researcher", { agentTier: 0 }).href, "/channels");
-  assert.equal(firstActionForRole("ux-researcher", { agentTier: 4 }).href, "/agent");
+  assert.equal(firstActionForRole("ux-researcher", { agentTier: 0 }).href, "/research");
+  assert.equal(firstActionForRole("ux-researcher", { agentTier: 4 }).href, "/research");
   assert.equal(firstActionForRole("content-designer", { agentTier: 1 }).href, "/channels");
   assert.equal(firstActionForRole("content-designer", { agentTier: 3 }).href, "/agent");
   assert.equal(firstActionForRole("content-designer").href, "/agent");

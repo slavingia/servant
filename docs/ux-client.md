@@ -53,9 +53,39 @@ home screen, so installing the UX client does not turn a local preference into a
 server migration. A person can restart the flow from **You → Restart
 onboarding**.
 
-Research Studio is intentionally a later milestone. It should follow the same
-compatibility rule: compose existing researcher-agent capabilities and ordinary
-Servant sharing/thread primitives before proposing any new server resource.
+Milestone 1 intentionally deferred Research Studio. The milestone 2 implementation
+follows the same compatibility rule: compose existing researcher-agent capabilities
+and ordinary Servant sharing/thread primitives before proposing any new server resource.
+
+## Milestone 2 compatibility contract
+
+Milestone 2 adds role-aware research starting points without changing access or
+adding a new server resource:
+
+- A person's onboarding role remains a local preference. Research actions are
+  active only when the server reports Researcher tier 4; the client never grants,
+  promotes, or infers that tier.
+- **Research Studio** studies use ordinary titled, private agent chats. Starting
+  one opens the existing chat composer with a prefabricated draft for the person
+  to review and edit; onboarding and task shortcuts must not send it
+  automatically.
+- The starting task label is exactly **Run a research-informed design review**.
+  Research Hub reviews must cite their evidence and sources and clearly remain a
+  research-informed first pass. They must not claim or imply human validation,
+  research approval, or design approval.
+- Sharing continues to use normal Servant controls and ordinary channel or
+  direct-message posts with threads. Upstream clients can therefore read the
+  study summary, follow permitted shared chats, and participate in feedback
+  without a Research Studio-specific renderer.
+
+This milestone adds no Research Studio endpoint, message type, persistence
+schema, or pairing change. It adds only two optional, backwards-compatible
+fields to the existing chat-creation exchange: the UX client requests
+`requiredAgentRole: "researcher"`, and the server confirms the resulting chat
+with `agentRole: "researcher"`. The request is checked again in the same state
+transaction that stores the chat, so an access change cannot silently create a
+different kind of workspace. Original clients ignore the optional response
+field and continue to use the same chats, sharing, messages, and threads.
 
 ## Mobile builds
 

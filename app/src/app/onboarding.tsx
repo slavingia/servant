@@ -69,10 +69,10 @@ export default function Onboarding() {
   const selectRole = (role: UXRole) => void persist(chooseRole(state, role));
   const selectGoal = (goal: UXGoal) => void persist(toggleGoal(state, goal));
   const goTo = (step: UXOnboardingState["step"]) => void persist(moveOnboarding(state, step));
-  const finish = async (href: "/agent" | "/channels" | "/designs") => {
+  const finish = async () => {
     const completed = completeOnboarding(state);
     if (!completed.completedAt || !await persist(completed)) return;
-    router.replace(href);
+    router.replace("/start");
   };
 
   return (
@@ -115,7 +115,7 @@ export default function Onboarding() {
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           <Button label="Review setup" disabled={state.goals.length === 0} busy={busy} onPress={() => goTo("ready")} style={styles.action} />
           <Button label="Back" kind="link" disabled={busy} onPress={() => goTo("role")} />
-        </> : <Ready state={state} agentTier={agentTier} designAvailable={designAvailable} busy={busy} error={error} onBack={() => goTo("goals")} onFinish={href => void finish(href)} />}
+        </> : <Ready state={state} agentTier={agentTier} designAvailable={designAvailable} busy={busy} error={error} onBack={() => goTo("goals")} onFinish={() => void finish()} />}
       </ScrollView>
     </View>
   );
@@ -138,7 +138,7 @@ function AccessNote({ agentTier }: { agentTier: number | null | undefined }) {
   </View>;
 }
 
-function Ready({ state, agentTier, designAvailable, busy, error, onBack, onFinish }: { state: UXOnboardingState; agentTier: number | null | undefined; designAvailable: boolean | null; busy: boolean; error: string | null; onBack: () => void; onFinish: (href: "/agent" | "/channels" | "/designs") => void }) {
+function Ready({ state, agentTier, designAvailable, busy, error, onBack, onFinish }: { state: UXOnboardingState; agentTier: number | null | undefined; designAvailable: boolean | null; busy: boolean; error: string | null; onBack: () => void; onFinish: () => void }) {
   const styles = useStyles();
   const canCreateDesign = designAvailable === true && (agentTier === undefined || agentTier === 2 || agentTier === 3);
   const action = firstActionForRole(state.role, { canCreateDesign, agentTier });
@@ -158,8 +158,7 @@ function Ready({ state, agentTier, designAvailable, busy, error, onBack, onFinis
       <Text style={styles.optionDescription}>{action.description}</Text>
     </View>
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-    <Button label={action.label} busy={busy} onPress={() => onFinish(action.href)} style={styles.action} />
-    {action.href !== "/channels" ? <Button label="Go to home" kind="secondary" disabled={busy} onPress={() => onFinish("/channels")} style={styles.secondary} /> : null}
+    <Button label="Continue to your starting point" busy={busy} onPress={onFinish} style={styles.action} />
     <Button label="Back" kind="link" disabled={busy} onPress={onBack} />
   </>;
 }

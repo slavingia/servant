@@ -13,6 +13,7 @@ export const UX_GOALS = [
   { id: "prototype", label: "Prototype an idea" },
   { id: "plan-research", label: "Plan a research study" },
   { id: "synthesize", label: "Synthesize evidence" },
+  { id: "research-design-review", label: "Run a research-informed design review" },
   { id: "content", label: "Improve interface content" },
   { id: "accessibility", label: "Review accessibility" },
   { id: "share", label: "Share work with my team" },
@@ -29,18 +30,19 @@ export type UXOnboardingState = {
   startedAt: number;
   updatedAt: number;
   completedAt?: number;
+  roleIntroCompletedAt?: number;
 };
 
 export type OnboardingFirstAction = {
   label: string;
   description: string;
-  href: "/agent" | "/channels" | "/designs";
+  href: "/agent" | "/channels" | "/designs" | "/research";
 };
 
 export type OnboardingAccess = {
   /** Omit only when no access check is intended; null means access could not be verified. */
   agentTier?: number | null;
-  canCreateDesign?: boolean;
+  canCreateDesign?: boolean | null;
 };
 
 const ACCESS_LABELS: Record<number, string> = {
@@ -81,7 +83,19 @@ export function normalizeOnboarding(value: unknown, now = Date.now()): UXOnboard
   const completedAt = typeof raw.completedAt === "number" && Number.isFinite(raw.completedAt) && raw.completedAt >= 0
     ? Math.max(updatedAt, raw.completedAt)
     : undefined;
-  return { version: ONBOARDING_VERSION, step, role, goals: selected, startedAt, updatedAt, ...(completedAt === undefined ? {} : { completedAt }) };
+  const roleIntroCompletedAt = completedAt !== undefined && typeof raw.roleIntroCompletedAt === "number" && Number.isFinite(raw.roleIntroCompletedAt) && raw.roleIntroCompletedAt >= 0
+    ? Math.max(completedAt, raw.roleIntroCompletedAt)
+    : undefined;
+  return {
+    version: ONBOARDING_VERSION,
+    step,
+    role,
+    goals: selected,
+    startedAt,
+    updatedAt,
+    ...(completedAt === undefined ? {} : { completedAt }),
+    ...(roleIntroCompletedAt === undefined ? {} : { roleIntroCompletedAt }),
+  };
 }
 
 /** Missing state means a legacy account and does not interrupt its next launch. */
@@ -89,26 +103,39 @@ export function onboardingRequired(value: unknown): boolean {
   return value !== undefined && normalizeOnboarding(value).completedAt === undefined;
 }
 
+/** Legacy accounts are left alone; milestone-one accounts get the new role handoff once. */
+export function roleIntroRequired(value: unknown): boolean {
+  if (value === undefined) return false;
+  const current = normalizeOnboarding(value);
+  return current.completedAt !== undefined && current.roleIntroCompletedAt === undefined;
+}
+
 export function chooseRole(state: UXOnboardingState, role: UXRole, now = Date.now()): UXOnboardingState {
-  return { ...normalizeOnboarding(state, now), role, updatedAt: now, completedAt: undefined };
+  return { ...normalizeOnboarding(state, now), role, updatedAt: now, completedAt: undefined, roleIntroCompletedAt: undefined };
 }
 
 export function toggleGoal(state: UXOnboardingState, goal: UXGoal, now = Date.now()): UXOnboardingState {
   const current = normalizeOnboarding(state, now);
   const selected = current.goals.includes(goal) ? current.goals.filter(value => value !== goal) : [...current.goals, goal];
-  return { ...current, goals: selected, updatedAt: now, completedAt: undefined };
+  return { ...current, goals: selected, updatedAt: now, completedAt: undefined, roleIntroCompletedAt: undefined };
 }
 
 export function moveOnboarding(state: UXOnboardingState, step: OnboardingStep, now = Date.now()): UXOnboardingState {
   const current = normalizeOnboarding(state, now);
   const safeStep = !current.role ? "role" : step === "ready" && current.goals.length === 0 ? "goals" : step;
-  return { ...current, step: safeStep, updatedAt: now, completedAt: undefined };
+  return { ...current, step: safeStep, updatedAt: now, completedAt: undefined, roleIntroCompletedAt: undefined };
 }
 
 export function completeOnboarding(state: UXOnboardingState, now = Date.now()): UXOnboardingState {
   const current = normalizeOnboarding(state, now);
   if (!current.role || current.goals.length === 0) return current;
-  return { ...current, step: "ready", updatedAt: now, completedAt: now };
+  return { ...current, step: "ready", updatedAt: now, completedAt: now, roleIntroCompletedAt: undefined };
+}
+
+export function completeRoleIntro(state: UXOnboardingState, now = Date.now()): UXOnboardingState {
+  const current = normalizeOnboarding(state, now);
+  if (current.completedAt === undefined) return current;
+  return { ...current, roleIntroCompletedAt: now };
 }
 
 export function roleLabel(role: UXRole | null): string {
@@ -126,13 +153,13 @@ export function agentAccessLabel(tier: unknown): string | null {
 export function firstActionForRole(role: UXRole | null, access: OnboardingAccess = {}): OnboardingFirstAction {
   const accessKnown = access.agentTier !== undefined;
   if (role === "ux-researcher") return !accessKnown || access.agentTier === 4 ? {
-    label: "Open your research agent",
-    description: "Frame a question or study plan with the researcher tools granted by your workspace owner.",
-    href: "/agent",
+    label: "Open Research Studio",
+    description: "Plan studies, synthesize evidence, and review designs with the researcher tools granted by your workspace owner.",
+    href: "/research",
   } : {
-    label: "Go to your workspace",
-    description: "Browse shared work while a workspace owner grants Researcher access for studies and synthesis.",
-    href: "/channels",
+    label: "Explore Research Studio",
+    description: "Preview research workflows and shared work while a workspace owner grants Researcher access.",
+    href: "/research",
   };
   if (role === "content-designer") return !accessKnown || access.agentTier === 3 || access.agentTier === 4 ? {
     label: "Start a content draft",

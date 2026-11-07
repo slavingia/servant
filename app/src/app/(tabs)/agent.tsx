@@ -47,6 +47,10 @@ export default function Chats() {
   const designStudioDescription = canCreateDesign
     ? "Create, preview, and share interactive designs."
     : "View and review interactive designs shared with your team.";
+  const canUseResearch = projects?.agentTier === 4;
+  const researchStudioDescription = canUseResearch
+    ? "Plan studies, synthesize evidence, and review designs with research."
+    : "Explore research workflows. Researcher access is granted by your workspace owner.";
   // A new chat starts about the last choice; the chat offers the change right above its message box.
   const [choice, setChoice] = useState<string | null>(null);
   const userId = account?.user.id;
@@ -174,6 +178,15 @@ export default function Chats() {
               <View style={styles.designStudioCopy}>
                 <Text style={styles.designStudioTitle}>Design Studio</Text>
                 <Text style={styles.designStudioBody}>{designStudioDescription}</Text>
+              </View>
+              <AppIcon name="chevronRight" size={18} color={colors.muted} />
+            </Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel="Open Research Studio" accessibilityHint={researchStudioDescription} onPress={() => router.push("/research")}
+              style={({ pressed }) => [styles.designStudio, pressed && { opacity: 0.75 }]}>
+              <View style={styles.designStudioIcon}><AppIcon name="search" size={20} color={colors.blueDark} /></View>
+              <View style={styles.designStudioCopy}>
+                <Text style={styles.designStudioTitle}>Research Studio</Text>
+                <Text style={styles.designStudioBody}>{researchStudioDescription}</Text>
               </View>
               <AppIcon name="chevronRight" size={18} color={colors.muted} />
             </Pressable>

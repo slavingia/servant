@@ -31,6 +31,7 @@ export function DesktopHome() {
         <Text style={styles.subtitle}>What do you want to get done in {account.serverName}?</Text>
         <View style={styles.actions}>
           <Action icon="sparkles" title="Ask the agent" detail="Start a private chat" href="/agent" />
+          <Action icon="search" title="Research Studio" detail="Plan studies and review evidence" href="/research" />
           <Action icon="compose" title="New message" detail="Write to a teammate" href="/new-message" />
           <Action icon="hash" title="Browse channels" detail="Find a conversation" href="/browse" />
         </View>
