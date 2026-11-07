@@ -339,6 +339,15 @@ function pairAllowed(ip) {
   pairFailures.set(ip, list);
   return list.length < 10;
 }
+// Sending a code mails a stranger, so every request counts (not only the failures): 20 per ten minutes per visitor.
+const emailStarts = new Map();
+function emailStartAllowed(ip) {
+  const list = (emailStarts.get(ip) || []).filter((t) => now() - t < PAIR_WINDOW_MS);
+  if (list.length >= 20) { emailStarts.set(ip, list); return false; }
+  emailStarts.set(ip, [...list, now()]);
+  if (emailStarts.size > 5000) for (const [k, v] of emailStarts) if (!v.some((t) => now() - t < PAIR_WINDOW_MS)) emailStarts.delete(k);
+  return true;
+}
 function pairFailed(ip) {
   pairFailures.set(ip, [...(pairFailures.get(ip) || []), now()]);
 }
@@ -750,7 +759,7 @@ async function handle(req, res, cfg) {
     const ip = clientIp(req);
     const settings = emailSettings(cfg);
     if (!settings.enabled) return fail(res, 404, "not_found", "Email codes are off");
-    if (!pairAllowed(ip)) return fail(res, 429, "rate_limited", "Too many tries. Wait ten minutes");
+    if (!pairAllowed(ip) || !emailStartAllowed(ip)) return fail(res, 429, "rate_limited", "Too many tries. Wait ten minutes");
     const body = await readBody(req);
     const inviteKey = sha256(normalizeCode(body.code));
     const invite = readState().invites[inviteKey];

@@ -67,7 +67,7 @@ export function cleanWorkflow(value) {
 }
 export function cleanRepo(value) {
   const repo = text(value, 100).replace(/^https:\/\/github\.com\//, "").replace(/\.git$/, "");
-  if (repo && !/^[\w.-]+\/[\w.-]+$/.test(repo)) throw fault(400, "bad_request", "A repo looks like owner/name");
+  if (repo && (!/^[\w.-]+\/[\w.-]+$/.test(repo) || repo.split("/").some(p => /^\.+$/.test(p)))) throw fault(400, "bad_request", "A repo looks like owner/name");
   return repo;
 }
 export function cleanUrl(value) {
@@ -85,9 +85,12 @@ export function cleanLogin(value) {
   return login;
 }
 
+const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 export function cleanStages(value) {
   if (!Array.isArray(value) || value.some(s => typeof s !== "string")) throw fault(400, "bad_request", "Stages are a list of names");
   const stages = value.map(s => text(s, 30)).filter(Boolean);
+  // These names are keys on an item's stages object; "__proto__" would write through to Object.prototype.
+  if (stages.some(s => UNSAFE_KEYS.has(lower(s)))) throw fault(400, "bad_request", "That stage name isn't allowed");
   if (stages.length > MAX_STAGES) throw fault(413, "bad_request", `Keep it to ${MAX_STAGES} stages`);
   if (new Set(stages.map(lower)).size !== stages.length) throw fault(400, "bad_request", "Each stage needs a different name");
   return stages;
@@ -184,14 +187,18 @@ export function createProjectStore(file) {
 
 // ---------- people and access ----------
 
-/** Who a key in the file is: a Servant user (by id or name, or through the people map from a GitHub login), else just a GitHub login. */
+/**
+ * Who a key in the file is: a Servant user (by id, or through the people map from a GitHub login), else just a GitHub
+ * login. A display name is never an access key: people choose their own names, so matching on one would let anyone
+ * rename themselves into someone else's access. Only the people map (set by an admin) may point at a name.
+ */
 export function resolvePerson(key, users, people = {}) {
   const k = String(key);
   const byName = name => Object.values(users).find(u => !u.removedAt && lower(u.name) === lower(name));
-  const direct = users[k] || byName(k);
+  const direct = Object.hasOwn(users, k) ? users[k] : null;
   if (direct) return { key: k, id: direct.id, name: direct.name };
-  const mapped = people[k] ?? Object.entries(people).find(([login]) => lower(login) === lower(k))?.[1];
-  const user = mapped ? users[mapped] || byName(mapped) : null;
+  const mapped = (Object.hasOwn(people, k) ? people[k] : null) ?? Object.entries(people).find(([login]) => lower(login) === lower(k))?.[1];
+  const user = mapped ? (Object.hasOwn(users, mapped) ? users[mapped] : null) || byName(mapped) : null;
   return user ? { key: k, id: user.id, name: user.name, github: k } : { key: k, name: k, github: k };
 }
 
@@ -296,7 +303,8 @@ export function newRelease(body, now = Date.now()) {
 export const newItem = body => ({ id: newId("itm"), title: cleanTitle(body.title), stages: {} });
 /** Change one stage of one item: any of status, owner (a user id or null) and note. */
 export function patchCell(project, item, stage, body, users, people) {
-  const cell = item.stages[stage] ??= { ...EMPTY_CELL };
+  if (UNSAFE_KEYS.has(stage)) throw fault(400, "bad_request", "That isn't one of this project's stages");
+  const cell = Object.hasOwn(item.stages, stage) ? item.stages[stage] : (item.stages[stage] = { ...EMPTY_CELL });
   if (body.status !== undefined) cell.status = cleanStatus(body.status);
   if (body.owner !== undefined) cell.owner = cleanOwner(project, body.owner, users, people);
   if (body.note !== undefined) {
@@ -306,7 +314,7 @@ export function patchCell(project, item, stage, body, users, people) {
   }
   return cell;
 }
-const cellOf = (item, stage) => item.stages[stage] || EMPTY_CELL;
+const cellOf = (item, stage) => (Object.hasOwn(item.stages, stage) && item.stages[stage]) || EMPTY_CELL;
 const sortedReleases = project => [...project.releases].sort((a, b) => a.date.localeCompare(b.date) || (a.createdAt || 0) - (b.createdAt || 0));
 function cellView(cell, users) {
   const owner = cell.owner ? users[cell.owner] : null;

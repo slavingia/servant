@@ -126,7 +126,7 @@ export async function transcribeAudio(file, { workdir, language, config = {} }) 
   const model = config.model || path.join(os.homedir(), ".local/share/servant/models/ggml-base.en.bin");
   if (!ffmpeg || !whisper || !fs.existsSync(model)) throw httpError(503, "no_transcriber", "Transcription isn't set up on this server");
   const base = path.join(workdir, path.basename(file, path.extname(file)));
-  await run(ffmpeg, ["-y", "-v", "error", "-i", file, "-vn", "-ar", "16000", "-ac", "1", `${base}.wav`]);
+  await run(ffmpeg, ["-y", "-v", "error", "-protocol_whitelist", "file", "-i", file, "-vn", "-ar", "16000", "-ac", "1", `${base}.wav`]);
   try {
     await run(whisper, ["-m", model, "-f", `${base}.wav`, "-l", language || "en", "-np", "-oj", "-of", base, "-t", String(Math.max(1, Math.min(8, os.cpus().length - 1)))]);
     // A recording too short to hold speech makes whisper exit cleanly with no output.

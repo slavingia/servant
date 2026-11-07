@@ -117,9 +117,9 @@ before(async () => {
   );
   // Projects come from projects.json beside the data (docs/projects.md).
   fs.writeFileSync(path.join(dataDir, "projects.json"), JSON.stringify({
-    people: { patgh: "Pat Projects" },
+    people: { patgh: "Pat Projects", rogh: "Ro Reader" },
     projects: [
-      { id: "servant", name: "Servant", description: "The team app", repo: "slavingia/servant", path: "~/servant", workflow: "main", rules: ["Never rewrite pushed history"], owners: ["bossgh"], access: { merge: ["bossgh"], write: ["patgh"], read: ["Ro Reader"] } },
+      { id: "servant", name: "Servant", description: "The team app", repo: "slavingia/servant", path: "~/servant", workflow: "main", rules: ["Never rewrite pushed history"], owners: ["bossgh"], access: { merge: ["bossgh"], write: ["patgh"], read: ["rogh"] } },
       { id: "design-prototypes", name: "Design prototypes", repo: "Taxpayer-Services-and-Online-Accounts/design-prototypes", path: "~/design-prototypes", pages: "https://taxpayer-services-and-online-accounts.github.io/design-prototypes/", workflow: "main", rules: ["Public information and made-up sample data only"] },
       { id: "secret", name: "Secret", access: { merge: ["nobody-here"] } },
     ],
@@ -517,7 +517,7 @@ test("projects: the list comes from projects.json; a chat in one carries its rep
   const servant = listed.json.projects[0];
   assert.deepEqual([servant.access, servant.canEdit, servant.canWrite, servant.workflow, servant.repo, servant.rules], ["write", false, true, "main", "slavingia/servant", ["Never rewrite pushed history"]]);
   // GitHub logins the people map knows become Servant people; unmapped ones stay logins.
-  assert.deepEqual(servant.people.map(p => [p.name, p.level, p.owner, p.github ?? null, !!p.id]), [["bossgh", "merge", true, "bossgh", false], ["Pat Projects", "write", false, "patgh", true], ["Ro Reader", "read", false, null, true]]);
+  assert.deepEqual(servant.people.map(p => [p.name, p.level, p.owner, p.github ?? null, !!p.id]), [["bossgh", "merge", true, "bossgh", false], ["Pat Projects", "write", false, "patgh", true], ["Ro Reader", "read", false, "rogh", true]]);
   assert.equal((await api("GET", "/v1/projects/secret", { token: pat })).status, 404);
   assert.equal((await api("POST", "/v1/chats", { token: pat, body: { projectId: "secret" } })).status, 404);
   assert.equal((await api("POST", "/v1/chats", { token: pat, body: { projectId: "nope" } })).status, 404);
@@ -1931,4 +1931,11 @@ test("prototype security: no indexing, no framing tricks, rate limit per visitor
   assert.equal(run("1.1.1.1"), 429);
   assert.equal(run("2.2.2.2"), 200);
   _resetLimits();
+});
+
+test("security: the email-code endpoint counts every request per visitor, and the MCP/ffmpeg inputs are constrained", async () => {
+  const src = fs.readFileSync(new URL("./server.mjs", import.meta.url), "utf8");
+  assert.match(src, /emailStartAllowed\(ip\)/, "every code request is counted");
+  assert.match(fs.readFileSync(new URL("./meetings.mjs", import.meta.url), "utf8"), /"-protocol_whitelist", "file", "-i"/, "ffmpeg reads local files only");
+  assert.match(fs.readFileSync(new URL("./join-page.mjs", import.meta.url), "utf8"), /name="referrer" content="no-referrer"/);
 });

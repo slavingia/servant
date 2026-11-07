@@ -6,7 +6,7 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;",
 export function joinPage(downloads = {}) {
   const store = (label, url) => /^https:\/\//.test(url || "") ? `<a class="s" href="${esc(url)}">${esc(label)}</a>` : "";
   const stores = store("Download for iPhone (TestFlight)", downloads.ios) + store("Download for Android", downloads.android);
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Join Servant</title>
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Join Servant</title>
 <style>body{font:17px -apple-system,system-ui,sans-serif;background:#0b0f1a;color:#fff;margin:0;display:grid;place-items:center;min-height:100vh}main{max-width:420px;width:100%;padding:32px;box-sizing:border-box;text-align:center}h1{font-size:28px;margin:0 0 8px}h2{font-size:15px;color:#8791aa;font-weight:600;margin:28px 0 4px}p{color:#b8c0d4;line-height:1.45}a.b,a.s,button{display:block;width:100%;box-sizing:border-box;margin:12px 0;padding:14px;border:0;border-radius:12px;font:600 17px -apple-system,system-ui,sans-serif;text-decoration:none;cursor:pointer}a.b{background:#3b82f6;color:#fff}a.s,button{background:#1c2438;color:#fff}small{color:#8791aa}</style></head><body><main>
 <h1>Join Servant</h1><p id="msg">Opening Servant…</p>
 <a class="b" id="open" href="#">Open Servant</a><button id="copy">Copy invite link</button>

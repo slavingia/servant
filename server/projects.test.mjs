@@ -55,8 +55,8 @@ test("the example file: three projects, GitHub logins mapped to people, unmapped
   assert.deepEqual(accessibleProjects(data, users.usr_ana, users).map(x => x.project.id), []);
   assert.deepEqual(accessibleProjects(data, users.usr_josh, users).map(x => x.project.id), ["design-prototypes", "expo-irs"]);
   assert.equal(accessibleProjects(data, users.usr_sahil, users).length, 3);
-  // Names resolve case-insensitively; removed people don't resolve.
-  assert.equal(resolvePerson("josh struble", users, {}).id, "usr_josh");
+  // A bare display name is not a key (people pick their own names); only user ids and the admin's login map resolve.
+  assert.equal(resolvePerson("josh struble", users, {}).id, undefined);
   assert.equal(resolvePerson("Gone Person", users, {}).id, undefined);
   assert.equal(resolvePerson("joshstruble", users, data.people).id, "usr_josh", "login case doesn't matter either");
 });
@@ -283,4 +283,35 @@ test("what the agent is told about releases: the next drops, each item's open st
   assert.match(sys, /SAT blocked \(Josh Struble: Waiting on test accounts\)/);
   assert.doesNotMatch(projectInstructions({ ...irs, pages: "https://example.test/" }, { chat: { mode: "vibe", vibeFolder: "vibe-1" }, asker: users.usr_josh, level: null, files, full: true, users, today: "2026-11-04" }), /Upcoming releases/);
   void [dut, guest];
+});
+
+test("security: a display name never grants access, and stage names can't pollute Object.prototype", () => {
+  const store = createProjectStore((() => { const f = path.join(tmp(), "p.json"); fs.writeFileSync(f, JSON.stringify(example)); return f; })());
+  const data = store.read();
+  const mallory = { id: "usr_mal", name: "slavingia", role: "member" };
+  const all = { ...users, usr_mal: mallory };
+  const servant = data.projects.find(p => p.owners.includes("slavingia"));
+  // Someone who chose the name "slavingia" is not the GitHub login slavingia, so no access at all.
+  const got = accessOf(servant, mallory, all, data.people);
+  assert.equal(got.owner, false);
+  assert.equal(got.canEdit, false);
+  assert.equal(got.level, null);
+  assert.equal(got.visible, false);
+  // The real mapping through the admin's people map still works, and so does a user id key.
+  assert.equal(resolvePerson("slavingia", users, data.people).id, users.usr_sahil ? "usr_sahil" : undefined);
+  assert.equal(resolvePerson("usr_josh", users, {}).id, "usr_josh");
+  assert.equal(resolvePerson("josh struble", users, {}).id, undefined, "a name is not a key");
+  assert.equal(resolvePerson("__proto__", users, data.people).id, undefined);
+  assert.equal(resolvePerson("constructor", users, {}).id, undefined);
+  // Stage names that would write through to Object.prototype are refused.
+  for (const bad of ["__proto__", "constructor", "prototype", "__PROTO__"]) assert.throws(() => cleanStages([bad]), /isn't allowed/);
+  assert.deepEqual(cleanStages(["Build", "SAT"]), ["Build", "SAT"]);
+  // Even a project file that already holds such a stage can't be used to pollute.
+  const item = { id: "itm_1", stages: {} };
+  assert.throws(() => patchCell({ owners: [], access: { read: [], write: [], merge: [] }, stages: ["__proto__"] }, item, "__proto__", { status: "done" }, users, {}), /stages/);
+  assert.equal(({}).status, undefined);
+  // "." and ".." can't be the owner or name of a repo (they'd reshape the GitHub API path).
+  for (const bad of ["../x", "x/..", "./x", "x/."]) assert.throws(() => cleanRepo(bad), /owner\/name/);
+  assert.equal(cleanRepo("slavingia/servant"), "slavingia/servant");
+  assert.equal(cleanRepo("a.b/c-d.js"), "a.b/c-d.js");
 });

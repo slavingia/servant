@@ -25,7 +25,7 @@ export function TweetEmbed({ id }: { id: string }) {
     <NativeWebView source={{ uri }} style={styles.fill} scrollEnabled={false} setSupportMultipleWindows={false}
       injectedJavaScriptBeforeContentLoaded={FORWARD} onMessage={(e: any) => resize(e.nativeEvent.data)}
       originWhitelist={["https://platform.twitter.com", "https://syndication.twitter.com"]}
-      onShouldStartLoadWithRequest={(r: any) => /^https:\/\/(platform|syndication)\.twitter\.com\//.test(r.url) || r.navigationType === undefined}
+      onShouldStartLoadWithRequest={(r: any) => /^https:\/\/(platform|syndication)\.twitter\.com\//.test(r.url)}
       javaScriptEnabled domStorageEnabled />
   </View>;
 }
@@ -37,7 +37,7 @@ function WebFrame({ uri, onData }: { uri: string; onData: (d: unknown) => void }
     sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
     ref={(el: any) => {
       if (!el || el.__tweet) return; el.__tweet = true;
-      window.addEventListener("message", (e: MessageEvent) => { if (e.source === el.contentWindow && /twitter\.com$/.test(new URL(e.origin).hostname)) onData(e.data); });
+      window.addEventListener("message", (e: MessageEvent) => { if (e.source === el.contentWindow && /^(.+\.)?twitter\.com$/.test(new URL(e.origin).hostname)) onData(e.data); });
     }} />;
 }
 

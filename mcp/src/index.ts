@@ -32,10 +32,12 @@ const tool = <S extends z.ZodRawShape>(name: string, description: string, shape:
 const server = new McpServer({ name: "servant", version: "0.1.0" });
 
 // Who you are and who's here.
+// Ids come from an LLM, so keep them to the characters real ids use ("..", slashes and the like would reshape the URL).
+const id = z.string().regex(/^[A-Za-z0-9_-]{1,80}$/, "not a valid id");
 tool("whoami", "The signed-in person and server.", {}, async () => { const a = account(); return { user: a.user, server: a.serverName, address: a.server }; });
 tool("list_people", "Everyone on the server: id, name, role.", {}, async () => (await api("GET", "/v1/people")).people);
 tool("set_unlimited_tokens", "Owner only: lift (true) or restore (false) someone's daily agent token limit. Pass their user id from list_people.",
-  { user_id: z.string(), unlimited: z.boolean() },
+  { user_id: id, unlimited: z.boolean() },
   async ({ user_id, unlimited }) => (await api("PATCH", `/v1/people/${encodeURIComponent(user_id)}`, { unlimitedTokens: unlimited })).person);
 
 // Channels and direct messages.
@@ -43,24 +45,24 @@ const slim = (c: any) => ({ id: c.id, kind: c.kind, name: c.name ?? c.title, top
 tool("list_conversations", "Channels and DMs you're in, with unread counts.", { include_archived: z.boolean().optional() }, async ({ include_archived }) =>
   (await api("GET", "/v1/conversations?includeArchived=1")).conversations.filter((c: any) => include_archived || !c.archived).map(slim));
 tool("read_messages", "Recent messages in a channel or DM (newest last). Pass before (a message id) to page back.",
-  { conversation_id: z.string(), before: z.string().optional(), limit: z.number().int().min(1).max(100).optional() },
+  { conversation_id: id, before: z.string().optional(), limit: z.number().int().min(1).max(100).optional() },
   async ({ conversation_id, before, limit }) => {
     const d = await api("GET", `/v1/conversations/${encodeURIComponent(conversation_id)}/messages${before ? `?before=${encodeURIComponent(before)}` : ""}`);
     const posts = (d.messages || d.posts || []).slice(-(limit ?? 50));
     return posts.map((m: any) => ({ id: m.id, from: m.user?.name ?? m.author ?? m.userId, at: m.at ?? m.createdAt, text: m.text, replies: m.replyCount || undefined, files: m.attachments?.map((f: any) => f.name) }));
   });
-tool("read_thread", "A message and its replies.", { conversation_id: z.string(), message_id: z.string() }, async ({ conversation_id, message_id }) => {
+tool("read_thread", "A message and its replies.", { conversation_id: id, message_id: id }, async ({ conversation_id, message_id }) => {
   const t = await api("GET", `/v1/conversations/${encodeURIComponent(conversation_id)}/threads/${encodeURIComponent(message_id)}`);
   const view = (m: any) => ({ id: m.id, from: m.user?.name, at: m.at ?? m.createdAt, text: m.text });
   return { root: t.root && view(t.root), replies: (t.replies || []).map(view) };
 });
 tool("send_message", "Post in a channel or DM, or reply in a thread (thread_root = message id). Mention the agent with @s.",
-  { conversation_id: z.string(), text: z.string().min(1).max(40000), thread_root: z.string().optional() },
+  { conversation_id: id, text: z.string().min(1).max(40000), thread_root: z.string().optional() },
   async ({ conversation_id, text, thread_root }) => {
     const d = await api("POST", `/v1/conversations/${encodeURIComponent(conversation_id)}/messages`, { text, ...(thread_root ? { threadRoot: thread_root } : {}) });
     return { id: d.message?.id, conversation_id };
   });
-tool("open_dm", "Start (or reopen) a direct message with one or more people by id.", { user_ids: z.array(z.string()).min(1).max(8) },
+tool("open_dm", "Start (or reopen) a direct message with one or more people by id.", { user_ids: z.array(id).min(1).max(8) },
   async ({ user_ids }) => slim((await api("POST", "/v1/conversations", { kind: "dm", userIds: user_ids })).conversation));
 tool("create_channel", "Make a channel. Public channels include everyone.", { name: z.string(), topic: z.string().optional(), private: z.boolean().optional() },
   async ({ name, topic, private: priv }) => slim((await api("POST", "/v1/conversations", { name, topic, private: !!priv })).conversation));
@@ -77,9 +79,9 @@ tool("new_agent_chat", "Start an agent chat. shared=true lets everyone on the se
     return { id: chat.id, title: chat.title, shared: !!shared };
   });
 tool("ask_agent", "Send a message in an agent chat and wait for the reply (can take minutes for real work). If the agent is busy with another message in this chat, this waits its turn.",
-  { chat_id: z.string(), text: z.string().min(1).max(100000) },
+  { chat_id: id, text: z.string().min(1).max(100000) },
   async ({ chat_id, text }) => streamAgent(account(), chat_id, text));
-tool("read_agent_chat", "The messages in an agent chat.", { chat_id: z.string() }, async ({ chat_id }) =>
+tool("read_agent_chat", "The messages in an agent chat.", { chat_id: id }, async ({ chat_id }) =>
   (await api("GET", `/v1/chats/${encodeURIComponent(chat_id)}/messages`)).messages.map((m: any) => ({ id: m.id, role: m.role, at: m.at, text: m.text })));
 
 // Resources: the same data as browsable, linkable context.
