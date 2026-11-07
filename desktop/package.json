@@ -57,7 +57,8 @@
       "entitlementsInherit": "entitlements.mac.plist",
       "extendInfo": {
         "NSCameraUsageDescription": "Servant uses the camera for meeting video.",
-        "NSMicrophoneUsageDescription": "Servant uses the microphone for meetings."
+        "NSMicrophoneUsageDescription": "Servant uses the microphone for meetings.",
+        "NSAudioCaptureUsageDescription": "Servant records the audio of a meeting on your computer, such as Zoom or Meet, when you choose to include it."
       }
     },
     "dmg": {
