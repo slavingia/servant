@@ -5,6 +5,7 @@ import { AppIcon, type AppIconName } from "../components/AppIcon";
 import { PageTitle } from "../components/Band";
 import { Button } from "../components/Button";
 import { ResearchCollaborators } from "../components/ResearchCollaborators";
+import { StudyActivities } from "../components/StudyActivities";
 import {
   buildResearchPreviewPrompt,
   createResearchPreviewState,
@@ -12,6 +13,7 @@ import {
   RESEARCH_PREVIEW_EVIDENCE,
   RESEARCH_PREVIEW_ME,
   RESEARCH_PREVIEW_PEOPLE,
+  researchPreviewActivities,
   RESEARCH_PREVIEW_STUDY,
   RESEARCH_PREVIEW_TASKS,
   researchPreviewAllowed,
@@ -19,6 +21,7 @@ import {
 } from "../lib/research-preview";
 import { researchTask, type ResearchFieldId, type ResearchTaskKind } from "../lib/research-studio";
 import { accessLabel, collaborationNotice, collaboratorCandidates, type PlanCollaborator } from "../lib/research-collaborators";
+import { DEFAULT_STUDY_SETUP, buildResearchStudioWorkingCopy, researchStudioFileName, researchStudioFileProblems, studyActivitiesPrompt, type StudyActivity, type StudySetup } from "../lib/research-methods";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
 
 const taskIcons: Record<ResearchTaskKind, AppIconName> = {
@@ -41,6 +44,10 @@ export default function ResearchPreview() {
   const [preview, dispatch] = useReducer(researchPreviewReducer, undefined, createResearchPreviewState);
   const [showPrompt, setShowPrompt] = useState(false);
   const [collaborators, setCollaborators] = useState<PlanCollaborator[]>([]);
+  const [activities, setActivities] = useState<StudyActivity[]>(researchPreviewActivities);
+  const [studySetup, setStudySetup] = useState<StudySetup>(DEFAULT_STUDY_SETUP);
+  const [showFile, setShowFile] = useState(false);
+  const [showActivityPrompt, setShowActivityPrompt] = useState(false);
   const [viewingAs, setViewingAs] = useState<string | null>(null);
   const selectedDirection = RESEARCH_PREVIEW_DIRECTIONS.find(direction => direction.id === preview.directionId) ?? null;
   const prompt = useMemo(() => preview.approved ? buildResearchPreviewPrompt({
@@ -82,7 +89,15 @@ export default function ResearchPreview() {
     setShowPrompt(false);
     setCollaborators([]);
     setViewingAs(null);
+    setActivities(researchPreviewActivities());
+    setStudySetup(DEFAULT_STUDY_SETUP);
+    setShowFile(false);
+    setShowActivityPrompt(false);
   };
+  const fileProblems = researchStudioFileProblems(title, activities);
+  const studioFile = showFile && !fileProblems.length
+    ? JSON.stringify(buildResearchStudioWorkingCopy({ title, decision: answers.decision, question: answers.question, participants: answers.participants, background: answers.inputs, setup: studySetup, activities }), null, 2)
+    : "";
   const viewer = collaborators.find(person => person.id === viewingAs) ?? null;
   const viewerNotice = viewer ? collaborationNotice(viewer.access, "The plan's author") : null;
 
@@ -250,6 +265,28 @@ export default function ResearchPreview() {
       </>}
 
       <View style={styles.divider} />
+      <Text accessibilityRole="header" style={styles.flowTitle}>Plan Research Studio activities</Text>
+      <Text style={styles.flowDescription}>In the live app this sits in Build a research study. Sample activities use example.com links. The file below is shown, not saved.</Text>
+      <View style={styles.activitiesCard}>
+        <StudyActivities activities={activities} setup={studySetup} onActivities={next => { setActivities(next); setShowFile(false); }} onSetup={next => { setStudySetup(next); setShowFile(false); }} />
+      </View>
+      {fileProblems.length ? <View style={styles.boundaryCard}>
+        <Text style={styles.boundaryTitle}>Needed for Research Studio to accept the file</Text>
+        {fileProblems.map(problem => <Text key={problem} style={styles.boundaryBody}>• {problem}</Text>)}
+      </View> : null}
+      <Button label={showFile ? "Hide Research Studio file" : `View Research Studio file (${researchStudioFileName(title)})`} kind="secondary" disabled={fileProblems.length > 0}
+        onPress={() => setShowFile(value => !value)} style={styles.primaryAction} />
+      {studioFile ? <View style={[styles.promptPanel, styles.activitiesCard]}>
+        <Text style={styles.promptTitle}>Exact working copy for Import JSON</Text>
+        <Text selectable style={styles.promptText}>{studioFile}</Text>
+      </View> : null}
+      <Button label={showActivityPrompt ? "Hide the Researcher agent's activity section" : "View the Researcher agent's activity section"} kind="link" onPress={() => setShowActivityPrompt(value => !value)} />
+      {showActivityPrompt ? <View style={[styles.promptPanel, styles.activitiesCard]}>
+        <Text style={styles.promptTitle}>Added to the unsent study draft</Text>
+        <Text selectable style={styles.promptText}>{studyActivitiesPrompt(studySetup, activities).join("\n").trim()}</Text>
+      </View> : null}
+
+      <View style={styles.divider} />
       <Text accessibilityRole="header" style={styles.flowTitle}>Collaborate on the research plan</Text>
       <Text style={styles.flowDescription}>In the live app this sits in a study plan's chat options. Only teammates with Researcher access can be added. Sample people only; nothing is saved or sent.</Text>
       <View style={styles.collaboratorCard}>
@@ -290,6 +327,7 @@ export default function ResearchPreview() {
 const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   content: { width: "100%", maxWidth: 820, alignSelf: "center", paddingBottom: space.xxl },
+  activitiesCard: { marginHorizontal: space.side, marginTop: space.md },
   collaboratorCard: { marginHorizontal: space.side, paddingHorizontal: space.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.background },
   previewBanner: { flexDirection: "row", alignItems: "flex-start", gap: space.sm, marginHorizontal: space.side, marginTop: space.md, padding: space.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.blue, backgroundColor: colors.blueSoft },
   previewBannerIcon: { width: 32, height: 32, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, backgroundColor: colors.background },

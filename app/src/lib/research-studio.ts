@@ -1,4 +1,5 @@
 import type { Chat, ResearchHubEvidence, ResearchHubMetadata } from "./server";
+import { DEFAULT_STUDY_SETUP, studyActivitiesPrompt, type StudyActivity, type StudySetup } from "./research-methods.ts";
 
 export type ResearchTaskKind = "study" | "synthesis" | "design-review";
 export type ResearchFieldId = "decision" | "question" | "participants" | "method" | "inputs" | "focus" | "constraints";
@@ -45,6 +46,9 @@ export type ResearchBrief = {
   evidence?: readonly ResearchHubEvidence[];
   evidenceHub?: ResearchHubMetadata;
   designGuidance?: ResearchDesignGuidance;
+  /** Unmoderated Civic Research Studio activities, for study briefs. */
+  activities?: readonly StudyActivity[];
+  setup?: StudySetup;
 };
 
 export const MAX_RESEARCH_HUB_EVIDENCE = 8;
@@ -60,7 +64,7 @@ export const RESEARCH_TASKS: readonly ResearchTaskDefinition[] = [
       { id: "decision", label: "Decision this study should inform", placeholder: "What will the team decide or change with this evidence?", required: true, multiline: true },
       { id: "question", label: "Research question", placeholder: "What do you need to learn?", required: true, multiline: true },
       { id: "participants", label: "People to learn from", placeholder: "Relevant audiences, behaviors, experience, or accessibility needs", required: true, multiline: true },
-      { id: "method", label: "Method ideas", placeholder: "Optional — interviews, usability testing, survey, card sort, or ask the agent to recommend one", multiline: true },
+      { id: "method", label: "Other methods", placeholder: "Optional — interviews, moderated sessions, diary studies, or anything not run in Research Studio. Or ask the agent to recommend one", multiline: true },
       { id: "inputs", label: "What you already know", placeholder: "Existing evidence, assumptions, links, or prior findings", multiline: true },
       { id: "constraints", label: "Constraints", placeholder: "Timeline, sample size, policy, consent, recruiting, or other limits", multiline: true },
     ],
@@ -409,6 +413,7 @@ export function buildResearchPrompt(brief: ResearchBrief): string {
     "",
     `Task: ${task.actionLabel}`,
     ...details,
+    ...(brief.kind === "study" ? studyActivitiesPrompt(brief.setup ?? DEFAULT_STUDY_SETUP, brief.activities ?? []) : []),
     ...prototypePrompt(brief),
     "",
     "Please produce:",

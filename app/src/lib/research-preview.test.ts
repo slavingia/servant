@@ -146,3 +146,15 @@ test("the preview route is visibly local-only and has no data or network capabil
     /\b(?:newChat|deleteChat|sendAgentMessage|setItem|removeItem)\s*\(/,
   ]) assert.doesNotMatch(source, forbidden, `preview route matched forbidden capability: ${forbidden}`);
 });
+
+test("preview activities are synthetic and always produce an importable Research Studio file", async () => {
+  const { researchPreviewActivities } = await import("./research-preview.ts");
+  const { buildResearchStudioWorkingCopy, researchStudioFileProblems, DEFAULT_STUDY_SETUP } = await import("./research-methods.ts");
+  const activities = researchPreviewActivities();
+  assert.deepEqual(activities.map(a => a.method), ["ab_test", "tree_test", "card_sort", "survey"]);
+  assert.deepEqual(researchStudioFileProblems(RESEARCH_PREVIEW_STUDY.title, activities), []);
+  const links = JSON.stringify(buildResearchStudioWorkingCopy({ title: RESEARCH_PREVIEW_STUDY.title, setup: DEFAULT_STUDY_SETUP, activities })).match(/https?:\/\/[^"\s]+/g) ?? [];
+  assert.ok(links.length > 0);
+  for (const link of links) assert.match(link, /^https:\/\/example\.com\//, "only reserved example links");
+  assert.notEqual(researchPreviewActivities()[0], activities[0], "each reset gets fresh copies");
+});

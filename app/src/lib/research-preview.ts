@@ -4,6 +4,22 @@ import {
   type ResearchFieldId,
   type ResearchTaskKind,
 } from "./research-studio.ts";
+import { changeSortMode, newStudyActivity, type StudyActivity } from "./research-methods.ts";
+
+/** Synthetic study activities. Links use the reserved example.com domain. */
+export function researchPreviewActivities(): StudyActivity[] {
+  return [
+    { ...newStudyActivity("ab_test", "preview-ab"), title: "Make a one-time payment", instructions: "Pay a balance of $50 using the sample account.",
+      objective: "Whether the new payment flow helps more people finish", successSignal: "payment-submitted", baseline: 60, difference: 15,
+      designs: [{ label: "Current flow", url: "https://example.com/prototypes/current/" }, { label: "New flow", url: "https://example.com/prototypes/new/" }] },
+    { ...newStudyActivity("tree_test", "preview-tree"), title: "Find a transcript", instructions: "Where would you go to get a copy of your tax transcript?",
+      tree: "Home\nPayments\n  Make a payment\n  Payment history\nRecords\n  Tax transcripts *\n  Tax documents\nHelp", benchmark: 70 },
+    changeSortMode({ ...newStudyActivity("card_sort", "preview-sort"), title: "Group account features", instructions: "Group these features in a way that makes sense to you.",
+      cards: "Make a payment\nPayment activity\nTax documents\nAccount notices\nRefund status" }, "open"),
+    { ...newStudyActivity("survey", "preview-survey"), title: "Confidence check", instructions: "Answer a few short questions.",
+      questions: "How confident are you that your payment went through?\nWhat, if anything, was confusing?", constructs: "confidence, clarity" },
+  ];
+}
 
 /** Synthetic teammates for the collaborator picker. Never real people or accounts. */
 export const RESEARCH_PREVIEW_ME = "preview-you";

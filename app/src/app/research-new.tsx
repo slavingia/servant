@@ -22,6 +22,9 @@ import {
 } from "../lib/research-studio";
 import { api, ServerError, type Chat, type ResearchHubAvailableMetadata, type ResearchHubEvidence, type ResearchHubMetadata } from "../lib/server";
 import { setDraft } from "../lib/drafts";
+import { StudyActivities } from "../components/StudyActivities";
+import { DEFAULT_STUDY_SETUP, buildResearchStudioWorkingCopy, researchStudioFileName, researchStudioFileProblems, type StudyActivity, type StudySetup } from "../lib/research-methods";
+import { saveTextFile } from "../lib/save-text-file";
 import { useSession } from "../lib/session";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
 
@@ -91,6 +94,9 @@ export default function NewResearchWork() {
   const { account, setAccount } = useSession();
   const [title, setTitle] = useState("");
   const [answers, setAnswers] = useState<Partial<Record<ResearchFieldId, string>>>({});
+  const [activities, setActivities] = useState<StudyActivity[]>([]);
+  const [studySetup, setStudySetup] = useState<StudySetup>(DEFAULT_STUDY_SETUP);
+  const [fileNotice, setFileNotice] = useState<string | null>(null);
   const [agentTier, setAgentTier] = useState<number | null | undefined>(undefined);
   const [accessError, setAccessError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -226,7 +232,21 @@ export default function NewResearchWork() {
     evidence: records,
     evidenceHub: hub ?? (hubState.kind === "available" ? hubState.hub : undefined),
     ...(prototype ? { prototype } : {}),
+    ...(kind === "study" && activities.length ? { activities, setup: studySetup } : {}),
   });
+  const fileProblems = kind === "study" ? researchStudioFileProblems(title, activities) : [];
+  // Built on this device from this form only: no Research Hub records, chats, or workspace data.
+  const saveStudioFile = async () => {
+    if (fileProblems.length) return;
+    setFileNotice(null);
+    const file = buildResearchStudioWorkingCopy({ title, decision: answers.decision, question: answers.question, participants: answers.participants, background: answers.inputs, setup: studySetup, activities });
+    try {
+      await saveTextFile(researchStudioFileName(title), `${JSON.stringify(file, null, 2)}\n`);
+      setFileNotice(Platform.OS === "web" ? `Saved ${researchStudioFileName(title)}. In Research Studio, choose Import JSON.` : "Choose where to save or send the file, then use Import JSON in Research Studio.");
+    } catch (e) {
+      setFileNotice(e instanceof Error ? e.message : "Couldn't save the file. Try again.");
+    }
+  };
   const prototypeContextBrief = (hub: ResearchHubMetadata | undefined = hubState.kind === "available" ? hubState.hub : undefined): ResearchBrief => ({
     kind: "study",
     title,
@@ -553,6 +573,22 @@ export default function NewResearchWork() {
             autoCapitalize="sentences" autoCorrect style={[styles.input, field.multiline && styles.multiline]} />
         </View>;
       })}
+
+      {kind === "study" ? <View style={styles.activities}>
+        <StudyActivities activities={activities} setup={studySetup} disabled={busy || designGuidanceBusy}
+          onActivities={next => { setActivities(next); setFileNotice(null); }} onSetup={next => { setStudySetup(next); setFileNotice(null); }} />
+        {activities.length ? <View style={styles.studioFile}>
+          <Text accessibilityRole="header" style={styles.label}>Research Studio file</Text>
+          <Text style={styles.prototypeHelp}>Save a working copy (study and plan) to open with Import JSON in Civic Research Studio's builder. It's made on this device from this form only and includes no Research Hub records. Write the welcome and consent text in Research Studio.</Text>
+          {fileProblems.length ? <View accessibilityLabel="Needed before the file can be saved" style={styles.fileProblems}>
+            <Text style={styles.prototypeHelp}>Needed for Research Studio to accept the file:</Text>
+            {fileProblems.slice(0, 8).map(problem => <Text key={problem} style={styles.fileProblem}>• {problem}</Text>)}
+            {fileProblems.length > 8 ? <Text style={styles.fileProblem}>• and {fileProblems.length - 8} more</Text> : null}
+          </View> : null}
+          <Button label="Save Research Studio file" kind="secondary" disabled={busy || fileProblems.length > 0} onPress={() => { void saveStudioFile(); }} />
+          {fileNotice ? <Text accessibilityLiveRegion="polite" style={styles.prototypeHelp}>{fileNotice}</Text> : null}
+        </View> : null}
+      </View> : null}
 
       {kind === "study" ? <>
         <Text accessibilityRole="header" style={styles.sectionTitle}>Prototype for this study</Text>
@@ -989,6 +1025,10 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   prototypeDetail: { gap: space.sm, marginHorizontal: space.side, marginTop: space.sm, padding: space.md, borderRadius: radius.md, backgroundColor: colors.surface },
   prototypePurpose: { minHeight: 88 },
   prototypeHelp: { ...typography.caption, color: colors.muted },
+  activities: { marginTop: space.lg, marginHorizontal: space.side, gap: space.md },
+  studioFile: { gap: space.xs, padding: space.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
+  fileProblems: { gap: space.xxs },
+  fileProblem: { ...typography.caption, color: colors.ink },
   prototypeChecking: { flexDirection: "row", alignItems: "center", gap: space.sm },
   prototypeReadyNotice: { ...typography.captionStrong, color: colors.blueDark, padding: space.sm, borderRadius: radius.sm, backgroundColor: colors.blueSoft },
   prototypeChangeWarning: { flexDirection: "row", alignItems: "flex-start", gap: space.sm, padding: space.sm, borderRadius: radius.sm, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, backgroundColor: colors.background },

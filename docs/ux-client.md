@@ -115,6 +115,38 @@ access. The server also persists the upstream lane that created each prototype
 session, so adding or removing a dedicated prototype upstream cannot silently
 reroute an existing chat to a different agent.
 
+## Research Studio study activities
+
+**Build a research study** can plan unmoderated activities with all seven Civic
+Research Studio methods: prototype usability, A/B implementation tests, card
+sorting, tree testing, first-click testing, preference testing, and surveys. A
+study may mix several. Each activity uses the same fields as Research Studio's
+planner, such as goal, benchmark, precision, designs and control, sort type, tree
+and correct destinations, and split and power.
+
+- Sample sizes, A/B hypotheses, and standard analyses are computed on the
+  device with Research Studio's own planner rules, ported from Research Studio
+  v0.3.24 into `app/src/lib/research-stats.ts` and
+  `app/src/lib/research-methods.ts`. They cost no agent tokens. If Research
+  Studio's formulas change, update both files.
+- The person chooses how results are collected. The default is Qualtrics with
+  Research Studio inside the survey (route B in Research Studio's
+  `QUALTRICS-AB-SETUP.md`). The alternatives are Qualtrics with two surveys and
+  links (route A), or not decided yet. They also choose any device, or laptops
+  and desktops only.
+- The unsent study draft for the restricted Researcher agent lists the
+  activities with these fixed numbers, asks the agent not to recompute them, and
+  asks for a Qualtrics setup checklist that matches the chosen route.
+- **Save Research Studio file** builds a working copy (study plus plan) that
+  Research Studio's builder accepts through **Import JSON**. It is built on the
+  device from that form only and never includes Research Hub records. Welcome
+  and consent text are left blank; with Qualtrics, consent is marked as
+  collected in the survey. The button lists anything Research Studio's import
+  would reject, such as missing HTTPS links, instructions, cards, a correct tree
+  destination, or survey questions. First-click target areas are drawn in
+  Research Studio after import.
+- This is client-only: no server, endpoint, message, or pairing change.
+
 ## Research plan collaborators
 
 The author of a Research Studio study plan (a `[Research study]` chat on the
