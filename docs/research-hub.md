@@ -94,7 +94,12 @@ no agent tokens. The final resolve repeats authorization after the body arrives
 and resolves IDs against the current snapshot, so removed or changed evidence
 cannot silently enter a brief.
 
-The UX client inserts the resolved records into the existing unsent plain-text
-research draft. The block is labeled as quoted data, not instructions. Original
-Servant clients still see an ordinary private researcher chat and ordinary
-messages; there is no new message type or Researcher-agent capability.
+The UX client inserts the resolved records only into the existing unsent
+plain-text draft for the restricted Researcher agent. Even when a Researcher
+chooses **Create a new prototype**, governed Hub records do not enter that
+prototype/full-agent prompt; the prototype uses only the person's separately
+written public-or-made-up context. The evidence block is labeled as quoted data,
+not instructions, and the client resolves selected record IDs again immediately
+before the final Researcher chat is created. Original Servant clients still see
+ordinary private chats and ordinary messages; there is no new message type and
+ordinary Researcher chats retain their restricted capability.

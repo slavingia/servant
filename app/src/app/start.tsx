@@ -8,6 +8,7 @@ import { api, saveAccount } from "../lib/server";
 import { useSession } from "../lib/session";
 import { completeRoleIntro, goalLabels, normalizeOnboarding, roleLabel } from "../lib/onboarding";
 import { roleStartTasks } from "../lib/role-start";
+import { canCreateDesign as mayCreateDesign } from "../lib/designs";
 import { createThemedStyles, radius, space, typography } from "../lib/theme";
 
 export default function RoleStart() {
@@ -40,7 +41,7 @@ export default function RoleStart() {
     ? null
     : designAvailable === undefined
       ? undefined
-      : designAvailable === true && (agentTier === undefined || agentTier === 2 || agentTier === 3);
+      : mayCreateDesign(agentTier, designAvailable);
   // Older servers do not report named tiers. They can still verify legacy
   // design access, but they cannot prove the restricted Researcher lane.
   const taskAgentTier = accessChecked && onboarding.role === "ux-researcher" && agentTier === undefined ? null : agentTier;

@@ -6,7 +6,7 @@ import { Button } from "../components/Button";
 import { DesignReviewSheet } from "../components/DesignReviewSheet";
 import { PageTitle } from "../components/Band";
 import { SkeletonRows } from "../components/Skeleton";
-import { designChats, designCreationAccess, designStatus, designTitle, type DesignCreationAccess } from "../lib/designs";
+import { designChatOptions, designChats, designCreationAccess, designCreationErrorMessage, designStatus, designTitle, isVerifiedDesignChat, type DesignCreationAccess } from "../lib/designs";
 import { api, ServerError, type Chat } from "../lib/server";
 import { useSession } from "../lib/session";
 import { shortTime as when } from "../lib/time-label";
@@ -20,6 +20,7 @@ export default function Designs() {
   useScrollToTop(listRef);
   const [designs, setDesigns] = useState<Chat[] | null>(null);
   const [mine, setMine] = useState<Set<string>>(new Set());
+  const [agentTier, setAgentTier] = useState<number | null | undefined>(undefined);
   const [access, setAccess] = useState<DesignCreationAccess | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -38,8 +39,10 @@ export default function Designs() {
       const tier = projects.value.agentTier === undefined
         ? (projects.value.vibeCoder ? 2 : undefined)
         : Number.isInteger(projects.value.agentTier) ? projects.value.agentTier : null;
+      setAgentTier(tier);
       setAccess(designCreationAccess(tier, projects.value.vibe));
     } else {
+      setAgentTier(null);
       setAccess({ canCreate: false, explanation: "Couldn't verify design creation access. Pull to refresh and try again." });
     }
     if (chats.status === "fulfilled") {
@@ -64,14 +67,15 @@ export default function Designs() {
     setStarting(true);
     setActionError(null);
     try {
-      const chat = await api.newChat(account, { mode: "vibe" });
-      if (chat.mode !== "vibe") {
+      const chat = await api.newChat(account, designChatOptions(agentTier));
+      if (!isVerifiedDesignChat(chat, agentTier)) {
+        await api.deleteChat(account, chat.id).catch(() => {});
         setActionError("This workspace did not create a design workspace. Ask a workspace owner to confirm your Design Studio access.");
         return;
       }
       router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, compose: "1", studio: "1" } });
     } catch (e) {
-      setActionError(e instanceof ServerError ? e.message : "Couldn't start a design");
+      setActionError(designCreationErrorMessage(agentTier, e instanceof ServerError ? e : undefined));
     } finally { setStarting(false); }
   };
   const open = (design: Chat) => {

@@ -7,11 +7,12 @@ const state = (role: UXRole | null, goals: UXGoal[] = []) => ({ role, goals });
 const titles = (role: UXRole, goals: UXGoal[] = [], access = {}) =>
   roleStartTasks(state(role, goals), access).map(task => task.title);
 
-test("researcher activation exposes the three exact research workflows", () => {
-  const tasks = roleStartTasks(state("ux-researcher"), { agentTier: 4 });
+test("researcher activation exposes research workflows and the prototype agent", () => {
+  const tasks = roleStartTasks(state("ux-researcher"), { agentTier: 4, canCreateDesign: true });
   assert.deepEqual(tasks.map(task => ({ title: task.title, href: task.href })), [
     { title: "Build a research study", href: "/research-new?kind=study" },
     { title: "Synthesize existing evidence", href: "/research-new?kind=synthesis" },
+    { title: "Create an interactive prototype", href: "/designs" },
     { title: "Run a research-informed design review", href: "/research-new?kind=design-review" },
   ]);
   assert.ok(tasks.every(task => !task.locked && task.reason === undefined));
@@ -19,33 +20,39 @@ test("researcher activation exposes the three exact research workflows", () => {
 });
 
 test("researcher goals move their corresponding workflow to the front", () => {
-  assert.deepEqual(titles("ux-researcher", ["synthesize"], { agentTier: 4 }), [
+  assert.deepEqual(titles("ux-researcher", ["synthesize"], { agentTier: 4, canCreateDesign: true }), [
     "Synthesize existing evidence",
     "Build a research study",
+    "Create an interactive prototype",
     "Run a research-informed design review",
   ]);
-  assert.deepEqual(titles("ux-researcher", ["accessibility"], { agentTier: 4 }), [
+  assert.deepEqual(titles("ux-researcher", ["accessibility"], { agentTier: 4, canCreateDesign: true }), [
     "Run a research-informed design review",
     "Build a research study",
     "Synthesize existing evidence",
+    "Create an interactive prototype",
   ]);
-  assert.equal(titles("ux-researcher", ["research-design-review"], { agentTier: 4 })[0], "Run a research-informed design review");
-  assert.deepEqual(titles("ux-researcher", ["plan-research", "synthesize"], { agentTier: 4 }), [
+  assert.equal(titles("ux-researcher", ["research-design-review"], { agentTier: 4, canCreateDesign: true })[0], "Run a research-informed design review");
+  assert.equal(titles("ux-researcher", ["prototype"], { agentTier: 4, canCreateDesign: true })[0], "Create an interactive prototype");
+  assert.deepEqual(titles("ux-researcher", ["plan-research", "synthesize"], { agentTier: 4, canCreateDesign: true }), [
     "Build a research study",
     "Synthesize existing evidence",
+    "Create an interactive prototype",
     "Run a research-informed design review",
   ]);
 });
 
 test("researcher tasks stay visible and explain missing or unverifiable access", () => {
-  const unavailable = roleStartTasks(state("ux-researcher", ["plan-research"]), { agentTier: 2 });
-  assert.equal(unavailable.length, 3);
+  const unavailable = roleStartTasks(state("ux-researcher", ["plan-research"]), { agentTier: 2, canCreateDesign: false });
+  assert.equal(unavailable.length, 4);
   assert.ok(unavailable.every(task => task.locked));
-  assert.ok(unavailable.every(task => task.reason === "Researcher access is required. Ask a workspace owner to grant it."));
+  assert.ok(unavailable.filter(task => task.id !== "research-prototype").every(task => task.reason === "Researcher access is required. Ask a workspace owner to grant it."));
+  assert.match(unavailable.find(task => task.id === "research-prototype")?.reason ?? "", /Researcher access/);
 
-  const unverified = roleStartTasks(state("ux-researcher"), { agentTier: null });
+  const unverified = roleStartTasks(state("ux-researcher"), { agentTier: null, canCreateDesign: null });
   assert.ok(unverified.every(task => task.locked));
-  assert.ok(unverified.every(task => task.reason === "Agent access couldn't be verified. Check your connection and try again."));
+  assert.ok(unverified.filter(task => task.id !== "research-prototype").every(task => task.reason === "Agent access couldn't be verified. Check your connection and try again."));
+  assert.equal(unverified.find(task => task.id === "research-prototype")?.reason, "Design creation access couldn't be verified. Check your connection and try again.");
 
   const unchecked = roleStartTasks(state("ux-researcher"));
   assert.ok(unchecked.every(task => !task.locked));
@@ -68,7 +75,7 @@ test("product designer tasks use existing destinations and retain available work
   ]);
   assert.deepEqual(new Set(tasks.map(task => task.href)), new Set(["/channels", "/designs", "/agent"]));
   assert.equal(tasks.find(task => task.id === "product-prototype")?.locked, true);
-  assert.match(tasks.find(task => task.id === "product-prototype")?.reason ?? "", /Design prototyper or Design engineer/);
+  assert.match(tasks.find(task => task.id === "product-prototype")?.reason ?? "", /Design prototyper, Design engineer, or Researcher/);
   assert.equal(tasks.find(task => task.id === "product-review")?.locked, true);
   assert.equal(tasks.find(task => task.id === "product-share")?.locked, false);
 });

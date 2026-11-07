@@ -94,7 +94,7 @@ test("completion requires both a role and a goal", () => {
 test("first actions reflect the selected discipline without implying access", () => {
   assert.deepEqual(firstActionForRole("ux-researcher"), {
     label: "Open Research Studio",
-    description: "Plan studies, synthesize evidence, and review designs with the researcher tools granted by your workspace owner.",
+    description: "Plan studies and synthesize evidence with the Researcher agent, and build study prototypes with the prototype agent.",
     href: "/research",
   });
   assert.deepEqual(firstActionForRole("product-designer"), {
@@ -104,7 +104,7 @@ test("first actions reflect the selected discipline without implying access", ()
   });
   assert.deepEqual(firstActionForRole("product-designer", { canCreateDesign: false, agentTier: 1 }), {
     label: "Open team designs",
-    description: "Review designs shared with your team. A workspace owner can grant Design prototyper or Design engineer access when you need to create one.",
+    description: "Review designs shared with your team. A workspace owner can grant Design prototyper, Design engineer, or Researcher access when you need to create one.",
     href: "/designs",
   });
   assert.equal(firstActionForRole("ux-researcher", { agentTier: 0 }).href, "/research");

@@ -6,9 +6,9 @@ import { AppIcon } from "../../components/AppIcon";
 import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { SwipeRow } from "../../components/SwipeChannelRow";
-import { choiceKey, newChatOptions, offered } from "../../lib/new-chat-choice";
+import { VIBE_CHOICE, choiceKey, lastChatKey, newChatMatchesChoice, newChatOptions, offered } from "../../lib/new-chat-choice";
+import { canCreateDesign as mayCreateDesign, designCreationErrorMessage } from "../../lib/designs";
 import { getItem } from "../../lib/storage";
-import { lastChatKey } from "../../lib/new-chat-choice";
 import { refreshProjects, useProjects } from "../../lib/projects-store";
 import { api, ServerError, type Chat } from "../../lib/server";
 import { useSession } from "../../lib/session";
@@ -43,7 +43,7 @@ export default function Chats() {
   const [starting, setStarting] = useState(false);
   // The projects you're in (docs/projects.md); vibeCoder means every chat builds a prototype.
   const projects = useProjects();
-  const canCreateDesign = projects?.vibe === true && (projects.agentTier === undefined || projects.agentTier === 2 || projects.agentTier === 3);
+  const canCreateDesign = mayCreateDesign(projects?.agentTier, projects?.vibe);
   const designStudioDescription = canCreateDesign
     ? "Create, preview, and share interactive designs."
     : "View and review interactive designs shared with your team.";
@@ -131,13 +131,23 @@ export default function Chats() {
   const start = async () => {
     if (starting) return;
     const project = projects && !projects.vibeCoder && offered(projects, choice) ? choice : null;
+    const requested = projects?.vibeCoder ? VIBE_CHOICE : project;
     setStarting(true);
     setError(null);
     try {
-      const chat = await api.newChat(account, newChatOptions(project));
+      const chat = await api.newChat(account, newChatOptions(requested, projects?.agentTier));
+      if (!newChatMatchesChoice(chat, requested, projects?.agentTier)) {
+        await api.deleteChat(account, chat.id).catch(() => {});
+        setError(requested === VIBE_CHOICE
+          ? "This workspace did not create a Design Studio prototype. Ask a workspace owner to confirm your prototype access."
+          : "This workspace did not create the requested agent chat. Ask a workspace owner to confirm your access.");
+        return;
+      }
       router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, compose: "1" } });
     } catch (e) {
-      setError(e instanceof ServerError ? e.message : "Couldn't start a chat");
+      setError(requested === VIBE_CHOICE
+        ? designCreationErrorMessage(projects?.agentTier, e instanceof ServerError ? e : undefined)
+        : e instanceof ServerError ? e.message : "Couldn't start a chat");
     } finally {
       setStarting(false);
     }

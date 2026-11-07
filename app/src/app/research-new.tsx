@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { router, Stack, useLocalSearchParams } from "expo-router";
+import { router, Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppIcon } from "../components/AppIcon";
 import { PageTitle } from "../components/Band";
 import { Button } from "../components/Button";
-import { designStatus, designTitle, studyPrototypeChats } from "../lib/designs";
+import { designChats, designStatus, designTitle, studyPrototypeChats } from "../lib/designs";
 import {
   buildResearchPrompt,
+  buildStudyPrototypePrompt,
   isResearchTaskKind,
   MAX_RESEARCH_HUB_EVIDENCE,
   missingResearchFields,
+  prototypeChatTitle,
   researchChatTitle,
   researchTask,
   type ResearchBrief,
@@ -30,7 +32,7 @@ type ResearchHubState =
 type PrototypeMode = "none" | "new" | "existing";
 const PROTOTYPE_OPTIONS: readonly { id: PrototypeMode; label: string; description: string }[] = [
   { id: "none", label: "No prototype", description: "Plan a study that does not depend on an interactive design." },
-  { id: "new", label: "Plan a new prototype", description: "Add a build-ready prototype brief and Design Studio handoff to the study plan." },
+  { id: "new", label: "Create a new prototype", description: "Open a prototype-agent workspace with a build prompt based on this study brief." },
   { id: "existing", label: "Choose an existing prototype", description: "Use an active prototype with a live preview from your Design Studio library." },
 ];
 
@@ -100,7 +102,14 @@ export default function NewResearchWork() {
   const [prototypePurpose, setPrototypePurpose] = useState("");
   const [prototypeOpen, setPrototypeOpen] = useState(false);
   const [selectedPrototype, setSelectedPrototype] = useState<Chat | null>(null);
+  const [createdPrototype, setCreatedPrototype] = useState<Chat | null>(null);
+  const [createdPrototypePrompt, setCreatedPrototypePrompt] = useState<string | null>(null);
+  const [prototypeNotice, setPrototypeNotice] = useState<string | null>(null);
+  const [prototypeChecking, setPrototypeChecking] = useState(false);
   const hubRevision = useRef<string | null>(null);
+  const createdPrototypeRef = useRef<Chat | null>(null);
+  const prototypeModeRef = useRef<PrototypeMode>(prototypeMode);
+  const prototypeRefresh = useRef(0);
 
   const acceptHubMetadata = useCallback((hub: ResearchHubMetadata) => {
     if (hub.available) {
@@ -110,8 +119,50 @@ export default function NewResearchWork() {
     setHubState(hub.available
       ? { kind: "available", hub }
       : { kind: "unavailable", message: hub.message || "Research Hub isn't available on this server yet. You can continue without attaching Hub evidence." });
-  }, []);
-  const clearSelectedPrototype = useCallback(() => setSelectedPrototype(null), []);
+  }, [setEvidence, setHubState]);
+  const clearSelectedPrototype = useCallback(() => setSelectedPrototype(null), [setSelectedPrototype]);
+
+  useEffect(() => { prototypeModeRef.current = prototypeMode; }, [prototypeMode]);
+
+  const refreshCreatedPrototype = useCallback(async () => {
+    const prototypeId = createdPrototypeRef.current?.id;
+    if (!account || !prototypeId) return;
+    const refresh = ++prototypeRefresh.current;
+    setPrototypeChecking(true);
+    try {
+      const library = await api.orgChats(account, setAccount);
+      if (refresh !== prototypeRefresh.current) return;
+      const current = designChats(library.mine, library.others).find(design => design.id === prototypeId);
+      if (!current) {
+        createdPrototypeRef.current = null;
+        setDraft(`chat:${prototypeId}`, "");
+        setCreatedPrototype(null);
+        setCreatedPrototypePrompt(null);
+        setPrototypeNotice("That empty prototype workspace was discarded. Create it again when you're ready.");
+        return;
+      }
+      createdPrototypeRef.current = current;
+      setCreatedPrototype(current);
+      const ready = studyPrototypeChats(library.mine, library.others).find(design => design.id === prototypeId);
+      if (ready && prototypeModeRef.current === "new") {
+        prototypeModeRef.current = "existing";
+        setSelectedPrototype(ready);
+        setPrototypeMode("existing");
+        setPrototypeNotice("Prototype is ready and selected for this study.");
+      } else if (!ready) {
+        setPrototypeNotice(`Prototype status: ${designStatus(current)}. Return to the workspace to keep building, or check again when it has a live preview.`);
+      }
+    } catch (e) {
+      if (refresh === prototypeRefresh.current) setPrototypeNotice(e instanceof ServerError ? e.message : "The prototype status couldn't be checked. Try again.");
+    } finally {
+      if (refresh === prototypeRefresh.current) setPrototypeChecking(false);
+    }
+  }, [account, setAccount, setCreatedPrototype, setCreatedPrototypePrompt, setPrototypeChecking, setPrototypeMode, setPrototypeNotice, setSelectedPrototype]);
+
+  useFocusEffect(useCallback(() => {
+    void refreshCreatedPrototype();
+    return () => { prototypeRefresh.current += 1; };
+  }, [refreshCreatedPrototype]));
 
   useEffect(() => {
     if (!account) return;
@@ -169,18 +220,55 @@ export default function NewResearchWork() {
     evidenceHub: hub ?? (hubState.kind === "available" ? hubState.hub : undefined),
     ...(prototype ? { prototype } : {}),
   });
+  const prototypeBuildBrief = (): ResearchBrief => ({
+    kind: "study",
+    title,
+    answers,
+    prototype: { kind: "new", purpose: prototypePurpose },
+  });
+  const currentPrototypePrompt = kind === "study" && createdPrototype
+    ? buildStudyPrototypePrompt(prototypeBuildBrief())
+    : null;
+  const prototypeBriefChanged = !!createdPrototypePrompt && currentPrototypePrompt !== createdPrototypePrompt;
+  const resetCreatedPrototype = () => {
+    createdPrototypeRef.current = null;
+    prototypeModeRef.current = "new";
+    setCreatedPrototype(null);
+    setCreatedPrototypePrompt(null);
+    setSelectedPrototype(null);
+    setPrototypeMode("new");
+    setPrototypeNotice("The earlier prototype stays in Design Studio. Create a new workspace from the updated study brief.");
+    setError(null);
+  };
   const choosePrototypeMode = (mode: PrototypeMode) => {
     if (mode !== prototypeMode) {
-      setPrototypePurpose("");
-      setSelectedPrototype(null);
+      if (mode === "new") setSelectedPrototype(null);
+      if (mode === "existing") setPrototypeOpen(true);
     }
+    prototypeModeRef.current = mode;
     setPrototypeMode(mode);
     setError(null);
-    if (mode === "existing") setPrototypeOpen(true);
+    setPrototypeNotice(null);
+  };
+
+  const openPrototypeWorkspace = (prototype: Chat) => {
+    router.push({ pathname: "/chat/[id]", params: { id: prototype.id, title: designTitle(prototype), compose: "1", studio: "1" } });
   };
 
   const create = async () => {
     if (busy || agentTier !== 4) return;
+    if (kind === "study" && prototypeMode === "new" && createdPrototype) {
+      if (prototypeBriefChanged) {
+        resetCreatedPrototype();
+        return;
+      }
+      openPrototypeWorkspace(createdPrototype);
+      return;
+    }
+    if (kind === "study" && prototypeMode === "existing" && createdPrototype && selectedPrototype?.id === createdPrototype.id && prototypeBriefChanged) {
+      setError("The study details changed after this prototype was created. Create an updated prototype before finishing the study plan.");
+      return;
+    }
     if (kind === "study" && prototypeMode === "existing" && !selectedPrototype) {
       setError("Choose an existing prototype or select a different prototype option.");
       return;
@@ -195,6 +283,23 @@ export default function NewResearchWork() {
     setError(null);
     const expectedTitle = researchChatTitle(kind, title);
     try {
+      if (kind === "study" && prototypeMode === "new") {
+        const prototypeTitle = prototypeChatTitle(title);
+        const chat = await api.newChat(account, { mode: "vibe", title: prototypeTitle, requiredAgentRole: "prototype" });
+        if (chat.mode !== "vibe" || chat.agentRole !== "prototype") {
+          await api.deleteChat(account, chat.id).catch(() => {});
+          setError("This workspace couldn't verify prototype-agent access. Ask a workspace owner to update or confirm your Researcher access.");
+          return;
+        }
+        const prototypePrompt = buildStudyPrototypePrompt(prototypeBuildBrief());
+        setDraft(`chat:${chat.id}`, prototypePrompt);
+        createdPrototypeRef.current = chat;
+        setCreatedPrototype(chat);
+        setCreatedPrototypePrompt(prototypePrompt);
+        setPrototypeNotice("Prototype workspace created. Review the build prompt, then send it when you're ready.");
+        openPrototypeWorkspace(chat);
+        return;
+      }
       let resolvedEvidence: readonly ResearchHubEvidence[] = evidence;
       let resolvedHub: ResearchHubMetadata | undefined = hubState.kind === "available" ? hubState.hub : undefined;
       let resolvedPrototype = current.prototype;
@@ -225,6 +330,7 @@ export default function NewResearchWork() {
           return;
         }
         acceptHubMetadata(resolved.hub);
+        setEvidence(ordered);
         resolvedEvidence = ordered;
         resolvedHub = resolved.hub;
       }
@@ -238,7 +344,7 @@ export default function NewResearchWork() {
           return;
         }
         if (!latestPrototype) {
-          setError("That prototype is no longer available or ready for review. Choose another prototype with an active live preview, or plan a new one.");
+          setError("That prototype is no longer available or ready for review. Choose another prototype with an active live preview, or create a new one.");
           return;
         }
         setSelectedPrototype(latestPrototype);
@@ -289,7 +395,9 @@ export default function NewResearchWork() {
       <PageTitle description={task.description}>{task.actionLabel}</PageTitle>
       <View style={styles.note}>
         <AppIcon name="sparkles" size={17} color={colors.blueDark} />
-        <Text style={styles.noteText}>Your answers and any selected prototype or evidence become an unsent draft in a private researcher chat. Review or edit the prompt before you send it.</Text>
+        <Text style={styles.noteText}>{kind === "study" && prototypeMode === "new"
+          ? "Your answers become an unsent prototype build draft first. When the prototype is ready, return here to finish the study in a private researcher chat."
+          : "Your answers and any selected prototype or evidence become an unsent draft in a private researcher chat. Review or edit the prompt before you send it."}</Text>
       </View>
 
       <Text accessibilityRole="header" style={styles.sectionTitle}>Name the work</Text>
@@ -300,7 +408,9 @@ export default function NewResearchWork() {
       </View>
 
       <Text accessibilityRole="header" style={styles.sectionTitle}>Build the brief</Text>
-      <Text style={styles.sectionDescription}>Required fields are marked. Add only what is safe to share with your workspace's researcher agent.</Text>
+      <Text style={styles.sectionDescription}>{kind === "study" && prototypeMode === "new"
+        ? "Required fields are marked. Your written answers will be drafted for the prototype agent first, so use only public or made-up information. Selected Research Hub records stay with the restricted Researcher agent and are added only when you finish the study plan."
+        : "Required fields are marked. Add only what is safe to share with your workspace's restricted Researcher agent."}</Text>
       {task.fields.map(field => {
         const suppliedByHub = kind === "synthesis" && field.id === "inputs" && evidence.length > 0;
         const required = !!field.required && !suppliedByHub;
@@ -314,7 +424,7 @@ export default function NewResearchWork() {
 
       {kind === "study" ? <>
         <Text accessibilityRole="header" style={styles.sectionTitle}>Prototype for this study</Text>
-        <Text style={styles.sectionDescription}>Optional — choose whether the study needs an interactive design. Nothing is built or shared from this screen.</Text>
+        <Text style={styles.sectionDescription}>Optional — use a ready prototype or create one in a private prototype-agent chat before you finish the study plan. The resulting preview is viewable by anyone who has its unguessable link.</Text>
         <View accessibilityRole="radiogroup" accessibilityLabel="Prototype for this study" style={styles.prototypeOptions}>
           {PROTOTYPE_OPTIONS.map(option => {
             const selected = prototypeMode === option.id;
@@ -333,11 +443,35 @@ export default function NewResearchWork() {
         </View>
 
         {prototypeMode === "new" ? <View style={styles.prototypeDetail}>
-          <Text style={styles.label}>Prototype purpose *</Text>
-          <TextInput value={prototypePurpose} onChangeText={value => { setPrototypePurpose(value); setError(null); }} accessibilityLabel="Prototype purpose, required"
-            placeholder="What should participants be able to do or react to?" placeholderTextColor={colors.muted} multiline textAlignVertical="top"
-            maxLength={1000} autoCapitalize="sentences" autoCorrect style={[styles.input, styles.prototypePurpose]} />
-          <Text style={styles.prototypeHelp}>The researcher will define the minimum testable interactions, content, states, and accessibility needs as a handoff for someone with Design Studio access.</Text>
+          {createdPrototype ? <>
+            <View style={styles.selectedPrototype}>
+              <View style={styles.selectedPrototypeIcon}><AppIcon name="code" size={19} color={colors.blueDark} /></View>
+              <View style={styles.selectedPrototypeCopy}>
+                <Text style={styles.selectedPrototypeTitle} numberOfLines={2}>{designTitle(createdPrototype)}</Text>
+                <Text style={styles.selectedPrototypeMeta} numberOfLines={1}>{designStatus(createdPrototype)} · Prototype agent</Text>
+                <Text style={styles.selectedPrototypePreview} numberOfLines={2}>{designStatus(createdPrototype) === "Ready for review" ? "Finished live preview available" : "A finished live preview is required before this study can continue"}</Text>
+              </View>
+            </View>
+            {prototypeBriefChanged ? <View style={styles.prototypeChangeWarning}>
+              <AppIcon name="warning" size={17} color={colors.muted} />
+              <Text style={styles.prototypeChangeWarningText}>The study details changed after this workspace was created. The existing prototype still reflects the earlier brief.</Text>
+            </View> : null}
+            {prototypeNotice ? <Text accessibilityLiveRegion="polite" style={styles.prototypeHelp}>{prototypeNotice}</Text> : null}
+            {prototypeChecking ? <View style={styles.prototypeChecking}>
+              <ActivityIndicator accessibilityLabel="Checking prototype status" accessibilityRole="progressbar" color={colors.blue} />
+              <Text style={styles.prototypeHelp}>Checking prototype status…</Text>
+            </View> : null}
+            <Button label={prototypeBriefChanged ? "Open earlier prototype" : "Open prototype workspace"} kind="secondary" disabled={busy || prototypeChecking} onPress={() => openPrototypeWorkspace(createdPrototype)} />
+            {prototypeBriefChanged ? <Button label="Create updated prototype" kind="secondary" disabled={busy || prototypeChecking} onPress={resetCreatedPrototype} /> : null}
+            <Button label="Check status" kind="link" compact disabled={busy || prototypeChecking} onPress={() => { void refreshCreatedPrototype(); }} />
+          </> : <>
+            <Text style={styles.label}>Prototype purpose *</Text>
+            <TextInput value={prototypePurpose} onChangeText={value => { setPrototypePurpose(value); setError(null); }} accessibilityLabel="Prototype purpose, required"
+              placeholder="What should participants be able to do or react to?" placeholderTextColor={colors.muted} multiline textAlignVertical="top"
+              maxLength={1000} autoCapitalize="sentences" autoCorrect style={[styles.input, styles.prototypePurpose]} />
+            <Text style={styles.prototypeHelp}>Servant will turn the study brief into an unsent build prompt for the prototype agent, including the minimum testable interactions, realistic states, accessibility needs, and safe test data.</Text>
+            {prototypeNotice ? <Text accessibilityLiveRegion="polite" style={styles.prototypeHelp}>{prototypeNotice}</Text> : null}
+          </>}
         </View> : prototypeMode === "existing" ? <View style={styles.prototypeDetail}>
           {selectedPrototype ? <View style={styles.selectedPrototype}>
             <View style={styles.selectedPrototypeIcon}><AppIcon name="code" size={19} color={colors.blueDark} /></View>
@@ -347,6 +481,14 @@ export default function NewResearchWork() {
               <Text style={styles.selectedPrototypePreview} numberOfLines={1}>Live preview available</Text>
             </View>
           </View> : <Text accessibilityLiveRegion="polite" style={styles.prototypeHelp}>Choose one active prototype with a live preview. Draft, building, and archived designs are left out.</Text>}
+          {prototypeNotice ? <Text accessibilityLiveRegion="polite" style={styles.prototypeReadyNotice}>{prototypeNotice}</Text> : null}
+          {createdPrototype && selectedPrototype?.id === createdPrototype.id && prototypeBriefChanged ? <>
+            <View style={styles.prototypeChangeWarning}>
+              <AppIcon name="warning" size={17} color={colors.muted} />
+              <Text style={styles.prototypeChangeWarningText}>The selected prototype reflects an earlier version of this study brief.</Text>
+            </View>
+            <Button label="Create updated prototype" kind="secondary" disabled={busy} onPress={resetCreatedPrototype} />
+          </> : null}
           <Button label={selectedPrototype ? "Change prototype" : "Choose prototype"} kind="secondary" disabled={busy} onPress={() => setPrototypeOpen(true)} />
         </View> : null}
       </> : null}
@@ -394,10 +536,16 @@ export default function NewResearchWork() {
 
       <View style={styles.boundary}>
         <Text style={styles.boundaryTitle}>What happens next</Text>
-        <Text style={styles.boundaryBody}>Servant verifies selected evidence{kind === "study" && prototypeMode === "existing" ? " and the prototype" : ""} again, creates an ordinary titled chat, and places a structured prompt in its composer. {kind === "study" && prototypeMode === "new" ? "The prompt includes a Design Studio handoff; it does not claim the prototype has already been built. " : ""}Nothing is sent, shared, published, or used to contact participants until you choose what to do next.</Text>
+        <Text style={styles.boundaryBody}>{kind === "study" && prototypeMode === "new"
+          ? createdPrototype
+            ? "Continue in the private prototype-agent chat. When its link serves a finished preview and the workspace is ready for review, Servant will select it here so you can finish the study plan. The preview itself is viewable by anyone with its unguessable link. Nothing is sent or used to contact participants automatically."
+            : "Servant creates a private prototype-agent chat and places a structured build prompt from your written answers in its composer. Selected Research Hub records stay out of that prompt. You review it before sending. The built preview will be viewable by anyone with its unguessable link. Return here after it is ready to finish the study plan."
+          : `Servant verifies selected evidence${kind === "study" && prototypeMode === "existing" ? " and the prototype" : ""} again, creates an ordinary titled researcher chat, and places a structured prompt in its composer. Nothing is sent, shared, published, or used to contact participants until you choose what to do next.`}</Text>
       </View>
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-      <Button label="Review in researcher chat" busy={busy} onPress={() => { void create(); }} style={styles.primary} />
+      <Button label={kind === "study" && prototypeMode === "new"
+        ? createdPrototype ? prototypeBriefChanged ? "Start updated prototype" : "Open prototype workspace" : "Create prototype workspace"
+        : "Review in researcher chat"} busy={busy} onPress={() => { void create(); }} style={styles.primary} />
       <Button label="Cancel" kind="link" disabled={busy} onPress={() => router.replace("/research")} />
     </ScrollView>
     {evidenceOpen && hubState.kind === "available" ? <ResearchEvidencePicker hub={hubState.hub} selected={evidence} onHubMetadata={acceptHubMetadata} onHubFailure={setHubState}
@@ -475,7 +623,7 @@ function ExistingPrototypePicker({ selected, onUnavailable, onApply, onClose }: 
               <Button label="Try again" kind="secondary" compact onPress={() => setLoadAttempt(value => value + 1)} style={styles.pickerRetry} />
             </View> : !designs?.length ? <View style={styles.pickerEmpty}>
               <View style={styles.prototypeEmptyIcon}><AppIcon name="code" size={24} color={colors.blueDark} /></View>
-              <Text style={styles.pickerEmptyText}>No prototypes marked Ready for review are available. Choose “Plan a new prototype” to add a Design Studio handoff to the study.</Text>
+              <Text style={styles.pickerEmptyText}>No prototypes marked Ready for review are available. Choose “Create a new prototype” to open a prototype-agent workspace for this study.</Text>
             </View> : <View accessibilityRole="radiogroup" accessibilityLabel="Available prototypes">
               {designs.map(design => {
               const checked = picked?.id === design.id;
@@ -667,6 +815,10 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   prototypeDetail: { gap: space.sm, marginHorizontal: space.side, marginTop: space.sm, padding: space.md, borderRadius: radius.md, backgroundColor: colors.surface },
   prototypePurpose: { minHeight: 88 },
   prototypeHelp: { ...typography.caption, color: colors.muted },
+  prototypeChecking: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  prototypeReadyNotice: { ...typography.captionStrong, color: colors.blueDark, padding: space.sm, borderRadius: radius.sm, backgroundColor: colors.blueSoft },
+  prototypeChangeWarning: { flexDirection: "row", alignItems: "flex-start", gap: space.sm, padding: space.sm, borderRadius: radius.sm, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, backgroundColor: colors.background },
+  prototypeChangeWarningText: { ...typography.caption, color: colors.ink, flex: 1 },
   selectedPrototype: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: space.sm },
   selectedPrototypeIcon: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: radius.md, backgroundColor: colors.blueSoft },
   selectedPrototypeCopy: { flex: 1, minWidth: 0 },

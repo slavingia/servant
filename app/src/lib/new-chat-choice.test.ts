@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { VIBE_CHOICE, choiceName, needsNewChat, newChatOptions, offered } from "./new-chat-choice.ts";
+import { VIBE_CHOICE, canChangeChatAbout, choiceName, needsNewChat, newChatMatchesChoice, newChatOptions, offered } from "./new-chat-choice.ts";
 import type { Projects } from "./projects-store.ts";
 
 const projects = { list: [{ id: "expo", name: "Expo app" }], vibeCoder: false, vibe: true } as unknown as Projects;
@@ -23,8 +23,25 @@ test("names fall back to just the agent", () => {
 
 test("request body per choice", () => {
   assert.deepEqual(newChatOptions(VIBE_CHOICE), { mode: "vibe" });
+  assert.deepEqual(newChatOptions(VIBE_CHOICE, 4), { mode: "vibe", requiredAgentRole: "prototype" });
   assert.deepEqual(newChatOptions("expo"), { projectId: "expo" });
+  assert.deepEqual(newChatOptions("expo", 4), { projectId: "expo", requiredAgentRole: "researcher" });
   assert.deepEqual(newChatOptions(null), {});
+  assert.deepEqual(newChatOptions(null, 4), { requiredAgentRole: "researcher" });
+});
+
+test("created chats must match the requested Researcher or prototype lane", () => {
+  assert.equal(newChatMatchesChoice({ mode: "vibe", agentRole: "prototype" }, VIBE_CHOICE, 4), true);
+  assert.equal(newChatMatchesChoice({ mode: "vibe", agentRole: "researcher" }, VIBE_CHOICE, 4), false);
+  assert.equal(newChatMatchesChoice({ agentRole: "researcher" }, null, 4), true);
+  assert.equal(newChatMatchesChoice({ agentRole: "prototype" }, null, 4), false);
+  assert.equal(newChatMatchesChoice({ mode: "vibe" }, VIBE_CHOICE, 3), true);
+});
+
+test("a prototype workspace cannot be reassigned through the generic project picker", () => {
+  assert.equal(canChangeChatAbout(null), true);
+  assert.equal(canChangeChatAbout("expo"), true);
+  assert.equal(canChangeChatAbout(VIBE_CHOICE), false);
 });
 
 test("only vibe mode needs a fresh chat", () => {

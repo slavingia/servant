@@ -22,6 +22,7 @@ import {
   type UXRole,
 } from "../lib/onboarding";
 import { createThemedStyles, radius, space, typography } from "../lib/theme";
+import { canCreateDesign as mayCreateDesign } from "../lib/designs";
 
 export default function Onboarding() {
   const { account, setAccount } = useSession();
@@ -140,7 +141,7 @@ function AccessNote({ agentTier }: { agentTier: number | null | undefined }) {
 
 function Ready({ state, agentTier, designAvailable, busy, error, onBack, onFinish }: { state: UXOnboardingState; agentTier: number | null | undefined; designAvailable: boolean | null; busy: boolean; error: string | null; onBack: () => void; onFinish: () => void }) {
   const styles = useStyles();
-  const canCreateDesign = designAvailable === true && (agentTier === undefined || agentTier === 2 || agentTier === 3);
+  const canCreateDesign = mayCreateDesign(agentTier, designAvailable);
   const action = firstActionForRole(state.role, { canCreateDesign, agentTier });
   return <>
     <Text accessibilityRole="header" style={styles.title}>Your starting point is ready</Text>

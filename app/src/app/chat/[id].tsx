@@ -25,7 +25,8 @@ import { api, sendMessage, ServerError, uploadPost, type Chat, type Project, typ
 import { useSession } from "../../lib/session";
 import { useLive } from "../../lib/live";
 import { useProjects } from "../../lib/projects-store";
-import { VIBE_CHOICE, choiceKey, lastChatKey, choiceName, needsNewChat, newChatOptions } from "../../lib/new-chat-choice";
+import { VIBE_CHOICE, canChangeChatAbout, choiceKey, lastChatKey, choiceName, needsNewChat, newChatMatchesChoice, newChatOptions } from "../../lib/new-chat-choice";
+import { canCreateDesign as mayCreateDesign, designCreationErrorMessage } from "../../lib/designs";
 import { setItem } from "../../lib/storage";
 import { forwardTitle, parseForward, type ForwardCard } from "../../lib/forward";
 import { AppIcon } from "../../components/AppIcon";
@@ -229,7 +230,7 @@ function ReplyText({ text, failed }: { text: string; failed?: boolean }) {
 }
 
 // Header "•••": chat options. Your own chat is private until you choose to share it with the server; Files lives here too.
-function OptionsSheet({ id, title, shared, projectId, projectShared, onProject, onProjectShared, onChange, onClose }: { id: string; title: string; shared: boolean | null; projectId: string | null; projectShared: boolean; onProject: (projectId: string | null) => void; onProjectShared: (shared: boolean) => void; onChange: (shared: boolean) => void; onClose: () => void }) {
+function OptionsSheet({ id, title, shared, projectId, projectShared, canMoveProject, onProject, onProjectShared, onChange, onClose }: { id: string; title: string; shared: boolean | null; projectId: string | null; projectShared: boolean; canMoveProject: boolean; onProject: (projectId: string | null) => void; onProjectShared: (shared: boolean) => void; onChange: (shared: boolean) => void; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const { account } = useSession();
@@ -237,9 +238,13 @@ function OptionsSheet({ id, title, shared, projectId, projectShared, onProject, 
   const [error, setError] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [choosing, setChoosing] = useState(false);
-  useEffect(() => { if (account) api.projects(account).then(r => setProjects(r.projects)).catch(() => setProjects([])); }, [account]);
+  useEffect(() => {
+    if (!account || !canMoveProject) return;
+    api.projects(account).then(r => setProjects(r.projects)).catch(() => setProjects([]));
+  }, [account, canMoveProject]);
   if (!account) return null;
   const move = async (next: string | null) => {
+    if (!canMoveProject || saving) return;
     setSaving(true); setError(null);
     try { await api.moveChat(account, id, next); onProject(next); if (next !== projectId) onProjectShared(false); setChoosing(false); }
     catch (e) { setError(e instanceof ServerError ? e.message : "Couldn't move the chat"); }
@@ -271,7 +276,7 @@ function OptionsSheet({ id, title, shared, projectId, projectShared, onProject, 
             onValueChange={next => { void change(next); }} trackColor={{ true: colors.blue, false: colors.borderStrong }} thumbColor="#FFFFFF" {...(Platform.OS === "web" ? { activeThumbColor: "#FFFFFF" } : {})} />
         </View> : null}
         {error ? <Text accessibilityRole="alert" style={styles.shareError}>{error}</Text> : null}
-        {projects && (projects.length > 0 || projectId) ? <>
+        {canMoveProject && projects && (projects.length > 0 || projectId) ? <>
           <Pressable testID="chat-project" accessibilityRole="button" accessibilityState={{ expanded: choosing }} disabled={saving} onPress={() => setChoosing(!choosing)} style={[styles.menuAction, styles.projectLine]}>
             <Text style={styles.menuActionText}>Project</Text>
             <Text style={styles.turnDetail} numberOfLines={1}>{current?.name ?? "None"}</Text>
@@ -333,9 +338,10 @@ function ChatConversation() {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projectShared, setProjectShared] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  // What this chat is about, changeable until the first message is sent. Prototyping is set when a
-  // chat is made, so switching to or from it starts a fresh chat in place of this empty one.
+  // What this chat is about, changeable until the first message is sent. Choosing
+  // prototyping starts a scoped workspace whose context cannot later be reassigned.
   const [vibe, setVibe] = useState(false);
+  const [detailsChatId, setDetailsChatId] = useState<string | null>(null);
   const projects = useProjects();
   const [choosing, setChoosing] = useState(false);
   const [switching, setSwitching] = useState(false);
@@ -358,6 +364,7 @@ function ChatConversation() {
       setProjectShared(c.projectShared === true);
       setPreviewUrl(c.mode === "vibe" && c.previewUrl ? c.previewUrl : null);
       setVibe(c.mode === "vibe");
+      setDetailsChatId(String(id));
     }).catch(() => {});
     return () => { live = false; };
   }, [account, id]);
@@ -456,6 +463,8 @@ function ChatConversation() {
   const media = useMemo(() => mediaFromMessages(messages ?? [], account?.user.name ?? "You", "Agent"), [messages, account?.user.name]);
   // Backing out of a chat that never got a message deletes it (set below), so no empty "New chat" is left behind.
   const discardable = useRef(false);
+  const emptyChat = messages !== null && messages.length === 0 && !loadError && !turn && waiting.length === 0;
+  useEffect(() => { discardable.current = emptyChat && compose === "1"; }, [compose, emptyChat]);
   useEffect(() => () => { if (discardable.current && account) void api.deleteChat(account, String(id)).catch(() => {}); }, [account, id]);
   const loaded = messages !== null && !loadError;
   useEffect(() => { if (id && loaded && account) setItem(lastChatKey(account.user.id), String(id)).catch(() => {}); }, [id, loaded, account]);
@@ -730,7 +739,7 @@ function ChatConversation() {
   const showPreview = () => {
     if (!previewUrl) return;
     if (!canSplitPreview) { openPreview(previewUrl); return; }
-    if (!previewOpen) setPreviewVersion(Date.now());
+    if (!previewOpen) setPreviewVersion(version => version + 1);
     setPreviewOpen(!previewOpen);
   };
   const headerLinks: HeaderLink[] = [
@@ -740,20 +749,27 @@ function ChatConversation() {
   const data = [...(messages ?? []), ...(firstRow ? [firstRow] : []), ...(workingRow ? [workingRow] : []), ...queuedRows].reverse();
   const about = vibe ? VIBE_CHOICE : projectId;
   const aboutName = choiceName(projects, about);
+  const canChangeAbout = detailsChatId === String(id) && canChangeChatAbout(about);
   // Nothing sent yet: the choice sits right above the message box, and goes once the first message is on its way.
-  const fresh = messages !== null && messages.length === 0 && !loadError && !firstRow && !turn && waiting.length === 0;
-  const showAbout = fresh && !!projects && !projects.vibeCoder;
-  discardable.current = fresh && compose === "1";
+  const fresh = emptyChat && !firstRow;
+  const showAbout = canChangeAbout && fresh && !!projects && !projects.vibeCoder;
   const pickAbout = async (next: string | null) => {
     setChoosing(false);
-    if (next === about || switching) return;
+    if (!canChangeAbout || next === about || switching) return;
     setSwitching(true);
     setAboutError(null);
     // The next chat from the Agent tab starts about this choice.
     const remember = () => setItem(choiceKey(account.user.id), next ?? "").catch(() => {});
     try {
       if (needsNewChat(about, next)) {
-        const chat = await api.newChat(account, newChatOptions(next));
+        const chat = await api.newChat(account, newChatOptions(next, projects?.agentTier));
+        if (!newChatMatchesChoice(chat, next, projects?.agentTier)) {
+          await api.deleteChat(account, chat.id).catch(() => {});
+          setAboutError(next === VIBE_CHOICE
+            ? "This workspace did not create a Design Studio prototype. Your current chat was kept."
+            : "This workspace did not create the requested agent chat. Your current chat was kept.");
+          return;
+        }
         void api.deleteChat(account, String(id)).catch(() => {});
         void remember();
         router.replace({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, compose: "1" } });
@@ -764,7 +780,9 @@ function ChatConversation() {
       setProjectShared(false);
       void remember();
     } catch (e) {
-      setAboutError(e instanceof ServerError ? e.message : "Couldn't change that. Try again.");
+      setAboutError(next === VIBE_CHOICE
+        ? `${designCreationErrorMessage(projects?.agentTier, e instanceof ServerError ? e : undefined)} Your current chat was kept.`
+        : e instanceof ServerError ? e.message : "Couldn't change that. Try again.");
     } finally {
       setSwitching(false);
     }
@@ -775,8 +793,8 @@ function ChatConversation() {
     <View style={styles.root}>
       <Stack.Screen options={{ title: heading, headerTitle: titleButton(showTitle, setShowTitle, headerLinks.length), ...filesHeader(String(id), heading, colors.blue, headerLinks, false) }} />
       {showTitle ? <FullTitle title={heading} onClose={() => setShowTitle(false)} /> : null}
-      {sharing ? <OptionsSheet id={String(id)} title={heading} shared={shared} projectId={projectId} projectShared={projectShared} onProject={setProjectId} onProjectShared={setProjectShared} onChange={setShared} onClose={() => setSharing(false)} /> : null}
-      {choosing && projects ? <ProjectSheet visible projects={projects.list} vibe={projects.vibe === true && (projects.agentTier === undefined || projects.agentTier === 2 || projects.agentTier === 3)} selected={about} title="This chat is about" onPick={project => { void pickAbout(project); }} onClose={() => setChoosing(false)} /> : null}
+      {sharing ? <OptionsSheet id={String(id)} title={heading} shared={shared} projectId={projectId} projectShared={projectShared} canMoveProject={canChangeAbout} onProject={setProjectId} onProjectShared={setProjectShared} onChange={setShared} onClose={() => setSharing(false)} /> : null}
+      {choosing && projects && canChangeAbout ? <ProjectSheet visible projects={projects.list} vibe={mayCreateDesign(projects.agentTier, projects.vibe)} selected={about} title="This chat is about" onPick={project => { void pickAbout(project); }} onClose={() => setChoosing(false)} /> : null}
       <View style={[styles.split, stacked && previewOpen && styles.splitStacked]}>
       <View style={[styles.chatColumn, stacked && previewOpen && styles.chatColumnStacked]}>
       <ConversationKeyboardView>

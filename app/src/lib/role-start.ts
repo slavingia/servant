@@ -36,6 +36,14 @@ const TASKS: Record<UXRole, readonly TaskSpec[]> = {
       requirement: "researcher",
     },
     {
+      id: "research-prototype",
+      title: "Create an interactive prototype",
+      description: "Use the prototype agent to build a live design for a study or concept review.",
+      href: "/designs",
+      goals: ["prototype"],
+      requirement: "design-creation",
+    },
+    {
       id: "research-design-review",
       title: "Run a research-informed design review",
       description: "Compare a design with Research Hub evidence, identify alignment or conflicts with known user needs, and recommend what to investigate or change.",
@@ -132,7 +140,7 @@ function accessFor(requirement: TaskRequirement | undefined, access: OnboardingA
     };
     return {
       locked: true,
-      reason: "Design creation requires Design prototyper or Design engineer access and a configured Design Studio.",
+      reason: "Design creation requires Design prototyper, Design engineer, or Researcher access and a configured Design Studio.",
     };
   }
 

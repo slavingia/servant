@@ -15,7 +15,7 @@
 //   node server/server.mjs faq validate|publish <answers.json> | status
 
 import { joinPage } from "./join-page.mjs";
-import { newFolder, removePrototype, servePrototype } from "./prototypes.mjs";
+import { FOLDER as PROTOTYPE_FOLDER, newFolder, removePrototype, servePrototype } from "./prototypes.mjs";
 import { PRIVACY_PAGE } from "./privacy-page.mjs";
 import { createEmailVerifier, commandSender, emailSettings, normalizeEmail } from "./email-verify.mjs";
 import http from "node:http";
@@ -136,7 +136,7 @@ export function loadConfig() {
     // "full" (default): everyone's agent has full Hermes access. "limited":
     // non-owners use the restricted member bridge (docs/member-security.md).
     agentAccess: cfg.agentAccess === "limited" ? "limited" : "full",
-    // Where new people start: 0 = no agent until an owner sets a tier (1 tester, 2 vibe coder, 3 design engineer).
+    // Where new people start: 0 none, 1 tester, 2 prototyper, 3 design engineer, 4 Researcher.
     defaultAgentTier: [0, 1, 2, 3, 4].includes(cfg.defaultAgentTier) ? cfg.defaultAgentTier : 0,
     // Email code sign-in (docs/email-sign-in.md). Off unless enabled.
     emailVerification: cfg.emailVerification || {},
@@ -425,27 +425,72 @@ function fullAgentAccess(cfg) {
 }
 
 function agentRole(role, cfg) {
-  // A researcher (tier 4) is never promoted to the full agent, whatever agentAccess says.
+  // A researcher's ordinary chats are never promoted to the full agent. An
+  // explicit prototype chat is a separate, deliberately full-capability lane.
   if (role === "researcher") return "researcher";
+  if (role === "prototype") return "owner";
   return role === "owner" || fullAgentAccess(cfg) ? "owner" : "member";
 }
 
-// Which agent a person's chats run on: "researcher" for tier 4, otherwise the usual owner or member agent.
+// Which agent a person's chats run on. A persisted prototype chat selects its
+// own lane; a Researcher's ordinary work stays on the restricted bridge.
 function agentLane(user, cfg) {
+  if (user?.role === "prototype") return "prototype";
   if (user?.role === "researcher") return "researcher";
   if (user && user.role !== "owner" && agentTierOf(user) === RESEARCHER_TIER) return "researcher";
   return agentRole(user?.role, cfg);
 }
 
-function upstreamFor(user, cfg) {
-  const up = cfg.upstreams[agentLane(user, cfg)];
+function upstreamForLane(lane, cfg) {
+  const up = cfg.upstreams[lane];
   if (!up || !up.url || !up.key) return null;
   return up;
 }
 
+function upstreamLaneFor(user, cfg) {
+  const lane = agentLane(user, cfg);
+  // Existing servers already use the trusted owner/design agent for
+  // prototypes. Operators may configure a dedicated prototype upstream later.
+  return lane === "prototype" ? (cfg.upstreams.prototype ? "prototype" : "owner") : lane;
+}
+
+function upstreamFor(user, cfg) {
+  return upstreamForLane(upstreamLaneFor(user, cfg), cfg);
+}
+
+// A chat must keep using the upstream that owns its Hermes session. Prototype
+// chats created before this field existed used the owner/design agent.
+function chatUpstreamLane(chat, cfg) {
+  if (chat.role === "prototype") {
+    if (chat.upstreamLane === undefined) return "owner";
+    return ["owner", "prototype"].includes(chat.upstreamLane) ? chat.upstreamLane : null;
+  }
+  return upstreamLaneFor({ role: chat.role }, cfg);
+}
+
+const prototypeAgentAccess = user => [2, 3, RESEARCHER_TIER].includes(agentTierOf(user));
+
+function requirePrototypeChatScope(chat) {
+  if (chat.role !== "prototype") return;
+  if (chat.mode !== "vibe" || chat.projectId !== VIBE_PROJECT || chat.hosted !== "server" ||
+      !PROTOTYPE_FOLDER.test(chat.vibeFolder || "") || !vibeProject()) {
+    throw requestError(403, "forbidden", "This prototype workspace is no longer safely scoped. Start a new prototype");
+  }
+}
+
+function requireAgentChatAccess(user, chat) {
+  requirePrototypeChatScope(chat);
+  if (chat.role === "prototype" && !prototypeAgentAccess(user)) {
+    throw requestError(403, "forbidden", "Your prototype agent access changed. Start a new prototype");
+  }
+  if (user.role !== "owner" && agentTierOf(user) === RESEARCHER_TIER && !["researcher", "prototype"].includes(chat.role)) {
+    throw requestError(403, "forbidden", "Your access changed. Start a new chat");
+  }
+}
+
 // Restricted agents prove what they can do before every turn: the member agent has no tools at all,
 // the researcher has web, search, vision and read-only skills but no shell and no files (so no GitHub).
-const verifyUpstream = (lane, up) => lane === "researcher" ? verifyResearcherUpstream(up) : lane === "owner" ? Promise.resolve() : verifyMemberUpstream(up);
+const verifyUpstream = (lane, up) => lane === "researcher" ? verifyResearcherUpstream(up) : lane === "owner" || lane === "prototype" ? Promise.resolve() : verifyMemberUpstream(up);
 
 async function hermes(up, method, pathname, body, extraHeaders = {}, signal) {
   const res = await fetch(new URL(pathname, up.url), {
@@ -574,15 +619,15 @@ function chatLastMessage(latestTurn, mirrored) {
 }
 function chatView(chat, viewer, users = {}) {
   const view = { id: chat.id, title: chat.title, createdAt: chat.createdAt, updatedAt: chat.updatedAt, shared: chatShared(chat),
-    // Optional capability marker: older clients ignore it, while Research Studio
-    // can verify that a newly-created chat is actually on the restricted lane.
-    ...(chat.role === "researcher" ? { agentRole: "researcher" } : {}),
+    // Optional capability marker: older clients ignore it, while Servant UX can
+    // verify the restricted research lane or explicit scoped prototype lane.
+    ...(["researcher", "prototype"].includes(chat.role) ? { agentRole: chat.role } : {}),
     // The full agent takes any file (ZIPs, PDFs, prototypes); others take media.
     ...(agentRole(chat.role, loadConfig()) === "owner" ? { files: true } : {}),
     // folderId/folderShared repeat projectId/projectShared for app builds from before projects.
     ...(chat.projectId ? { projectId: chat.projectId, folderId: chat.projectId, project: { id: chat.projectId, name: projects().byId(chat.projectId)?.name || chat.projectId },
       ...(chat.projectShared ? { projectShared: true, folderShared: true } : {}) } : {}),
-    ...(chat.mode === "vibe" ? { mode: "vibe", previewUrl: prototypePreview(chat) } : {}) };
+    ...(chat.mode === "vibe" ? { mode: "vibe", previewUrl: prototypePreview(chat), previewReady: prototypeReady(chat) } : {}) };
   try { const u = usageStore().chatTotals(chat.id); if (u.turns) view.usage = u; } catch { /* stats never block a chat */ }
   if (viewer && chat.userId === viewer.id) {
     view.archived = !!chat.archivedAt;
@@ -621,6 +666,18 @@ function prototypePreview(chat) {
   if (chat.hosted === "server") { const origin = loadConfig().publicUrl.replace(/\/+$/, ""); return origin ? `${origin}/p/${chat.vibeFolder}/` : ""; }
   return vibePreview(vibeProject(), chat);
 }
+function prototypeReady(chat) {
+  if (chat.mode !== "vibe") return false;
+  // GitHub-hosted prototypes predate server-local publication and have no
+  // local artifact to inspect. Their established preview URL remains the signal.
+  if (chat.hosted !== "server") return !!prototypePreview(chat);
+  if (!PROTOTYPE_FOLDER.test(chat.vibeFolder || "")) return false;
+  try {
+    const stat = fs.lstatSync(path.join(PROTOTYPES_DIR, chat.vibeFolder, "index.html"));
+    return stat.isFile() && stat.size > 0 && stat.size <= 25 * 1024 * 1024;
+  }
+  catch { return false; }
+}
 // The project with this id, if this person is in it (or is an admin).
 function projectFor(user, pid, users = readState().users) {
   const data = projects().read();
@@ -641,8 +698,9 @@ const BUG_REPORTER_RULES = "This person is a tester. The only thing you do for t
 function chatContext(chat) {
   const tier = agentTierOf(readState().users[chat.userId]);
   const tier1 = tier === 1 ? BUG_REPORTER_RULES : "";
-  // A researcher's chat never carries a project's repo, workflow or GitHub rules.
-  if (chat.role === "researcher" || tier === RESEARCHER_TIER) return RESEARCHER_RULES;
+  // A researcher's ordinary chats never carry project or GitHub rules. Their
+  // explicitly authorized prototype chats receive only the scoped vibe context.
+  if (chat.role === "researcher" || (tier === RESEARCHER_TIER && chat.role !== "prototype")) return RESEARCHER_RULES;
   const base = chatContextBase(chat);
   return [base, tier1].filter(Boolean).join("\n\n");
 }
@@ -1270,8 +1328,6 @@ async function handle(req, res, cfg) {
 
   // ----- chats with the agent -----
   if (parts[1] !== "chats") return fail(res, 404, "not_found", "Not found");
-  const up = upstreamFor(user, cfg);
-  if (!up) return fail(res, 503, "agent_unavailable", "The agent isn't set up on this server yet");
   const currentState = readState();
   requireAuth(req, currentState);
   const mine = Object.values(currentState.chats).filter((c) => c.userId === user.id && !c.deletedAt);
@@ -1311,25 +1367,36 @@ async function handle(req, res, cfg) {
     const body = await readAuthorizedBody(req);
     const creator = requireAuth(req).user;
     const requiredAgentRole = body.requiredAgentRole;
-    if (requiredAgentRole !== undefined && requiredAgentRole !== "researcher") {
-      return fail(res, 400, "bad_request", "requiredAgentRole must be researcher");
+    if (requiredAgentRole !== undefined && !["researcher", "prototype"].includes(requiredAgentRole)) {
+      return fail(res, 400, "bad_request", "requiredAgentRole must be researcher or prototype");
     }
     const lane = agentLane(creator, cfg);
-    if (requiredAgentRole && lane !== requiredAgentRole) {
+    if (requiredAgentRole === "researcher" && lane !== "researcher") {
       return fail(res, 403, "forbidden", "Researcher access is required. Ask a workspace owner to grant it.");
     }
-    const creationUp = upstreamFor(creator, cfg);
-    if (!creationUp) return fail(res, 503, "agent_unavailable", "The agent isn't set up on this server yet");
-    if (lane !== "owner") await verifyUpstream(lane, creationUp);
-    const chatId = id("cht");
     // Vibe coders always build prototypes. Anyone else may start the chat in a project
-    // they're in, or ask for vibe coding (a prototype with a preview link) from the list.
+    // they're in, or explicitly ask for a prototype. Researchers use a separate
+    // persisted prototype lane so their ordinary chats remain restricted.
     const tier = agentTierOf(readState().users[creator.id]);
     if (tier === 0) return fail(res, 403, "no_agent", noAgentMessage);
-    const vibe = lane !== "researcher" && (tier === 2 || (tier === 3 && body.mode === "vibe"));
+    if (requiredAgentRole === "prototype" && body.mode !== "vibe") {
+      return fail(res, 400, "bad_request", "The prototype agent requires mode vibe");
+    }
+    const vibe = requiredAgentRole === "researcher" ? false : tier === 2 || ([3, RESEARCHER_TIER].includes(tier) && body.mode === "vibe");
+    if (requiredAgentRole === "prototype" && (!vibe || !prototypeAgentAccess(creator))) {
+      return fail(res, 403, "forbidden", "Prototype agent access is required");
+    }
     if (vibe && !vibeProject()) return fail(res, 503, "vibe_unavailable", "Prototyping isn't set up on this server");
+    const chatRole = requiredAgentRole === "prototype" || (vibe && tier === RESEARCHER_TIER)
+      ? "prototype"
+      : lane === "researcher" ? "researcher" : creator.role;
+    const creationLane = upstreamLaneFor({ role: chatRole }, cfg);
+    const creationUp = upstreamForLane(creationLane, cfg);
+    if (!creationUp) return fail(res, 503, "agent_unavailable", "The requested agent isn't set up on this server yet");
+    await verifyUpstream(creationLane, creationUp);
+    const chatId = id("cht");
     // Old builds send folderId, or project with ids this server may no longer know.
-    const wanted = lane === "researcher" ? null : (body.projectId ?? body.folderId ?? (projects().byId(body.project) ? body.project : null));
+    const wanted = chatRole === "researcher" ? null : (body.projectId ?? body.folderId ?? (projects().byId(body.project) ? body.project : null));
     if (!vibe && wanted != null && !projectFor(creator, wanted)) return fail(res, 404, "not_found", "No such project");
     const projectId = vibe ? VIBE_PROJECT : wanted;
     const hermesSessionId = `servant_${creator.id}_${chatId}`;
@@ -1338,7 +1405,8 @@ async function handle(req, res, cfg) {
     const chat = {
       id: chatId,
       userId: creator.id,
-      role: lane === "researcher" ? "researcher" : creator.role,
+      role: chatRole,
+      ...(chatRole === "prototype" ? { upstreamLane: creationLane } : {}),
       hermesSessionId,
       title: String(body.title || "New chat").slice(0, 80),
       // Always private to start. Sharing with the server or the project is a later choice, per chat.
@@ -1351,7 +1419,8 @@ async function handle(req, res, cfg) {
     try {
       mutateAuthenticated(req, (state, current) => {
         if (current.user.role !== creator.role || current.user.id !== creator.id) throw requestError(403, "forbidden", "Your access changed. Start a new chat");
-        if (requiredAgentRole && agentLane(current.user, cfg) !== requiredAgentRole) throw requestError(403, "forbidden", "Your Researcher access changed. Start a new chat");
+        if (requiredAgentRole === "researcher" && agentLane(current.user, cfg) !== "researcher") throw requestError(403, "forbidden", "Your Researcher access changed. Start a new chat");
+        if (chatRole === "prototype" && !prototypeAgentAccess(current.user)) throw requestError(403, "forbidden", "Your prototype agent access changed. Start a new chat");
         state.chats[chatId] = chat;
       });
     } catch (error) {
@@ -1399,10 +1468,12 @@ async function handle(req, res, cfg) {
     if (typeof body.shared !== "boolean" && body.shared !== undefined) return fail(res, 400, "bad_request", "shared must be true or false");
     if (hasProjectShared && typeof nextShared !== "boolean") return fail(res, 400, "bad_request", "projectShared must be true or false");
     if (hasProject && nextProject !== null && !validProjectId(nextProject)) return fail(res, 400, "bad_request", "projectId must be a project or null");
+    if (hasProject && chat.role === "prototype") return fail(res, 409, "prototype_scope", "Prototype workspaces stay in Design Studio");
     if (body.shared && chat.privateForward) return fail(res, 409, "forward_private", "This chat includes a message from a private conversation, so it stays private");
     let updated;
     mutateAuthenticated(req, (state, current) => {
       updated = requireChat(state, current.user.id, chat.id);
+      if (hasProject && updated.role === "prototype") throw requestError(409, "prototype_scope", "Prototype workspaces stay in Design Studio");
       if (typeof body.shared === "boolean") updated.shared = body.shared;
       if (hasProject) {
         if (nextProject === null) { delete updated.projectId; delete updated.projectShared; }
@@ -1421,7 +1492,9 @@ async function handle(req, res, cfg) {
     return send(res, 200, { chat: chatView(updated, user) });
   }
   // A member promoted to owner (or the reverse) keeps old chats on the old agent.
-  const chatUp = cfg.upstreams[agentRole(chat.role, cfg)];
+  const chatLane = chatUpstreamLane(chat, cfg);
+  const chatUp = upstreamForLane(chatLane, cfg);
+  if (!chatUp) return fail(res, 503, "agent_unavailable", "This chat's agent isn't set up on this server");
 
   // Archive is a tidy-up only, and only the person does it: the chat keeps running, and sending a
   // new message brings it back to the list.
@@ -1446,15 +1519,23 @@ async function handle(req, res, cfg) {
   }
 
   let upstreamUnavailable = false;
-  const syncChatHistory = async (allowOffline = false) => {
-    const cached = () => {
+  const syncChatHistory = async (allowOffline = false, forTurn = false) => {
+    const authorize = () => {
       const latest = readState();
-      requireChat(latest, requireAuth(req, latest).user.id, chat.id);
+      const current = requireAuth(req, latest);
+      const active = requireChat(latest, current.user.id, chat.id);
+      requirePrototypeChatScope(active);
+      if (forTurn) requireAgentChatAccess(current.user, active);
+      return current;
+    };
+    const cached = () => {
+      authorize();
       upstreamUnavailable = true;
       return chatMediaStore().history(chat.id);
     };
-    if (agentRole(chat.role, cfg) !== "owner") {
-      try { await verifyUpstream(agentRole(chat.role, cfg), chatUp); }
+    authorize();
+    if (!["owner", "prototype"].includes(chatLane)) {
+      try { await verifyUpstream(chatLane, chatUp); }
       catch (error) { if (allowOffline) return cached(); throw error; }
     }
     const generation = chatMediaStore().beginSync(chat.id);
@@ -1466,8 +1547,7 @@ async function handle(req, res, cfg) {
     }
     if (!r.ok) throw requestError(502, "agent_error", `Couldn't load messages (${r.status})`);
     const data = await r.json();
-    const latest = readState();
-    requireChat(latest, requireAuth(req, latest).user.id, chat.id);
+    authorize();
     const messages = data.messages ?? data.data;
     if (!Array.isArray(messages)) throw requestError(502, "agent_error", "The agent returned invalid message history");
     return chatMediaStore().sync(chat.id, messages, generation);
@@ -1576,9 +1656,10 @@ async function handle(req, res, cfg) {
     if (prior) return streamPrivateTurn(req, res, prior.id, () => ownTurn(prior.id));
     if (usageStore().overLimit(user)) return fail(res, 429, "usage_limit", limitText(user));
     // Establish history before the worker records new accepted deliveries.
-    await syncChatHistory();
+    await syncChatHistory(false, true);
     const turn = mutateAuthenticated(req, (state, current) => {
       const active = requireChat(state, current.user.id, chat.id);
+      requireAgentChatAccess(current.user, active);
       if (privateForward && (chatShared(active) || active.projectShared)) throw requestError(409, "forward_private", "Messages from private conversations go into a private chat");
       const queued = agentTurns.enqueue({ chat: active, user: current.user, device: current.device, text, attachments, requestId: body.requestId });
       if (privateForward) active.privateForward = true;
@@ -1645,12 +1726,14 @@ async function executePrivateTurn(turn, hooks, cfg) {
   const device = Object.values(initial.devices).find(d => d.id === turn.device_id && d.userId === turn.user_id && !d.revokedAt);
   const chat = requireChat(initial, turn.user_id, turn.chat_id);
   if (!user || !device || (chat.role === "owner" && user.role !== "owner")) throw requestError(403, "forbidden", "Access changed before this turn started");
-  // Someone moved to Researcher can't keep using an older chat that runs on the full or member agent.
-  if (user.role !== "owner" && agentTierOf(user) === RESEARCHER_TIER && chat.role !== "researcher") throw requestError(403, "forbidden", "Your access changed. Start a new chat");
-  const up = upstreamFor({ role: turn.role }, cfg);
+  // Someone moved to Researcher can't keep using an arbitrary older full-agent
+  // chat. Only explicitly marked, folder-scoped prototype chats are allowed.
+  requireAgentChatAccess(user, chat);
+  const lane = chatUpstreamLane(chat, cfg);
+  const up = upstreamForLane(lane, cfg);
   if (!up) throw requestError(502, "agent_error", "The agent is unavailable");
-  const full = agentRole(turn.role, cfg) === "owner";
-  if (!full) await verifyUpstream(agentRole(turn.role, cfg), up);
+  const full = ["owner", "prototype"].includes(lane);
+  if (!full) await verifyUpstream(lane, up);
   if (!turn.run_id && usageStore().overLimit(user)) throw requestError(429, "usage_limit", limitText(user));
   const durable = !!turn.run_id || await supportsDurableRuns(up);
   // Legacy owner agents can read the exact saved input instead of receiving

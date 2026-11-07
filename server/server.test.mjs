@@ -135,6 +135,10 @@ function fakeHermes(key, label, capabilities = restrictedTestCapabilities) {
 const owner = fakeHermes("owner-key", "owner-agent");
 const member = fakeHermes("member-key", "member-agent");
 const researcher = fakeHermes("researcher-key", "researcher-agent", researcherTestCapabilities);
+const prototype = fakeHermes("prototype-key", "prototype-agent");
+const hermesUpstreams = [owner, member, researcher, prototype];
+const sessionCallCount = () => hermesUpstreams.reduce((n, up) => n + up.calls.filter(call => call.method === "POST" && call.url === "/api/sessions").length, 0);
+const streamCallCounts = () => hermesUpstreams.map(up => up.calls.filter(call => call.url.endsWith("/chat/stream")).length);
 let server;
 let base;
 let mod;
@@ -143,6 +147,7 @@ before(async () => {
   await new Promise((r) => owner.server.listen(0, "127.0.0.1", r));
   await new Promise((r) => member.server.listen(0, "127.0.0.1", r));
   await new Promise((r) => researcher.server.listen(0, "127.0.0.1", r));
+  await new Promise((r) => prototype.server.listen(0, "127.0.0.1", r));
   fs.writeFileSync(
     path.join(dataDir, "config.json"),
     JSON.stringify({
@@ -155,6 +160,7 @@ before(async () => {
         owner: { url: `http://127.0.0.1:${owner.server.address().port}`, key: "owner-key" },
         member: { url: `http://127.0.0.1:${member.server.address().port}`, key: "member-key" },
         researcher: { url: `http://127.0.0.1:${researcher.server.address().port}`, key: "researcher-key" },
+        prototype: { url: `http://127.0.0.1:${prototype.server.address().port}`, key: "prototype-key" },
       },
     }),
   );
@@ -177,6 +183,7 @@ after(async () => {
   owner.server.close();
   member.server.close();
   researcher.server.close();
+  prototype.server.close();
   fs.rmSync(dataDir, { recursive: true, force: true });
 });
 
@@ -484,7 +491,7 @@ test("researcher (tier 4): runs only on the researcher agent, never the full one
   assert.equal(created.json.chat.agentRole, "researcher", "client can verify the restricted lane");
   assert.equal(created.json.chat.mode, undefined, "never a vibe chat");
   assert.equal(created.json.chat.projectId, undefined, "never tied to a project's repo");
-  const [o, m, r] = [owner.calls.length, member.calls.length, researcher.calls.length];
+  const [o, m, r, p] = [owner.calls.length, member.calls.length, researcher.calls.length, prototype.calls.length];
   const sent = await api("POST", `/v1/chats/${created.json.chat.id}/messages`, { token, body: { text: "find me recent research on call-center wait times" } });
   assert.equal(sent.status, 200, sent.text);
   const deltas = parseSse(sent.text).filter((e) => e.event === "delta").map((e) => e.data.text).join("");
@@ -492,6 +499,7 @@ test("researcher (tier 4): runs only on the researcher agent, never the full one
   assert.equal(owner.calls.length, o, "never touched the full agent");
   assert.equal(member.calls.length, m, "never touched the member agent");
   assert.ok(researcher.calls.length > r, "went to the researcher agent");
+  assert.equal(prototype.calls.length, p, "never touched the prototype agent");
   // The agent is told the rules, and is never given a project's repo or GitHub workflow.
   const turn = researcher.calls.slice(r).find((c) => c.url.endsWith("/chat/stream"));
   const prompt = JSON.stringify(turn.body);
@@ -500,20 +508,223 @@ test("researcher (tier 4): runs only on the researcher agent, never the full one
   assert.doesNotMatch(prompt, /slavingia\/servant|design-prototypes/);
 });
 
+test("researcher (tier 4): explicit prototype chats use the prototype agent while research stays restricted", async () => {
+  const boss = await pair("owner", "Prototype Research Owner");
+  const token = await pair("member", "Priya Prototype Researcher");
+  const me = (await api("GET", "/v1/people", { token: boss })).json.people.find((person) => person.name === "Priya Prototype Researcher");
+  await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 4 } });
+
+  const sessionsBefore = sessionCallCount();
+  const malformed = await api("POST", "/v1/chats", { token, body: { requiredAgentRole: "prototype" } });
+  assert.equal(malformed.status, 400);
+  assert.equal(sessionCallCount(), sessionsBefore);
+
+  const created = await api("POST", "/v1/chats", { token, body: { mode: "vibe", title: "Refund flow prototype", requiredAgentRole: "prototype" } });
+  assert.equal(created.status, 201, created.text);
+  assert.equal(created.json.chat.mode, "vibe");
+  assert.equal(created.json.chat.agentRole, "prototype");
+  assert.equal(created.json.chat.project.id, "design-prototypes");
+  assert.match(created.json.chat.previewUrl, /^https:\/\/tsoa\.example\.test\/p\/proto-[0-9a-f]{18}\/$/);
+  assert.equal(created.json.chat.previewReady, false, "an allocated URL is not a published prototype");
+  const previewFolder = created.json.chat.previewUrl.split("/p/")[1].replace(/\/$/, "");
+  const previewDir = path.join(dataDir, "prototypes", previewFolder);
+  fs.mkdirSync(previewDir, { recursive: true });
+  fs.writeFileSync(path.join(previewDir, "index.html"), "<!doctype html><title>Ready</title>");
+  assert.equal((await api("GET", `/v1/chats/${created.json.chat.id}`, { token })).json.chat.previewReady, true, "a served index file confirms publication");
+  assert.equal((await api("GET", `/v1/chats/${created.json.chat.id}`, { token })).json.chat.agentRole, "prototype", "the lane marker persists on detail");
+  const listedPrototype = (await api("GET", "/v1/chats", { token })).json.chats.find(chat => chat.id === created.json.chat.id);
+  assert.equal(listedPrototype?.agentRole, "prototype", "the lane marker persists in lists");
+  assert.equal(listedPrototype?.previewReady, true, "lists expose the server-confirmed readiness signal");
+  assert.equal((await api("PATCH", `/v1/chats/${created.json.chat.id}`, { token, body: { projectId: null } })).status, 409);
+  assert.equal((await api("PATCH", `/v1/chats/${created.json.chat.id}`, { token, body: { projectId: "servant" } })).status, 409);
+  assert.equal((await api("GET", `/v1/chats/${created.json.chat.id}`, { token })).json.chat.project.id, "design-prototypes", "a prototype cannot leave Design Studio");
+
+  const [o, m, r, p] = [owner.calls.length, member.calls.length, researcher.calls.length, prototype.calls.length];
+  const sent = await api("POST", `/v1/chats/${created.json.chat.id}/messages`, { token, body: { text: "build a simple refund-status task" } });
+  assert.equal(sent.status, 200, sent.text);
+  assert.equal(parseSse(sent.text).filter(event => event.event === "delta").map(event => event.data.text).join(""), "prototype-agent heard: build a simple refund-status task");
+  assert.equal(owner.calls.length, o, "did not use the general full agent");
+  assert.equal(member.calls.length, m, "did not use the member agent");
+  assert.equal(researcher.calls.length, r, "did not use the researcher agent");
+  assert.ok(prototype.calls.length > p, "used the configured prototype agent");
+  const prototypeTurn = prototype.calls.slice(p).find(call => call.url.endsWith("/chat/stream"));
+  assert.match(prototypeTurn.body.system_message, /prototyping session/);
+  assert.match(prototypeTurn.body.system_message, /Build only inside .*prototypes\/proto-/);
+  assert.match(prototypeTurn.body.system_message, /Never touch other folders or other people's prototypes/);
+
+  const research = await api("POST", "/v1/chats", { token, body: { title: "Refund study", requiredAgentRole: "researcher" } });
+  assert.equal(research.json.chat.agentRole, "researcher");
+  assert.equal(research.json.chat.mode, undefined);
+  const [ownerBeforeResearch, memberBeforeResearch, researcherBefore, prototypeBeforeResearch] = streamCallCounts();
+  const researchSent = await api("POST", `/v1/chats/${research.json.chat.id}/messages`, { token, body: { text: "plan the study" } });
+  assert.equal(researchSent.status, 200, researchSent.text);
+  const afterResearch = streamCallCounts();
+  assert.ok(afterResearch[2] > researcherBefore, "ordinary research still uses the restricted researcher agent");
+  assert.deepEqual([afterResearch[0], afterResearch[1], afterResearch[3]], [ownerBeforeResearch, memberBeforeResearch, prototypeBeforeResearch], "ordinary research never touches a full-capability lane");
+
+  const revoked = await api("POST", "/v1/chats", { token, body: { mode: "vibe", requiredAgentRole: "prototype" } });
+  assert.equal(revoked.status, 201);
+  await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 1 } });
+  const streamsBeforeRevoked = streamCallCounts();
+  const denied = await api("POST", `/v1/chats/${revoked.json.chat.id}/messages`, { token, body: { text: "this must not run" } });
+  assert.equal(denied.status, 403, denied.text);
+  assert.deepEqual(streamCallCounts(), streamsBeforeRevoked, "revoked prototype access fails before contacting any agent");
+});
+
+test("researcher (tier 4): ordinary markerless chats stay on the restricted lane", async () => {
+  const boss = await pair("owner", "Ordinary Research Owner");
+  const token = await pair("member", "Ori Ordinary Researcher");
+  const me = (await api("GET", "/v1/people", { token: boss })).json.people.find(person => person.name === "Ori Ordinary Researcher");
+  await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 4 } });
+
+  const plain = await api("POST", "/v1/chats", { token, body: {} });
+  const requestedProject = await api("POST", "/v1/chats", { token, body: { projectId: "servant" } });
+  for (const created of [plain, requestedProject]) {
+    assert.equal(created.status, 201, created.text);
+    assert.equal(created.json.chat.agentRole, "researcher");
+    assert.equal(created.json.chat.mode, undefined);
+    assert.equal(created.json.chat.projectId, undefined);
+  }
+
+  const before = streamCallCounts();
+  assert.equal((await api("POST", `/v1/chats/${plain.json.chat.id}/messages`, { token, body: { text: "summarize the evidence" } })).status, 200);
+  assert.equal((await api("POST", `/v1/chats/${requestedProject.json.chat.id}/messages`, { token, body: { text: "plan interviews" } })).status, 200);
+  const after = streamCallCounts();
+  assert.deepEqual([after[0], after[1], after[3]], [before[0], before[1], before[3]], "ordinary chats never reach a full-capability agent");
+  assert.equal(after[2], before[2] + 2, "both chats use only the researcher agent");
+});
+
+test("prototype creation is denied to tiers 0 and 1 before any upstream session is opened", async () => {
+  const boss = await pair("owner", "Prototype Access Owner");
+  const token = await pair("member", "Pat Prototype Access");
+  const me = (await api("GET", "/v1/people", { token: boss })).json.people.find(person => person.name === "Pat Prototype Access");
+  for (const tier of [1, 0]) {
+    await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: tier } });
+    const before = sessionCallCount();
+    const denied = await api("POST", "/v1/chats", { token, body: { mode: "vibe", requiredAgentRole: "prototype" } });
+    assert.equal(denied.status, 403, denied.text);
+    assert.equal(sessionCallCount(), before, `tier ${tier} is denied before session creation`);
+  }
+});
+
+test("malformed prototype state fails closed before contacting any upstream", async () => {
+  const boss = await pair("owner", "Prototype Scope Owner");
+  const token = await pair("member", "Pia Prototype Scope");
+  const me = (await api("GET", "/v1/people", { token: boss })).json.people.find(person => person.name === "Pia Prototype Scope");
+  await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 4 } });
+  const created = await api("POST", "/v1/chats", { token, body: { mode: "vibe", requiredAgentRole: "prototype" } });
+  assert.equal(created.status, 201, created.text);
+  let original;
+  mod.mutateStateForTest(state => { original = structuredClone(state.chats[created.json.chat.id]); });
+  const corruptions = [
+    chat => { delete chat.mode; },
+    chat => { chat.projectId = "servant"; },
+    chat => { delete chat.hosted; },
+    chat => { chat.vibeFolder = "../outside"; },
+  ];
+  for (const corrupt of corruptions) {
+    mod.mutateStateForTest(state => { state.chats[created.json.chat.id] = structuredClone(original); corrupt(state.chats[created.json.chat.id]); });
+    const before = streamCallCounts();
+    const denied = await api("POST", `/v1/chats/${created.json.chat.id}/messages`, { token, body: { text: "must not run" } });
+    assert.equal(denied.status, 403, denied.text);
+    assert.deepEqual(streamCallCounts(), before, "invalid scope is rejected before any agent turn");
+  }
+  mod.mutateStateForTest(state => { state.chats[created.json.chat.id] = original; });
+});
+
+test("owner-fallback prototype chats stay on their original upstream after a dedicated one is configured", async () => {
+  const boss = await pair("owner", "Fallback Prototype Owner");
+  const token = await pair("member", "Fallback Prototype Researcher");
+  const me = (await api("GET", "/v1/people", { token: boss })).json.people.find((person) => person.name === "Fallback Prototype Researcher");
+  await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 4 } });
+  const cfgFile = path.join(dataDir, "config.json");
+  const before = fs.readFileSync(cfgFile, "utf8");
+  const cfg = JSON.parse(before);
+  delete cfg.upstreams.prototype;
+  fs.writeFileSync(cfgFile, JSON.stringify(cfg));
+  let created;
+  let legacy;
+  try {
+    created = await api("POST", "/v1/chats", { token, body: { mode: "vibe", requiredAgentRole: "prototype" } });
+    assert.equal(created.status, 201, created.text);
+    assert.equal(created.json.chat.agentRole, "prototype");
+    legacy = await api("POST", "/v1/chats", { token, body: { mode: "vibe", requiredAgentRole: "prototype" } });
+    assert.equal(legacy.status, 201, legacy.text);
+    mod.mutateStateForTest(state => { delete state.chats[legacy.json.chat.id].upstreamLane; });
+  } finally {
+    fs.writeFileSync(cfgFile, before);
+  }
+  const streamsBefore = streamCallCounts();
+  const sent = await api("POST", `/v1/chats/${created.json.chat.id}/messages`, { token, body: { text: "build with the existing design agent" } });
+  assert.equal(sent.status, 200, sent.text);
+  assert.equal(parseSse(sent.text).filter(event => event.event === "delta").map(event => event.data.text).join(""), "owner-agent heard: build with the existing design agent");
+  assert.equal((await api("POST", `/v1/chats/${legacy.json.chat.id}/messages`, { token, body: { text: "continue an older prototype" } })).status, 200);
+  const streamsAfter = streamCallCounts();
+  assert.equal(streamsAfter[0], streamsBefore[0] + 2, "persisted and legacy prototype chats keep using the owner/design upstream that owns their sessions");
+  assert.equal(streamsAfter[3], streamsBefore[3], "did not reroute the existing session to the newly configured prototype upstream");
+});
+
+test("dedicated prototype chats never fall back to owner if their upstream is removed", async () => {
+  const boss = await pair("owner", "Dedicated Prototype Owner");
+  const token = await pair("member", "Dedicated Prototype Researcher");
+  const me = (await api("GET", "/v1/people", { token: boss })).json.people.find(person => person.name === "Dedicated Prototype Researcher");
+  await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 4 } });
+  const created = await api("POST", "/v1/chats", { token, body: { mode: "vibe", requiredAgentRole: "prototype" } });
+  assert.equal(created.status, 201, created.text);
+  const cfgFile = path.join(dataDir, "config.json");
+  const before = fs.readFileSync(cfgFile, "utf8");
+  const cfg = JSON.parse(before);
+  delete cfg.upstreams.prototype;
+  fs.writeFileSync(cfgFile, JSON.stringify(cfg));
+  try {
+    const streamsBefore = streamCallCounts();
+    const denied = await api("POST", `/v1/chats/${created.json.chat.id}/messages`, { token, body: { text: "do not reroute this session" } });
+    assert.equal(denied.status, 503, denied.text);
+    assert.deepEqual(streamCallCounts(), streamsBefore, "a missing dedicated upstream never reroutes to owner");
+  } finally {
+    fs.writeFileSync(cfgFile, before);
+  }
+});
+
+test("prototype chats and chat lists do not depend on the ordinary researcher upstream", async () => {
+  const boss = await pair("owner", "Independent Prototype Owner");
+  const token = await pair("member", "Independent Prototype Researcher");
+  const me = (await api("GET", "/v1/people", { token: boss })).json.people.find(person => person.name === "Independent Prototype Researcher");
+  await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 4 } });
+  const cfgFile = path.join(dataDir, "config.json");
+  const before = fs.readFileSync(cfgFile, "utf8");
+  const cfg = JSON.parse(before);
+  delete cfg.upstreams.researcher;
+  fs.writeFileSync(cfgFile, JSON.stringify(cfg));
+  try {
+    assert.equal((await api("GET", "/v1/chats", { token })).status, 200, "listing chats does not need an agent upstream");
+    const created = await api("POST", "/v1/chats", { token, body: { mode: "vibe", requiredAgentRole: "prototype" } });
+    assert.equal(created.status, 201, created.text);
+    const streamsBefore = streamCallCounts();
+    const sent = await api("POST", `/v1/chats/${created.json.chat.id}/messages`, { token, body: { text: "build without the research bridge" } });
+    assert.equal(sent.status, 200, sent.text);
+    const streamsAfter = streamCallCounts();
+    assert.equal(streamsAfter[3], streamsBefore[3] + 1, "the prototype upstream handles the turn");
+    assert.deepEqual(streamsAfter.slice(0, 3), streamsBefore.slice(0, 3), "no ordinary upstream was contacted");
+  } finally {
+    fs.writeFileSync(cfgFile, before);
+  }
+});
+
 test("research chat creation fails closed before starting a session when Researcher access is absent", async () => {
   const boss = await pair("owner", "Research Gate Owner");
   const token = await pair("member", "Remy Research Gate");
   const me = (await api("GET", "/v1/people", { token: boss })).json.people.find((p) => p.name === "Remy Research Gate");
   await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 4 } });
   await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 3 } });
-  const sessionsBefore = [...owner.calls, ...member.calls, ...researcher.calls].filter((call) => call.url.endsWith("/api/sessions")).length;
+  const sessionsBefore = sessionCallCount();
 
   const denied = await api("POST", "/v1/chats", { token, body: { title: "Research brief", requiredAgentRole: "researcher" } });
   assert.equal(denied.status, 403);
   assert.match(denied.json.error.message, /Researcher access is required/);
   const invalid = await api("POST", "/v1/chats", { token, body: { requiredAgentRole: "owner" } });
   assert.equal(invalid.status, 400);
-  const sessionsAfter = [...owner.calls, ...member.calls, ...researcher.calls].filter((call) => call.url.endsWith("/api/sessions")).length;
+  const sessionsAfter = sessionCallCount();
   assert.equal(sessionsAfter, sessionsBefore, "no upstream session is created for a rejected lane");
 });
 

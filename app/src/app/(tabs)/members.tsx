@@ -17,7 +17,7 @@ const TIERS = [
   { tier: 0, label: "No agent", hint: "They can't use the agent" },
   { tier: 1, label: "Tester", hint: "Their agent only files GitHub issues" },
   { tier: 2, label: "Design prototyper", hint: "Their agent builds interactive designs with a preview link" },
-  { tier: 4, label: "Researcher", hint: "Their agent searches the web and uses skills. No GitHub, no files, no commands" },
+  { tier: 4, label: "Researcher", hint: "Research chats use the restricted research agent; a separate prototype agent builds interactive designs" },
   { tier: 3, label: "Design engineer", hint: "Their agent has full access" },
 ];
 
@@ -65,7 +65,7 @@ export default function Members() {
     owner && !person.owner && person.unlimitedTokens ? "No token limit" : null,
     status || null,
   ].filter(Boolean).join(" · ");
-  // Owners choose what each person's agent may do: none, file bug reports, build prototypes, or everything.
+  // Owners choose the person's role-specific agents; Researchers get both the restricted research lane and prototype lane.
   const setTier = async (person: Person, tier: number) => {
     if (opening || (person.agentTier ?? 0) === tier) return;
     setOpening(person.id); setError(null);

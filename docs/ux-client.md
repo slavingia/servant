@@ -39,7 +39,9 @@ second protocol:
 - **Design Studio** is a library view over existing agent chats whose
   `mode` is `vibe`. Creating a design still calls the normal chat endpoint with
   `mode: "vibe"`, and the client offers that action only for server-authorized
-  Design prototyper and Design engineer tiers when prototyping is configured.
+  Design prototyper, Design engineer, and Researcher tiers when prototyping is
+  configured. Researcher-created designs explicitly request the separate
+  `prototype` agent lane; ordinary Researcher chats remain restricted.
 - Sharing a design posts an ordinary plain-text message to an existing channel
   or direct message, then opens its ordinary Servant thread for feedback. Older
   and upstream clients therefore receive a useful title, status, preview URL,
@@ -69,12 +71,19 @@ adding a new server resource:
   one opens the existing chat composer with a prefabricated draft for the person
   to review and edit; onboarding and task shortcuts must not send it
   automatically.
-- A study may use no prototype, plan a new one, or reference an active Design
+- A study may use no prototype, create a new one, or reference an active Design
   Studio prototype with a live preview. Existing prototypes are loaded from the
   ordinary readable chat library and rechecked immediately before the research
-  draft is created. Planning a new prototype adds a build-ready Design Studio
-  handoff; it does not route the restricted Researcher agent through the full
-  design agent or claim that a prototype has already been built.
+  draft is created. Creating a new prototype first opens a private prototype-agent
+  workspace with an unsent build draft derived only from the person's written,
+  public-or-made-up study context. Governed Research Hub records never enter the
+  prototype/full-agent prompt; they are re-resolved later for the restricted
+  Researcher chat. The study form remains available underneath it. On
+  return, the client rechecks the workspace and selects it only after it has a
+  live preview and the server's `previewReady` signal confirms a real hosted
+  `index.html` artifact. It then creates the ordinary
+  restricted Researcher chat; it never treats the prototype agent as the
+  Researcher agent or claims participant research occurred.
 - The starting task label is exactly **Run a research-informed design review**.
   Research Hub reviews must cite their evidence and sources and clearly remain a
   research-informed first pass. They must not claim or imply human validation,
@@ -84,14 +93,22 @@ adding a new server resource:
   study summary, follow permitted shared chats, and participate in feedback
   without a Research Studio-specific renderer.
 
-This milestone adds no Research Studio endpoint, message type, persistence
-schema, or pairing change. It adds only two optional, backwards-compatible
-fields to the existing chat-creation exchange: the UX client requests
-`requiredAgentRole: "researcher"`, and the server confirms the resulting chat
-with `agentRole: "researcher"`. The request is checked again in the same state
-transaction that stores the chat, so an access change cannot silently create a
-different kind of workspace. Original clients ignore the optional response
-field and continue to use the same chats, sharing, messages, and threads.
+This milestone adds no Research Studio endpoint, message type, or pairing
+change. It uses two optional, backwards-compatible role markers on the existing
+chat-creation exchange. Restricted work requests and confirms `researcher`;
+an explicit `mode: "vibe"` prototype workspace requests and confirms
+`prototype`. Both requests are checked again in the same state transaction that
+stores the chat, and every turn rechecks current eligibility before contacting
+an upstream agent. Original clients ignore the optional response field and
+continue to use the same chats, sharing, messages, and threads.
+
+The `prototype` lane is immutably bound to its server-generated prototype
+workspace and receives the hosted-prototype folder and safety brief. A Researcher
+who loses prototype eligibility cannot continue that workspace. Unmarked older
+full-agent chats do not become available merely because someone has Researcher
+access. The server also persists the upstream lane that created each prototype
+session, so adding or removing a dedicated prototype upstream cannot silently
+reroute an existing chat to a different agent.
 
 ## Research Hub connector milestone
 

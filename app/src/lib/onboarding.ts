@@ -154,7 +154,7 @@ export function firstActionForRole(role: UXRole | null, access: OnboardingAccess
   const accessKnown = access.agentTier !== undefined;
   if (role === "ux-researcher") return !accessKnown || access.agentTier === 4 ? {
     label: "Open Research Studio",
-    description: "Plan studies, synthesize evidence, and review designs with the researcher tools granted by your workspace owner.",
+    description: "Plan studies and synthesize evidence with the Researcher agent, and build study prototypes with the prototype agent.",
     href: "/research",
   } : {
     label: "Explore Research Studio",
@@ -177,7 +177,7 @@ export function firstActionForRole(role: UXRole | null, access: OnboardingAccess
   };
   if (access.canCreateDesign === false) return {
     label: "Open team designs",
-    description: "Review designs shared with your team. A workspace owner can grant Design prototyper or Design engineer access when you need to create one.",
+    description: "Review designs shared with your team. A workspace owner can grant Design prototyper, Design engineer, or Researcher access when you need to create one.",
     href: "/designs",
   };
   return {

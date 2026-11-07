@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { designChats, designCreationAccess, designReviewText, designStatus, designTitle, studyPrototypeChats } from "./designs.ts";
+import { canCreateDesign, designChatOptions, designChats, designCreationAccess, designCreationErrorMessage, designReviewText, designStatus, designTitle, isVerifiedDesignChat, studyPrototypeChats } from "./designs.ts";
 import type { Chat } from "./server.ts";
 
 const chat = (id: string, change: Partial<Chat> = {}) => ({
@@ -64,19 +64,52 @@ test("study prototype choices allow shared teammate designs and deduplicate them
 test("design status follows the workspace state", () => {
   assert.equal(designStatus(chat("draft")), "Draft");
   assert.equal(designStatus(chat("ready", { previewUrl: "https://example.test/design/" })), "Ready for review");
+  assert.equal(designStatus(chat("reserved-url", { previewUrl: "https://example.test/design/", previewReady: false })), "Draft");
+  assert.equal(designStatus(chat("published", { previewUrl: "https://example.test/design/", previewReady: true })), "Ready for review");
   assert.equal(designStatus(chat("working", { previewUrl: "https://example.test/design/", latestTurn: { status: "running" } as Chat["latestTurn"] })), "Building");
   assert.equal(designStatus(chat("shared-working", { previewUrl: "https://example.test/design/", lastMessage: { role: "assistant", text: "Updating", at: 1, attachments: 0, pending: true } })), "Building");
   assert.equal(designStatus(chat("archived", { archived: true, latestTurn: { status: "running" } as Chat["latestTurn"] })), "Archived");
 });
 
+test("study prototype choices require a server-confirmed artifact when that signal is available", () => {
+  const reserved = chat("reserved", { previewUrl: "https://example.test/reserved/", previewReady: false, updatedAt: 30 });
+  const failed = chat("failed", { previewUrl: "https://example.test/failed/", previewReady: false, latestTurn: { status: "failed" } as Chat["latestTurn"], updatedAt: 29 });
+  const stopped = chat("stopped", { previewUrl: "https://example.test/stopped/", previewReady: false, latestTurn: { status: "stopped" } as Chat["latestTurn"], updatedAt: 28 });
+  const published = chat("published", { previewUrl: "https://example.test/published/", previewReady: true, updatedAt: 20 });
+  const legacy = chat("legacy", { previewUrl: "https://example.test/legacy/", updatedAt: 10 });
+  assert.deepEqual(studyPrototypeChats([reserved, failed, stopped, published, legacy], []).map(item => item.id), ["published", "legacy"]);
+});
+
 test("design creation follows the server's actual agent tier and setup", () => {
+  assert.equal(canCreateDesign(2, true), true);
+  assert.equal(canCreateDesign(3, true), true);
+  assert.equal(canCreateDesign(4, true), true);
+  assert.equal(canCreateDesign(undefined, true), true);
+  assert.equal(canCreateDesign(4, false), false);
+  assert.equal(canCreateDesign(null, true), false);
   assert.equal(designCreationAccess(2, true).canCreate, true);
   assert.equal(designCreationAccess(3, true).canCreate, true);
   assert.equal(designCreationAccess(1, true).canCreate, false);
-  assert.equal(designCreationAccess(4, true).canCreate, false);
+  assert.equal(designCreationAccess(4, true).canCreate, true);
   assert.equal(designCreationAccess(3, false).canCreate, false);
   assert.equal(designCreationAccess(undefined, true).canCreate, true);
   assert.equal(designCreationAccess(null, true).canCreate, false);
+});
+
+test("Researcher prototype creation requests and verifies its separate agent lane", () => {
+  assert.deepEqual(designChatOptions(4), { mode: "vibe", requiredAgentRole: "prototype" });
+  assert.deepEqual(designChatOptions(3), { mode: "vibe" });
+  assert.equal(isVerifiedDesignChat(chat("research-prototype", { agentRole: "prototype" }), 4), true);
+  assert.equal(isVerifiedDesignChat(chat("wrong-lane", { agentRole: "researcher" }), 4), false);
+  assert.equal(isVerifiedDesignChat(chat("legacy-design"), 3), true);
+  assert.equal(isVerifiedDesignChat(chat("ordinary", { mode: undefined }), 4), false);
+});
+
+test("an older server fails closed with an actionable Researcher prototype message", () => {
+  assert.match(designCreationErrorMessage(4, { status: 400, message: "requiredAgentRole must be researcher" }), /update Servant/);
+  assert.match(designCreationErrorMessage(4, { status: 403, message: "forbidden" }), /confirm your access/);
+  assert.equal(designCreationErrorMessage(3, { status: 403, message: "Designs are disabled" }), "Designs are disabled");
+  assert.equal(designCreationErrorMessage(4), "Couldn't start a design");
 });
 
 test("review text is useful in clients that only understand plain messages", () => {

@@ -3,7 +3,9 @@ import test from "node:test";
 import {
   RESEARCH_TASKS,
   buildResearchPrompt,
+  buildStudyPrototypePrompt,
   missingResearchFields,
+  prototypeChatTitle,
   researchChatKind,
   researchChatTitle,
   researchChats,
@@ -55,6 +57,12 @@ test("title prefixes identify ordinary research chats and keep their useful titl
   assert.equal(researchDisplayTitle(item), "Refund status interviews");
   assert.equal(researchChatKind(chat("ordinary", "Refund status interviews")), null);
   assert.ok(researchChatTitle("design-review", "x".repeat(200)).length <= 80);
+});
+
+test("prototype workspace titles are recognizable, cleaned, and bounded", () => {
+  assert.equal(prototypeChatTitle("  Account   recovery\n study  "), "Prototype: Account recovery study");
+  assert.equal(prototypeChatTitle(" \n "), "Prototype: Research study");
+  assert.ok(prototypeChatTitle("x".repeat(200)).length <= 80);
 });
 
 test("the library keeps only prefixed research work and sorts newest first", () => {
@@ -126,6 +134,51 @@ test("a planned prototype needs a purpose and produces an honest Design Studio h
   assert.match(prompt, /Design Studio handoff with acceptance criteria/);
   assert.match(prompt, /Do not claim the prototype was built, reviewed, or is ready for participants/);
   assert.doesNotMatch(prompt, /BEGIN DESIGN PROTOTYPE DATA/);
+});
+
+test("a new study prototype gets a build-ready draft while governed Hub evidence stays with the Researcher agent", () => {
+  const prompt = buildStudyPrototypePrompt({
+    kind: "study",
+    title: "Account recovery study",
+    answers: {
+      decision: "Choose which recovery flow to test.",
+      question: "Can people recover access without assistance?",
+      participants: "People who recently lost access, including keyboard-only users.",
+      inputs: "Public help-page language and made-up account examples.",
+      constraints: "Mobile first; one week.",
+    },
+    prototype: { kind: "new", purpose: "Let people recover access through two realistic failure states." },
+    evidence: [evidence()],
+    evidenceHub,
+  });
+
+  assert.match(prompt, /^Prototype: Account recovery study/);
+  assert.match(prompt, /Build a working prototype.*Do not stop at a plan or handoff/);
+  assert.match(prompt, /Decision to inform: Choose which recovery flow to test\./);
+  assert.match(prompt, /Research question: Can people recover access without assistance\?/);
+  assert.match(prompt, /People who will use the prototype: People who recently lost access, including keyboard-only users\./);
+  assert.match(prompt, /Constraints: Mobile first; one week\./);
+  assert.match(prompt, /Existing context supplied by the researcher: Public help-page language and made-up account examples\./);
+  assert.match(prompt, /Prototype purpose: Let people recover access through two realistic failure states\./);
+  assert.doesNotMatch(prompt, /BEGIN RESEARCH HUB DATA|\[RH-1\]|CAT-REF-1/);
+  assert.match(prompt, /minimum testable interaction/);
+  assert.match(prompt, /public or made-up content and fake test data only/);
+  assert.match(prompt, /loading, empty, error, success, and validation states/);
+  assert.match(prompt, /keyboard and focus behavior/);
+  assert.match(prompt, /return the live preview link/);
+  assert.match(prompt, /Do not contact, recruit, message, or schedule participants/);
+  assert.match(prompt, /Do not claim that research occurred or that the prototype was tested, validated, approved, or proven effective/);
+});
+
+test("prototype build drafts require the new-prototype study workflow", () => {
+  assert.throws(
+    () => buildStudyPrototypePrompt({ kind: "synthesis", title: "Wrong lane", answers: {}, prototype: { kind: "new", purpose: "No" } }),
+    /study brief requesting a new prototype/,
+  );
+  assert.throws(
+    () => buildStudyPrototypePrompt({ kind: "study", title: "Existing", answers: {}, prototype: { kind: "existing", id: "one", title: "One", status: "Draft" } }),
+    /study brief requesting a new prototype/,
+  );
 });
 
 test("a ready existing prototype carries bounded Design Studio metadata as data", () => {

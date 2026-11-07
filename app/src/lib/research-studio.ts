@@ -126,6 +126,11 @@ export function researchChatTitle(kind: ResearchTaskKind, title: string): string
   return `${task.titlePrefix}${subject}`.slice(0, 80).trimEnd();
 }
 
+export function prototypeChatTitle(studyTitle: string): string {
+  const subject = cleanLine(studyTitle) || "Research study";
+  return `Prototype: ${subject}`.slice(0, 80).trimEnd();
+}
+
 export function researchChatKind(chat: Pick<Chat, "title">): ResearchTaskKind | null {
   return RESEARCH_TASKS.find(task => chat.title.startsWith(task.titlePrefix))?.kind ?? null;
 }
@@ -267,6 +272,45 @@ function evidencePrompt(brief: ResearchBrief): string[] {
     }),
     EVIDENCE_END,
   ];
+}
+
+/**
+ * Seeds a dedicated prototype workspace without sending anything until the
+ * researcher has reviewed the draft. Governed Research Hub records are
+ * intentionally excluded because their approved model audience is the
+ * restricted Researcher agent, not the prototype/full agent.
+ */
+export function buildStudyPrototypePrompt(brief: ResearchBrief): string {
+  if (brief.kind !== "study" || brief.prototype?.kind !== "new") {
+    throw new Error("A study brief requesting a new prototype is required.");
+  }
+
+  const answer = (field: ResearchFieldId, fallback = "Not specified") => cleanLine(brief.answers[field] ?? "") || fallback;
+  const purpose = cleanLine(brief.prototype.purpose) || "Not specified";
+  return [
+    prototypeChatTitle(brief.title),
+    "",
+    "Build a working prototype for this research study. Do not stop at a plan or handoff.",
+    "",
+    "Study context:",
+    `- Decision to inform: ${answer("decision")}`,
+    `- Research question: ${answer("question")}`,
+    `- People who will use the prototype: ${answer("participants")}`,
+    `- Constraints: ${answer("constraints", "None provided")}`,
+    `- Existing context supplied by the researcher: ${answer("inputs", "None provided")}`,
+    `- Prototype purpose: ${purpose}`,
+    "",
+    "What to build:",
+    "- Build the minimum testable interaction needed to answer the research question and support the decision.",
+    "- Use realistic public or made-up content and fake test data only. Do not use private, restricted, or production data.",
+    "- Include the relevant loading, empty, error, success, and validation states instead of only the happy path.",
+    "- Make the experience accessible, including clear labels, keyboard and focus behavior, readable contrast, and understandable error recovery.",
+    "- When it is ready, publish or serve it and return the live preview link with a short note about what is testable and any remaining limitations.",
+    "",
+    "Research boundaries:",
+    "- Do not contact, recruit, message, or schedule participants.",
+    "- Do not claim that research occurred or that the prototype was tested, validated, approved, or proven effective.",
+  ].join("\n");
 }
 
 /**
