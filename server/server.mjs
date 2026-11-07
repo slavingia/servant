@@ -12,6 +12,7 @@
 //   node server/server.mjs revoke <deviceId>   revoke a device
 //   node server/server.mjs people | remove-person <name or id>   list people / remove someone who left
 //   node server/server.mjs release <build> <notes.md>   post a build's notes to #whats-new
+//   node server/server.mjs faq validate|publish <answers.json> | status
 
 import { joinPage } from "./join-page.mjs";
 import { newFolder, removePrototype, servePrototype } from "./prototypes.mjs";
@@ -23,6 +24,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createMessaging } from "./messaging.mjs";
+import { createApprovedAnswers, renderApprovedAnswer, validateApprovedAnswers } from "./approved-answers.mjs";
 import { createOta } from "./ota.mjs";
 import { createRecordings } from "./recordings.mjs";
 import { createMeetings, NOTES_PROMPT as MEETING_NOTES_PROMPT } from "./meetings.mjs";
@@ -1724,6 +1726,7 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
   process.umask(0o077); // messages.db and its WAL files are private to this user
   store();
   let servicePush;
+  const approvedAnswers = createApprovedAnswers({ directory: DATA_DIR });
   const serviceMessaging = createMessaging({
     file: path.join(DATA_DIR, "messages.db"),
     externalWorker,
@@ -1734,6 +1737,20 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
     // server is set to "agentAccess": "limited".
     onUsage: recordUsage,
     messageExtras: m => meetings?.messageExtras(m),
+    // Published exact-match answers are rendered as ordinary agent messages,
+    // so current and older clients need no special protocol support.
+    matchApprovedAnswer: (text, { userId, surface }) => {
+      const user = readState().users[userId];
+      if (!user || usageStore().overLimit(user)) return null;
+      const result = approvedAnswers.match(text);
+      if (result?.kind !== "hit") return null;
+      return {
+        id: result.answer.id,
+        version: result.answer.version,
+        text: renderApprovedAnswer(result.answer),
+        suggestions: [surface === "agent_dm" ? "Ask live: I still need help" : "@s ask live: I still need help"],
+      };
+    },
     // @s in a channel or DM asked for real work: open a shared agent chat for the person who
     // asked, with the conversation as its first message, and start the agent on it.
     startWorkChat: workChatStarter = async ({ userId, deviceId, title, where, transcript }) => {
@@ -2013,6 +2030,54 @@ if (isMain) {
       const r = publishRollback({ dir, runtimeVersion: runtime });
       console.log(`Phones on runtime ${runtime} go back to the version built into their app (${r.id}).`);
     } else { console.error("Usage: servant ota status | publish | rollback --runtime <v>"); process.exit(2); }
+  } else if (cmd === "faq") {
+    const sub = process.argv[3] || "status";
+    const library = createApprovedAnswers({ directory: DATA_DIR });
+    const input = process.argv[4];
+    const readInput = () => {
+      if (!input) {
+        console.error(`Usage: server.mjs faq ${sub} <answers.json>`);
+        process.exit(2);
+      }
+      return JSON.parse(fs.readFileSync(path.resolve(input), "utf8"));
+    };
+    try {
+      if (sub === "validate") {
+        const manifest = validateApprovedAnswers(readInput());
+        console.log(`Valid: ${manifest.answers.length} approved-answer ${manifest.answers.length === 1 ? "entry" : "entries"}. No files changed.`);
+      } else if (sub === "publish") {
+        const manifest = library.publish(readInput());
+        console.log(`Published ${manifest.answers.length} approved-answer ${manifest.answers.length === 1 ? "entry" : "entries"} to ${library.file}`);
+      } else if (sub === "status") {
+        const status = library.status();
+        console.log(`Approved answers: ${status.valid ? "valid" : "invalid"}; ${status.total} total, ${status.published} published, ${status.fresh} fresh`);
+        console.log(`File: ${status.file}`);
+        if (status.error) console.log(`Error: ${status.error}`);
+        let hits = 0;
+        let answers = [];
+        const messagesFile = path.join(DATA_DIR, "messages.db");
+        if (fs.existsSync(messagesFile)) {
+          const { DatabaseSync } = await import("node:sqlite");
+          const database = new DatabaseSync(messagesFile, { readOnly: true });
+          try {
+            if (database.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'faq_events'").get()) {
+              hits = Number(database.prepare("SELECT COUNT(*) AS n FROM faq_events").get().n);
+              answers = database.prepare(`SELECT answer_id AS id, answer_version AS version, COUNT(*) AS hits
+                FROM faq_events GROUP BY answer_id, answer_version ORDER BY hits DESC, answer_id, answer_version`).all();
+            }
+          } finally { database.close(); }
+        }
+        console.log(`Approved-answer hits: ${hits}`);
+        for (const answer of answers) console.log(`  ${answer.id} version ${answer.version}: ${Number(answer.hits)}`);
+        if (!status.valid) process.exitCode = 1;
+      } else {
+        console.error("Usage: server.mjs faq validate <answers.json> | publish <answers.json> | status");
+        process.exit(2);
+      }
+    } catch (error) {
+      console.error(`Approved answers ${sub} failed: ${error.message}`);
+      process.exit(1);
+    }
   } else if (cmd === "release") {
     const [build, file] = process.argv.slice(3);
     if (!build || !file) {

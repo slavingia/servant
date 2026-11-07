@@ -142,6 +142,17 @@ CREATE TABLE IF NOT EXISTS agent_jobs (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS agent_jobs_pending ON agent_jobs(status, created_at);
+-- Approved Answers remain ordinary agent messages. This records only the
+-- approved item/version used for a successful zero-token match.
+CREATE TABLE IF NOT EXISTS faq_events (
+  trigger_seq INTEGER PRIMARY KEY REFERENCES messages(seq) ON DELETE CASCADE,
+  reply_seq INTEGER NOT NULL UNIQUE REFERENCES messages(seq) ON DELETE CASCADE,
+  answer_id TEXT NOT NULL,
+  answer_version TEXT NOT NULL,
+  surface TEXT NOT NULL CHECK (surface IN ('agent_dm','channel','group_dm')),
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS faq_events_answer ON faq_events(answer_id, answer_version, created_at);
 CREATE TABLE IF NOT EXISTS notification_outbox (
   id TEXT PRIMARY KEY,
   event TEXT NOT NULL,
@@ -188,6 +199,7 @@ export const ownerAdminInstructions = () => {
 // The agent answers to any of these: @s (the short one), @agent and @servant. Keep app/src/lib/mentions.ts in step.
 export const AGENT_HANDLES = Object.freeze(["s", "agent", "servant"]);
 const AGENT_HANDLE_PATTERN = new RegExp(`(^|[^\\w@])@(${AGENT_HANDLES.join("|")})(?![\\p{L}\\p{N}_-])`, "iu");
+const LEADING_AGENT_HANDLE_PATTERN = new RegExp(`^\\s*@(${AGENT_HANDLES.join("|")})(?![\\p{L}\\p{N}_-])`, "iu");
 
 export function mentionsAgent(text, agentName = "") {
   const t = String(text);
@@ -216,8 +228,9 @@ export const MORE_CONTEXT_INSTRUCTIONS = "You only see the message that mentione
  * @param {() => Record<string, {id:string,name:string,role:string}>} o.users  current people
  * @param {() => string} o.agentName
  * @param {(o:{sessionId:string, sessionKey:string, text:string, attachments:Array, onDelta:(t:string)=>void, onStatus:(t:string)=>void}) => Promise<string|{text:string,attachments:Array}>} o.askAgent
+ * @param {(text:string, context:{userId:string,surface:string,conversationId:string,triggerSeq:number}) => null|{id:string,version:string|number,text:string,suggestions?:string[]}} [o.matchApprovedAnswer]
  */
-export function createMessaging({ file, users, agentName, askAgent, onMessage = () => {}, externalWorker = false, onUsage = () => {}, messageExtras = () => null, startWorkChat = null }) {
+export function createMessaging({ file, users, agentName, askAgent, onMessage = () => {}, externalWorker = false, onUsage = () => {}, messageExtras = () => null, startWorkChat = null, matchApprovedAnswer = () => null }) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(file);
   db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON');
@@ -384,6 +397,9 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
       WHERE m.conversation_id = ? AND (m.seq = ? OR m.thread_root = ?) AND m.deleted_at IS NULL
         AND (m.user_id = 'agent' OR (j.trigger_seq IS NOT NULL AND j.status != 'cancelled')) LIMIT 1`),
     putAgentThread: q("INSERT INTO agent_threads (key, hermes_session_id, last_seen_seq) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET last_seen_seq = excluded.last_seen_seq"),
+    humanMessagesThrough: q("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND seq <= ? AND user_id != 'agent' AND activity IS NULL"),
+    faqEvent: q("SELECT * FROM faq_events WHERE trigger_seq = ?"),
+    putFaqEvent: q("INSERT INTO faq_events (trigger_seq, reply_seq, answer_id, answer_version, surface, created_at) VALUES (?, ?, ?, ?, ?, ?)"),
     release: q("SELECT * FROM releases WHERE build = ?"),
     releaseBySeq: q("SELECT * FROM releases WHERE seq = ?"),
     latestRelease: q("SELECT * FROM releases ORDER BY created_at DESC, seq DESC LIMIT 1"),
@@ -750,6 +766,54 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     const root = direct ? null : trigger.thread_root || trigger.seq;
     const key = `${conv.id}:${direct ? "dm" : root}`;
     let thread = st.agentThread.get(key);
+
+    // A small, exact, reviewed answer can satisfy a simple first question
+    // without opening a model session. Keep this before every prompt/session
+    // mutation so a hit is a genuinely zero-token path.
+    const faqSurface = direct ? "agent_dm" : conv.kind === "channel" ? "channel" : "group_dm";
+    const simpleQuestion = trigger.text.length <= 300 && !/[\r\n]/.test(trigger.text) && st.attachments.all(trigger.seq).length === 0;
+    const firstDirectTurn = direct && Number(st.humanMessagesThrough.get(conv.id, trigger.seq).n) === 1;
+    const topLevelMention = !direct && !trigger.thread_root && LEADING_AGENT_HANDLE_PATTERN.test(trigger.text);
+    if (simpleQuestion && (firstDirectTurn || topLevelMention)) {
+      let approved = null;
+      try {
+        approved = matchApprovedAnswer(trigger.text, {
+          userId: trigger.user_id,
+          surface: faqSurface,
+          conversationId: conv.id,
+          triggerSeq: trigger.seq,
+        });
+      } catch (error) {
+        console.error(`[servant] approved answer lookup failed: ${error?.message || "unknown error"}`);
+      }
+      if (approved && typeof approved.id === "string" && approved.id && approved.id.length <= 64 &&
+          (typeof approved.version === "string" || typeof approved.version === "number") &&
+          String(approved.version).length <= 80 &&
+          typeof approved.text === "string" && approved.text.trim() && approved.text.trim().length <= MAX_TEXT) {
+        return transaction(() => {
+          const finishJob = replySeq => {
+            if (!job) return;
+            const result = db.prepare("UPDATE agent_jobs SET reply_seq = ?, status = 'done' WHERE trigger_seq = ? AND owner = ? AND status = 'working'")
+              .run(replySeq, job.trigger_seq, job.owner);
+            if (result.changes !== 1) throw new Error(`Approved answer lost worker ownership for ${job.trigger_seq}`);
+          };
+          const existing = st.faqEvent.get(trigger.seq);
+          if (existing) {
+            finishJob(existing.reply_seq);
+            return st.msg.get(existing.reply_seq);
+          }
+          const message = post(conv, AGENT_ID, approved.text.trim().slice(0, MAX_TEXT), root, { queueAgent: false });
+          const suggestions = cleanSuggestions(approved.suggestions);
+          if (suggestions.length) {
+            db.prepare("UPDATE messages SET suggestions = ? WHERE seq = ?").run(JSON.stringify(suggestions), message.seq);
+            publish(conv.id, "message.updated", msgView(st.msg.get(message.seq)));
+          }
+          st.putFaqEvent.run(trigger.seq, message.seq, approved.id, String(approved.version), faqSurface, now());
+          finishJob(message.seq);
+          return st.msg.get(message.seq);
+        });
+      }
+    }
     const sessionId = thread ? thread.hermes_session_id : `servant_${conv.id}_${direct ? "dm" : root}`;
     const seen = thread ? thread.last_seen_seq : 0;
     const unseen = st.since
@@ -1578,8 +1642,20 @@ export function createMessaging({ file, users, agentName, askAgent, onMessage = 
     },
   };
 
+  function approvedAnswerStats() {
+    const hits = Number(db.prepare("SELECT COUNT(*) AS n FROM faq_events").get().n);
+    return {
+      hits,
+      answers: db.prepare(`SELECT answer_id AS id, answer_version AS version, COUNT(*) AS hits, MAX(created_at) AS lastHitAt
+        FROM faq_events GROUP BY answer_id, answer_version ORDER BY hits DESC, answer_id, answer_version`).all()
+        .map(row => ({ ...row, hits: Number(row.hits), lastHitAt: Number(row.lastHitAt) })),
+      surfaces: db.prepare(`SELECT surface, COUNT(*) AS hits FROM faq_events GROUP BY surface ORDER BY surface`).all()
+        .map(row => ({ ...row, hits: Number(row.hits) })),
+    };
+  }
+
   function personChanged(userId) { publish('', 'person.updated', { userId }, Object.keys(users())); }
-  return { ...meetingHooks, personChanged, handle, forwardSource, forwardInto, notificationFor, joinDefaults, joinEveryone, welcomeFromAgent, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, close: () => { closeEvents(); db.close(); }, db };
+  return { ...meetingHooks, personChanged, handle, forwardSource, forwardInto, notificationFor, joinDefaults, joinEveryone, welcomeFromAgent, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, approvedAnswerStats, drainOutbox, subscribe, whenIdle, closeEvents, close: () => { closeEvents(); db.close(); }, db };
 }
 
 function httpError(status, code, message) {

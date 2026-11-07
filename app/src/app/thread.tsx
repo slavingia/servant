@@ -249,7 +249,9 @@ export default function ThreadScreen() {
               if (item.id === root) return <View style={[styles.head, item.id === focus && styles.searchMatch]}>
                 {item.id === focus && matchLabel ? <Text style={styles.searchLabel}>{matchLabel}</Text> : null}
                 {title ? <Text style={styles.where}>In {title}</Text> : null}
-                <PostRow post={item} receipt={receipts?.get(item.id)} onReact={(emoji, active) => react(item, emoji, active)} onAskAgent={() => askAgent(item)} me={me} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
+                <PostRow post={item} receipt={receipts?.get(item.id)} onReact={(emoji, active) => react(item, emoji, active)} onAskAgent={() => askAgent(item)}
+                  onSuggest={joined && item.user.agent && index === rows.length - 1 ? text => { void send(text); } : undefined}
+                  me={me} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
                 <Text accessibilityRole="header" style={styles.count}>
                   {!replies?.length ? "No replies yet" : `${replies.length} ${replies.length === 1 ? "reply" : "replies"}`}
                 </Text>
@@ -260,7 +262,9 @@ export default function ThreadScreen() {
               return <View style={item.id === focus ? styles.searchMatch : undefined}>
                 {newDay ? <MessageDate at={item.createdAt} /> : null}
                 {item.id === focus && matchLabel ? <Text style={styles.searchLabel}>{matchLabel}</Text> : null}
-                <PostRow post={item} receipt={receipts?.get(item.id)} onReact={(emoji, active) => react(item, emoji, active)} onAskAgent={() => askAgent(item)} me={me} compact={compact && item.id !== focus} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
+                <PostRow post={item} receipt={receipts?.get(item.id)} onReact={(emoji, active) => react(item, emoji, active)} onAskAgent={() => askAgent(item)}
+                  onSuggest={joined && item.user.agent && index === rows.length - 1 ? text => { void send(text); } : undefined}
+                  me={me} compact={compact && item.id !== focus} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
               </View>;
             }}
           />
