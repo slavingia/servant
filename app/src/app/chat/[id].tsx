@@ -456,6 +456,9 @@ function ChatConversation() {
   const media = useMemo(() => mediaFromMessages(messages ?? [], account?.user.name ?? "You", "Agent"), [messages, account?.user.name]);
   // Backing out of a chat that never got a message deletes it (set below), so no empty "New chat" is left behind.
   const discardable = useRef(false);
+  // An untouched new chat (nothing sent, nothing queued) is deleted when you back out of it.
+  const untouched = messages !== null && messages.length === 0 && !loadError && !turn && waiting.length === 0 && compose === "1";
+  useEffect(() => { discardable.current = untouched; }, [untouched]);
   useEffect(() => () => { if (discardable.current && account) void api.deleteChat(account, String(id)).catch(() => {}); }, [account, id]);
   const loaded = messages !== null && !loadError;
   useEffect(() => { if (id && loaded && account) setItem(lastChatKey(account.user.id), String(id)).catch(() => {}); }, [id, loaded, account]);
@@ -730,7 +733,7 @@ function ChatConversation() {
   const showPreview = () => {
     if (!previewUrl) return;
     if (!canSplitPreview) { openPreview(previewUrl); return; }
-    if (!previewOpen) setPreviewVersion(Date.now());
+    if (!previewOpen) setPreviewVersion(v => v + 1);
     setPreviewOpen(!previewOpen);
   };
   const headerLinks: HeaderLink[] = [
@@ -743,7 +746,6 @@ function ChatConversation() {
   // Nothing sent yet: the choice sits right above the message box, and goes once the first message is on its way.
   const fresh = messages !== null && messages.length === 0 && !loadError && !firstRow && !turn && waiting.length === 0;
   const showAbout = fresh && !!projects && !projects.vibeCoder;
-  discardable.current = fresh && compose === "1";
   const pickAbout = async (next: string | null) => {
     setChoosing(false);
     if (next === about || switching) return;

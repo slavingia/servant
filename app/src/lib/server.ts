@@ -88,6 +88,7 @@ export type Meeting = {
   endedAt: number | null;
   title: string | null;
   error: string | null;
+  host?: boolean;
   iceServers: IceServer[];
   participants: { id: string; user: { id: string; name: string }; publishing: boolean; you: boolean; joinedAt: number; hasVideo: boolean; hasAudio: boolean; muted?: boolean; muteSeq?: number; screen?: boolean }[];
   steps: MeetingStep[];
