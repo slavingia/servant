@@ -87,6 +87,24 @@ transaction that stores the chat, so an access change cannot silently create a
 different kind of workspace. Original clients ignore the optional response
 field and continue to use the same chats, sharing, messages, and threads.
 
+## Research Hub connector milestone
+
+Research Hub evidence is an optional, backwards-compatible input to the same
+ordinary Research Studio draft. The server reads a separately approved,
+aggregate-only snapshot from its private data directory and offers bounded
+Researcher-tier status, search, and re-resolution routes. It has no runtime
+GitHub credential or generic repository/file connector, and the restricted
+Researcher agent retains its existing no-GitHub, no-shell, and no-files policy.
+
+The person explicitly selects at most eight records. Servant resolves those IDs
+again under current authorization immediately before creating the chat, then
+quotes the current record versions and one snapshot revision in the unsent
+plain-text prompt. A design review may continue without selected evidence, but
+the draft identifies that as an evidence gap instead of claiming validation.
+Older clients remain compatible because the resulting chat and message are
+unchanged. See [Research Hub connector](research-hub.md) for the publication and
+privacy boundary.
+
 ## Mobile builds
 
 `app/app.config.js` defaults to the UX flavor:

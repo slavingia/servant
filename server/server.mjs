@@ -48,11 +48,13 @@ import { composeForward } from "./forward.mjs";
 import { stepDetail, THINKING_LINE, toolStatusLine, WRITING_LINE } from "./agent-status.mjs";
 import { validateUploads, normalizeMediaContent, hermesInput, mediaPage, createMediaDeltaFilter, MAX_UPLOAD_BODY, TEXT_PART_CHARS } from "./media.mjs";
 import { createDocumentStore, DOCUMENT_CHUNK, DOCUMENT_CHUNK_BODY } from "./documents.mjs";
+import { createResearchHub, ResearchHubError } from "./research-hub.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.SERVANT_DATA_DIR || path.join(HERE, "data");
 const PROTOTYPES_DIR = path.join(DATA_DIR, "prototypes");
 const CONFIG_FILE = path.join(DATA_DIR, "config.json");
+const researchHub = createResearchHub(path.join(DATA_DIR, "research-hub.json"));
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_BODY = 64 * 1024;
@@ -879,6 +881,31 @@ async function handle(req, res, cfg) {
     requireAuth(req);
     return body;
   };
+
+  if (parts[1] === "research-hub") {
+    const researcherOnly = current => {
+      if (agentTierOf(current) !== RESEARCHER_TIER) throw new ResearchHubError("Researcher access is required", 403, "forbidden");
+    };
+    try {
+      researcherOnly(user);
+      if (method === "GET" && parts.length === 3 && parts[2] === "status") {
+        return send(res, 200, { hub: researchHub.status() });
+      }
+      if (method === "GET" && parts.length === 3 && parts[2] === "evidence") {
+        return send(res, 200, researchHub.search(url.searchParams.get("q") || "", url.searchParams.get("limit") || undefined));
+      }
+      if (method === "POST" && parts.length === 4 && parts[2] === "evidence" && parts[3] === "resolve") {
+        const body = await readBody(req);
+        const current = requireAuth(req);
+        researcherOnly(current.user);
+        return send(res, 200, researchHub.resolve(body?.ids, body?.revision));
+      }
+      return fail(res, 404, "not_found", "Not found");
+    } catch (error) {
+      if (error instanceof ResearchHubError) return fail(res, error.status, error.code, error.message);
+      throw error;
+    }
+  }
 
   if (parts[1] === "feedback") {
     if (method === "GET" && parts.length === 2) return send(res, 200, { reports: feedback.list(user.id) });

@@ -136,6 +136,32 @@ export type SearchMessage = {
   createdAt: number;
 };
 export type SearchResults = { channels: SearchChannel[]; people: Person[]; messages: SearchMessage[] };
+export type ResearchHubAvailableMetadata = {
+  available: true;
+  revision: string;
+  generatedAt: string;
+  reviewBy: string;
+  recordCount: number;
+  source: string;
+  sourceCommit: string;
+};
+export type ResearchHubUnavailableMetadata = { available: false; message: string };
+export type ResearchHubMetadata = ResearchHubAvailableMetadata | ResearchHubUnavailableMetadata;
+export type ResearchHubEvidenceKind = "theme" | "feature" | "bug" | "rating";
+export type ResearchHubEvidence = {
+  id: string;
+  kind: ResearchHubEvidenceKind;
+  title: string;
+  summary: string;
+  product: { name: string; id: string };
+  period: { start: string; end: string; grain: "week" | "month" };
+  metric: { label: string; value: number; unit: "comments" | "percent" | "rating" | "responses"; sampleSize: number | null };
+  release: { status: string; id: string };
+  catalogReference: string;
+  sourcePath: string;
+  version: number;
+};
+export type ResearchHubEvidenceResponse = { hub: ResearchHubMetadata; evidence: ResearchHubEvidence[] };
 export type LiveEvent =
   | { event: "message.created" | "message.updated"; data: Post }
   | { event: "conversation.updated" | "conversation.read"; data: { id: string } }
@@ -382,6 +408,12 @@ export const uploadPost = (account: Account, onMove?: (a: Account) => void) => (
 export const api = {
   search: (a: Account, query: string, signal?: AbortSignal) =>
     request(a, `/v1/search?q=${encodeURIComponent(query)}`, { signal }).then(json<SearchResults>),
+  researchHubStatus: (a: Account, signal?: AbortSignal) =>
+    request(a, "/v1/research-hub/status", { signal }).then(json<{ hub: ResearchHubMetadata }>).then(d => d.hub),
+  researchHubEvidence: (a: Account, query: string, signal?: AbortSignal) =>
+    request(a, `/v1/research-hub/evidence?q=${encodeURIComponent(query)}&limit=20`, { signal }).then(json<ResearchHubEvidenceResponse>),
+  resolveResearchHubEvidence: (a: Account, ids: string[], revision: string, signal?: AbortSignal) =>
+    request(a, "/v1/research-hub/evidence/resolve", { method: "POST", body: JSON.stringify({ ids, revision }), signal }).then(json<ResearchHubEvidenceResponse>),
   feedback: (a: Account) => request(a, "/v1/feedback").then(json<{ reports: FeedbackReport[] }>).then(d => d.reports),
   sendFeedback: (a: Account, body: { text: string; requestId: string; context: Record<string, string>; attachments?: { name: string; data: string }[] }) =>
     request(a, "/v1/feedback", { method: "POST", body: JSON.stringify(body) }).then(json<{ report: FeedbackReport }>).then(d => d.report),

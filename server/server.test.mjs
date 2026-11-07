@@ -14,7 +14,50 @@ import { createStateStore } from "./state-store.mjs";
 import { createLiveEventDecoder } from "../app/src/lib/live-events.ts";
 import { testFetch } from "./encrypted-test-client.mjs";
 import { TERMS_VERSION, TERMS_ITEMS } from "./terms.mjs";
+import { researchHubRevision } from "./research-hub.mjs";
 const ACCEPT = { version: TERMS_VERSION, items: TERMS_ITEMS };
+
+function researchHubSnapshot() {
+  const now = Date.now();
+  const snapshot = {
+    schemaVersion: 1,
+    revision: "0".repeat(64),
+    generatedAt: new Date(now - 60_000).toISOString(),
+    reviewBy: new Date(now + 24 * 60 * 60_000).toISOString(),
+    source: {
+      label: "Research Hub approved aggregate catalog",
+      repository: "Taxpayer-Services-and-Online-Accounts/research-hub",
+      path: "survey-research-catalog/catalog/canonical_source_set.json",
+      commit: "a".repeat(40),
+      catalogTree: "b".repeat(40),
+      catalogSchemaVersion: "1.0.0",
+      workflowRegistryVersion: "1.0.0",
+      validation: "PASS",
+    },
+    approval: {
+      id: "TEST-APPROVAL",
+      audience: "servant-private-workspace-and-configured-researcher-model",
+      sourcePath: "approvals/servant/TEST-APPROVAL.json",
+      catalogTree: "b".repeat(40),
+      expiresAt: new Date(now + 2 * 24 * 60 * 60_000).toISOString(),
+    },
+    records: [{
+      id: "rhe_0123456789abcdef",
+      kind: "theme",
+      title: "Navigation and content clarity",
+      summary: "Thirty published aggregate comments concerned navigation and content clarity.",
+      product: { id: "bta", name: "Business Tax Account" },
+      period: { start: "2026-10-01", end: "2026-10-31", grain: "month" },
+      metric: { label: "Theme comments", value: 30, unit: "comments", sampleSize: 30 },
+      release: { id: "bta:release", status: "CONDITIONAL_PASS | disclosure: APPROVED" },
+      catalogReference: "fact_theme_period • bta:theme:2026-10",
+      sourcePath: "survey-research-catalog/research_catalog.sqlite",
+      version: 1,
+    }],
+  };
+  snapshot.revision = researchHubRevision(snapshot);
+  return snapshot;
+}
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "servant-test-"));
 // config.json is re-read per request; flip agent access for one test.
@@ -472,6 +515,48 @@ test("research chat creation fails closed before starting a session when Researc
   assert.equal(invalid.status, 400);
   const sessionsAfter = [...owner.calls, ...member.calls, ...researcher.calls].filter((call) => call.url.endsWith("/api/sessions")).length;
   assert.equal(sessionsAfter, sessionsBefore, "no upstream session is created for a rejected lane");
+});
+
+test("Research Hub evidence is private, researcher-only, bounded, and re-authorized when selected", async () => {
+  const boss = await pair("owner", "Hub Gate Owner");
+  const token = await pair("member", "Hub Evidence Researcher");
+  const me = (await api("GET", "/v1/people", { token: boss })).json.people.find((person) => person.name === "Hub Evidence Researcher");
+  const snapshotFile = path.join(dataDir, "research-hub.json");
+  fs.writeFileSync(snapshotFile, JSON.stringify(researchHubSnapshot()), { mode: 0o600 });
+  try {
+    const denied = await api("GET", "/v1/research-hub/status", { token });
+    assert.equal(denied.status, 403);
+
+    await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 4 } });
+    const status = await api("GET", "/v1/research-hub/status", { token });
+    assert.equal(status.status, 200);
+    assert.equal(status.json.hub.available, true);
+    assert.equal(status.json.hub.recordCount, 1);
+    assert.equal(status.json.hub.sourceCommit, "a".repeat(40));
+
+    const nullBody = await testFetch(dataDir, `${base}/v1/research-hub/evidence/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: "null",
+    });
+    assert.equal(nullBody.status, 400, "a valid JSON null body is a bounded client error");
+
+    const search = await api("GET", "/v1/research-hub/evidence?q=business%20navigation&limit=200", { token });
+    assert.equal(search.status, 200);
+    assert.deepEqual(search.json.evidence.map(item => item.id), ["rhe_0123456789abcdef"]);
+    assert.equal(search.json.evidence[0].summary.includes("comment"), true);
+    assert.equal("commentText" in search.json.evidence[0], false);
+
+    const resolved = await api("POST", "/v1/research-hub/evidence/resolve", { token, body: { ids: ["rhe_0123456789abcdef"], revision: search.json.hub.revision } });
+    assert.equal(resolved.status, 200);
+    assert.equal(resolved.json.evidence[0].catalogReference, "fact_theme_period • bta:theme:2026-10");
+
+    await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 3 } });
+    const revoked = await api("POST", "/v1/research-hub/evidence/resolve", { token, body: { ids: ["rhe_0123456789abcdef"], revision: search.json.hub.revision } });
+    assert.equal(revoked.status, 403, "selection is checked again after the request body is read");
+  } finally {
+    fs.rmSync(snapshotFile, { force: true });
+  }
 });
 
 test("researcher (tier 4): a bridge that isn't the researcher bridge is refused, so the full agent can't stand in", async () => {
