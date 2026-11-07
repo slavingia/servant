@@ -41,8 +41,17 @@ export default function ChatScreen() {
   const { id, readOnly } = useLocalSearchParams<{ id: string; readOnly?: string }>();
   const { account } = useSession();
   const key = `${account?.serverUrl ?? ""}:${account?.token ?? ""}:${id}`;
+  // A link (e.g. "Working on it in ..." from @s) doesn't say whose chat it is: ask the server.
+  const [theirs, setTheirs] = useState<boolean | null>(readOnly === "1" ? true : null);
+  useEffect(() => {
+    if (readOnly === "1" || !account || !id) return;
+    let live = true;
+    api.chat(account, String(id)).then(c => { if (live) setTheirs(!!c.readOnly); }).catch(() => { if (live) setTheirs(false); });
+    return () => { live = false; };
+  }, [account, id, readOnly]);
   // Someone else's shared chat opens read-only: no composer, turns or controls.
-  if (readOnly === "1") return <SharedChatView key={key} />;
+  if (theirs === true) return <SharedChatView key={key} />;
+  if (theirs === null) return null;
   // A different conversation or account starts with fresh draft and send state.
   return <ChatConversation key={key} />;
 }
