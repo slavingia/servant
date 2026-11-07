@@ -679,7 +679,7 @@ async function handle(req, res, cfg) {
 
   // Over-the-air app updates: public, signed, app code only (see ota.mjs).
   // The invite web page: opens the app by itself, with copy-the-link as a fallback. Nothing is read from the server.
-  if (method === "GET" && url.pathname === "/join") {
+  if (method === "GET" && (url.pathname === "/join" || url.pathname === "/")) {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" });
     return res.end(joinPage(cfg.downloads));
   }
