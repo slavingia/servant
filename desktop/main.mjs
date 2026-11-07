@@ -86,9 +86,14 @@ else {
     });
     // "Share screen" in a call: macOS shows its own picker (screens and windows), and nothing is
     // captured until the person chooses. If the system picker isn't available, offer the main screen.
+    // Screen share in a call, and "Include meeting audio from this computer" when recording a meeting.
+    // On macOS 15+ the system picker handles the request itself (this handler is not called) and
+    // decides what audio comes back. Electron's loopback system audio is Windows only, so it is
+    // added there; elsewhere the page sees whether an audio track arrived and says so.
     session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
       if (request.frame?.top?.url && !isAppUrl(request.frame.top.url)) return callback({});
-      desktopCapturer.getSources({ types: ['screen'] }).then(sources => callback(sources[0] ? { video: sources[0] } : {}), () => callback({}));
+      const audio = request.audioRequested && process.platform === 'win32' ? { audio: 'loopback' } : {};
+      desktopCapturer.getSources({ types: ['screen'] }).then(sources => callback(sources[0] ? { video: sources[0], ...audio } : {}), () => callback({}));
     }, { useSystemPicker: true });
     ipcMain.on('servant:config', event => { event.returnValue = validSender(event) ? { workspace } : {}; });
     ipcMain.on('servant:pending-invite', event => {

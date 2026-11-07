@@ -9,7 +9,7 @@ import { useSession } from "../lib/session";
 import { api, type FeedbackReport } from "../lib/server";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
-const labels: Record<string, string> = { queued: "Queued", working: "Investigating", released: "Fix released", needs_info: "More information needed", reviewed: "Reviewed", interrupted: "Needs retry" };
+const labels: Record<string, string> = { queued: "Queued", working: "Sending", filed: "Sent to the team", released: "Fix released", needs_info: "More information needed", reviewed: "Reviewed", interrupted: "Needs retry" };
 
 export default function Feedback() {
   const styles = useStyles();

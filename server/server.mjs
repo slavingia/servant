@@ -29,7 +29,8 @@ import { createOta } from "./ota.mjs";
 import { createRecordings } from "./recordings.mjs";
 import { createMeetings, NOTES_PROMPT as MEETING_NOTES_PROMPT } from "./meetings.mjs";
 import os from "node:os";
-import { createFeedback, feedbackPrompt, feedbackResult } from "./feedback.mjs";
+import { execFile } from "node:child_process";
+import { createFeedback, fileIssue } from "./feedback.mjs";
 import { createPushService, preferences, previewText, updatePushRegistration, updateVoipRegistration, updatePreferences } from "./push.mjs";
 import { createPushTransport } from "./push-transport.mjs";
 import { createSecureTransport, serverIdentity } from "./secure-transport.mjs";
@@ -148,6 +149,8 @@ export function loadConfig() {
     defaultAgentTier: [0, 1, 2, 3, 4].includes(cfg.defaultAgentTier) ? cfg.defaultAgentTier : 0,
     // Email code sign-in (docs/email-sign-in.md). Off unless enabled.
     emailVerification: cfg.emailVerification || {},
+    // Where in-app feedback goes: a GitHub issue here, filed with the owner's gh login (no AI involved).
+    feedbackRepo: typeof cfg.feedbackRepo === "string" ? cfg.feedbackRepo : "slavingia/servant",
     // Where the server can be reached from phones. Filled in by the tunnel script.
     publicUrl: process.env.SERVANT_PUBLIC_URL || cfg.publicUrl || "",
     // The website that serves the invite page (https://servant.com/join), and the download buttons it shows.
@@ -350,6 +353,15 @@ function pairAllowed(ip) {
   const list = (pairFailures.get(ip) || []).filter((t) => now() - t < PAIR_WINDOW_MS);
   pairFailures.set(ip, list);
   return list.length < 10;
+}
+// Sending a code mails a stranger, so every request counts (not only the failures): 20 per ten minutes per visitor.
+const emailStarts = new Map();
+function emailStartAllowed(ip) {
+  const list = (emailStarts.get(ip) || []).filter((t) => now() - t < PAIR_WINDOW_MS);
+  if (list.length >= 20) { emailStarts.set(ip, list); return false; }
+  emailStarts.set(ip, [...list, now()]);
+  if (emailStarts.size > 5000) for (const [k, v] of emailStarts) if (!v.some((t) => now() - t < PAIR_WINDOW_MS)) emailStarts.delete(k);
+  return true;
 }
 function pairFailed(ip) {
   pairFailures.set(ip, [...(pairFailures.get(ip) || []), now()]);
@@ -852,7 +864,7 @@ async function handle(req, res, cfg) {
 
   // Over-the-air app updates: public, signed, app code only (see ota.mjs).
   // The invite web page: opens the app by itself, with copy-the-link as a fallback. Nothing is read from the server.
-  if (method === "GET" && url.pathname === "/join") {
+  if (method === "GET" && (url.pathname === "/join" || url.pathname === "/")) {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" });
     return res.end(joinPage(cfg.downloads));
   }
@@ -923,7 +935,7 @@ async function handle(req, res, cfg) {
     const ip = clientIp(req);
     const settings = emailSettings(cfg);
     if (!settings.enabled) return fail(res, 404, "not_found", "Email codes are off");
-    if (!pairAllowed(ip)) return fail(res, 429, "rate_limited", "Too many tries. Wait ten minutes");
+    if (!pairAllowed(ip) || !emailStartAllowed(ip)) return fail(res, 429, "rate_limited", "Too many tries. Wait ten minutes");
     const body = await readBody(req);
     const inviteKey = sha256(normalizeCode(body.code));
     const invite = readState().invites[inviteKey];
@@ -1474,7 +1486,8 @@ async function handle(req, res, cfg) {
   }
   if (!meetings && parts[1] === "meetings") return fail(res, 503, "calls_unavailable", "Calls aren't running on this server right now. Ask your admin to restart it"), undefined;
   if (recordings && parts[1] === "recordings" && (await recordings.handle(req, res, { user, device, method, parts, send, fail, readBody: readAuthorizedBody }))) return undefined;
-  if (meetings && parts[1] === "meetings" && (await meetings.handle(req, res, { user, method, parts, send, fail, readBody: readAuthorizedBody }))) return undefined;
+  // GET /v1/meetings lists hosted calls and this person's own recordings together.
+  if (meetings && parts[1] === "meetings" && (await meetings.handle(req, res, { user, method, parts, send, fail, readBody: readAuthorizedBody, otherMeetings: u => recordings?.list(u) ?? [] }))) return undefined;
   if (messaging && (await messaging.handle(req, res, { user, device, method, parts, url, send, fail, readBody: readAuthorizedBody, cors: CORS,
     isAuthorized: () => authenticate(req, readState())?.user.id === user.id,
   }))) return undefined;
@@ -2124,14 +2137,13 @@ async function executePrivateTurn(turn, hooks, cfg) {
   } : undefined };
 }
 
-// Runs in a separate worker so deploying/restarting the API cannot lose a report.
+// Runs in a separate worker so deploying/restarting the API cannot lose a report. No AI: the report becomes a GitHub issue.
+const ghExec = (args, input) => new Promise((resolve, reject) => {
+  const child = execFile("gh", args, { timeout: 30000, maxBuffer: 1024 * 1024 }, (error, stdout) => error ? reject(error) : resolve(stdout));
+  if (input !== undefined) child.stdin.end(input);
+});
 export async function runFeedback(report) {
-  const up = upstreamFor({ role: "owner" }, loadConfig());
-  if (!up) throw new Error("Development agent unavailable");
-  const sid = `servant_feedback_${report.id}`;
-  const made = await hermes(up, "POST", "/api/sessions", { id: sid, title: `Servant feedback ${report.id}` });
-  if (!made.ok && made.status !== 409) throw new Error("Could not create feedback session");
-  return feedbackResult(await streamTurn(up, sid, hermesInput(feedbackPrompt(report), report.images || []), "servant:development-feedback", () => {}));
+  return fileIssue(report, { repo: loadConfig().feedbackRepo, exec: ghExec });
 }
 
 function createServices(fixedCfg, { externalWorker = false, autoDrain = true } = {}) {

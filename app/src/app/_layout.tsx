@@ -138,6 +138,8 @@ function SessionNavigation() {
         <Stack.Screen name="notifications" options={{ title: "Notifications", ...childScreen }} />
         <Stack.Screen name="leaderboard" options={{ title: "Shame board", ...childScreen }} />
         <Stack.Screen name="invite" options={{ title: "Invite someone", ...childScreen }} />
+        <Stack.Screen name="meetings/index" options={{ title: "Meetings", ...sidebarScreen }} />
+        <Stack.Screen name="meetings/[id]" options={{ title: "Meeting", ...childScreen }} />
       </Stack.Protected>
     </Stack>
     {paired ? <IncomingCall /> : null}

@@ -42,8 +42,17 @@ export default function ChatScreen() {
   const { id, readOnly } = useLocalSearchParams<{ id: string; readOnly?: string }>();
   const { account } = useSession();
   const key = `${account?.serverUrl ?? ""}:${account?.token ?? ""}:${id}`;
+  // A link (e.g. "Working on it in ..." from @s) doesn't say whose chat it is: ask the server.
+  const [theirs, setTheirs] = useState<boolean | null>(readOnly === "1" ? true : null);
+  useEffect(() => {
+    if (readOnly === "1" || !account || !id) return;
+    let live = true;
+    api.chat(account, String(id)).then(c => { if (live) setTheirs(!!c.readOnly); }).catch(() => { if (live) setTheirs(false); });
+    return () => { live = false; };
+  }, [account, id, readOnly]);
   // Someone else's shared chat opens read-only: no composer, turns or controls.
-  if (readOnly === "1") return <SharedChatView key={key} />;
+  if (theirs === true) return <SharedChatView key={key} />;
+  if (theirs === null) return null;
   // A different conversation or account starts with fresh draft and send state.
   return <ChatConversation key={key} />;
 }
@@ -464,7 +473,9 @@ function ChatConversation() {
   // Backing out of a chat that never got a message deletes it (set below), so no empty "New chat" is left behind.
   const discardable = useRef(false);
   const emptyChat = messages !== null && messages.length === 0 && !loadError && !turn && waiting.length === 0;
-  useEffect(() => { discardable.current = emptyChat && compose === "1"; }, [compose, emptyChat]);
+  // An untouched new chat (nothing sent, nothing queued) is deleted when you back out of it.
+  const untouched = emptyChat && compose === "1";
+  useEffect(() => { discardable.current = untouched; }, [untouched]);
   useEffect(() => () => { if (discardable.current && account) void api.deleteChat(account, String(id)).catch(() => {}); }, [account, id]);
   const loaded = messages !== null && !loadError;
   useEffect(() => { if (id && loaded && account) setItem(lastChatKey(account.user.id), String(id)).catch(() => {}); }, [id, loaded, account]);
