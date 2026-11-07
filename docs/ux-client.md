@@ -158,6 +158,23 @@ Older clients remain compatible because the resulting prototype is still an
 ordinary private agent chat and message. See [Research Hub
 connector](research-hub.md) for the publication and privacy boundary.
 
+## Local research preview
+
+During web development, open
+`http://127.0.0.1:4175/research-preview` to review the Research Studio and
+research-to-prototype interactions before committing them. The route is enabled
+only for a development build running on a loopback web host (`localhost`,
+`127.0.0.1`, or `::1`); other builds and hosts show an unavailable state.
+
+The preview uses clearly labeled synthetic study, evidence, guidance, and design
+direction fixtures. Its route and helper do not import the server or session
+clients and do not call an API, fetch data, create chats, save drafts, or persist
+review changes. Reviewers prepare and approve the sample guidance, inspect the
+exact prototype handoff, and choose a proposed direction without changing the
+current workspace. Keep preview changes uncommitted while they are under review,
+then run the normal tests, typecheck, lint, and production export before the
+approved files are committed.
+
 ## Mobile builds
 
 `app/app.config.js` defaults to the UX flavor:
