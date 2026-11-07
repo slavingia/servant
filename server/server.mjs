@@ -1223,7 +1223,8 @@ async function handle(req, res, cfg) {
   }
   if (!meetings && parts[1] === "meetings") return fail(res, 503, "calls_unavailable", "Calls aren't running on this server right now. Ask your admin to restart it"), undefined;
   if (recordings && parts[1] === "recordings" && (await recordings.handle(req, res, { user, device, method, parts, send, fail, readBody: readAuthorizedBody }))) return undefined;
-  if (meetings && parts[1] === "meetings" && (await meetings.handle(req, res, { user, method, parts, send, fail, readBody: readAuthorizedBody }))) return undefined;
+  // GET /v1/meetings lists hosted calls and this person's own recordings together.
+  if (meetings && parts[1] === "meetings" && (await meetings.handle(req, res, { user, method, parts, send, fail, readBody: readAuthorizedBody, otherMeetings: u => recordings?.list(u) ?? [] }))) return undefined;
   if (messaging && (await messaging.handle(req, res, { user, device, method, parts, url, send, fail, readBody: readAuthorizedBody, cors: CORS,
     isAuthorized: () => authenticate(req, readState())?.user.id === user.id,
   }))) return undefined;

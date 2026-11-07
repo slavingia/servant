@@ -19,6 +19,7 @@ import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { createAssist, liveTranscribe, TICK_MS } from "./meeting-assist.mjs";
+import { mergeMeetingList } from "./meeting-list.mjs";
 
 const MAX_PARTICIPANTS = 12;
 const MAX_MEETING_MS = 4 * 60 * 60 * 1000;
@@ -166,6 +167,9 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
     );
     CREATE TABLE IF NOT EXISTS transcripts (meeting_id TEXT PRIMARY KEY, text TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS research_cards (meeting_id TEXT PRIMARY KEY, json TEXT NOT NULL);`);
+  // The summary and notes used to live only in the posted message; the Meetings screen reads them from here.
+  const columns = new Set(db.prepare("PRAGMA table_info(meetings)").all().map(c => c.name));
+  for (const [name, type] of [["summary", "TEXT"], ["notes", "TEXT"]]) if (!columns.has(name)) db.exec(`ALTER TABLE meetings ADD COLUMN ${name} ${type}`);
   const q = (s) => db.prepare(s);
   const st = {
     get: q("SELECT * FROM meetings WHERE id = ?"),
@@ -175,7 +179,9 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
     setStatus: q("UPDATE meetings SET status = ?, error = ? WHERE id = ?"),
     end: q("UPDATE meetings SET status = 'recorded', ended_at = ? WHERE id = ? AND status = 'live'"),
     claim: q("UPDATE meetings SET status = 'processing', owner_pid = ? WHERE id = ? AND status IN ('recorded', 'processing')"),
-    done: q("UPDATE meetings SET status = 'done', notes_seq = ?, title = ?, error = NULL WHERE id = ?"),
+    done: q("UPDATE meetings SET status = 'done', notes_seq = ?, title = ?, summary = ?, notes = ?, error = NULL WHERE id = ?"),
+    recent: q("SELECT * FROM meetings ORDER BY started_at DESC LIMIT 500"),
+    openSteps: q("SELECT COUNT(*) AS n FROM steps WHERE meeting_id = ? AND status = 'open'"),
     unfinished: q("SELECT * FROM meetings WHERE status IN ('live', 'recorded', 'processing')"),
     addRecording: q("INSERT OR REPLACE INTO recordings VALUES (?, ?, ?, ?, ?)"),
     recordings: q("SELECT * FROM recordings WHERE meeting_id = ?"),
@@ -229,6 +235,10 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
       endedAt: m.ended_at,
       title: m.title,
       error: m.error || null,
+      summary: m.summary || null,
+      notes: parseJsonList(m.notes),
+      people: peopleOf(m),
+      durationMs: m.ended_at ? Math.max(0, m.ended_at - m.started_at) : null,
       iceServers: iceServers(),
       participants: call ? [...call.participants.values()].map(p => ({
         id: p.id, user: person(p.userId), publishing: p.tracks.size > 0, you: p.userId === userId, joinedAt: p.joinedAt,
@@ -238,6 +248,30 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
       steps,
       transcript: m.status === "done" ? st.transcript.get(m.id)?.text || "" : null,
     };
+  }
+  const parseJsonList = (text) => { try { const v = JSON.parse(text || "[]"); return Array.isArray(v) ? v : []; } catch { return []; } };
+  // Who was on the call: everyone the server recorded, or whoever is connected while it runs.
+  function peopleOf(m) {
+    const call = calls.get(m.id);
+    const ids = call ? [...call.participants.values()].filter(p => !p.screen).map(p => p.userId) : st.recordings.all(m.id).map(r => r.user_id);
+    return [...new Set(ids.length ? ids : [m.started_by])].map(person);
+  }
+  // The Meetings screen: every call in a conversation this person is a member of (the same check
+  // as opening one), newest first. Someone outside a private room never sees its calls.
+  function list(user) {
+    const member = new Map();
+    const canSee = (conversationId) => { if (!member.has(conversationId)) member.set(conversationId, messaging.isMember(conversationId, user.id)); return member.get(conversationId); };
+    return st.recent.all().filter(m => canSee(m.conversation_id)).map(m => {
+      const live = m.status === "live" && calls.has(m.id);
+      const people = peopleOf(m);
+      return {
+        kind: "call", id: m.id, title: m.title, conversationId: m.conversation_id,
+        startedAt: m.started_at, endedAt: m.ended_at, durationMs: m.ended_at ? Math.max(0, m.ended_at - m.started_at) : null,
+        status: live ? "live" : m.status === "live" ? "recorded" : m.status,
+        summary: m.summary || null, people, peopleCount: people.length,
+        openSteps: st.openSteps.get(m.id).n, error: m.error || null,
+      };
+    });
   }
   // Research during the call: off until the host turns it on; everyone sees the state and the cards.
   const researchAvailable = () => cfg().research === true && !!research;
@@ -540,7 +574,7 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
           for (const s of steps) { db.prepare("UPDATE steps SET conversation_id = ? WHERE meeting_id = ? AND n = ?").run(m.conversation_id, m.id, s.n); st.setStepMessage.run(home.seq, m.id, s.n); }
         }
       }
-      st.done.run(home.seq, notes.title, m.id);
+      st.done.run(home.seq, notes.title, notes.summary, JSON.stringify(notes.notes), m.id);
       messaging.refreshMessage(home.seq);
       if (m.card_seq) messaging.updateAgentMessage(m.card_seq, `Meeting${people.length ? ` with ${names(people)}` : ""} · ${minutes} min\n\nNotes are below`);
       if (!cfg().keepRecordings) { /* recordings stay; operators can prune data/meetings */ }
@@ -579,9 +613,10 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
   }
 
   // ---- HTTP ----
-  async function handle(req, res, { user, method, parts, send, fail, readBody }) {
+  async function handle(req, res, { user, method, parts, send, fail, readBody, otherMeetings }) {
     if (parts[1] !== "meetings") return false;
     const [, , id, sub, n] = parts;
+    if (method === "GET" && parts.length === 2) return send(res, 200, { meetings: mergeMeetingList(list(user), otherMeetings ? otherMeetings(user) : []) }), true;
     if (method === "POST" && parts.length === 2) {
       const body = await readBody(req);
       const m = await start(user, String(body?.conversationId || ""));
@@ -670,5 +705,5 @@ export function createMeetings({ dir, messaging, users, config = () => ({}), sum
     db.close();
   }
 
-  return { handle, messageExtras, recover, close, start, finish, processMeeting, act, view: (id, userId) => view(st.get.get(id), userId), db, calls };
+  return { handle, messageExtras, recover, close, start, finish, processMeeting, act, list, view: (id, userId) => view(st.get.get(id), userId), db, calls };
 }

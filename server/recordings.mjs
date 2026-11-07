@@ -64,6 +64,14 @@ export function createRecordings({ dir, summarize, startWork, config = () => ({}
   const summaryView = r => ({ id: r.id, title: r.title, status: r.status, createdAt: r.created_at, durationMs: r.duration_ms, summary: r.summary, error: r.error,
     openSteps: st.steps.all(r.id).filter(s => s.status === "open").length });
   const detail = r => ({ ...summaryView(r), notes: r.notes ? JSON.parse(r.notes) : [], transcript: r.transcript || "", steps: st.steps.all(r.id).map(stepView) });
+  // For the Meetings screen, in the same shape as a hosted call (see meeting-list.mjs). A recording
+  // is only ever the recording person's own. One still uploading is not a meeting yet.
+  const list = user => st.list.all(user.id).filter(r => r.status !== "uploading").map(r => {
+    const me = { id: user.id, name: users()[user.id]?.name || user.name || "You" };
+    return { kind: "recording", id: r.id, title: r.title, conversationId: null, startedAt: r.created_at, endedAt: r.created_at + r.duration_ms,
+      durationMs: r.duration_ms, status: r.status, summary: r.summary, people: [me], peopleCount: 1,
+      openSteps: st.steps.all(r.id).filter(s => s.status === "open").length, error: r.error };
+  });
 
   function mine(id, user) {
     const r = typeof id === "string" && st.get.get(id);
@@ -194,5 +202,5 @@ export function createRecordings({ dir, summarize, startWork, config = () => ({}
     while (processing.size && now() < deadline) await new Promise(r => setTimeout(r, 100));
     db.close();
   }
-  return { handle, recover, close, create, chunk, finish, act, remove, retry, detail: (id, user) => detail(mine(id, user)), db };
+  return { handle, recover, close, create, chunk, finish, act, remove, retry, list, detail: (id, user) => detail(mine(id, user)), db };
 }
