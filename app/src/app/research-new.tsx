@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppIcon } from "../components/AppIcon";
 import { PageTitle } from "../components/Band";
 import { Button } from "../components/Button";
+import { designStatus, designTitle, studyPrototypeChats } from "../lib/designs";
 import {
   buildResearchPrompt,
   isResearchTaskKind,
@@ -14,8 +15,9 @@ import {
   researchTask,
   type ResearchBrief,
   type ResearchFieldId,
+  type ResearchPrototype,
 } from "../lib/research-studio";
-import { api, ServerError, type ResearchHubAvailableMetadata, type ResearchHubEvidence, type ResearchHubMetadata } from "../lib/server";
+import { api, ServerError, type Chat, type ResearchHubAvailableMetadata, type ResearchHubEvidence, type ResearchHubMetadata } from "../lib/server";
 import { setDraft } from "../lib/drafts";
 import { useSession } from "../lib/session";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
@@ -25,6 +27,12 @@ type ResearchHubState =
   | { kind: "checking" }
   | { kind: "available"; hub: ResearchHubAvailableMetadata }
   | ResearchHubFailureState;
+type PrototypeMode = "none" | "new" | "existing";
+const PROTOTYPE_OPTIONS: readonly { id: PrototypeMode; label: string; description: string }[] = [
+  { id: "none", label: "No prototype", description: "Plan a study that does not depend on an interactive design." },
+  { id: "new", label: "Plan a new prototype", description: "Add a build-ready prototype brief and Design Studio handoff to the study plan." },
+  { id: "existing", label: "Choose an existing prototype", description: "Use an active prototype with a live preview from your Design Studio library." },
+];
 
 function researchHubFailure(error: unknown): ResearchHubFailureState {
   if (error instanceof ServerError && error.status === 403) return {
@@ -59,6 +67,17 @@ function evidenceKind(kind: ResearchHubEvidence["kind"]): string {
   return kind === "theme" ? "Theme" : kind === "feature" ? "Feature" : kind === "bug" ? "Issue" : "Rating";
 }
 
+function prototypeReference(design: Chat, ownName: string): ResearchPrototype {
+  return {
+    kind: "existing",
+    id: design.id,
+    title: designTitle(design),
+    status: designStatus(design),
+    previewUrl: design.previewUrl?.trim() || undefined,
+    author: design.author?.name?.trim() || ownName,
+  };
+}
+
 export default function NewResearchWork() {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -66,7 +85,7 @@ export default function NewResearchWork() {
   const requestedKind = Array.isArray(rawKind) ? rawKind[0] : rawKind;
   const kind = isResearchTaskKind(requestedKind) ? requestedKind : "study";
   const task = researchTask(kind);
-  const { account } = useSession();
+  const { account, setAccount } = useSession();
   const [title, setTitle] = useState("");
   const [answers, setAnswers] = useState<Partial<Record<ResearchFieldId, string>>>({});
   const [agentTier, setAgentTier] = useState<number | null | undefined>(undefined);
@@ -77,6 +96,10 @@ export default function NewResearchWork() {
   const [hubAttempt, setHubAttempt] = useState(0);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [evidence, setEvidence] = useState<ResearchHubEvidence[]>([]);
+  const [prototypeMode, setPrototypeMode] = useState<PrototypeMode>("none");
+  const [prototypePurpose, setPrototypePurpose] = useState("");
+  const [prototypeOpen, setPrototypeOpen] = useState(false);
+  const [selectedPrototype, setSelectedPrototype] = useState<Chat | null>(null);
   const hubRevision = useRef<string | null>(null);
 
   const acceptHubMetadata = useCallback((hub: ResearchHubMetadata) => {
@@ -88,6 +111,7 @@ export default function NewResearchWork() {
       ? { kind: "available", hub }
       : { kind: "unavailable", message: hub.message || "Research Hub isn't available on this server yet. You can continue without attaching Hub evidence." });
   }, []);
+  const clearSelectedPrototype = useCallback(() => setSelectedPrototype(null), []);
 
   useEffect(() => {
     if (!account) return;
@@ -128,16 +152,39 @@ export default function NewResearchWork() {
 
   if (!account) return null;
   const update = (field: ResearchFieldId, value: string) => setAnswers(current => ({ ...current, [field]: value }));
-  const brief = (records: readonly ResearchHubEvidence[] = evidence, hub?: ResearchHubMetadata): ResearchBrief => ({
+  const selectedResearchPrototype = (): ResearchPrototype | undefined => kind !== "study" || prototypeMode === "none"
+    ? undefined
+    : prototypeMode === "new"
+      ? { kind: "new", purpose: prototypePurpose }
+      : selectedPrototype ? prototypeReference(selectedPrototype, account.user.name) : undefined;
+  const brief = (
+    records: readonly ResearchHubEvidence[] = evidence,
+    hub?: ResearchHubMetadata,
+    prototype: ResearchPrototype | undefined = selectedResearchPrototype(),
+  ): ResearchBrief => ({
     kind,
     title,
     answers,
     evidence: records,
     evidenceHub: hub ?? (hubState.kind === "available" ? hubState.hub : undefined),
+    ...(prototype ? { prototype } : {}),
   });
+  const choosePrototypeMode = (mode: PrototypeMode) => {
+    if (mode !== prototypeMode) {
+      setPrototypePurpose("");
+      setSelectedPrototype(null);
+    }
+    setPrototypeMode(mode);
+    setError(null);
+    if (mode === "existing") setPrototypeOpen(true);
+  };
 
   const create = async () => {
     if (busy || agentTier !== 4) return;
+    if (kind === "study" && prototypeMode === "existing" && !selectedPrototype) {
+      setError("Choose an existing prototype or select a different prototype option.");
+      return;
+    }
     const current = brief();
     const missing = missingResearchFields(current);
     if (missing.length) {
@@ -148,7 +195,9 @@ export default function NewResearchWork() {
     setError(null);
     const expectedTitle = researchChatTitle(kind, title);
     try {
-      let resolvedBrief = current;
+      let resolvedEvidence: readonly ResearchHubEvidence[] = evidence;
+      let resolvedHub: ResearchHubMetadata | undefined = hubState.kind === "available" ? hubState.hub : undefined;
+      let resolvedPrototype = current.prototype;
       if (evidence.length) {
         if (hubState.kind !== "available") {
           setError("Research Hub evidence can't be verified right now. Try the Hub check again or continue without the selection.");
@@ -176,8 +225,26 @@ export default function NewResearchWork() {
           return;
         }
         acceptHubMetadata(resolved.hub);
-        resolvedBrief = brief(ordered, resolved.hub);
+        resolvedEvidence = ordered;
+        resolvedHub = resolved.hub;
       }
+      if (kind === "study" && prototypeMode === "existing" && selectedPrototype) {
+        let latestPrototype: Chat | undefined;
+        try {
+          const library = await api.orgChats(account, setAccount);
+          latestPrototype = studyPrototypeChats(library.mine, library.others).find(design => design.id === selectedPrototype.id);
+        } catch (e) {
+          setError(e instanceof ServerError ? e.message : "The selected prototype couldn't be verified. Try again.");
+          return;
+        }
+        if (!latestPrototype) {
+          setError("That prototype is no longer available or ready for review. Choose another prototype with an active live preview, or plan a new one.");
+          return;
+        }
+        setSelectedPrototype(latestPrototype);
+        resolvedPrototype = prototypeReference(latestPrototype, account.user.name);
+      }
+      const resolvedBrief = brief(resolvedEvidence, resolvedHub, resolvedPrototype);
       const chat = await api.newChat(account, { title: expectedTitle, requiredAgentRole: "researcher" });
       // The server checks the role atomically. The response marker also keeps a
       // server that predates that check from silently accepting the wrong lane.
@@ -222,7 +289,7 @@ export default function NewResearchWork() {
       <PageTitle description={task.description}>{task.actionLabel}</PageTitle>
       <View style={styles.note}>
         <AppIcon name="sparkles" size={17} color={colors.blueDark} />
-        <Text style={styles.noteText}>Your answers and selected evidence become an unsent draft in a private researcher chat. Review or edit the prompt before you send it.</Text>
+        <Text style={styles.noteText}>Your answers and any selected prototype or evidence become an unsent draft in a private researcher chat. Review or edit the prompt before you send it.</Text>
       </View>
 
       <Text accessibilityRole="header" style={styles.sectionTitle}>Name the work</Text>
@@ -244,6 +311,45 @@ export default function NewResearchWork() {
             autoCapitalize="sentences" autoCorrect style={[styles.input, field.multiline && styles.multiline]} />
         </View>;
       })}
+
+      {kind === "study" ? <>
+        <Text accessibilityRole="header" style={styles.sectionTitle}>Prototype for this study</Text>
+        <Text style={styles.sectionDescription}>Optional — choose whether the study needs an interactive design. Nothing is built or shared from this screen.</Text>
+        <View accessibilityRole="radiogroup" accessibilityLabel="Prototype for this study" style={styles.prototypeOptions}>
+          {PROTOTYPE_OPTIONS.map(option => {
+            const selected = prototypeMode === option.id;
+            return <Pressable key={option.id} accessibilityRole="radio" accessibilityState={{ checked: selected, disabled: busy }} disabled={busy}
+              accessibilityLabel={`${option.label}. ${option.description}`} onPress={() => choosePrototypeMode(option.id)}
+              style={({ pressed }) => [styles.prototypeOption, selected && styles.prototypeOptionSelected, pressed && !busy && styles.prototypeOptionPressed]}>
+              <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[styles.prototypeRadio, selected && styles.prototypeRadioSelected]}>
+                {selected ? <View style={styles.prototypeRadioDot} /> : null}
+              </View>
+              <View style={styles.prototypeOptionCopy}>
+                <Text style={styles.prototypeOptionTitle}>{option.label}</Text>
+                <Text style={styles.prototypeOptionDescription}>{option.description}</Text>
+              </View>
+            </Pressable>;
+          })}
+        </View>
+
+        {prototypeMode === "new" ? <View style={styles.prototypeDetail}>
+          <Text style={styles.label}>Prototype purpose *</Text>
+          <TextInput value={prototypePurpose} onChangeText={value => { setPrototypePurpose(value); setError(null); }} accessibilityLabel="Prototype purpose, required"
+            placeholder="What should participants be able to do or react to?" placeholderTextColor={colors.muted} multiline textAlignVertical="top"
+            maxLength={1000} autoCapitalize="sentences" autoCorrect style={[styles.input, styles.prototypePurpose]} />
+          <Text style={styles.prototypeHelp}>The researcher will define the minimum testable interactions, content, states, and accessibility needs as a handoff for someone with Design Studio access.</Text>
+        </View> : prototypeMode === "existing" ? <View style={styles.prototypeDetail}>
+          {selectedPrototype ? <View style={styles.selectedPrototype}>
+            <View style={styles.selectedPrototypeIcon}><AppIcon name="code" size={19} color={colors.blueDark} /></View>
+            <View style={styles.selectedPrototypeCopy}>
+              <Text style={styles.selectedPrototypeTitle} numberOfLines={2}>{designTitle(selectedPrototype)}</Text>
+              <Text style={styles.selectedPrototypeMeta} numberOfLines={1}>{designStatus(selectedPrototype)} · {selectedPrototype.author?.name || "Your prototype"}</Text>
+              <Text style={styles.selectedPrototypePreview} numberOfLines={1}>Live preview available</Text>
+            </View>
+          </View> : <Text accessibilityLiveRegion="polite" style={styles.prototypeHelp}>Choose one active prototype with a live preview. Draft, building, and archived designs are left out.</Text>}
+          <Button label={selectedPrototype ? "Change prototype" : "Choose prototype"} kind="secondary" disabled={busy} onPress={() => setPrototypeOpen(true)} />
+        </View> : null}
+      </> : null}
 
       <Text accessibilityRole="header" style={styles.sectionTitle}>Research Hub evidence</Text>
       <Text style={styles.sectionDescription}>{kind === "study"
@@ -288,7 +394,7 @@ export default function NewResearchWork() {
 
       <View style={styles.boundary}>
         <Text style={styles.boundaryTitle}>What happens next</Text>
-        <Text style={styles.boundaryBody}>Servant verifies selected evidence again, creates an ordinary titled chat, and places a structured prompt in its composer. Nothing is sent, shared, published, or used to contact participants until you choose what to do next.</Text>
+        <Text style={styles.boundaryBody}>Servant verifies selected evidence{kind === "study" && prototypeMode === "existing" ? " and the prototype" : ""} again, creates an ordinary titled chat, and places a structured prompt in its composer. {kind === "study" && prototypeMode === "new" ? "The prompt includes a Design Studio handoff; it does not claim the prototype has already been built. " : ""}Nothing is sent, shared, published, or used to contact participants until you choose what to do next.</Text>
       </View>
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
       <Button label="Review in researcher chat" busy={busy} onPress={() => { void create(); }} style={styles.primary} />
@@ -296,7 +402,110 @@ export default function NewResearchWork() {
     </ScrollView>
     {evidenceOpen && hubState.kind === "available" ? <ResearchEvidencePicker hub={hubState.hub} selected={evidence} onHubMetadata={acceptHubMetadata} onHubFailure={setHubState}
       onApply={items => { setEvidence(items); setEvidenceOpen(false); setError(null); }} onClose={() => setEvidenceOpen(false)} /> : null}
+    {prototypeOpen && kind === "study" ? <ExistingPrototypePicker selected={selectedPrototype} onUnavailable={clearSelectedPrototype}
+      onApply={design => { setSelectedPrototype(design); setPrototypeMode("existing"); setPrototypeOpen(false); setError(null); }} onClose={() => setPrototypeOpen(false)} /> : null}
   </View>;
+}
+
+function ExistingPrototypePicker({ selected, onUnavailable, onApply, onClose }: {
+  selected: Chat | null;
+  onUnavailable: () => void;
+  onApply: (design: Chat) => void;
+  onClose: () => void;
+}) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const { account, setAccount } = useSession();
+  const insets = useSafeAreaInsets();
+  const [designs, setDesigns] = useState<Chat[] | null>(null);
+  const [picked, setPicked] = useState<Chat | null>(selected);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!account) return;
+    let active = true;
+    setDesigns(null);
+    setLoadError(null);
+    api.orgChats(account, setAccount).then(result => {
+      if (!active) return;
+      const available = studyPrototypeChats(result.mine, result.others);
+      setDesigns(available);
+      if (selected) {
+        const current = available.find(item => item.id === selected.id);
+        if (current) setPicked(current);
+        else {
+          onUnavailable();
+          setSelectionNotice("The earlier prototype is no longer ready or available, so the selection was cleared.");
+          setPicked(null);
+        }
+      }
+    }).catch(e => {
+      if (!active) return;
+      setDesigns([]);
+      setLoadError(e instanceof ServerError ? e.message : "Couldn't load Design Studio prototypes.");
+    });
+    return () => { active = false; };
+  }, [account, loadAttempt, onUnavailable, selected, setAccount]);
+
+  if (!account) return null;
+  return <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+    <KeyboardAvoidingView style={styles.pickerKeyboard} behavior={Platform.OS === "ios" ? "padding" : Platform.OS === "android" ? "height" : undefined}>
+      <View style={[styles.pickerOverlay, { paddingTop: insets.top + space.side, paddingBottom: insets.bottom + space.side }]}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Close prototype picker" style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View accessibilityViewIsModal testID="research-prototype-picker" style={styles.pickerCard}>
+          <View style={styles.pickerHeader}>
+            <View style={styles.pickerHeadingCopy}>
+              <Text accessibilityRole="header" style={styles.pickerTitle}>Choose an existing prototype</Text>
+              <Text style={styles.pickerSubtitle}>Choose from active Design Studio prototypes marked Ready for review. Confirm participant readiness in the study plan.</Text>
+            </View>
+            <Pressable accessibilityRole="button" accessibilityLabel="Cancel" hitSlop={12} onPress={onClose}>
+              <AppIcon name="close" size={18} color={colors.muted} />
+            </Pressable>
+          </View>
+
+          {selectionNotice ? <Text accessibilityRole="alert" style={styles.pickerRevisionNotice}>{selectionNotice}</Text> : null}
+          <ScrollView style={styles.prototypePickerResults} contentContainerStyle={styles.pickerResultsContent} keyboardShouldPersistTaps="handled">
+            {designs === null && !loadError ? <View style={styles.pickerLoading}>
+              <ActivityIndicator accessibilityLabel="Loading prototypes" accessibilityRole="progressbar" color={colors.blue} />
+              <Text style={styles.pickerLoadingText}>Loading prototypes…</Text>
+            </View> : loadError ? <View style={styles.pickerEmpty}>
+              <Text accessibilityRole="alert" style={styles.pickerError}>{loadError}</Text>
+              <Button label="Try again" kind="secondary" compact onPress={() => setLoadAttempt(value => value + 1)} style={styles.pickerRetry} />
+            </View> : !designs?.length ? <View style={styles.pickerEmpty}>
+              <View style={styles.prototypeEmptyIcon}><AppIcon name="code" size={24} color={colors.blueDark} /></View>
+              <Text style={styles.pickerEmptyText}>No prototypes marked Ready for review are available. Choose “Plan a new prototype” to add a Design Studio handoff to the study.</Text>
+            </View> : <View accessibilityRole="radiogroup" accessibilityLabel="Available prototypes">
+              {designs.map(design => {
+              const checked = picked?.id === design.id;
+              const author = design.author?.name ? ` · by ${design.author.name}` : " · yours";
+              return <Pressable key={design.id} accessibilityRole="radio" accessibilityState={{ checked }}
+                accessibilityLabel={`${designTitle(design)}. Ready for review${author}. Live preview available.`}
+                onPress={() => { setPicked(design); setSelectionNotice(null); }}
+                style={({ pressed }) => [styles.prototypePickerRow, checked && styles.pickerRowSelected, pressed && styles.pickerRowPressed]}>
+                <View style={styles.selectedPrototypeIcon}><AppIcon name="code" size={19} color={colors.blueDark} /></View>
+                <View style={styles.pickerRowCopy}>
+                  <Text style={styles.pickerRowTitle}>{designTitle(design)}</Text>
+                  <Text style={styles.pickerRowMeta}>Ready for review{author}</Text>
+                  <Text style={styles.prototypeLive}>Live preview available</Text>
+                </View>
+                <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[styles.prototypeRadio, checked && styles.prototypeRadioSelected]}>
+                  {checked ? <View style={styles.prototypeRadioDot} /> : null}
+                </View>
+              </Pressable>;
+              })}
+            </View>}
+          </ScrollView>
+
+          <View style={styles.pickerFooter}>
+            <Button label="Use this prototype" disabled={!picked || !!loadError || designs === null} onPress={() => { if (picked) onApply(picked); }} style={styles.pickerApply} />
+            <Button label="Cancel" kind="link" onPress={onClose} />
+          </View>
+        </View>
+      </View>
+    </KeyboardAvoidingView>
+  </Modal>;
 }
 
 function ResearchEvidencePicker({ hub, selected, onHubMetadata, onHubFailure, onApply, onClose }: {
@@ -445,6 +654,25 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   label: { ...typography.bodyStrong, color: colors.ink },
   input: { ...typography.body, minHeight: 48, paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, color: colors.ink, backgroundColor: colors.background },
   multiline: { minHeight: 104 },
+  prototypeOptions: { gap: space.sm, marginHorizontal: space.side },
+  prototypeOption: { minHeight: 76, flexDirection: "row", alignItems: "flex-start", gap: space.sm, padding: space.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.background },
+  prototypeOptionSelected: { borderColor: colors.blue, backgroundColor: colors.subtle },
+  prototypeOptionPressed: { opacity: 0.78 },
+  prototypeRadio: { width: 22, height: 22, borderRadius: radius.pill, borderWidth: 2, borderColor: colors.muted, alignItems: "center", justifyContent: "center", marginTop: 1 },
+  prototypeRadioSelected: { borderColor: colors.blue },
+  prototypeRadioDot: { width: 10, height: 10, borderRadius: radius.pill, backgroundColor: colors.blue },
+  prototypeOptionCopy: { flex: 1, minWidth: 0 },
+  prototypeOptionTitle: { ...typography.bodyStrong, color: colors.ink },
+  prototypeOptionDescription: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
+  prototypeDetail: { gap: space.sm, marginHorizontal: space.side, marginTop: space.sm, padding: space.md, borderRadius: radius.md, backgroundColor: colors.surface },
+  prototypePurpose: { minHeight: 88 },
+  prototypeHelp: { ...typography.caption, color: colors.muted },
+  selectedPrototype: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: space.sm },
+  selectedPrototypeIcon: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: radius.md, backgroundColor: colors.blueSoft },
+  selectedPrototypeCopy: { flex: 1, minWidth: 0 },
+  selectedPrototypeTitle: { ...typography.bodyStrong, color: colors.ink },
+  selectedPrototypeMeta: { ...typography.meta, color: colors.muted, marginTop: 2 },
+  selectedPrototypePreview: { ...typography.meta, color: colors.blueDark, marginTop: 2 },
   evidenceSelection: { marginHorizontal: space.side, marginBottom: space.sm, gap: space.xs },
   selectionCount: { ...typography.caption, color: colors.muted },
   selectedEvidenceRow: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.sm, paddingVertical: space.xs, borderRadius: radius.md, backgroundColor: colors.blueSoft },
@@ -487,6 +715,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   pickerChip: { maxWidth: 220, minHeight: 40, flexDirection: "row", alignItems: "center", gap: space.xs, paddingHorizontal: space.sm, borderRadius: radius.sm, backgroundColor: colors.blueSoft },
   pickerChipText: { ...typography.captionStrong, color: colors.blueDark, flexShrink: 1 },
   pickerResults: { flexShrink: 1, minHeight: 160, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
+  prototypePickerResults: { flexShrink: 1, minHeight: 220, marginTop: space.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   pickerResultsContent: { flexGrow: 1, paddingVertical: space.xs },
   pickerLoading: { flex: 1, minHeight: 180, alignItems: "center", justifyContent: "center", gap: space.sm },
   pickerLoadingText: { ...typography.caption, color: colors.muted },
@@ -495,6 +724,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   pickerError: { ...typography.body, color: colors.red, textAlign: "center" },
   pickerRetry: { minWidth: 120, marginTop: space.md },
   pickerRow: { minHeight: 112, flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.sm, paddingVertical: space.sm, borderRadius: radius.md },
+  prototypePickerRow: { minHeight: 80, flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.sm, paddingVertical: space.sm, borderRadius: radius.md },
   pickerRowSelected: { backgroundColor: colors.blueSoft },
   pickerRowDisabled: { opacity: 0.5 },
   pickerRowPressed: { backgroundColor: colors.surface },
@@ -503,6 +733,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   pickerRowMeta: { ...typography.meta, color: colors.muted, marginTop: 2 },
   pickerRowSummary: { ...typography.caption, color: colors.ink, marginTop: space.xxs },
   pickerRowMetric: { ...typography.meta, color: colors.muted, marginTop: space.xxs },
+  prototypeLive: { ...typography.meta, color: colors.blueDark, marginTop: space.xxs },
+  prototypeEmptyIcon: { width: 48, height: 48, alignItems: "center", justifyContent: "center", borderRadius: radius.lg, backgroundColor: colors.blueSoft, marginBottom: space.sm },
   pickerCheck: { width: 24, height: 24, borderRadius: 4, borderWidth: 1.5, borderColor: colors.borderStrong, alignItems: "center", justifyContent: "center" },
   pickerCheckOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   pickerFooter: { paddingTop: space.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },

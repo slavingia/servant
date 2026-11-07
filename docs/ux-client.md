@@ -69,6 +69,12 @@ adding a new server resource:
   one opens the existing chat composer with a prefabricated draft for the person
   to review and edit; onboarding and task shortcuts must not send it
   automatically.
+- A study may use no prototype, plan a new one, or reference an active Design
+  Studio prototype with a live preview. Existing prototypes are loaded from the
+  ordinary readable chat library and rechecked immediately before the research
+  draft is created. Planning a new prototype adds a build-ready Design Studio
+  handoff; it does not route the restricted Researcher agent through the full
+  design agent or claim that a prototype has already been built.
 - The starting task label is exactly **Run a research-informed design review**.
   Research Hub reviews must cite their evidence and sources and clearly remain a
   research-informed first pass. They must not claim or imply human validation,

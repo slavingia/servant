@@ -17,13 +17,20 @@ export function designChats(mine: Chat[], shared: Chat[]) {
   return [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+/** Active prototypes that are eligible to attach to a study plan for final readiness checks. */
+export function studyPrototypeChats(mine: Chat[], shared: Chat[]) {
+  return designChats(mine, shared).filter(chat =>
+    !!chat.previewUrl?.trim() && designStatus(chat) === "Ready for review"
+  );
+}
+
 export function designTitle(chat: Pick<Chat, "title">) {
   return chat.title.replace(/`/g, "").replace(/\s+/g, " ").trim() || "Untitled design";
 }
 
-export function designStatus(chat: Pick<Chat, "archived" | "latestTurn" | "previewUrl">): DesignStatus {
+export function designStatus(chat: Pick<Chat, "archived" | "latestTurn" | "lastMessage" | "previewUrl">): DesignStatus {
   if (chat.archived) return "Archived";
-  if (chat.latestTurn && ACTIVE_TURNS.has(chat.latestTurn.status)) return "Building";
+  if ((chat.latestTurn && ACTIVE_TURNS.has(chat.latestTurn.status)) || chat.lastMessage?.pending) return "Building";
   return chat.previewUrl ? "Ready for review" : "Draft";
 }
 
@@ -58,7 +65,7 @@ export function designCreationAccess(agentTier: unknown, available: unknown): De
  * Plain text on purpose: every Servant build can render and thread this card,
  * even before it knows about the Designs library.
  */
-export function designReviewText(chat: Pick<Chat, "title" | "archived" | "latestTurn" | "previewUrl">, focus = "") {
+export function designReviewText(chat: Pick<Chat, "title" | "archived" | "latestTurn" | "lastMessage" | "previewUrl">, focus = "") {
   const lines = [
     `Design review: ${designTitle(chat)}`,
     `Status: ${designStatus(chat)}`,
