@@ -49,6 +49,14 @@ import { stepDetail, THINKING_LINE, toolStatusLine, WRITING_LINE } from "./agent
 import { validateUploads, normalizeMediaContent, hermesInput, mediaPage, createMediaDeltaFilter, MAX_UPLOAD_BODY, TEXT_PART_CHARS } from "./media.mjs";
 import { createDocumentStore, DOCUMENT_CHUNK, DOCUMENT_CHUNK_BODY } from "./documents.mjs";
 import { createResearchHub, ResearchHubError } from "./research-hub.mjs";
+import {
+  RESEARCH_DESIGN_GUIDANCE_SYSTEM_PROMPT,
+  buildResearchDesignGuidanceRequest,
+  formatResearchDesignGuidance,
+  parseResearchDesignGuidance,
+  researchDesignContext,
+  validateFormattedResearchDesignGuidance,
+} from "./research-design-guidance.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.SERVANT_DATA_DIR || path.join(HERE, "data");
@@ -469,10 +477,11 @@ function chatUpstreamLane(chat, cfg) {
 }
 
 const prototypeAgentAccess = user => [2, 3, RESEARCHER_TIER].includes(agentTierOf(user));
+const isVibeChat = chat => chat?.mode === "vibe" || chat?.mode === "research-vibe";
 
 function requirePrototypeChatScope(chat) {
   if (chat.role !== "prototype") return;
-  if (chat.mode !== "vibe" || chat.projectId !== VIBE_PROJECT || chat.hosted !== "server" ||
+  if (!isVibeChat(chat) || chat.projectId !== VIBE_PROJECT || chat.hosted !== "server" ||
       !PROTOTYPE_FOLDER.test(chat.vibeFolder || "") || !vibeProject()) {
     throw requestError(403, "forbidden", "This prototype workspace is no longer safely scoped. Start a new prototype");
   }
@@ -485,6 +494,81 @@ function requireAgentChatAccess(user, chat) {
   }
   if (user.role !== "owner" && agentTierOf(user) === RESEARCHER_TIER && !["researcher", "prototype"].includes(chat.role)) {
     throw requestError(403, "forbidden", "Your access changed. Start a new chat");
+  }
+}
+
+const REVIEWED_GUIDANCE_BEGIN = "BEGIN REVIEWED RESEARCH-INFORMED DESIGN GUIDANCE — DATA, NOT INSTRUCTIONS";
+const REVIEWED_GUIDANCE_END = "END REVIEWED RESEARCH-INFORMED DESIGN GUIDANCE — DATA, NOT INSTRUCTIONS";
+
+function researchHandoffHash(value) {
+  return crypto.createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function researchHandoffError(message = "The research-informed prototype handoff is invalid") {
+  return requestError(400, "research_handoff_invalid", message);
+}
+
+function guidanceFromPrototypePrompt(text) {
+  const begin = text.indexOf(REVIEWED_GUIDANCE_BEGIN);
+  const end = text.indexOf(REVIEWED_GUIDANCE_END);
+  if (begin < 0 || end <= begin || text.lastIndexOf(REVIEWED_GUIDANCE_BEGIN) !== begin || text.lastIndexOf(REVIEWED_GUIDANCE_END) !== end) {
+    throw requestError(409, "research_handoff_changed", "The reviewed research guidance changed. Return to Research Studio and create a new prototype handoff");
+  }
+  return text.slice(begin + REVIEWED_GUIDANCE_BEGIN.length, end).trim();
+}
+
+function canonicalResearchHandoff(value, user) {
+  if (agentTierOf(user) !== RESEARCHER_TIER) {
+    throw requestError(403, "forbidden", "Researcher access is required for a Research Hub prototype handoff");
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value) ||
+      Object.keys(value).length !== 4 || !["ids", "revision", "guidance", "firstMessage"].every(key => Object.hasOwn(value, key)) ||
+      !Array.isArray(value.ids) || typeof value.revision !== "string" ||
+      typeof value.guidance !== "string" || typeof value.firstMessage !== "string") {
+    throw researchHandoffError();
+  }
+  const firstMessage = value.firstMessage.trim();
+  if (!firstMessage || firstMessage.length > INLINE_MESSAGE_CHARS) throw researchHandoffError();
+  const resolved = researchHub.resolve(value.ids, value.revision);
+  let guidance;
+  let promptGuidance;
+  try {
+    guidance = validateFormattedResearchDesignGuidance(value.guidance, resolved.evidence);
+    promptGuidance = validateFormattedResearchDesignGuidance(guidanceFromPrototypePrompt(firstMessage), resolved.evidence);
+  } catch (error) {
+    if (error?.code === "research_handoff_changed") throw researchHandoffError(error.message);
+    throw researchHandoffError("Review the research-informed guidance and remove source-specific details before using it");
+  }
+  if (researchHandoffHash(guidance) !== researchHandoffHash(promptGuidance)) {
+    throw researchHandoffError("The prototype prompt does not contain the approved research guidance");
+  }
+  return {
+    id: id("rhh"),
+    ids: resolved.evidence.map(item => item.id),
+    revision: resolved.hub.revision,
+    guidanceHash: researchHandoffHash(guidance),
+    messageHash: researchHandoffHash(firstMessage),
+  };
+}
+
+function requireResearchPrototypeHandoff(user, handoff, text) {
+  if (agentTierOf(user) !== RESEARCHER_TIER) {
+    throw requestError(403, "forbidden", "Your Researcher access changed. Return to Research Studio before sending this handoff");
+  }
+  const message = String(text || "").trim();
+  if (researchHandoffHash(message) !== handoff.messageHash) {
+    throw requestError(409, "research_handoff_changed", "The prototype prompt changed after the research handoff was approved. Return to Research Studio and create a new handoff");
+  }
+  const resolved = researchHub.resolve(handoff.ids, handoff.revision);
+  let guidance;
+  try {
+    guidance = validateFormattedResearchDesignGuidance(guidanceFromPrototypePrompt(message), resolved.evidence);
+  } catch (error) {
+    if (error?.code === "research_handoff_changed") throw error;
+    throw requestError(409, "research_handoff_changed", "The reviewed research guidance changed. Return to Research Studio and create a new prototype handoff");
+  }
+  if (researchHandoffHash(guidance) !== handoff.guidanceHash) {
+    throw requestError(409, "research_handoff_changed", "The reviewed research guidance changed. Return to Research Studio and create a new prototype handoff");
   }
 }
 
@@ -627,7 +711,10 @@ function chatView(chat, viewer, users = {}) {
     // folderId/folderShared repeat projectId/projectShared for app builds from before projects.
     ...(chat.projectId ? { projectId: chat.projectId, folderId: chat.projectId, project: { id: chat.projectId, name: projects().byId(chat.projectId)?.name || chat.projectId },
       ...(chat.projectShared ? { projectShared: true, folderShared: true } : {}) } : {}),
-    ...(chat.mode === "vibe" ? { mode: "vibe", previewUrl: prototypePreview(chat), previewReady: prototypeReady(chat) } : {}) };
+    ...(isVibeChat(chat) ? { mode: "vibe", previewUrl: prototypePreview(chat), previewReady: prototypeReady(chat) } : {}),
+    ...(chat.researchHandoff && !chat.researchHandoff.acceptedAt
+      ? { researchHandoff: { state: chat.researchHandoff.turnId ? "bound" : "pending" } }
+      : {}) };
   try { const u = usageStore().chatTotals(chat.id); if (u.turns) view.usage = u; } catch { /* stats never block a chat */ }
   if (viewer && chat.userId === viewer.id) {
     view.archived = !!chat.archivedAt;
@@ -667,7 +754,7 @@ function prototypePreview(chat) {
   return vibePreview(vibeProject(), chat);
 }
 function prototypeReady(chat) {
-  if (chat.mode !== "vibe") return false;
+  if (!isVibeChat(chat)) return false;
   // GitHub-hosted prototypes predate server-local publication and have no
   // local artifact to inspect. Their established preview URL remains the signal.
   if (chat.hosted !== "server") return !!prototypePreview(chat);
@@ -711,7 +798,7 @@ function chatContextBase(chat) {
   const users = readState().users;
   const access = accessOf(project, users[chat.userId], users, data.people);
   // Whoever started the chat must still be in the project; otherwise the chat carries no project context.
-  if (chat.mode !== "vibe" && !access.visible) return "";
+  if (!isVibeChat(chat) && !access.visible) return "";
   return projectInstructions(project, { chat, asker: users[chat.userId], level: access.level, files: projectFiles(), full: agentRole(chat.role, loadConfig()) === "owner", users, prototypes: { dir: PROTOTYPES_DIR, url: prototypePreview(chat), kit: expandPath(project.path) } });
 }
 const documents = () => documentStore ??= createDocumentStore(path.join(DATA_DIR, "chat-files"));
@@ -722,6 +809,27 @@ let workChatStarter = null;
 let otaServer;
 const ota = () => otaServer ??= createOta({ dir: path.join(DATA_DIR, "ota") });
 const usageStore = () => usageDb ??= createUsageStore(path.join(DATA_DIR, "usage.db"));
+const RESEARCH_DESIGN_GUIDANCE_MAX_COMPLETION_TOKENS = 1_600;
+const researchDesignGuidanceTails = new Map();
+
+// Token limits are checked against recorded usage. Keep one guidance completion
+// per person in this critical section until its usage has been recorded, so two
+// devices cannot both spend the same remaining daily allowance.
+async function serializeResearchDesignGuidance(userId, task) {
+  const key = String(userId);
+  const previous = researchDesignGuidanceTails.get(key) ?? Promise.resolve();
+  let release;
+  const hold = new Promise(resolve => { release = resolve; });
+  const tail = previous.catch(() => {}).then(() => hold);
+  researchDesignGuidanceTails.set(key, tail);
+  await previous.catch(() => {});
+  try {
+    return await task();
+  } finally {
+    release();
+    if (researchDesignGuidanceTails.get(key) === tail) researchDesignGuidanceTails.delete(key);
+  }
+}
 // Tier 0 has no agent; otherwise the message names this person's own daily limit.
 const limitText = user => agentTierOf(user) === 0 ? noAgentMessage : limitMessage(usageStore().limitFor(user));
 const noAgentMessage = "You don't have agent access yet. Ask an owner to turn it on";
@@ -957,6 +1065,71 @@ async function handle(req, res, cfg) {
         const current = requireAuth(req);
         researcherOnly(current.user);
         return send(res, 200, researchHub.resolve(body?.ids, body?.revision));
+      }
+      if (method === "POST" && parts.length === 3 && parts[2] === "design-guidance") {
+        const body = await readBody(req);
+        const current = requireAuth(req);
+        researcherOnly(current.user);
+        if (usageStore().overLimit(current.user)) return fail(res, 429, "token_limit", limitText(current.user));
+        if (!Array.isArray(body?.ids) || body.ids.length < 1) {
+          throw new ResearchHubError("Choose at least one Research Hub record for design guidance", 400, "bad_request");
+        }
+        researchHub.resolve(body?.ids, body?.revision);
+        const context = researchDesignContext(body?.context);
+        const up = upstreamForLane("researcher", cfg);
+        if (!up) return fail(res, 503, "agent_unavailable", "The Researcher Agent isn't set up on this server yet");
+        return await serializeResearchDesignGuidance(current.user.id, async () => {
+          const queued = requireAuth(req);
+          researcherOnly(queued.user);
+          if (usageStore().overLimit(queued.user)) return fail(res, 429, "token_limit", limitText(queued.user));
+          // Requests may wait behind another completion for this person. Attest
+          // the restricted bridge inside that queue so the result cannot become
+          // stale while governed evidence is waiting to cross.
+          await verifyResearcherUpstream(up);
+          const beforeModel = requireAuth(req);
+          researcherOnly(beforeModel.user);
+          if (usageStore().overLimit(beforeModel.user)) return fail(res, 429, "token_limit", limitText(beforeModel.user));
+          // The capability attestation and any earlier queued request are await
+          // boundaries. Re-open and re-authorize the exact snapshot immediately
+          // before this person's model call.
+          const currentResolved = researchHub.resolve(body?.ids, body?.revision);
+          let response;
+          try {
+            response = await hermes(up, "POST", "/v1/chat/completions", {
+              messages: [
+                { role: "system", content: RESEARCH_DESIGN_GUIDANCE_SYSTEM_PROMPT },
+                { role: "user", content: buildResearchDesignGuidanceRequest(currentResolved.evidence, context) },
+              ],
+              max_tokens: RESEARCH_DESIGN_GUIDANCE_MAX_COMPLETION_TOKENS,
+            }, {}, AbortSignal.timeout(120_000));
+          } catch {
+            return fail(res, 502, "agent_error", "The Researcher Agent couldn't prepare design guidance");
+          }
+          if (!response.ok) return fail(res, 502, "agent_error", `The Researcher Agent couldn't prepare design guidance (${response.status})`);
+          let data;
+          try { data = await response.json(); }
+          catch { return fail(res, 502, "agent_error", "The Researcher Agent returned an invalid response"); }
+          recordUsage({
+            eventId: `research-design:${id("rdb")}`,
+            userId: beforeModel.user.id,
+            source: "chat",
+            text: "Prepare research-informed prototype guidance",
+            usage: data.usage,
+          });
+          const afterModel = requireAuth(req);
+          researcherOnly(afterModel.user);
+          // The model call is another await boundary. Do not validate or return
+          // its derivative if the exact approved source was withdrawn meanwhile.
+          const finalResolved = researchHub.resolve(body?.ids, body?.revision);
+          let guidance;
+          try {
+            guidance = formatResearchDesignGuidance(parseResearchDesignGuidance(data.choices?.[0]?.message?.content, finalResolved.evidence));
+          } catch (error) {
+            return fail(res, 502, "agent_error", error.message || "The Researcher Agent returned an invalid design brief");
+          }
+          if (guidance.length > 6_000) return fail(res, 502, "agent_error", "The Researcher Agent returned an invalid design brief");
+          return send(res, 200, { hub: finalResolved.hub, guidance });
+        });
       }
       return fail(res, 404, "not_found", "Not found");
     } catch (error) {
@@ -1382,10 +1555,16 @@ async function handle(req, res, cfg) {
     if (requiredAgentRole === "prototype" && body.mode !== "vibe") {
       return fail(res, 400, "bad_request", "The prototype agent requires mode vibe");
     }
+    if (body.researchHandoff !== undefined && (requiredAgentRole !== "prototype" || body.mode !== "vibe")) {
+      return fail(res, 400, "research_handoff_invalid", "Research Hub guidance can only open an explicit prototype workspace");
+    }
     const vibe = requiredAgentRole === "researcher" ? false : tier === 2 || ([3, RESEARCHER_TIER].includes(tier) && body.mode === "vibe");
     if (requiredAgentRole === "prototype" && (!vibe || !prototypeAgentAccess(creator))) {
       return fail(res, 403, "forbidden", "Prototype agent access is required");
     }
+    // Validate before opening an upstream session. The exact same handoff is
+    // revalidated after that awaited call before it is bound to the chat.
+    if (body.researchHandoff !== undefined) canonicalResearchHandoff(body.researchHandoff, creator);
     if (vibe && !vibeProject()) return fail(res, 503, "vibe_unavailable", "Prototyping isn't set up on this server");
     const chatRole = requiredAgentRole === "prototype" || (vibe && tier === RESEARCHER_TIER)
       ? "prototype"
@@ -1412,15 +1591,20 @@ async function handle(req, res, cfg) {
       // Always private to start. Sharing with the server or the project is a later choice, per chat.
       shared: false,
       ...(projectId ? { projectId } : {}),
-      ...(vibe ? { mode: "vibe", vibeFolder: newFolder(), hosted: "server" } : {}),
+      ...(vibe ? { mode: body.researchHandoff !== undefined ? "research-vibe" : "vibe", vibeFolder: newFolder(), hosted: "server" } : {}),
       createdAt: now(),
       updatedAt: now(),
     };
     try {
+      if (body.researchHandoff !== undefined) {
+        const latest = requireAuth(req).user;
+        chat.researchHandoff = canonicalResearchHandoff(body.researchHandoff, latest);
+      }
       mutateAuthenticated(req, (state, current) => {
         if (current.user.role !== creator.role || current.user.id !== creator.id) throw requestError(403, "forbidden", "Your access changed. Start a new chat");
         if (requiredAgentRole === "researcher" && agentLane(current.user, cfg) !== "researcher") throw requestError(403, "forbidden", "Your Researcher access changed. Start a new chat");
         if (chatRole === "prototype" && !prototypeAgentAccess(current.user)) throw requestError(403, "forbidden", "Your prototype agent access changed. Start a new chat");
+        if (chat.researchHandoff && agentTierOf(current.user) !== RESEARCHER_TIER) throw requestError(403, "forbidden", "Your Researcher access changed. Start a new prototype handoff");
         state.chats[chatId] = chat;
       });
     } catch (error) {
@@ -1630,6 +1814,7 @@ async function handle(req, res, cfg) {
 
   if (method === "POST" && parts[3] === "messages" && parts.length === 4) {
     const body = await readAuthorizedBody(req, MAX_UPLOAD_BODY);
+    const requestedResearchHandoff = chat.researchHandoff && !chat.researchHandoff.acceptedAt ? { ...chat.researchHandoff } : null;
     let text = String(body.text || "").trim();
     const inline = Array.isArray(body.attachments) ? body.attachments.filter(a => !a?.upload) : body.attachments;
     const uploaded = Array.isArray(body.attachments) ? body.attachments.filter(a => a?.upload) : [];
@@ -1652,23 +1837,97 @@ async function handle(req, res, cfg) {
     // Only the full agent can read a saved long message from disk.
     const limit = agentRole(chat.role, cfg) === "owner" ? MAX_MESSAGE_CHARS : INLINE_MESSAGE_CHARS;
     if (text.length > limit) return fail(res, 413, "too_long", "That message is too long");
+    let boundResearchTurn = requestedResearchHandoff?.turnId ? agentTurns.get(requestedResearchHandoff.turnId) : null;
+    if (boundResearchTurn?.status === "held") {
+      try {
+        agentTurns.releaseResearchHandoff(boundResearchTurn.id, requestedResearchHandoff.id);
+        boundResearchTurn = agentTurns.get(boundResearchTurn.id);
+      } catch { /* the missing/mismatched binding fails closed below */ }
+    }
+    if (requestedResearchHandoff?.turnId && !boundResearchTurn) {
+      throw requestError(409, "research_handoff_changed", "This prototype handoff could not be recovered. Return to Research Studio and create a new workspace");
+    }
+    const retryableResearchHandoff = !!requestedResearchHandoff?.turnId &&
+      agentTurns.researchHandoffRetryable(requestedResearchHandoff.turnId, requestedResearchHandoff.id);
     const prior = agentTurns.replay({ chat, text, attachments, requestId: body.requestId });
-    if (prior) return streamPrivateTurn(req, res, prior.id, () => ownTurn(prior.id));
+    if (prior) {
+      if (requestedResearchHandoff && requestedResearchHandoff.turnId !== prior.id) {
+        throw requestError(409, "research_handoff_changed", "This research handoff is already bound to a different message");
+      }
+      if (!retryableResearchHandoff) return streamPrivateTurn(req, res, prior.id, () => ownTurn(prior.id));
+    }
+    if (requestedResearchHandoff?.turnId && !retryableResearchHandoff) {
+      throw requestError(409, "research_handoff_pending", "Wait for the research-informed prototype prompt to be accepted before sending another message");
+    }
+    if (requestedResearchHandoff) {
+      if (attachments.length || body.forward != null) {
+        throw requestError(400, "research_handoff_invalid", "Send the research-informed prototype prompt without attachments or forwarded messages");
+      }
+      requireResearchPrototypeHandoff(requireAuth(req).user, requestedResearchHandoff, text);
+    }
     if (usageStore().overLimit(user)) return fail(res, 429, "usage_limit", limitText(user));
     // Establish history before the worker records new accepted deliveries.
     await syncChatHistory(false, true);
-    const turn = mutateAuthenticated(req, (state, current) => {
-      const active = requireChat(state, current.user.id, chat.id);
-      requireAgentChatAccess(current.user, active);
-      if (privateForward && (chatShared(active) || active.projectShared)) throw requestError(409, "forward_private", "Messages from private conversations go into a private chat");
-      const queued = agentTurns.enqueue({ chat: active, user: current.user, device: current.device, text, attachments, requestId: body.requestId });
-      if (privateForward) active.privateForward = true;
-      if (active.title === "New chat") active.title = (ownText || (body.forward != null ? `About: ${text.split("\n")[1]?.replace(/^> /, "") || "a message"}` : "") || text || attachments[0].name).replace(/\s+/g, " ").slice(0, 60);
-      active.startedAt ??= now();
-      active.updatedAt = now();
-      delete active.archivedAt;
-      return queued;
-    });
+    let turn;
+    let heldResearchTurn;
+    let queuedResearchHandoffId;
+    let retryResearchTurnId;
+    let retryResearchDevice;
+    try {
+      turn = mutateAuthenticated(req, (state, current) => {
+        const active = requireChat(state, current.user.id, chat.id);
+        requireAgentChatAccess(current.user, active);
+        if (requestedResearchHandoff) {
+          if (!active.researchHandoff || active.researchHandoff.id !== requestedResearchHandoff.id || active.researchHandoff.acceptedAt) {
+            throw requestError(409, "research_handoff_changed", "This research handoff is no longer available. Return to Research Studio and create a new one");
+          }
+          if (retryableResearchHandoff) {
+            if (active.researchHandoff.turnId !== requestedResearchHandoff.turnId) {
+              throw requestError(409, "research_handoff_changed", "This research handoff is no longer available. Return to Research Studio and create a new one");
+            }
+            if (!agentTurns.researchHandoffRetryable(active.researchHandoff.turnId, active.researchHandoff.id)) {
+              throw requestError(409, "research_handoff_pending", "Wait for the research-informed prototype prompt to be accepted before sending another message");
+            }
+            retryResearchTurnId = active.researchHandoff.turnId;
+            retryResearchDevice = current.device;
+          } else if (active.researchHandoff.turnId) {
+            throw requestError(409, "research_handoff_pending", "Wait for the research-informed prototype prompt to be accepted before sending another message");
+          }
+          requireResearchPrototypeHandoff(current.user, active.researchHandoff, text);
+          queuedResearchHandoffId = active.researchHandoff.id;
+        }
+        if (privateForward && (chatShared(active) || active.projectShared)) throw requestError(409, "forward_private", "Messages from private conversations go into a private chat");
+        let queued;
+        if (!retryResearchTurnId) {
+          queued = agentTurns.enqueue({
+            chat: active,
+            user: current.user,
+            device: current.device,
+            text,
+            attachments,
+            requestId: body.requestId,
+            ...(queuedResearchHandoffId ? { researchHandoffId: queuedResearchHandoffId } : {}),
+          });
+          if (requestedResearchHandoff) {
+            heldResearchTurn = queued;
+            active.researchHandoff.turnId = queued.id;
+          }
+        }
+        if (privateForward) active.privateForward = true;
+        if (active.title === "New chat") active.title = (ownText || (body.forward != null ? `About: ${text.split("\n")[1]?.replace(/^> /, "") || "a message"}` : "") || text || attachments[0].name).replace(/\s+/g, " ").slice(0, 60);
+        active.startedAt ??= now();
+        active.updatedAt = now();
+        delete active.archivedAt;
+        return queued;
+      });
+    } catch (error) {
+      if (heldResearchTurn && queuedResearchHandoffId) agentTurns.abandonResearchHandoff(heldResearchTurn.id, queuedResearchHandoffId);
+      throw error;
+    }
+    if (retryResearchTurnId) {
+      turn = agentTurns.rearmResearchHandoff(retryResearchTurnId, queuedResearchHandoffId, { text, attachments, requestId: body.requestId, device: retryResearchDevice });
+    }
+    if (queuedResearchHandoffId) turn = agentTurns.releaseResearchHandoff(turn.id, queuedResearchHandoffId);
     if (privateTimer) void agentTurns.processNext();
     return streamPrivateTurn(req, res, turn.id, () => {
       // An already-open stream may finish after its chat is deleted. It never
@@ -1729,6 +1988,23 @@ async function executePrivateTurn(turn, hooks, cfg) {
   // Someone moved to Researcher can't keep using an arbitrary older full-agent
   // chat. Only explicitly marked, folder-scoped prototype chats are allowed.
   requireAgentChatAccess(user, chat);
+  let researchHandoffConsumed = !!turn.accepted;
+  const authorizeResearchHandoffTurn = () => {
+    if (!turn.research_handoff_id || researchHandoffConsumed) return;
+    const latest = readState();
+    const currentUser = latest.users[turn.user_id];
+    const active = requireChat(latest, turn.user_id, turn.chat_id);
+    const handoff = active.researchHandoff;
+    if (!currentUser || !handoff || handoff.id !== turn.research_handoff_id || handoff.turnId !== turn.id) {
+      throw requestError(403, "research_handoff_changed", "The research-informed prototype handoff is no longer authorized");
+    }
+    if (handoff.acceptedAt) {
+      researchHandoffConsumed = true;
+      return;
+    }
+    requireResearchPrototypeHandoff(currentUser, handoff, turn.text);
+  };
+  authorizeResearchHandoffTurn();
   const lane = chatUpstreamLane(chat, cfg);
   const up = upstreamForLane(lane, cfg);
   if (!up) throw requestError(502, "agent_error", "The agent is unavailable");
@@ -1736,6 +2012,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
   if (!full) await verifyUpstream(lane, up);
   if (!turn.run_id && usageStore().overLimit(user)) throw requestError(429, "usage_limit", limitText(user));
   const durable = !!turn.run_id || await supportsDurableRuns(up);
+  authorizeResearchHandoffTurn();
   // Legacy owner agents can read the exact saved input instead of receiving
   // altered chunks. Restricted agents never receive a local-file fallback.
   const text = agentText(turn, full, durable ? INLINE_MESSAGE_CHARS : TEXT_PART_CHARS);
@@ -1757,6 +2034,19 @@ async function executePrivateTurn(turn, hooks, cfg) {
     const latest = readState();
     requireChat(latest, turn.user_id, turn.chat_id);
     if (!Object.values(latest.devices).some(d => d.id === turn.device_id && d.userId === turn.user_id && !d.revokedAt)) throw requestError(401, "unauthorized", "Device removed");
+    if (turn.research_handoff_id && !researchHandoffConsumed) {
+      mutateState(state => {
+        const currentUser = state.users[turn.user_id];
+        const active = requireChat(state, turn.user_id, turn.chat_id);
+        const handoff = active.researchHandoff;
+        if (!currentUser || !handoff || handoff.id !== turn.research_handoff_id || handoff.turnId !== turn.id) {
+          throw requestError(403, "research_handoff_changed", "The research-informed prototype handoff is no longer authorized");
+        }
+        requireResearchPrototypeHandoff(currentUser, handoff, turn.text);
+        handoff.acceptedAt = now();
+      });
+      researchHandoffConsumed = true;
+    }
     const message = chatMediaStore().accept(turn.chat_id, "user", turn.text, turn.attachments, turn.id);
     chatMediaStore().identifyInput(message.id, input);
     hooks.emit("sent", { message });
@@ -1790,6 +2080,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
   if (durable) {
     if (turn.run_id && !turn.accepted) onAccepted();
     const canSteer = full && await supportsSteer(up);
+    authorizeResearchHandoffTurn();
     const steered = steerId => {
       // The steer is now part of this conversation: show it as a sent message.
       const queued = agentTurns.get(steerId);
@@ -1797,6 +2088,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
       chatMediaStore().accept(turn.chat_id, "user", queued.text, [], steerId);
       hooks.steered?.(steerId);
     };
+    if (!turn.run_id) hooks.deliveryStarted();
     result = await runDurableHermes({ up, sessionId: turn.session_id, input, sessionKey: sessionKey(user, turn.chat_id), instructions: chatContext(chat), runId: turn.run_id,
       onAccepted, onEvent, checkpoint: hooks.checkpoint, controls: hooks.controls, steered, canSteer });
     if (result.usage) recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", chatId: turn.chat_id, text: turn.text, usage: result.usage });
@@ -1810,12 +2102,22 @@ async function executePrivateTurn(turn, hooks, cfg) {
       } catch { /* accepted local media remains available even if history lags */ }
     }
   } else {
+    authorizeResearchHandoffTurn();
+    hooks.deliveryStarted();
     const answer = await streamTurn(up, turn.session_id, input, sessionKey(user, turn.chat_id), onEvent, () => false, onAccepted,
       usage => recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", chatId: turn.chat_id, text: turn.text, usage }), chatContext(chat));
     if (!assistantMessage && answer) saveAssistant(answer);
     result = { status: "completed" };
   }
-  mutateState(state => { const current = state.chats[turn.chat_id]; if (current && !current.deletedAt) current.updatedAt = now(); });
+  mutateState(state => {
+    const current = state.chats[turn.chat_id];
+    if (!current || current.deletedAt) return;
+    current.updatedAt = now();
+    if (turn.research_handoff_id && current.researchHandoff?.id === turn.research_handoff_id &&
+        current.researchHandoff.turnId === turn.id && current.researchHandoff.acceptedAt) {
+      delete current.researchHandoff;
+    }
+  });
   return { status: result.status, unreadSteers: result.unreadSteers, notification: assistantMessage && (assistantMessage.text || assistantMessage.attachments.length) ? {
     kind: "agent", eventId: turn.id, chatId: turn.chat_id, userId: turn.user_id,
     text: assistantMessage.text || (assistantMessage.attachments.some(a => a.mime.startsWith("video/")) ? "Sent a video" : "Sent an image"),
@@ -1912,6 +2214,18 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
   });
   const serviceTurns = createAgentTurns({ file: path.join(DATA_DIR, "agent-turns.db"),
     execute: (turn, hooks) => executePrivateTurn(turn, hooks, fixedCfg || loadConfig()) });
+  // A crash can leave a prepared row on either side of the state commit.
+  // Release only rows backed by the exact persisted chat binding and delete
+  // every orphan before an external worker can claim it.
+  // Hold the state-store write lock while reconciling the turn journal. New
+  // sends use the same lock ordering (state, then turn DB), so another process
+  // cannot observe a freshly held row before its chat binding commits.
+  mutateState(state => serviceTurns.reconcileResearchHandoffs(Object.values(state.chats).flatMap(chat => {
+    const handoff = chat.researchHandoff;
+    return handoff?.turnId && !handoff.acceptedAt
+      ? [{ chatId: chat.id, turnId: handoff.turnId, researchHandoffId: handoff.id }]
+      : [];
+  })));
   servicePush = createPushService({
     file: path.join(DATA_DIR, "push.db"),
     autoDrain,

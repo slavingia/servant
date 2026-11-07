@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { sourceDeviceKind } from './source-device.mjs';
 
 export const MAX_QUEUED = 5;
-const activeStates = ['queued', 'running', 'waiting_for_approval', 'stopping'];
+const activeStates = ['queued', 'research_queued', 'running', 'waiting_for_approval', 'stopping'];
 const MAX_STEPS = 40;
 const active = status => activeStates.includes(status);
 const fault = (status, code, message) => Object.assign(new Error(message), { status, code });
@@ -24,7 +24,8 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
       assistant_text TEXT NOT NULL DEFAULT '', run_id TEXT, approval TEXT,
       stop_requested INTEGER NOT NULL DEFAULT 0, approval_choice TEXT,
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-      request_id TEXT, request_hash TEXT, message_id TEXT, UNIQUE(chat_id,request_id)
+      request_id TEXT, request_hash TEXT, message_id TEXT, research_handoff_id TEXT,
+      delivery_started INTEGER NOT NULL DEFAULT 0, UNIQUE(chat_id,request_id)
     );
     CREATE UNIQUE INDEX IF NOT EXISTS private_turn_running ON private_turns(chat_id)
       WHERE status IN ('running','waiting_for_approval','stopping');
@@ -41,8 +42,12 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
   db.exec('BEGIN IMMEDIATE');
   try {
     const columns = new Set(db.prepare('PRAGMA table_info(private_turns)').all().map(c => c.name));
-    for (const column of ['request_id', 'request_hash', 'message_id', 'source_device_kind']) {
+    for (const column of ['request_id', 'request_hash', 'message_id', 'source_device_kind', 'research_handoff_id']) {
       if (!columns.has(column)) db.exec(`ALTER TABLE private_turns ADD COLUMN ${column} TEXT`);
+    }
+    if (!columns.has('delivery_started')) {
+      db.exec('ALTER TABLE private_turns ADD COLUMN delivery_started INTEGER NOT NULL DEFAULT 0');
+      db.exec('UPDATE private_turns SET delivery_started=1 WHERE run_id IS NOT NULL OR accepted=1');
     }
     // Steering: a queued message can be folded into the running turn.
     if (!columns.has('steer_requested')) db.exec('ALTER TABLE private_turns ADD COLUMN steer_requested INTEGER NOT NULL DEFAULT 0');
@@ -62,6 +67,7 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS private_turn_request ON private_turns(chat_id,request_id)');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS private_turn_research_handoff ON private_turns(research_handoff_id) WHERE research_handoff_id IS NOT NULL');
   // Unread agent replies, per conversation owner (not per phone). The first run
   // marks every reply that already exists as read so an upgrade doesn't light
   // up old conversations; replies finished after that start unread.
@@ -86,7 +92,7 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
   const markChatRead = (chatId, userId) => db.prepare(`INSERT OR IGNORE INTO private_reply_reads
     SELECT t.id, ? FROM private_turns t WHERE t.chat_id=? AND t.user_id=? AND t.status='completed'`).run(clock(), chatId, userId).changes;
   const row = id => db.prepare('SELECT * FROM private_turns WHERE id=?').get(id);
-  const view = t => t && ({ id: t.id, chatId: t.chat_id, status: t.status,
+  const view = t => t && ({ id: t.id, chatId: t.chat_id, status: t.status === 'research_queued' ? 'queued' : t.status,
     accepted: !!t.accepted, text: t.text, assistantText: t.assistant_text, messageId: t.message_id,
     canStop: active(t.status) && (t.status === 'queued' || !!t.run_id),
     steerRequested: !!t.steer_requested, steeredInto: t.steered_into || null, activity: active(t.status) ? t.activity || null : null,
@@ -151,7 +157,10 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
     if (prior.request_hash !== fingerprint) throw fault(409, 'request_conflict', 'This request ID was already used for a different message');
     return view(prior);
   }
-  function enqueue({ chat, user, device, text, attachments, requestId }) {
+  function enqueue({ chat, user, device, text, attachments, requestId, researchHandoffId }) {
+    if (researchHandoffId !== undefined && (typeof researchHandoffId !== 'string' || !/^rhh_[A-Za-z0-9_-]{12}$/.test(researchHandoffId))) {
+      throw fault(400, 'research_handoff_invalid', 'Invalid research handoff');
+    }
     const { payload, fingerprint } = requestFingerprint(text, attachments, requestId);
     return tx(() => {
       if (requestId) {
@@ -161,15 +170,78 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
           return view(prior);
         }
       }
-      if (db.prepare("SELECT COUNT(*) AS n FROM private_turns WHERE chat_id=? AND status='queued'").get(chat.id).n >= MAX_QUEUED) {
+      if (db.prepare("SELECT COUNT(*) AS n FROM private_turns WHERE chat_id=? AND status IN ('queued','research_queued')").get(chat.id).n >= MAX_QUEUED) {
         throw fault(409, 'queue_full', `Up to ${MAX_QUEUED} messages can wait. Steer or remove one first`);
       }
       const id = `turn_${crypto.randomBytes(12).toString('base64url')}`;
-      db.prepare(`INSERT INTO private_turns(id,chat_id,user_id,role,device_id,session_id,text,payload,status,created_at,updated_at,request_id,request_hash,source_device_kind)
-        VALUES (?,?,?,?,?,?,?,?,'queued',?,?,?,?,?)`).run(id, chat.id, user.id, chat.role, device.id, chat.hermesSessionId, text, payload, clock(), clock(), requestId || null, fingerprint, sourceDeviceKind(device));
+      const status = researchHandoffId ? 'held' : 'queued';
+      db.prepare(`INSERT INTO private_turns(id,chat_id,user_id,role,device_id,session_id,text,payload,status,created_at,updated_at,request_id,request_hash,source_device_kind,research_handoff_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, chat.id, user.id, chat.role, device.id, chat.hermesSessionId, text, payload, status, clock(), clock(), requestId || null, fingerprint, sourceDeviceKind(device), researchHandoffId || null);
       const turn = view(row(id));
-      event(id, 'turn', { turn });
+      if (status === 'queued') event(id, 'turn', { turn });
       return turn;
+    });
+  }
+  function releaseResearchHandoff(id, researchHandoffId) {
+    return tx(() => {
+      const t = row(id);
+      if (!t || t.research_handoff_id !== researchHandoffId) throw fault(409, 'research_handoff_changed', 'Research handoff turn does not match');
+      if (t.status === 'held') {
+        db.prepare("UPDATE private_turns SET status='research_queued',updated_at=? WHERE id=?").run(clock(), id);
+        event(id, 'turn', { turn: view(row(id)) });
+      }
+      return view(row(id));
+    });
+  }
+  function abandonResearchHandoff(id, researchHandoffId) {
+    return tx(() => {
+      const t = row(id);
+      if (!t || t.research_handoff_id !== researchHandoffId || t.status !== 'held') return false;
+      db.prepare('DELETE FROM private_turns WHERE id=?').run(id);
+      return true;
+    });
+  }
+  const researchHandoffRetryable = (id, researchHandoffId) => {
+    const t = row(id);
+    return !!t && t.research_handoff_id === researchHandoffId && !t.accepted && !t.delivery_started && !active(t.status) && t.status !== 'held';
+  };
+  function rearmResearchHandoff(id, researchHandoffId, { text, attachments, requestId, device }) {
+    if (!device?.id) throw fault(400, 'research_handoff_invalid', 'Retry device is invalid');
+    const { payload, fingerprint } = requestFingerprint(text, attachments, requestId);
+    return tx(() => {
+      const t = row(id);
+      if (!t || t.research_handoff_id !== researchHandoffId || t.accepted || t.delivery_started || active(t.status) || t.status === 'held') {
+        throw fault(409, 'research_handoff_pending', 'Research handoff turn is not safely retryable');
+      }
+      if (requestId) {
+        const other = db.prepare('SELECT id,request_hash FROM private_turns WHERE chat_id=? AND request_id=?').get(t.chat_id, requestId);
+        if (other && other.id !== id) throw fault(409, 'request_conflict', 'This request ID was already used for a different message');
+      }
+      db.prepare('DELETE FROM private_turn_events WHERE turn_id=?').run(id);
+      db.prepare('DELETE FROM private_turn_outbox WHERE turn_id=?').run(id);
+      db.prepare(`UPDATE private_turns SET device_id=?,source_device_kind=?,text=?,payload=?,status='held',accepted=0,assistant_text='',run_id=NULL,approval=NULL,
+        stop_requested=0,approval_choice=NULL,updated_at=?,request_id=?,request_hash=?,message_id=NULL,steer_requested=0,
+        steered_into=NULL,activity=NULL,steps='[]',started_at=NULL,delivery_started=0 WHERE id=?`)
+        .run(device.id, sourceDeviceKind(device), text, payload, clock(), requestId || null, fingerprint, id);
+      return view(row(id));
+    });
+  }
+  function reconcileResearchHandoffs(bindings = []) {
+    const expected = new Map(bindings.map(binding => [binding.researchHandoffId, binding]));
+    return tx(() => {
+      let released = 0, abandoned = 0;
+      for (const t of db.prepare("SELECT * FROM private_turns WHERE status='held' AND research_handoff_id IS NOT NULL").all()) {
+        const binding = expected.get(t.research_handoff_id);
+        if (binding?.turnId === t.id && binding.chatId === t.chat_id) {
+          db.prepare("UPDATE private_turns SET status='research_queued',updated_at=? WHERE id=?").run(clock(), t.id);
+          event(t.id, 'turn', { turn: view(row(t.id)) });
+          released++;
+        } else {
+          db.prepare('DELETE FROM private_turns WHERE id=?').run(t.id);
+          abandoned++;
+        }
+      }
+      return { released, abandoned };
     });
   }
   function requestStop(id) {
@@ -177,7 +249,7 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
       const t = row(id);
       if (!t) throw fault(404, 'not_found', 'No such turn');
       if (!active(t.status)) return view(t);
-      if (t.status === 'queued' && !t.run_id) {
+      if (['queued', 'research_queued'].includes(t.status) && !t.run_id) {
         db.prepare("UPDATE private_turns SET status='cancelled',payload='{}',updated_at=? WHERE id=?").run(clock(), id);
         event(id, 'turn', { turn: view(row(id)) }); event(id, 'done', { status: 'cancelled' });
         return view(row(id));
@@ -248,7 +320,7 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
     if (tasks.size >= concurrency) return Promise.resolve(false);
     const t = tx(() => {
       // Oldest waiting message in a chat that isn't already running a turn.
-      const next = db.prepare(`SELECT * FROM private_turns q WHERE q.status='queued' AND NOT EXISTS (
+      const next = db.prepare(`SELECT * FROM private_turns q WHERE q.status IN ('queued','research_queued') AND NOT EXISTS (
         SELECT 1 FROM private_turns r WHERE r.chat_id=q.chat_id AND r.status IN ('running','waiting_for_approval','stopping'))
         ORDER BY q.seq LIMIT 1`).get();
       if (!next) return;
@@ -268,6 +340,7 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
         controls: () => { const current = row(t.id); return { stop: !!current.stop_requested, choice: current.approval_choice, approval: current.approval && JSON.parse(current.approval), steers: current.stop_requested ? [] : pendingSteers(t.id) }; },
         steered: id => markSteered(id, t.id),
         controlError: message => emit(t.id, 'error', { message }),
+        deliveryStarted: () => tx(() => db.prepare('UPDATE private_turns SET delivery_started=1,updated_at=? WHERE id=?').run(clock(), t.id)),
       });
       for (const id of result?.unreadSteers || []) requeueSteer(id);
       finish(t.id, result?.status || 'completed', undefined, result?.notification);
@@ -300,7 +373,7 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
     `msg_${crypto.createHash('sha256').update(`${t.chat_id}:user:${t.id}`).digest('hex').slice(0, 32)}`,
     t.source_device_kind,
   ]));
-return { unreadByChat, markChatRead, enqueue, replay, processNext, recoverInterrupted, requestStop, requestApproval, requestSteer, markSteered, requeueSteer, drainOutbox,
+return { unreadByChat, markChatRead, enqueue, replay, releaseResearchHandoff, abandonResearchHandoff, researchHandoffRetryable, rearmResearchHandoff, reconcileResearchHandoffs, processNext, recoverInterrupted, requestStop, requestApproval, requestSteer, markSteered, requeueSteer, drainOutbox,
     messageSources: chatId => sourceMap(db.prepare('SELECT id,chat_id,source_device_kind FROM private_turns WHERE chat_id=?').all(chatId)),
     turnMessageSources: id => sourceMap(db.prepare('SELECT id,chat_id,source_device_kind FROM private_turns WHERE id=?').all(id)),
     get: id => view(row(id)),

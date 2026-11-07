@@ -88,18 +88,67 @@ authentication. The server checks Researcher tier 4 on every request:
 - `GET /v1/research-hub/evidence?q=...&limit=20`
 - `POST /v1/research-hub/evidence/resolve` with the picker snapshot revision and
   up to eight record IDs
+- `POST /v1/research-hub/design-guidance` with the same record IDs and revision
+  plus bounded study context
 
 Search is deterministic and local; it makes no model call and therefore spends
 no agent tokens. The final resolve repeats authorization after the body arrives
 and resolves IDs against the current snapshot, so removed or changed evidence
 cannot silently enter a brief.
 
-The UX client inserts the resolved records only into the existing unsent
-plain-text draft for the restricted Researcher agent. Even when a Researcher
-chooses **Create a new prototype**, governed Hub records do not enter that
-prototype/full-agent prompt; the prototype uses only the person's separately
-written public-or-made-up context. The evidence block is labeled as quoted data,
-not instructions, and the client resolves selected record IDs again immediately
-before the final Researcher chat is created. Original Servant clients still see
-ordinary private chats and ordinary messages; there is no new message type and
-ordinary Researcher chats retain their restricted capability.
+Design guidance is the only supported bridge from governed Hub evidence to a
+prototype build. After reading the request body, the server reauthenticates the
+device, confirms Researcher tier 4 and the person's token allowance, and
+re-resolves the selected IDs against the requested snapshot revision. It sends
+those current records only to the attested restricted Researcher Agent, never
+to the Prototype Agent. The Researcher Agent must return strict structured JSON
+containing one to five generalized user needs, pain points, design
+opportunities, and unknowns. The server rejects malformed or extra fields and
+rejects guidance containing source details such as record or product names,
+record IDs, catalog references, paths, links, dates, counts, percentages,
+sample sizes, or source-specific metrics. It fails closed rather than falling
+back to the original records. The response contains the current Hub metadata
+and a formatted, generalized guidance draft; this model call counts toward
+the person's normal token allowance. Guidance completions are serialized per
+person and output-bounded, so simultaneous devices cannot spend the same
+remaining daily allowance. Access and the exact snapshot are checked again
+after the model responds before any derivative is returned.
+
+The UX client inserts resolved records only into the existing unsent plain-text
+draft for the restricted Researcher Agent. When a study needs a new prototype,
+the person may ask that Researcher Agent to prepare design guidance from the
+selected evidence, then review and edit the generalized draft before choosing
+to include it. Changing the selected evidence or the study context invalidates
+the earlier guidance and requires a fresh review. Immediately before creating a
+prototype that includes approved guidance, the client re-resolves the selected
+records and snapshot revision again. Changed, expired, unavailable, or revoked
+Hub access blocks the handoff before a Prototype Agent chat is created. The
+client sends the reviewed guidance and exact generated first prompt as a
+`researchHandoff` on that explicit prototype-chat request. The server validates
+the edited four-section guidance against the current records, validates the
+prompt boundary, and rechecks both authorization and the snapshot after the
+upstream chat session is opened. The chat response must confirm a pending
+handoff; an updated client deletes the workspace if an older server silently
+ignores that field.
+
+Only that explicitly reviewed guidance may enter the unsent Prototype Agent
+build prompt, inside a boundary that labels it as context data rather than
+instructions. Raw Hub records, summaries, citations, catalog metadata, source
+details, metrics, and snapshot identifiers never enter the prototype/full-agent
+prompt through this supported flow. The exact first prompt is hash-bound to the
+server-issued handoff. It is checked again when queued and immediately before
+the worker contacts the Prototype Agent; tier changes, snapshot withdrawal,
+attachments, forwarding, or prompt edits fail closed. After that bound first
+prompt is accepted, the workspace behaves like an ordinary prototype chat.
+The persisted chat scope and its first queued turn use versioned internal states
+that older API and worker releases do not process, so API-first rolling deploys
+and rollback fail closed instead of bypassing the handoff checks.
+The Prototype Agent uses the guidance to suggest distinct design
+directions tied to numbered needs or pain points, while labeling tradeoffs,
+assumptions, accessibility considerations, and evidence limits. It asks the
+researcher to choose or revise a direction before building it, and it must not
+claim that the Hub validates, approves, or proves a direction. The final
+Researcher chat still receives freshly re-resolved evidence with citations.
+Original Servant clients continue to see ordinary private chats and ordinary
+messages; there is no new message type and ordinary Researcher chats retain
+their restricted capability.

@@ -57,12 +57,13 @@ onboarding**.
 
 Milestone 1 intentionally deferred Research Studio. The milestone 2 implementation
 follows the same compatibility rule: compose existing researcher-agent capabilities
-and ordinary Servant sharing/thread primitives before proposing any new server resource.
+and ordinary Servant sharing/thread primitives. Its later Research Hub guidance
+extension adds one bounded, non-persistent preparation endpoint without adding a
+chat, message, or pairing format.
 
 ## Milestone 2 compatibility contract
 
-Milestone 2 adds role-aware research starting points without changing access or
-adding a new server resource:
+Milestone 2 adds role-aware research starting points without changing access:
 
 - A person's onboarding role remains a local preference. Research actions are
   active only when the server reports Researcher tier 4; the client never grants,
@@ -75,10 +76,14 @@ adding a new server resource:
   Studio prototype with a live preview. Existing prototypes are loaded from the
   ordinary readable chat library and rechecked immediately before the research
   draft is created. Creating a new prototype first opens a private prototype-agent
-  workspace with an unsent build draft derived only from the person's written,
-  public-or-made-up study context. Governed Research Hub records never enter the
-  prototype/full-agent prompt; they are re-resolved later for the restricted
-  Researcher chat. The study form remains available underneath it. On
+  workspace with an unsent build draft derived from the person's written,
+  public-or-made-up study context and, when requested, a generalized design
+  guidance draft prepared by the restricted Researcher Agent. The person must
+  review or edit that guidance and explicitly include it. Governed Research Hub
+  records and citations do not enter the prototype/full-agent prompt through
+  this flow; they are
+  re-resolved later for the restricted Researcher chat. The study form remains
+  available underneath it. On
   return, the client rechecks the workspace and selects it only after it has a
   live preview and the server's `previewReady` signal confirms a real hosted
   `index.html` artifact. It then creates the ordinary
@@ -124,9 +129,34 @@ again under current authorization immediately before creating the chat, then
 quotes the current record versions and one snapshot revision in the unsent
 plain-text prompt. A design review may continue without selected evidence, but
 the draft identifies that as an evidence gap instead of claiming validation.
-Older clients remain compatible because the resulting chat and message are
-unchanged. See [Research Hub connector](research-hub.md) for the publication and
-privacy boundary.
+
+For a new prototype, `POST /v1/research-hub/design-guidance` reauthenticates the
+Researcher after reading the request, re-resolves the selected IDs and revision,
+and asks only the attested restricted Researcher Agent for strict structured
+guidance: generalized user needs, pain points, design opportunities, and
+unknowns. The server rejects invalid output or source details instead of passing
+through raw evidence. The client presents the generalized result for human
+review; only the approved text is placed in the unsent prototype build draft.
+Changing evidence or relevant study details invalidates that approval. The
+client re-resolves the evidence and snapshot once more immediately before it
+creates a prototype chat with approved guidance. It sends the exact first prompt
+as part of a server-validated handoff and requires the returned chat to report a
+pending handoff before saving the draft. The bound prompt must be sent unchanged;
+revisions happen back in Research Studio. The server rechecks Researcher access,
+the exact snapshot, the reviewed guidance, and the prompt again at first-send
+enqueue and immediately before the Prototype Agent runs, so stale or revoked Hub
+context cannot cross on cached or queued state. The
+Prototype Agent is asked to suggest two or three evidence-informed hypotheses
+with tradeoffs, assumptions, accessibility considerations, and limits before
+asking the researcher to choose or revise a direction and building the selected
+minimum testable direction. It receives no Hub records, summaries,
+citations, IDs, paths, dates, counts, metrics, or snapshot metadata through this
+handoff, and it must
+not claim validation or approval.
+
+Older clients remain compatible because the resulting prototype is still an
+ordinary private agent chat and message. See [Research Hub
+connector](research-hub.md) for the publication and privacy boundary.
 
 ## Mobile builds
 

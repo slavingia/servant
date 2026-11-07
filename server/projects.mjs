@@ -388,7 +388,7 @@ export function accessText(name, level) {
  */
 export function projectInstructions(project, { chat, asker, level, files, full, users = {}, today, prototypes }) {
   if (!project) return "";
-  const vibe = chat?.mode === "vibe";
+  const vibe = chat?.mode === "vibe" || chat?.mode === "research-vibe";
   const repo = project.repo || project.path;
   const lines = vibe ? vibeLines(project, chat, prototypes) : [
     `This chat belongs to the project "${project.name}"${project.description ? ` (${project.description})` : ""}. Everyone's chats in this project share the context below.`

@@ -8,10 +8,11 @@ type Props = {
   busy?: boolean;
   disabled?: boolean;
   compact?: boolean;
+  accessibilityHint?: string;
   style?: StyleProp<ViewStyle>;
 };
 
-export function Button({ label, onPress, kind = "primary", busy, disabled, compact, style }: Props) {
+export function Button({ label, onPress, kind = "primary", busy, disabled, compact, accessibilityHint, style }: Props) {
   const styles = useStyles();
   const { colors } = useTheme();
   const off = disabled || busy;
@@ -19,6 +20,7 @@ export function Button({ label, onPress, kind = "primary", busy, disabled, compa
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityHint={accessibilityHint}
       accessibilityState={{ disabled: !!off, busy: !!busy }}
       disabled={!!off}
       onPress={off ? undefined : onPress}

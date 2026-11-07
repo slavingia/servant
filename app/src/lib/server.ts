@@ -39,8 +39,16 @@ export type ReleaseItem = { id: string; title: string; stages: Record<string, St
 export type ProjectRelease = { id: string; name: string; date: string; items: ReleaseItem[] };
 // mode "vibe": a vibe-coding chat that builds a prototype with a preview link.
 export type AgentRole = "researcher" | "prototype";
-export type NewChatOptions = { projectId?: string | null; mode?: "vibe"; title?: string; requiredAgentRole?: AgentRole };
-export type Chat = { usage?: { input: number; output: number; total: number; turns: number }; projectId?: string; projectShared?: boolean; project?: { id: string; name: string }; mode?: "vibe"; agentRole?: AgentRole; previewUrl?: string; previewReady?: boolean; files?: boolean; id: string; title: string; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; latestTurn?: AgentTurn | null };
+export type ResearchPrototypeHandoff = { ids: string[]; revision: string; guidance: string; firstMessage: string };
+export type NewChatOptions = {
+  projectId?: string | null;
+  mode?: "vibe";
+  title?: string;
+  requiredAgentRole?: AgentRole;
+  /** Server-validated Research Hub authorization bound to a prototype's first prompt. */
+  researchHandoff?: ResearchPrototypeHandoff;
+};
+export type Chat = { usage?: { input: number; output: number; total: number; turns: number }; projectId?: string; projectShared?: boolean; project?: { id: string; name: string }; mode?: "vibe"; agentRole?: AgentRole; previewUrl?: string; previewReady?: boolean; researchHandoff?: { state: "pending" | "bound" }; files?: boolean; id: string; title: string; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; latestTurn?: AgentTurn | null };
 export type Message = { id: string; role: "user" | "assistant"; text: string; at?: number | string | null; attachments?: Attachment[]; pending?: boolean; interrupted?: boolean; sourceDevice?: SourceDevice };
 
 // ----- token leaderboard -----
@@ -164,6 +172,15 @@ export type ResearchHubEvidence = {
   version: number;
 };
 export type ResearchHubEvidenceResponse = { hub: ResearchHubMetadata; evidence: ResearchHubEvidence[] };
+export type ResearchDesignGuidanceContext = {
+  title: string;
+  decision: string;
+  question: string;
+  participants: string;
+  purpose: string;
+  constraints: string;
+};
+export type ResearchDesignGuidanceResponse = { hub: ResearchHubAvailableMetadata; guidance: string };
 export type LiveEvent =
   | { event: "message.created" | "message.updated"; data: Post }
   | { event: "conversation.updated" | "conversation.read"; data: { id: string } }
@@ -416,6 +433,8 @@ export const api = {
     request(a, `/v1/research-hub/evidence?q=${encodeURIComponent(query)}&limit=20`, { signal }).then(json<ResearchHubEvidenceResponse>),
   resolveResearchHubEvidence: (a: Account, ids: string[], revision: string, signal?: AbortSignal) =>
     request(a, "/v1/research-hub/evidence/resolve", { method: "POST", body: JSON.stringify({ ids, revision }), signal }).then(json<ResearchHubEvidenceResponse>),
+  researchHubDesignGuidance: (a: Account, ids: string[], revision: string, context: ResearchDesignGuidanceContext, signal?: AbortSignal) =>
+    request(a, "/v1/research-hub/design-guidance", { method: "POST", body: JSON.stringify({ ids, revision, context }), signal }).then(json<ResearchDesignGuidanceResponse>),
   feedback: (a: Account) => request(a, "/v1/feedback").then(json<{ reports: FeedbackReport[] }>).then(d => d.reports),
   sendFeedback: (a: Account, body: { text: string; requestId: string; context: Record<string, string>; attachments?: { name: string; data: string }[] }) =>
     request(a, "/v1/feedback", { method: "POST", body: JSON.stringify(body) }).then(json<{ report: FeedbackReport }>).then(d => d.report),

@@ -50,6 +50,48 @@ test('persisted request IDs replay one turn, reject different input and serializ
   } finally { finish.resolve(); await worker.whenIdle(); api.close(); worker.close(); }
 });
 
+test('research handoff IDs are validated, persisted for the worker, and consumed by only one turn', async t => {
+  const file = fixture(t);
+  const seen = [];
+  const turns = createAgentTurns({ file, execute: async (turn, hooks) => {
+    if (turn.chat_id === 'uncertain') { hooks.deliveryStarted(); throw new Error('lost after submit'); }
+    seen.push(turn.research_handoff_id); return {};
+  } });
+  try {
+    assert.throws(() => turns.enqueue({ ...input(), researchHandoffId: 'bad' }), { code: 'research_handoff_invalid' });
+    const handoff = 'rhh_ABCDEFGHIJKL';
+    const held = turns.enqueue({ ...input(), researchHandoffId: handoff });
+    assert.equal(held.status, 'held');
+    assert.equal(await turns.processNext(), false, 'the worker cannot claim a handoff before its chat binding commits');
+    assert.throws(
+      () => turns.enqueue({ ...input('other'), requestId: 'request_other_handoff', researchHandoffId: handoff }),
+      /UNIQUE constraint failed/,
+    );
+    const orphanId = 'rhh_MNOPQRSTUVWX';
+    const orphan = turns.enqueue({ ...input('orphan'), requestId: 'request_orphan_handoff', researchHandoffId: orphanId });
+    assert.deepEqual(turns.reconcileResearchHandoffs([{ chatId: 'chat', turnId: held.id, researchHandoffId: handoff }]), { released: 1, abandoned: 1 });
+    assert.equal(turns.get(orphan.id), undefined, 'startup removes a held row whose state binding never committed');
+    const journal = new DatabaseSync(file);
+    assert.equal(journal.prepare('SELECT status FROM private_turns WHERE id=?').get(held.id).status, 'research_queued', 'an older worker cannot claim a new research handoff row');
+    journal.close();
+    await turns.processNext();
+    assert.deepEqual(seen, [handoff]);
+    assert.equal(turns.researchHandoffRetryable(held.id, handoff), true);
+    assert.equal(turns.rearmResearchHandoff(held.id, handoff, input()).status, 'held');
+    turns.releaseResearchHandoff(held.id, handoff);
+    await turns.processNext();
+    assert.deepEqual(seen, [handoff, handoff], 'a proven pre-delivery failure may safely reuse the same turn');
+
+    const uncertainId = 'rhh_YZABCDEFGHIJ';
+    const uncertain = turns.enqueue({ ...input('uncertain'), requestId: 'request_uncertain', researchHandoffId: uncertainId });
+    turns.releaseResearchHandoff(uncertain.id, uncertainId);
+    await turns.processNext();
+    assert.equal(turns.get(uncertain.id).status, 'failed');
+    assert.equal(turns.researchHandoffRetryable(uncertain.id, uncertainId), false, 'an uncertain upstream submission is never replayed');
+    assert.throws(() => turns.rearmResearchHandoff(uncertain.id, uncertainId, { ...input('uncertain'), requestId: 'request_uncertain' }), { code: 'research_handoff_pending' });
+  } finally { await turns.whenIdle(); turns.close(); }
+});
+
 test('uncertain starts become interrupted; checkpointed runs resume without another submission', async t => {
   const file = fixture(t);
   const seed = createAgentTurns({ file });

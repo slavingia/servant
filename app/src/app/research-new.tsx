@@ -13,6 +13,7 @@ import {
   MAX_RESEARCH_HUB_EVIDENCE,
   missingResearchFields,
   prototypeChatTitle,
+  researchDesignGuidanceKey,
   researchChatTitle,
   researchTask,
   type ResearchBrief,
@@ -106,6 +107,12 @@ export default function NewResearchWork() {
   const [createdPrototypePrompt, setCreatedPrototypePrompt] = useState<string | null>(null);
   const [prototypeNotice, setPrototypeNotice] = useState<string | null>(null);
   const [prototypeChecking, setPrototypeChecking] = useState(false);
+  const [designGuidanceText, setDesignGuidanceText] = useState("");
+  const [designGuidanceSourceKey, setDesignGuidanceSourceKey] = useState<string | null>(null);
+  const [designGuidanceSourceCount, setDesignGuidanceSourceCount] = useState(0);
+  const [designGuidanceApproved, setDesignGuidanceApproved] = useState(false);
+  const [designGuidanceBusy, setDesignGuidanceBusy] = useState(false);
+  const [designGuidanceError, setDesignGuidanceError] = useState<string | null>(null);
   const hubRevision = useRef<string | null>(null);
   const createdPrototypeRef = useRef<Chat | null>(null);
   const prototypeModeRef = useRef<PrototypeMode>(prototypeMode);
@@ -220,11 +227,21 @@ export default function NewResearchWork() {
     evidenceHub: hub ?? (hubState.kind === "available" ? hubState.hub : undefined),
     ...(prototype ? { prototype } : {}),
   });
-  const prototypeBuildBrief = (): ResearchBrief => ({
+  const prototypeContextBrief = (hub: ResearchHubMetadata | undefined = hubState.kind === "available" ? hubState.hub : undefined): ResearchBrief => ({
     kind: "study",
     title,
     answers,
     prototype: { kind: "new", purpose: prototypePurpose },
+    evidence,
+    evidenceHub: hub,
+  });
+  const currentDesignGuidanceKey = researchDesignGuidanceKey(prototypeContextBrief());
+  const designGuidanceStale = !!designGuidanceText && designGuidanceSourceKey !== currentDesignGuidanceKey;
+  const prototypeBuildBrief = (): ResearchBrief => ({
+    ...prototypeContextBrief(),
+    ...(designGuidanceText && designGuidanceApproved && !designGuidanceStale
+      ? { designGuidance: { text: designGuidanceText, approved: true } }
+      : {}),
   });
   const currentPrototypePrompt = kind === "study" && createdPrototype
     ? buildStudyPrototypePrompt(prototypeBuildBrief())
@@ -255,8 +272,63 @@ export default function NewResearchWork() {
     router.push({ pathname: "/chat/[id]", params: { id: prototype.id, title: designTitle(prototype), compose: "1", studio: "1" } });
   };
 
+  const discardDesignGuidance = () => {
+    setDesignGuidanceText("");
+    setDesignGuidanceSourceKey(null);
+    setDesignGuidanceSourceCount(0);
+    setDesignGuidanceApproved(false);
+    setDesignGuidanceError(null);
+  };
+
+  const prepareDesignGuidance = async () => {
+    if (designGuidanceBusy || busy || agentTier !== 4) return;
+    if (!evidence.length) {
+      setDesignGuidanceError("Choose Research Hub evidence before preparing needs and pain points.");
+      return;
+    }
+    if (hubState.kind !== "available") {
+      setDesignGuidanceError("Research Hub evidence can't be verified right now. Check the Hub again before preparing design guidance.");
+      return;
+    }
+    const contextBrief = prototypeContextBrief();
+    const missing = missingResearchFields(contextBrief);
+    if (missing.length) {
+      setDesignGuidanceError(`Complete ${missing.length === 1 ? missing[0] : `${missing.slice(0, -1).join(", ")} and ${missing.at(-1)}`} before preparing design guidance.`);
+      return;
+    }
+    setDesignGuidanceBusy(true);
+    setDesignGuidanceError(null);
+    setDesignGuidanceApproved(false);
+    try {
+      const result = await api.researchHubDesignGuidance(account, evidence.map(item => item.id), hubState.hub.revision, {
+        title,
+        decision: answers.decision ?? "",
+        question: answers.question ?? "",
+        participants: answers.participants ?? "",
+        purpose: prototypePurpose,
+        constraints: answers.constraints ?? "",
+      });
+      acceptHubMetadata(result.hub);
+      setDesignGuidanceText(result.guidance);
+      setDesignGuidanceSourceKey(researchDesignGuidanceKey(prototypeContextBrief(result.hub)));
+      setDesignGuidanceSourceCount(evidence.length);
+      setDesignGuidanceApproved(false);
+    } catch (e) {
+      if (e instanceof ServerError && e.code === "research_hub_changed") setHubAttempt(value => value + 1);
+      setDesignGuidanceError(e instanceof ServerError ? e.message : "The Researcher Agent couldn't prepare design guidance. Try again.");
+    } finally {
+      setDesignGuidanceBusy(false);
+    }
+  };
+
   const create = async () => {
-    if (busy || agentTier !== 4) return;
+    if (busy || designGuidanceBusy || agentTier !== 4) return;
+    if (kind === "study" && prototypeMode === "new" && designGuidanceText && (designGuidanceStale || !designGuidanceApproved)) {
+      setError(designGuidanceStale
+        ? "The research-informed design guidance no longer matches this study or evidence. Refresh it, or continue without Hub insights."
+        : "Review and approve the research-informed design guidance, or continue without Hub insights.");
+      return;
+    }
     if (kind === "study" && prototypeMode === "new" && createdPrototype) {
       if (prototypeBriefChanged) {
         resetCreatedPrototype();
@@ -284,19 +356,79 @@ export default function NewResearchWork() {
     const expectedTitle = researchChatTitle(kind, title);
     try {
       if (kind === "study" && prototypeMode === "new") {
+        let researchHandoff: { ids: string[]; revision: string; guidance: string; firstMessage: string } | undefined;
+        let verifiedHandoffRevision: string | null = null;
+        if (designGuidanceApproved) {
+          if (hubState.kind !== "available" || !evidence.length) {
+            setDesignGuidanceApproved(false);
+            setError("Research Hub evidence can't be verified right now. Refresh the design guidance or continue without Hub insights.");
+            return;
+          }
+          let verified;
+          try {
+            verified = await api.resolveResearchHubEvidence(account, evidence.map(item => item.id), hubState.hub.revision);
+          } catch (e) {
+            if (e instanceof ServerError && (e.status === 403 || e.status === 404)) setHubState(researchHubFailure(e));
+            if (e instanceof ServerError && e.code === "research_hub_changed") setHubAttempt(value => value + 1);
+            setDesignGuidanceApproved(false);
+            setDesignGuidanceError("The Hub evidence behind this guidance is no longer current. Review the evidence and prepare the guidance again.");
+            setError(e instanceof ServerError ? e.message : "The Hub evidence behind this guidance couldn't be verified.");
+            return;
+          }
+          if (!verified.hub.available) {
+            acceptHubMetadata(verified.hub);
+            setDesignGuidanceApproved(false);
+            setError(verified.hub.message || "Research Hub evidence isn't available right now.");
+            return;
+          }
+          const byId = new Map(verified.evidence.map(item => [item.id, item]));
+          const ordered = evidence.map(item => byId.get(item.id)).filter((item): item is ResearchHubEvidence => !!item);
+          const verifiedKey = researchDesignGuidanceKey({ ...prototypeContextBrief(verified.hub), evidence: ordered });
+          if (ordered.length !== evidence.length || verifiedKey !== designGuidanceSourceKey) {
+            acceptHubMetadata(verified.hub);
+            setEvidence(ordered);
+            setDesignGuidanceApproved(false);
+            setDesignGuidanceError("The Hub evidence behind this guidance changed. Prepare and review the guidance again.");
+            setError("Refresh the research-informed design guidance before creating this prototype.");
+            return;
+          }
+          acceptHubMetadata(verified.hub);
+          setEvidence(ordered);
+          verifiedHandoffRevision = verified.hub.revision;
+        }
         const prototypeTitle = prototypeChatTitle(title);
-        const chat = await api.newChat(account, { mode: "vibe", title: prototypeTitle, requiredAgentRole: "prototype" });
+        const prototypePrompt = buildStudyPrototypePrompt(prototypeBuildBrief());
+        if (designGuidanceApproved && verifiedHandoffRevision) {
+          researchHandoff = {
+            ids: evidence.map(item => item.id),
+            revision: verifiedHandoffRevision,
+            guidance: designGuidanceText,
+            firstMessage: prototypePrompt,
+          };
+        }
+        const chat = await api.newChat(account, {
+          mode: "vibe",
+          title: prototypeTitle,
+          requiredAgentRole: "prototype",
+          ...(researchHandoff ? { researchHandoff } : {}),
+        });
         if (chat.mode !== "vibe" || chat.agentRole !== "prototype") {
           await api.deleteChat(account, chat.id).catch(() => {});
           setError("This workspace couldn't verify prototype-agent access. Ask a workspace owner to update or confirm your Researcher access.");
           return;
         }
-        const prototypePrompt = buildStudyPrototypePrompt(prototypeBuildBrief());
+        if (researchHandoff && chat.researchHandoff?.state !== "pending") {
+          await api.deleteChat(account, chat.id).catch(() => {});
+          setError("This server couldn't bind the Research Hub guidance to the prototype prompt. Ask an owner to update the server before trying again.");
+          return;
+        }
         setDraft(`chat:${chat.id}`, prototypePrompt);
         createdPrototypeRef.current = chat;
         setCreatedPrototype(chat);
         setCreatedPrototypePrompt(prototypePrompt);
-        setPrototypeNotice("Prototype workspace created. Review the build prompt, then send it when you're ready.");
+        setPrototypeNotice(researchHandoff
+          ? "Prototype workspace created. Review the bound build prompt and send it unchanged. Return here to revise the research handoff."
+          : "Prototype workspace created. Review the build prompt, then send it when you're ready.");
         openPrototypeWorkspace(chat);
         return;
       }
@@ -403,20 +535,20 @@ export default function NewResearchWork() {
       <Text accessibilityRole="header" style={styles.sectionTitle}>Name the work</Text>
       <View style={styles.field}>
         <Text style={styles.label}>Working title</Text>
-        <TextInput value={title} onChangeText={setTitle} accessibilityLabel="Working title" placeholder="A short, recognizable name" placeholderTextColor={colors.muted}
+        <TextInput value={title} onChangeText={setTitle} editable={!busy && !designGuidanceBusy} accessibilityLabel="Working title" placeholder="A short, recognizable name" placeholderTextColor={colors.muted}
           maxLength={Math.max(20, 80 - task.titlePrefix.length)} autoCapitalize="sentences" autoCorrect style={styles.input} />
       </View>
 
       <Text accessibilityRole="header" style={styles.sectionTitle}>Build the brief</Text>
       <Text style={styles.sectionDescription}>{kind === "study" && prototypeMode === "new"
-        ? "Required fields are marked. Your written answers will be drafted for the prototype agent first, so use only public or made-up information. Selected Research Hub records stay with the restricted Researcher agent and are added only when you finish the study plan."
+        ? "Required fields are marked. Your written answers will be drafted for the prototype agent first, so use only public or made-up information. Raw Research Hub records stay with the restricted Researcher Agent; you can prepare and approve a generalized design brief below."
         : "Required fields are marked. Add only what is safe to share with your workspace's restricted Researcher agent."}</Text>
       {task.fields.map(field => {
         const suppliedByHub = kind === "synthesis" && field.id === "inputs" && evidence.length > 0;
         const required = !!field.required && !suppliedByHub;
         return <View key={field.id} style={styles.field}>
           <Text style={styles.label}>{field.label}{required ? " *" : ""}</Text>
-          <TextInput value={answers[field.id] ?? ""} onChangeText={value => update(field.id, value)} accessibilityLabel={`${field.label}${required ? ", required" : ", optional"}`}
+          <TextInput value={answers[field.id] ?? ""} onChangeText={value => update(field.id, value)} editable={!busy && !designGuidanceBusy} accessibilityLabel={`${field.label}${required ? ", required" : ", optional"}`}
             placeholder={suppliedByHub ? "Optional — describe evidence outside Research Hub" : field.placeholder} placeholderTextColor={colors.muted} multiline={field.multiline} textAlignVertical={field.multiline ? "top" : "center"}
             autoCapitalize="sentences" autoCorrect style={[styles.input, field.multiline && styles.multiline]} />
         </View>;
@@ -466,10 +598,10 @@ export default function NewResearchWork() {
             <Button label="Check status" kind="link" compact disabled={busy || prototypeChecking} onPress={() => { void refreshCreatedPrototype(); }} />
           </> : <>
             <Text style={styles.label}>Prototype purpose *</Text>
-            <TextInput value={prototypePurpose} onChangeText={value => { setPrototypePurpose(value); setError(null); }} accessibilityLabel="Prototype purpose, required"
+            <TextInput value={prototypePurpose} onChangeText={value => { setPrototypePurpose(value); setError(null); }} editable={!busy && !designGuidanceBusy} accessibilityLabel="Prototype purpose, required"
               placeholder="What should participants be able to do or react to?" placeholderTextColor={colors.muted} multiline textAlignVertical="top"
               maxLength={1000} autoCapitalize="sentences" autoCorrect style={[styles.input, styles.prototypePurpose]} />
-            <Text style={styles.prototypeHelp}>Servant will turn the study brief into an unsent build prompt for the prototype agent, including the minimum testable interactions, realistic states, accessibility needs, and safe test data.</Text>
+            <Text style={styles.prototypeHelp}>Servant will turn the study brief into an unsent prompt for the prototype agent, including the minimum testable interactions, realistic states, accessibility needs, safe test data, and any research-informed guidance you approve below. With approved guidance, the agent suggests directions first and builds after you choose.</Text>
             {prototypeNotice ? <Text accessibilityLiveRegion="polite" style={styles.prototypeHelp}>{prototypeNotice}</Text> : null}
           </>}
         </View> : prototypeMode === "existing" ? <View style={styles.prototypeDetail}>
@@ -495,7 +627,9 @@ export default function NewResearchWork() {
 
       <Text accessibilityRole="header" style={styles.sectionTitle}>Research Hub evidence</Text>
       <Text style={styles.sectionDescription}>{kind === "study"
-        ? "Optional — add prior evidence to sharpen the study gap and avoid duplicating known work."
+        ? prototypeMode === "new"
+          ? "Optional — add prior evidence to sharpen the study gap and avoid duplicating known work. Selected sources can also become needs and pain points for prototype suggestions."
+          : "Optional — add prior evidence to sharpen the study gap and avoid duplicating known work."
         : kind === "synthesis"
           ? "Choose the Hub records to analyze, or describe evidence outside the Hub above."
           : "Recommended — add evidence about the intended audience, needs, or task so each review claim is traceable."}</Text>
@@ -529,6 +663,46 @@ export default function NewResearchWork() {
         </View>
       </View>}
 
+      {kind === "study" && prototypeMode === "new" && (evidence.length > 0 || !!designGuidanceText) ? <View style={styles.designGuidance}>
+        <View style={styles.designGuidanceHeading}>
+          <View style={styles.designGuidanceIcon}><AppIcon name="sparkles" size={18} color={colors.blueDark} /></View>
+          <View style={styles.designGuidanceHeadingCopy}>
+            <Text accessibilityRole="header" style={styles.designGuidanceTitle}>Research-informed design guidance</Text>
+            <Text style={styles.designGuidanceDescription}>The restricted Researcher Agent drafts generalized needs, pain points, opportunities, and evidence limits. Raw records and citations stay out of the Prototype Agent.</Text>
+          </View>
+        </View>
+        {designGuidanceBusy ? <View accessibilityLiveRegion="polite" style={styles.designGuidanceStatusRow}>
+          <ActivityIndicator accessibilityLabel="Preparing research-informed design guidance" accessibilityRole="progressbar" color={colors.blue} />
+          <Text style={styles.designGuidanceStatus}>Preparing needs and pain points…</Text>
+        </View> : designGuidanceText ? <>
+          <Text accessibilityLiveRegion="polite" style={[styles.designGuidanceStatus, designGuidanceApproved && !designGuidanceStale && styles.designGuidanceStatusApproved]}>
+            {designGuidanceStale ? "Needs refresh — the study, evidence, or Hub snapshot changed."
+              : designGuidanceApproved ? "Approved for the Prototype Agent"
+                : "Ready for your review"}
+          </Text>
+          <TextInput value={designGuidanceText} editable={!busy && !designGuidanceBusy} onChangeText={value => {
+            setDesignGuidanceText(value);
+            setDesignGuidanceApproved(false);
+            setDesignGuidanceError(null);
+          }} accessibilityLabel="Research-informed design guidance to review before sharing with the Prototype Agent"
+            multiline textAlignVertical="top" maxLength={6000} autoCapitalize="sentences" autoCorrect
+            style={[styles.input, styles.designGuidanceInput]} />
+          <Text style={styles.designGuidanceMeta}>{designGuidanceStale
+            ? `Prepared from ${designGuidanceSourceCount} Hub ${designGuidanceSourceCount === 1 ? "source" : "sources"}; the current selection has ${evidence.length}. Refresh before using it.`
+            : `Based on ${designGuidanceSourceCount} selected Hub ${designGuidanceSourceCount === 1 ? "source" : "sources"}.`} This AI-generated draft is not automatically cleared for sharing. Remove identifying, restricted, or source-specific details before approving. It is design context, not proof that a direction is validated.</Text>
+          {!designGuidanceStale && !designGuidanceApproved ? <Button label="Use in prototype" kind="secondary" accessibilityHint="Shares only this reviewed text with the separate Prototype Agent" disabled={!designGuidanceText.trim() || busy} onPress={() => {
+            setDesignGuidanceApproved(true);
+            setDesignGuidanceError(null);
+          }} /> : null}
+          <Button label={designGuidanceStale ? "Refresh needs & pain points" : "Regenerate guidance"} kind="secondary" disabled={busy} onPress={() => { void prepareDesignGuidance(); }} />
+          <Button label="Continue without Hub insights" kind="link" compact disabled={busy} onPress={discardDesignGuidance} />
+        </> : <>
+          <Text style={styles.designGuidanceMeta}>Review the generated handoff before deciding whether it is safe and useful to share with the Prototype Agent.</Text>
+          <Button label="Prepare needs & pain points" kind="secondary" disabled={busy} onPress={() => { void prepareDesignGuidance(); }} />
+        </>}
+        {designGuidanceError ? <Text accessibilityRole="alert" style={styles.designGuidanceError}>{designGuidanceError}</Text> : null}
+      </View> : null}
+
       {kind === "design-review" && evidence.length === 0 ? <View style={styles.gapWarning}>
         <AppIcon name="warning" size={17} color={colors.muted} />
         <Text style={styles.gapWarningText}>No Hub evidence is selected. The draft will identify this as an evidence gap and limit conclusions to expert inspection.</Text>
@@ -539,13 +713,13 @@ export default function NewResearchWork() {
         <Text style={styles.boundaryBody}>{kind === "study" && prototypeMode === "new"
           ? createdPrototype
             ? "Continue in the private prototype-agent chat. When its link serves a finished preview and the workspace is ready for review, Servant will select it here so you can finish the study plan. The preview itself is viewable by anyone with its unguessable link. Nothing is sent or used to contact participants automatically."
-            : "Servant creates a private prototype-agent chat and places a structured build prompt from your written answers in its composer. Selected Research Hub records stay out of that prompt. You review it before sending. The built preview will be viewable by anyone with its unguessable link. Return here after it is ready to finish the study plan."
+            : "Servant creates a private prototype-agent chat and places a structured build prompt from your written answers in its composer. Raw Research Hub records stay out; only generalized design guidance you review and approve is included. When Hub guidance is included, the server binds it to that exact prompt; return here to revise it instead of editing the prompt. The built preview will be viewable by anyone with its unguessable link."
           : `Servant verifies selected evidence${kind === "study" && prototypeMode === "existing" ? " and the prototype" : ""} again, creates an ordinary titled researcher chat, and places a structured prompt in its composer. Nothing is sent, shared, published, or used to contact participants until you choose what to do next.`}</Text>
       </View>
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
       <Button label={kind === "study" && prototypeMode === "new"
         ? createdPrototype ? prototypeBriefChanged ? "Start updated prototype" : "Open prototype workspace" : "Create prototype workspace"
-        : "Review in researcher chat"} busy={busy} onPress={() => { void create(); }} style={styles.primary} />
+        : "Review in researcher chat"} busy={busy || designGuidanceBusy} onPress={() => { void create(); }} style={styles.primary} />
       <Button label="Cancel" kind="link" disabled={busy} onPress={() => router.replace("/research")} />
     </ScrollView>
     {evidenceOpen && hubState.kind === "available" ? <ResearchEvidencePicker hub={hubState.hub} selected={evidence} onHubMetadata={acceptHubMetadata} onHubFailure={setHubState}
@@ -841,6 +1015,18 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   hubNoticeCopy: { flex: 1, minWidth: 0 },
   hubNoticeText: { ...typography.caption, color: colors.muted },
   hubRetry: { alignSelf: "flex-start", minWidth: 120, marginTop: space.sm },
+  designGuidance: { gap: space.sm, marginHorizontal: space.side, marginTop: space.md, padding: space.md, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, backgroundColor: colors.surface },
+  designGuidanceHeading: { flexDirection: "row", alignItems: "flex-start", gap: space.sm },
+  designGuidanceIcon: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: radius.md, backgroundColor: colors.blueSoft },
+  designGuidanceHeadingCopy: { flex: 1, minWidth: 0 },
+  designGuidanceTitle: { ...typography.bodyStrong, color: colors.ink },
+  designGuidanceDescription: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
+  designGuidanceStatusRow: { minHeight: 40, flexDirection: "row", alignItems: "center", gap: space.sm },
+  designGuidanceStatus: { ...typography.captionStrong, color: colors.ink },
+  designGuidanceStatusApproved: { color: colors.blueDark },
+  designGuidanceInput: { minHeight: 240 },
+  designGuidanceMeta: { ...typography.caption, color: colors.muted },
+  designGuidanceError: { ...typography.caption, color: colors.red },
   gapWarning: { flexDirection: "row", alignItems: "flex-start", gap: space.sm, marginHorizontal: space.side, marginTop: space.sm, padding: space.sm, borderRadius: radius.md, backgroundColor: colors.surface },
   gapWarningText: { ...typography.caption, color: colors.muted, flex: 1 },
   boundary: { marginHorizontal: space.side, marginTop: space.lg, padding: space.md, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, backgroundColor: colors.surface },
