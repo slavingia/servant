@@ -63,7 +63,7 @@ export default function Meetings() {
 
   const header = <View style={styles.header}>
     <View style={styles.actions}>
-      {canCall ? <Button label={onCall ? "Return to call" : "Start a meeting"} onPress={() => onCall && active ? router.push({ pathname: "/meeting/[id]", params: { id: active.id } }) : setPicking(true)} style={styles.action} /> : null}
+      {canCall ? <Button label={onCall ? "Return to call" : "Start a meeting"} disabled={recording} onPress={() => onCall && active ? router.push({ pathname: "/meeting/[id]", params: { id: active.id } }) : setPicking(true)} style={styles.action} /> : null}
       <Button label="Record a meeting" kind={canCall ? "secondary" : "primary"} disabled={recording} onPress={() => setRecording(true)} style={styles.action} />
     </View>
     {!canCall ? <Text style={styles.hint}>Calls need the Servant app or a current Chrome, Safari or Edge. You can still record a meeting here.</Text> : null}

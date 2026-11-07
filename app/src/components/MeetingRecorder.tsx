@@ -86,7 +86,7 @@ export function MeetingRecorder({ account, onMove, onSaved, onClose }: { account
       </View>
       {note ? <Text style={styles.hint}>{note}</Text> : null}
       <Text style={styles.hint}>{Platform.OS === "web" ? "Keep this window open until you stop." : "Put the phone where it can hear everyone."}</Text>
-      <Button label="Stop and make notes" onPress={() => void stop()} />
+      <Button label="Stop and make notes" kind="danger" onPress={() => void stop()} />
     </View>;
   }
 
