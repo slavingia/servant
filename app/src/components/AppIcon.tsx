@@ -42,6 +42,8 @@ const paths = {
   mic: "M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z M5 11a7 7 0 0 0 14 0 M12 18v3",
   micOff: "M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 .2 1.1 M15 9.3V6a3 3 0 0 0-5.9-.8 M5 11a7 7 0 0 0 11.5 5.4 M19 11a7 7 0 0 1-.6 2.8 M12 18v3 M3 3l18 18",
   stop: "M7 7h10v10H7z",
+  // A camera with a lens, for calls and the Meetings screen.
+  meetings: "M3 8a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8Z m13 2 5-3v10l-5-3",
   eye: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z M15 12a3 3 0 1 0-6 0 3 3 0 0 0 6 0Z",
 } as const;
 

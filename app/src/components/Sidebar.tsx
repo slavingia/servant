@@ -5,6 +5,7 @@ import { type Conversation } from "../lib/server";
 import { isDesktop } from "../lib/desktop";
 import { useLive } from "../lib/live";
 import { refreshProjects, useProjects } from "../lib/projects-store";
+import { refreshMeetings, useMeetings } from "../lib/meetings-store";
 import { sortChannels, withPositions } from "../lib/channel-sort";
 import { useChannelSort } from "../lib/channel-sort-store";
 import { useSession } from "../lib/session";
@@ -57,7 +58,10 @@ export function Sidebar() {
   const [naming, setNaming] = useState(false);
   // Projects change rarely: re-read the list as you move around rather than on a timer.
   const projects = useProjects();
-  useEffect(() => { if (account) void refreshProjects(account); }, [pathname, account]);
+  // Meetings too: the count beside it is the calls running right now.
+  const meetings = useMeetings();
+  useEffect(() => { if (account) { void refreshProjects(account); void refreshMeetings(account); } }, [pathname, account]);
+  const liveMeetings = (meetings.list ?? []).filter(m => m.status === "live").length;
   if (!account) return null;
 
   const active = (conversations ?? []).filter(c => !c.archived);
@@ -83,6 +87,7 @@ export function Sidebar() {
         <NavItem icon="sparkles" label="Agent" count={unread.agent} selected={pathname === "/agent" || pathname.startsWith("/chat/") || (pathname === "/files" && params.kind === "chat")} onPress={() => go(pathname, "/agent")} />
         <NavItem icon="chat" label="Direct messages" count={unread.messages} selected={pathname === "/messages"} onPress={() => go(pathname, "/messages")} />
         <NavItem icon="people" label="People" selected={pathname === "/members" || pathname === "/invite"} onPress={() => go(pathname, "/members")} />
+        <NavItem icon="meetings" label="Meetings" count={liveMeetings} selected={pathname === "/meetings" || pathname.startsWith("/meetings/")} onPress={() => go(pathname, "/meetings")} />
 
         <Section title="Projects" open={projectsOpen} onToggle={() => setProjectsOpen(v => !v)} addLabel="New project" onAdd={() => setNaming(true)}>
           {(projects?.list ?? []).map(p => <NavItem key={p.id} icon="project" label={p.name} selected={pathname === "/project" && params.id === p.id} onPress={() => go(pathname, { pathname: "/project", params: { id: p.id } })} />)}
