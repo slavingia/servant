@@ -95,6 +95,25 @@ export type Meeting = {
   /** Research during the call: "hey servant" questions and their answers. */
   research?: { available: boolean; on: boolean; cards: ResearchCard[] };
   transcript: string | null;
+  /** Written after the call (servers from Nov 2026 on): the summary, the notes and who was there. */
+  summary?: string | null;
+  notes?: string[];
+  people?: { id: string; name: string }[];
+  durationMs?: number | null;
+};
+// ----- the Meetings screen: hosted calls and recordings made in the room, in one list -----
+export type MeetingKind = "call" | "recording";
+export type MeetingItem = {
+  kind: MeetingKind; id: string; title: string | null; conversationId: string | null;
+  startedAt: number; endedAt: number | null; durationMs: number | null;
+  status: MeetingStatus | "uploading"; summary: string | null; error: string | null;
+  people: { id: string; name: string }[]; peopleCount: number; openSteps: number;
+};
+// A recording made in the room (server/recordings.mjs): private to the person who made it.
+export type RecordingStep = { n: number; text: string; owner: string | null; status: "open" | "accepted" | "skipped"; chatId: string | null };
+export type Recording = {
+  id: string; title: string | null; status: "uploading" | "processing" | "done" | "failed"; createdAt: number; durationMs: number;
+  summary: string | null; error: string | null; openSteps: number; notes: string[]; transcript: string; steps: RecordingStep[];
 };
 export type ResearchCard = { n: number; askedBy: string; question: string; answer: string | null; status: "working" | "done" | "failed"; at: number };
 export type Conversation = {
@@ -501,6 +520,13 @@ export const api = {
     request(a, `/v1/meetings/${id}/end`, { method: "POST", body: "{}" }).then(json<{ meeting: Meeting }>).then((d) => d.meeting),
   meetingStep: (a: Account, id: string, n: number, action: "accept" | "skip") =>
     request(a, `/v1/meetings/${id}/steps/${n}`, { method: "POST", body: JSON.stringify({ action }) }).then(json<{ meeting: Meeting }>).then((d) => d.meeting),
+  /** Everything on the Meetings screen: calls in your rooms and your own recordings, live first, newest first. */
+  meetings: (a: Account, m?: (a: Account) => void) => request(a, "/v1/meetings", {}, m).then(json<{ meetings: MeetingItem[] }>).then(d => d.meetings),
+  recording: (a: Account, id: string) => request(a, `/v1/recordings/${encodeURIComponent(id)}`).then(json<{ meeting: Recording }>).then(d => d.meeting),
+  retryRecording: (a: Account, id: string) => request(a, `/v1/recordings/${encodeURIComponent(id)}/retry`, { method: "POST", body: "{}" }).then(json<{ meeting: Recording }>).then(d => d.meeting),
+  deleteRecording: (a: Account, id: string) => request(a, `/v1/recordings/${encodeURIComponent(id)}`, { method: "DELETE" }).then(json<{ ok: true }>),
+  recordingStep: (a: Account, id: string, n: number, action: "send" | "skip") =>
+    request(a, `/v1/recordings/${encodeURIComponent(id)}/steps/${n}`, { method: "POST", body: JSON.stringify({ action }) }).then(json<{ meeting: Recording }>).then(d => d.meeting),
   latestRelease: (a: Account) =>
     request(a, "/v1/releases/latest").then(json<{ release: Release | null }>).then((d) => d.release),
   signOut: (a: Account) => request(a, "/v1/signout", { method: "POST" }).catch(() => undefined),
