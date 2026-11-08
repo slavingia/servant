@@ -6,7 +6,8 @@
 // (ash-webb/research-studio, CC0): src/methods.js, src/method-plans.js and
 // src/plan.js. Keep them in step so a plan drafted here matches what the
 // researcher sees after importing the file into Research Studio's builder.
-import { planStudy, sampleSizeForMargin, sampleSizeVsHalf } from "./research-stats.ts";
+import { researchStudioImportChanges, type WorkingDraft } from "./research-studio-compat.ts";
+import { allowingForLoss, DEFAULT_LOSS_ALLOWANCE, MAX_LOSS_ALLOWANCE, planStudy, sampleSizeForMargin, sampleSizeVsHalf } from "./research-stats.ts";
 
 export const RESEARCH_STUDIO_VERSION = "0.3.24";
 
@@ -17,7 +18,7 @@ export type HypothesisDirection = "higher" | "lower" | "different";
 
 export const STUDY_METHODS: readonly { id: StudyMethod; label: string; description: string }[] = [
   { id: "prototype", label: "Prototype usability", description: "Instrumented GitHub Pages prototype, task timing, click paths and success signals" },
-  { id: "ab_test", label: "A/B implementation test", description: "Randomly assign one of two or more live designs and compare actual task performance" },
+  { id: "ab_test", label: "A/B implementation test", description: "Randomly assign one of exactly two live designs, a control and one alternative, and compare actual task performance" },
   { id: "card_sort", label: "Card sorting", description: "Open, closed or hybrid information grouping" },
   { id: "tree_test", label: "Tree testing", description: "Findability using a text-only navigation hierarchy" },
   { id: "first_click", label: "First-click testing", description: "First interaction on a screenshot or mockup" },
@@ -30,7 +31,13 @@ export const methodLabel = (method: StudyMethod) => STUDY_METHODS.find(item => i
 /** How results are collected. Research Studio has no database of its own for live studies. */
 export type StudyCollection = "qualtrics-embed" | "qualtrics-links" | "undecided";
 export type StudyDevices = "any" | "desktop";
-export type StudySetup = { collection: StudyCollection; devices: StudyDevices };
+/**
+ * lossAllowance: percent of recruits expected to be lost before randomization
+ * (A/B) or before an activity starts: screen-outs and technical failures. It
+ * is separate from noncompletion after randomization, which the analysis
+ * counts as not successful.
+ */
+export type StudySetup = { collection: StudyCollection; devices: StudyDevices; lossAllowance: number | null };
 
 export const STUDY_COLLECTIONS: readonly { id: StudyCollection; label: string; description: string }[] = [
   { id: "qualtrics-embed", label: "Qualtrics: Research Studio inside the survey", description: "One survey shows Research Studio on a page and stores every activity's results, the study's questions and the full session (route B)." },
@@ -38,7 +45,9 @@ export const STUDY_COLLECTIONS: readonly { id: StudyCollection; label: string; d
   { id: "undecided", label: "Not decided yet", description: "Plan the activities now and choose how results are collected later." },
 ];
 
-export const DEFAULT_STUDY_SETUP: StudySetup = { collection: "qualtrics-embed", devices: "any" };
+export const DEFAULT_STUDY_SETUP: StudySetup = { collection: "qualtrics-embed", devices: "any", lossAllowance: DEFAULT_LOSS_ALLOWANCE };
+export const lossAllowanceProblem = (value: number | null | undefined) =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_LOSS_ALLOWANCE ? null : `Enter a loss allowance from 0 to ${MAX_LOSS_ALLOWANCE}%`;
 
 export const GOALS: Partial<Record<StudyMethod, Partial<Record<StudyGoal, string>>>> = {
   prototype: { discover: "Find usability problems", measure: "Measure how many complete the task" },
@@ -65,11 +74,16 @@ export type StudyActivity = {
   /** A/B designs (live prototype URLs) or preference options (image URLs). */
   designs: StudyDesign[];
   controlIndex: number;
+  /** A/B: the one prespecified primary outcome. Task success needs a success signal. */
+  primary: "success" | "self";
+  /** A/B: the planning direction. The test itself is two-sided. */
   direction: HypothesisDirection;
   baseline: number | null;
   difference: number | null;
   power: number;
   stoppingRule: string;
+  /** The researcher has reviewed and confirmed the stopping rule as written. Editing it clears this. */
+  stoppingRuleConfirmed: boolean;
   sortMode: "open" | "closed" | "hybrid";
   cards: string;
   categories: string;
@@ -83,7 +97,27 @@ export type StudyActivity = {
 };
 
 export const MAX_STUDY_ACTIVITIES = 12;
+/** Research pilot: A/B tests compare exactly two designs, a control and one alternative. */
+export const AB_DESIGNS = 2;
+/** Preference tests support powered claims only with exactly two options; more are exploratory. */
+export const POWERED_PREFERENCE_OPTIONS = 2;
+/** Offered as a starting point. It is never filled in or accepted without the researcher choosing it. */
+export const STOP_DEFAULT = "Field until the target sample is reached in every design, then analyse once. No early stopping based on results.";
 const letter = (index: number) => String.fromCharCode(65 + index);
+/**
+ * Choosing the control moves that design to Design A, as Research Studio
+ * shows it: the editor, the plan and the file always agree on the letters.
+ */
+export function chooseControl(activity: StudyActivity, index: number): StudyActivity {
+  const chosen = activity.designs[index];
+  if (!chosen) return activity;
+  return { ...activity, designs: [chosen, ...activity.designs.filter((_, i) => i !== index)], controlIndex: 0 };
+}
+/** Labels for the planning direction, in the words of the chosen primary outcome. */
+export function directionOptions(primary: StudyActivity["primary"]): { value: HypothesisDirection; label: string }[] {
+  const outcome = primary === "self" ? "self-reported completion" : "task success";
+  return [{ value: "higher", label: `Higher ${outcome}` }, { value: "lower", label: `Lower ${outcome}` }, { value: "different", label: "Different (either way)" }];
+}
 
 export function newStudyActivity(method: StudyMethod, key: string): StudyActivity {
   const designs = method === "ab_test"
@@ -96,7 +130,7 @@ export function newStudyActivity(method: StudyMethod, key: string): StudyActivit
     url: "", successSignal: "",
     goal: method === "card_sort" ? "explore" : method === "prototype" ? "discover" : "measure",
     perRound: 6, rounds: 2, benchmark: null, directBenchmark: null, margin: 10,
-    designs, controlIndex: 0, direction: "higher", baseline: 50, difference: 15, power: 0.8, stoppingRule: "",
+    designs, controlIndex: 0, primary: "success", direction: "higher", baseline: 50, difference: 15, power: 0.8, stoppingRule: "", stoppingRuleConfirmed: false,
     sortMode: "open", cards: "", categories: "", threshold: 60, target: 20,
     tree: "", split: 60, questions: "", constructs: "",
   };
@@ -107,6 +141,21 @@ export function changeActivityMethod(activity: StudyActivity, method: StudyMetho
   if (activity.method === method) return activity;
   const fresh = newStudyActivity(method, activity.key);
   return { ...fresh, title: activity.title, instructions: activity.instructions, objective: activity.objective, criteria: activity.criteria };
+}
+
+/**
+ * Changes an activity's method without losing what was entered for the old
+ * one: the old method's details are set aside, and switching back restores
+ * them. The shared fields (title, instructions, objective, criteria) carry over.
+ * The set-aside details live only in the editor; they aren't exported.
+ */
+export function switchActivityMethod(activity: StudyActivity, method: StudyMethod, setAside: Partial<Record<StudyMethod, StudyActivity>> = {}) {
+  if (activity.method === method) return { activity, setAside };
+  const earlier = setAside[method];
+  const next = earlier
+    ? { ...earlier, key: activity.key, title: activity.title, instructions: activity.instructions, objective: activity.objective, criteria: activity.criteria }
+    : changeActivityMethod(activity, method);
+  return { activity: next, setAside: { ...setAside, [activity.method]: activity } };
 }
 
 /** Card sorts start with the goal Research Studio picks for their sort mode. */
@@ -216,23 +265,23 @@ export function convertActivities(activities: readonly StudyActivity[]): Convert
     const signal = signalOf(activity);
     switch (activity.method) {
       case "prototype":
-        return { activity, task: { ...base, prototypeUrl: activity.url.trim(), ...(signal ? { successSignal: signal } : {}) },
+        // Left blank, Research Studio uses the study's prototype (study.prototypeUrl).
+        return { activity, task: { ...base, ...(activity.url.trim() ? { prototypeUrl: activity.url.trim() } : {}), ...(signal ? { successSignal: signal } : {}) },
           plan: activity.goal === "measure"
             ? { ...planBase, goal: "measure", measure: signal ? "success" : "self", benchmark: numberOrNull(activity.benchmark), rounds: numberOrNull(activity.rounds), perRound: numberOrNull(activity.perRound) }
             : { ...planBase, margin: hidden(activity.margin, 1, 49, 10), goal: "discover", measure: signal ? "success" : "self", benchmark: hidden(activity.benchmark, 1, 99, null), rounds: numberOrNull(activity.rounds), perRound: numberOrNull(activity.perRound) } };
       case "ab_test": {
-        // Research Studio treats the first design as the control; IDs follow the typed order.
-        const indexed = activity.designs.map((design, index) => ({ design, index }));
-        const control = indexed[activity.controlIndex] ?? indexed[0];
-        const ordered = control ? [control, ...indexed.filter(item => item !== control)] : indexed;
-        const variants: RsVariant[] = ordered.map(({ design, index }) => ({ id: `design-${letter(index).toLowerCase()}`, label: clean(design.label, 120) || `Design ${letter(index)}`, prototypeUrl: design.url.trim() }));
-        const measure = signal ? "success" : "self";
+        // The control is Design A (design-a), as in the editor and in Research Studio.
+        const ordered = chooseControl(activity, activity.controlIndex).designs;
+        const variants: RsVariant[] = ordered.map((design, index) => ({ id: `design-${letter(index).toLowerCase()}`, label: clean(design.label, 120) || `Design ${letter(index)}`, prototypeUrl: design.url.trim() }));
+        const measure = activity.primary === "success" && signal ? "success" : "self";
         const controlId = variants[0]?.id ?? "";
         return { activity, task: { ...base, experimentId: id, variants, ...(signal ? { successSignal: signal } : {}) },
           experiment: {
             controlId, treatments: {},
             hypotheses: variants.slice(1).map((variant, index) => ({ id: `h${index + 1}`, treatmentId: variant.id, direction: activity.direction, measure, rationale: "" })),
-            primaryMeasure: measure, secondary: ["measured", "self", "time", "dropout"],
+            // Measured success needs a valid success signal; self-report is secondary only when it isn't primary.
+            primaryMeasure: measure, secondary: [...(signal ? ["measured"] : []), ...(measure === "success" ? ["self"] : []), "time", "dropout"],
             baseline: numberOrNull(activity.baseline), difference: numberOrNull(activity.difference), power: activity.power === 0.9 ? 0.9 : 0.8,
             stoppingRule: clean(activity.stoppingRule, 2_000),
           } };
@@ -255,7 +304,8 @@ export function convertActivities(activities: readonly StudyActivity[]): Convert
         return { activity, task: { ...base, imageUrl: activity.url.trim(), targetAreas: [] }, plan: { ...planBase, benchmark: numberOrNull(activity.benchmark) } };
       case "preference":
         return { activity, task: { ...base, variants: activity.designs.map((design, index) => ({ id: `option-${letter(index).toLowerCase()}`, label: clean(design.label, 120) || `Option ${letter(index)}`, imageUrl: design.url.trim() })) },
-          plan: { ...planBase, split: numberOrNull(activity.split), power: activity.power === 0.9 ? 0.9 : 0.8 } };
+          // Three or more options are exploratory: no split, no sample-size claim.
+          plan: { ...planBase, split: activity.designs.length === POWERED_PREFERENCE_OPTIONS ? numberOrNull(activity.split) : null, power: activity.power === 0.9 ? 0.9 : 0.8 } };
       case "survey":
         return { activity, task: { ...base, questions: lines(activity.questions, 500).map((text, index) => ({ id: `q${index + 1}`, type: "textarea" as const, text, required: false })) },
           plan: { ...planBase, constructs: clean(activity.constructs, 3_000) } };
@@ -265,28 +315,83 @@ export function convertActivities(activities: readonly StudyActivity[]): Convert
 
 // ---------- sample size and standard analysis (method-plans.js) ----------
 const BENCH_LABEL: Partial<Record<StudyMethod, string>> = { prototype: "task success", tree_test: "task success (correct destination)", first_click: "first-click success (click in a target area)" };
-export type ActivitySize = { n: number | null; total?: number; text: string };
+/**
+ * n: the analysis denominator the estimate is for (per round for discovery,
+ * per design for A/B). recruit: everyone to recruit, allowing for loss.
+ */
+export type ActivitySize = { n: number | null; total?: number; text: string; recruit?: number; recruitPerRound?: number };
 
-export function activitySize(task: ResearchStudioTask, ap: ResearchStudioActivityPlan): ActivitySize {
+/**
+ * Each method's analysis denominator, and who the loss allowance covers: the
+ * share of recruits expected not to reach that denominator.
+ */
+export type Denominator = { what: string; short: string; lost: string };
+export function methodDenominator(method: StudyMethod, goal: StudyGoal | undefined, measure: "success" | "self" = "success"): Denominator {
+  switch (method) {
+    case "ab_test": return {
+      what: `every eligible participant randomized to each design; anyone randomized who doesn't finish${measure === "success" ? ", or whose success can't be measured," : ""} stays in it and counts as not successful`,
+      short: "eligible participants randomized to each design",
+      lost: "screen-outs, ineligible people and technical failures before randomization",
+    };
+    case "prototype": if (goal === "discover") return {
+      what: "people who complete a usable session in each round",
+      short: "people completing a usable session, per round",
+      lost: "no-shows, screen-outs, technical failures and unusable sessions",
+    };
+    // falls through: measuring a prototype task counts starters, like tree tests and first clicks
+    case "tree_test":
+    case "first_click": return {
+      what: "everyone who starts the activity; anyone who starts but doesn't finish stays in it and counts as not successful",
+      short: "people who start the activity",
+      lost: "recruits who never start it: screen-outs and technical failures",
+    };
+    case "card_sort": return { what: "completed sorts", short: "completed sorts", lost: "recruits who don't complete the sort" };
+    case "preference": return { what: "people who choose an option", short: "people who choose an option", lost: "recruits who don't make a choice" };
+    case "survey": return { what: "completed responses", short: "completed responses", lost: "recruits who don't complete the survey" };
+  }
+}
+const allowanceSentence = (lossPercent: number, d: Denominator) =>
+  `allowing for ${lossPercent}% of recruits not reaching the analysis (${d.lost})`;
+/** "Recruit about 125 (100 ÷ (1 − 0.20)), allowing for 20% of recruits not reaching the analysis (…)." Applied once, to the final target. */
+export const NO_LOSS_ALLOWANCE_TEXT = `How many to recruit appears once the loss allowance is a whole number from 0 to ${MAX_LOSS_ALLOWANCE}%.`;
+/** The loss allowance when it's usable; null when it's blank or out of range, so no recruit number is shown. */
+export const usableLoss = (lossPercent: number | null | undefined): number | null => lossAllowanceProblem(lossPercent) ? null : lossPercent!;
+export function recruitText(n: number, lossPercent: number | null | undefined, d: Denominator): string {
+  if (usableLoss(lossPercent) == null) return NO_LOSS_ALLOWANCE_TEXT;
+  if (!lossPercent) return `No loss allowance is set, so recruit ${n}.`;
+  return `Recruit about ${allowingForLoss(n, lossPercent)} (${n} ÷ (1 − ${(lossPercent / 100).toFixed(2)})), ${allowanceSentence(lossPercent, d)}.`;
+}
+
+export function activitySize(task: ResearchStudioTask, ap: ResearchStudioActivityPlan, lossPercent: number | null | undefined = DEFAULT_LOSS_ALLOWANCE): ActivitySize {
+  const loss = usableLoss(lossPercent);
+  const recruitFor = (n: number) => loss == null ? undefined : allowingForLoss(n, loss);
   const m = task.method, margin = (numberOrNull(ap.margin) || 10) / 100;
   const p = numberOrNull(ap.benchmark) != null ? Math.min(0.95, Math.max(0.05, numberOrNull(ap.benchmark)! / 100)) : 0.5;
+  const d = methodDenominator(m, ap.goal, ap.measure);
+  const denominator = `Analysis denominator: ${d.what}.`;
   if (m === "prototype" && ap.goal === "discover") {
     const per = Math.max(1, numberOrNull(ap.perRound) || 6), rounds = Math.max(1, numberOrNull(ap.rounds) || 2);
-    return { n: per, total: per * rounds, text: `${per} people per round, ${rounds} round${rounds === 1 ? "" : "s"} (${per * rounds} in total), fixing problems between rounds. Small rounds find many of the most common problems; problems few people meet need more participants. Results describe problems, not rates for the whole population.` };
+    const perRound = loss == null ? undefined : allowingForLoss(per, loss);
+    const recruit = loss == null ? NO_LOSS_ALLOWANCE_TEXT : loss && perRound ? `Recruit about ${perRound} per round (${per} ÷ (1 − ${(loss / 100).toFixed(2)})), ${perRound * rounds} in total, ${allowanceSentence(loss, d)}.` : `No loss allowance is set, so recruit ${per} per round (${per * rounds} in total).`;
+    return { n: per, total: per * rounds, recruit: perRound == null ? undefined : perRound * rounds, recruitPerRound: perRound,
+      text: `${per} people per round, ${rounds} round${rounds === 1 ? "" : "s"} (${per * rounds} in total), fixing problems between rounds. ${denominator} ${recruit} Small rounds find many of the most common problems; problems few people meet need more participants. Results describe problems, not rates for the whole population.` };
   }
   if (m === "card_sort" && ap.goal === "explore") {
     const n = Math.max(5, numberOrNull(ap.target) || 20);
-    return { n, text: `About ${n} people completing the sort. For open card sorts, 15–30 is common practice; similarity scores tend to settle at around 15–20 participants (Tullis & Wood, 2004).` };
+    return { n, recruit: recruitFor(n), text: `About ${n} completed sorts. For open card sorts, 15–30 is common practice; similarity scores tend to settle at around 15–20 participants (Tullis & Wood, 2004). ${denominator} ${recruitText(n, lossPercent, d)}` };
   }
   if (m === "preference") {
-    const split = (numberOrNull(ap.split) || 60) / 100, power = Number(ap.power) || 0.8, n = sampleSizeVsHalf(split, { power });
-    return n ? { n, text: `About ${n} people choosing between two options, to tell a ${Math.round(split * 100)}/${100 - Math.round(split * 100)} split from 50/50 with ${Math.round(power * 100)}% power. "No preference" answers and a third option need more people.` } : { n: null, text: "Enter a split other than 50%." };
+    if ((task.variants?.length ?? 0) !== POWERED_PREFERENCE_OPTIONS) {
+      return { n: null, text: "Exploratory: with three or more options this plan makes no sample-size claim and declares no winner. Report the share choosing each option with intervals." };
+    }
+    const split = numberOrNull(ap.split) != null ? numberOrNull(ap.split)! / 100 : null, power = Number(ap.power) || 0.8, n = split ? sampleSizeVsHalf(split, { power }) : null;
+    return n && split ? { n, recruit: recruitFor(n), text: `Estimate: about ${n} people choosing an option, to tell a ${Math.round(split * 100)}/${100 - Math.round(split * 100)} split from 50/50 with ${Math.round(power * 100)}% power (two-sided, 95%). ${denominator} ${recruitText(n, lossPercent, d)} "No preference" answers need more people.` } : { n: null, text: "No estimate yet. Enter the smallest split worth finding (51–95%)." };
   }
   const n = sampleSizeForMargin(p, margin);
-  if (!n) return { n: null, text: "Enter a margin between 1 and 49 points." };
+  if (!n) return { n: null, text: "No estimate yet. Enter a precision between 1 and 49 points." };
   const what = m === "card_sort" ? "the share placing a card in a category" : m === "survey" ? "a percentage answer" : `${BENCH_LABEL[m] || "the rate"}`;
   const extra = m === "tree_test" ? " Many teams recruit about 50 per tree." : "";
-  return { n, text: `About ${n} people completing the activity, so that ${what} near ${Math.round(p * 100)}% is estimated to within about ±${Math.round(margin * 100)} points (95% interval).${extra} Recruit extra for drop-out.` };
+  return { n, recruit: recruitFor(n), text: `Estimate: about ${n} people in the analysis, so that ${what} near ${Math.round(p * 100)}% is estimated to within about ±${Math.round(margin * 100)} points (95% interval). ${denominator}${extra} ${recruitText(n, lossPercent, d)}` };
 }
 
 export function activityAnalysis(task: ResearchStudioTask, ap: ResearchStudioActivityPlan): string {
@@ -301,7 +406,8 @@ export function activityAnalysis(task: ResearchStudioTask, ap: ResearchStudioAct
   if (m === "card_sort") return ap.goal === "explore"
     ? `Use completed sorts. Report the similarity matrix (share of participants who grouped each pair together), common group names and cards with no clear home (no partner grouped with it by at least ${numberOrNull(ap.threshold) ?? 60}% of participants). Group names are not merged automatically.`
     : `Use completed sorts. For each card, report the share placing it in each category with 95% intervals. Cards whose most common category falls below ${numberOrNull(ap.threshold) ?? 60}% agreement are flagged for review.`;
-  if (m === "preference") return "Report the share choosing each option with 95% Wilson intervals. With two options, report whether the interval for the leading option excludes 50%. Summarise reasons from follow-up answers. Preference is not performance: compare with task results where available. Presentation order is randomised.";
+  if (m === "preference" && (task.variants?.length ?? 0) !== POWERED_PREFERENCE_OPTIONS) return "Exploratory: report the share choosing each option with 95% Wilson intervals and summarise reasons from follow-up answers. Don't declare a winner or claim a difference between options. Preference is not performance. Presentation order is randomised.";
+  if (m === "preference") return "Report the share choosing each option with 95% Wilson intervals, and whether the interval for the leading option excludes 50%. Summarise reasons from follow-up answers. Preference is not performance: compare with task results where available. Presentation order is randomised.";
   if (m === "survey") return `Summarise each question: distribution and median for scales, counts and percentages with 95% intervals for choices, and themes for open text.${ap.constructs?.trim() ? ` Questions are grouped by what they measure: ${ap.constructs.trim()}.` : ""}`;
   return "";
 }
@@ -309,11 +415,12 @@ export function activityAnalysis(task: ResearchStudioTask, ap: ResearchStudioAct
 // ---------- A/B experiments (plan.js) ----------
 const PRIMARY = { success: "Task success (success signal)", self: "Self-reported completion" };
 const SECONDARY: Record<string, string> = { measured: "Success among finishers with success measured", self: "Self-reported completion", time: "Active time on task", success_time: "Time for successful attempts", clicks: "Clicks in the design", dropout: "Drop-out by design", followup: "Follow-up question answers" };
-const STOP_DEFAULT = "Field until the target sample is reached in every design, then analyse once. No early stopping based on results.";
 
 export function plannedSize(e: ResearchStudioExperimentPlan, designs: number) {
-  return planStudy({ baseline: Number(e.baseline) / 100, difference: Number(e.difference) / 100, designs, power: Number(e.power) || 0.8 });
+  return planStudy({ baseline: Number(e.baseline) / 100, difference: Number(e.difference) / 100, designs, power: Number(e.power) || 0.8, direction: e.hypotheses[0]?.direction ?? "higher" });
 }
+const pct = (value: number) => `${Math.round(value * 1000) / 10}%`;
+// Letters follow position, with the control first: the same as Research Studio.
 const designLabel = (task: ResearchStudioTask, id: string) => {
   const variants = task.variants ?? [];
   const i = variants.findIndex(v => v.id === id);
@@ -321,43 +428,57 @@ const designLabel = (task: ResearchStudioTask, id: string) => {
 };
 export function hypothesisSentence(task: ResearchStudioTask, e: ResearchStudioExperimentPlan, h: ResearchStudioExperimentPlan["hypotheses"][number]): string {
   const control = designLabel(task, e.controlId), treat = designLabel(task, h.treatmentId);
-  return `Compared with ${control}, the control, ${treat} will have a ${h.direction} ${h.measure === "self" ? "self-reported completion rate" : "task success rate"}.`;
+  const rate = h.measure === "self" ? "self-reported completion rate" : "task success rate";
+  return h.direction === "different"
+    ? `Compared with ${control}, the control, ${treat} will have a different ${rate} (higher or lower). Tested two-sided.`
+    : `Compared with ${control}, the control, ${treat} will have a ${h.direction} ${rate}. Planned for that direction; tested two-sided.`;
 }
-export function sizeText(e: ResearchStudioExperimentPlan, designs: number): string {
+export function sizeText(e: ResearchStudioExperimentPlan, designs: number, lossPercent: number | null | undefined = DEFAULT_LOSS_ALLOWANCE): string {
   const s = plannedSize(e, designs);
-  if (!s) return "Enter an expected control rate between 1 and 99% and a difference that keeps the target between 0 and 100%.";
-  return `Recruit about ${s.perDesign} people assigned per design (${s.total} in total), plus extra for drop-out. This gives ${Math.round(s.power * 100) === 80 ? "an" : "a"} ${Math.round(s.power * 100)}% chance of detecting a change from ${e.baseline}% to ${Math.round(s.target * 100)}%${s.direction === "down" && Number(e.baseline) + Number(e.difference) >= 100 ? ` (planned as a drop, since ${Number(e.baseline) + Number(e.difference)}% is not possible)` : ""}${designs > 2 ? `, with significance adjusted for ${designs - 1} comparisons with the control` : ""}.`;
+  if (!s) return "No estimate yet. Enter an expected control rate (1–99%) and a difference whose planned target stays between 0% and 100% in the planning direction.";
+  const why = e.hypotheses[0]?.direction === "different" ? " (the harder of a rise or a drop to detect)" : "";
+  const d = methodDenominator("ab_test", undefined, e.primaryMeasure);
+  return `Estimate: about ${s.perDesign} randomized eligible participants per design (${s.total} in total) give ${Math.round(s.power * 100) === 80 ? "an" : "a"} ${Math.round(s.power * 100)}% chance of detecting a change from ${e.baseline}% to ${Math.round(s.target * 100)}%${why} with a two-sided test at ${pct(s.confidence)} confidence. Analysis denominator: ${d.what}, so the expected control rate should already include them. ${recruitText(s.total, lossPercent, d)} This is a planning estimate, not a guarantee.`;
 }
-export function abAnalysis(task: ResearchStudioTask, e: ResearchStudioExperimentPlan, experiments = 1): string {
+export function abAnalysis(task: ResearchStudioTask, e: ResearchStudioExperimentPlan, experiments = 1, lossPercent: number | null | undefined = DEFAULT_LOSS_ALLOWANCE): string {
   const n = task.variants?.length ?? 0, s = plannedSize(e, n);
   const control = designLabel(task, e.controlId), measure = PRIMARY[e.primaryMeasure] || PRIMARY.success;
   const sec = (e.secondary || []).map(k => SECONDARY[k]).filter(Boolean);
   return [
-    `${experiments > 1 ? `Experiment ${task.experimentId || task.id}. ` : ""}Primary analysis: compare each treatment design with ${control}, the control, on ${measure.toLowerCase()}. Everyone assigned to a design is included in its denominator; people who drop out${e.primaryMeasure === "success" ? " or whose success cannot be measured" : ""} count as not successful.`,
-    `Report each design's rate with a 95% Wilson score interval and the difference from the control with a Newcombe hybrid score interval${n > 2 ? `, at 97.5% (Bonferroni) because ${n - 1} treatments are each compared with the control` : ""}. An interval that excludes zero is reported as a clear difference; an interval that includes zero is reported as inconclusive, not as evidence that the designs perform the same. No winner is declared automatically: the team judges whether a difference matters in practice.`,
-    s ? `Target sample: ${s.perDesign} people assigned per design (${s.total} in total) to detect a change from ${e.baseline}% to ${Math.round(s.target * 100)}% with ${Math.round(s.power * 100)}% power.` : "Target sample: to be set.",
-    `Stopping rule: ${e.stoppingRule?.trim() || STOP_DEFAULT}`,
+    `${experiments > 1 ? `Experiment ${task.experimentId || task.id}. ` : ""}Primary analysis: compare ${n === 2 ? "the alternative" : "each treatment design"} with ${control}, the control, on ${measure.toLowerCase()}. Each design's denominator is every eligible participant randomized to it. Anyone randomized who drops out${e.primaryMeasure === "success" ? " or whose success cannot be measured" : ""} counts as not successful; nobody is removed after randomization. People screened out or lost to technical failures before randomization are in no denominator.`,
+    `Report each design's rate with a 95% Wilson score interval and the difference from the control with a two-sided Newcombe hybrid score interval${n > 2 ? `, at ${pct(1 - 0.05 / (n - 1))} (Bonferroni) because ${n - 1} treatments are each compared with the control` : " at 95%"}. An interval that excludes zero is reported as a clear difference; an interval that includes zero is reported as inconclusive, not as evidence that the designs perform the same. No winner is declared automatically: the team judges whether a difference matters in practice.`,
+    s ? `Target sample (estimate): ${s.perDesign} randomized eligible participants per design (${s.total} in total) to detect a change from ${e.baseline}% to ${Math.round(s.target * 100)}% with ${Math.round(s.power * 100)}% power. ${recruitText(s.total, lossPercent, methodDenominator("ab_test", undefined, e.primaryMeasure))}` : "Target sample: to be set.",
+    `Stopping rule: ${e.stoppingRule?.trim() || "not set yet"}`,
     "Before interpreting outcomes, check: group sizes (sample-ratio check), drop-out by design, success-tracking coverage by design and device mix. Any problem is reported with the results.",
     sec.length ? `Secondary measures (${sec.join("; ").toLowerCase()}) are reported descriptively with intervals for context and are not used to decide between designs.` : "",
   ].filter(Boolean).join("\n");
 }
 
 /** What the activity editor shows: sample size and standard analysis, as Research Studio computes them. */
-export type ActivitySummary = { size: string; analysis: string; recruit: number | null; hypotheses: string[] };
-export function summarizeActivities(activities: readonly StudyActivity[]): { items: ActivitySummary[]; largest: { title: string; n: number } | null } {
+export type ActivitySummary = { size: string; analysis: string; recruit: number | null; hypotheses: string[]; target: string | null; recruitLabel: string | null; denominator: Denominator | null;
+  /** The analysis target as Research Studio's sample-size summary shows it: before the loss allowance, all rounds or designs together. */
+  plannerN: number | null };
+export function summarizeActivities(activities: readonly StudyActivity[], lossPercent: number | null | undefined = DEFAULT_LOSS_ALLOWANCE): { items: ActivitySummary[]; largest: { title: string; n: number } | null } {
   const converted = convertActivities(activities);
   const experiments = converted.filter(item => item.experiment).length;
+  const loss = usableLoss(lossPercent);
   let largest: { title: string; n: number } | null = null;
   const items = converted.map((item, index) => {
     const name = item.task.title || `Activity ${index + 1}`;
     let summary: ActivitySummary;
     if (item.experiment) {
       const s = plannedSize(item.experiment, item.task.variants?.length ?? 0);
-      summary = { size: sizeText(item.experiment, item.task.variants?.length ?? 0), analysis: abAnalysis(item.task, item.experiment, experiments), recruit: s?.total ?? null,
-        hypotheses: item.experiment.hypotheses.map(h => hypothesisSentence(item.task, item.experiment!, h)) };
+      summary = { size: sizeText(item.experiment, item.task.variants?.length ?? 0, lossPercent), analysis: abAnalysis(item.task, item.experiment, experiments, lossPercent), recruit: s && loss != null ? allowingForLoss(s.total, loss) : null,
+        hypotheses: item.experiment.hypotheses.map(h => hypothesisSentence(item.task, item.experiment!, h)),
+        target: s ? `${s.perDesign} per design (${s.total} in total)` : null, recruitLabel: s && loss != null ? `about ${allowingForLoss(s.total, loss)}` : null,
+        denominator: methodDenominator("ab_test", undefined, item.experiment.primaryMeasure), plannerN: s?.total ?? null };
     } else {
-      const s = activitySize(item.task, item.plan!);
-      summary = { size: s.text, analysis: activityAnalysis(item.task, item.plan!), recruit: s.total || s.n, hypotheses: [] };
+      const s = activitySize(item.task, item.plan!, lossPercent);
+      const discovery = item.task.method === "prototype" && item.plan!.goal === "discover";
+      summary = { size: s.text, analysis: activityAnalysis(item.task, item.plan!), recruit: s.recruit ?? null, hypotheses: [],
+        target: s.n == null ? null : discovery ? `${s.n} per round (${s.total} in total)` : String(s.n),
+        recruitLabel: s.n == null || s.recruit == null ? null : discovery ? `about ${s.recruitPerRound} per round (${s.recruit} in total)` : `about ${s.recruit}`,
+        denominator: s.n == null ? null : methodDenominator(item.task.method, item.plan!.goal, item.plan!.measure), plannerN: s.n == null ? null : s.total ?? s.n };
     }
     if (summary.recruit && (!largest || summary.recruit > largest.n)) largest = { title: name, n: summary.recruit };
     return summary;
@@ -379,7 +500,7 @@ const RANGE_METHODS: Record<string, StudyMethod[]> = {
  * Everything Research Studio's import would reject, in plain language. Mirrors
  * validateStudy, validateActivity and validatePlan from Research Studio v0.3.24.
  */
-export function researchStudioFileProblems(title: string, activities: readonly StudyActivity[]): string[] {
+export function researchStudioFileProblems(title: string, activities: readonly StudyActivity[], { studyPrototypeUrl = "" }: { studyPrototypeUrl?: string } = {}): string[] {
   const problems: string[] = [];
   if (slugify(title, "").length < 3) problems.push("Add a working title of at least three letters or numbers");
   if (!activities.length) problems.push("Add at least one study activity");
@@ -390,11 +511,36 @@ export function researchStudioFileProblems(title: string, activities: readonly S
     // Stricter than Research Studio on purpose: an invalid signal would otherwise be left out of the file silently.
     const signal = activity.successSignal.trim();
     if (signal && !SLUG.test(signal)) add("the success signal can use only lowercase letters, numbers and hyphens");
-    if (activity.method === "prototype") { const p = studyUrlProblem(activity.url); if (p) add(`the prototype ${p}`); }
+    // Left blank, a prototype activity uses the study's prototype.
+    if (activity.method === "prototype" && (activity.url.trim() || !studyPrototypeUrl)) {
+      const p = studyUrlProblem(activity.url);
+      if (p) add(p === "needs a link" ? "the prototype needs a link, or choose a study prototype" : `the prototype ${p}`);
+    }
     if (activity.method === "first_click") { const p = studyUrlProblem(activity.url); if (p) add(`the screenshot ${p}`); }
+    if (activity.method === "ab_test") {
+      if (activity.designs.length !== AB_DESIGNS) add("use exactly two designs: a control and one alternative");
+      if (activity.primary === "success" && !signal) add("add a success signal, or choose self-reported completion as the primary outcome");
+      const baseline = activity.baseline, difference = activity.difference;
+      if (baseline == null || baseline < 1 || baseline > 99) add("enter the expected control rate (1–99%)");
+      if (difference == null || difference < 1 || difference > 98) add("enter the smallest difference worth detecting (1–98 points)");
+      if (baseline != null && difference != null && baseline >= 1 && baseline <= 99 && difference >= 1 && difference <= 98
+        && !planStudy({ baseline: baseline / 100, difference: difference / 100, designs: AB_DESIGNS, power: activity.power, direction: activity.direction })) {
+        add(activity.direction === "higher" ? `a rise of ${difference} points from ${baseline}% would pass 100%: lower the difference or change the planning direction`
+          : activity.direction === "lower" ? `a drop of ${difference} points from ${baseline}% would fall below 0%: lower the difference or change the planning direction`
+          : "the difference is too large for this control rate");
+      }
+      if (!activity.stoppingRule.trim()) add("add a stopping rule");
+      else if (!activity.stoppingRuleConfirmed) add("review the stopping rule and confirm it");
+    }
+    if (activity.method === "preference" && activity.designs.length === POWERED_PREFERENCE_OPTIONS && activity.split == null) add("enter the smallest split worth finding (51–95%)");
+    if (activity.method === "prototype" && activity.goal === "discover" && (!activity.perRound || !activity.rounds)) add("enter the people per round and the number of rounds");
+    if (activity.method === "prototype" && activity.goal === "measure" && activity.margin == null) add("enter the precision (± points)");
+    if ((activity.method === "tree_test" || activity.method === "first_click") && activity.margin == null) add("enter the precision (± points)");
+    if (activity.method === "card_sort" && activity.goal !== "explore" && activity.margin == null) add("enter the precision (± points)");
+    if (activity.method === "card_sort" && activity.goal === "explore" && activity.target == null) add("enter the target number of participants");
     if (activity.method === "ab_test" || activity.method === "preference") {
       const what = activity.method === "ab_test" ? "design" : "option";
-      if (activity.designs.length < 2) add(`add at least two ${what}s`);
+      if (activity.method === "preference" && activity.designs.length < 2) add(`add at least two ${what}s`);
       activity.designs.forEach((design, i) => {
         if (!design.label.trim()) add(`name ${what} ${letter(i)}`);
         const p = studyUrlProblem(design.url);
@@ -417,11 +563,141 @@ export function researchStudioFileProblems(title: string, activities: readonly S
       if (["margin", "benchmark"].includes(field) && activity.method === "prototype" && activity.goal === "discover") continue;
       if (field === "margin" && activity.method === "card_sort" && activity.goal === "explore") continue;
       if (field === "target" && activity.goal !== "explore") continue;
+      if (field === "split" && activity.designs.length !== POWERED_PREFERENCE_OPTIONS) continue;
       const value = activity[field] as number | null;
       if (value != null && (value < lo || value > hi)) add(`${label.toLowerCase()} must be between ${lo} and ${hi}`);
     }
   });
   return problems;
+}
+
+// ---------- everything needed before a working draft can be saved ----------
+export type StudyDraftInput = {
+  title: string;
+  decision?: string;
+  question?: string;
+  participants?: string;
+  setup: StudySetup;
+  activities: readonly StudyActivity[];
+  /** "existing" with no prototype chosen yet blocks the draft. */
+  prototype?: { mode: "none" } | { mode: "existing"; url: string | null };
+};
+export function studyDraftProblems(input: StudyDraftInput): string[] {
+  const problems: string[] = [];
+  if (!input.decision?.trim()) problems.push("Add the decision this study should inform");
+  if (!input.question?.trim()) problems.push("Add the research question");
+  if (!input.participants?.trim()) problems.push("Add the people to learn from (intended participants)");
+  const loss = lossAllowanceProblem(input.setup.lossAllowance);
+  if (loss) problems.push(loss);
+  let studyPrototypeUrl = "";
+  if (input.prototype?.mode === "existing") {
+    if (!input.prototype.url) problems.push("Choose an existing prototype, or select No prototype");
+    else if (studyUrlProblem(input.prototype.url)) problems.push("The chosen prototype's preview link can't be used in Research Studio (it must be HTTPS). Choose another prototype");
+    else studyPrototypeUrl = input.prototype.url;
+  }
+  const fileProblems = researchStudioFileProblems(input.title, input.activities, { studyPrototypeUrl });
+  // Plans Research Studio would change on import are not saved (research-studio-compat.ts).
+  const draft = buildResearchStudioWorkingCopy({ title: input.title, setup: input.setup, activities: input.activities, prototypeUrl: studyPrototypeUrl });
+  const changes = researchStudioImportChanges(draft as unknown as WorkingDraft).map(change => {
+    const index = draft.tasks.findIndex(task => task.id === change.taskId);
+    return `Activity ${index + 1} (${methodLabel(input.activities[index].method)}): ${change.problem}`;
+  });
+  const texts = studioPlanTexts(input.setup, input.activities);
+  if (texts.recruitment.length > RS_PARTICIPANT_FIELD_LIMIT || texts.exclusions.length > RS_PARTICIPANT_FIELD_LIMIT) changes.push(`The recruitment summary is longer than Research Studio's ${RS_PARTICIPANT_FIELD_LIMIT.toLocaleString("en-US")}-character field. Use fewer activities or shorter titles`);
+  if (texts.analysis.length > RS_ANALYSIS_LIMIT) changes.push(`The analysis plan is longer than Research Studio's ${RS_ANALYSIS_LIMIT.toLocaleString("en-US")}-character field. Use fewer activities`);
+  // Title first, then the brief, then activities: the order the form reads in.
+  const isTitle = (problem: string) => problem.startsWith("Add a working title");
+  return [...fileProblems.filter(isTitle), ...problems, ...fileProblems.filter(problem => !isTitle(problem)), ...changes];
+}
+
+/**
+ * Rechecks the chosen prototype against the latest list of ready prototypes
+ * (published, with a live preview) immediately before export. Fails closed.
+ */
+export function recheckStudyPrototype<T extends { id: string; previewUrl?: string | null }>(selectedId: string, latestReady: readonly T[]):
+  { ok: true; prototype: T; url: string } | { ok: false; message: string } {
+  const prototype = latestReady.find(item => item.id === selectedId);
+  const url = prototype?.previewUrl?.trim() ?? "";
+  if (!prototype || !url) return { ok: false, message: "That prototype is no longer available or published, so the working draft wasn't saved. Choose another prototype, or select No prototype." };
+  if (studyUrlProblem(url)) return { ok: false, message: "That prototype's preview link can't be used in Research Studio (it must be HTTPS), so the working draft wasn't saved. Choose another prototype." };
+  return { ok: true, prototype, url };
+}
+
+/** Problems that weren't there before, in order, for an assistive-technology announcement. */
+export function newProblems(previous: readonly string[], current: readonly string[]): string[] {
+  const before = new Set(previous);
+  return current.filter(problem => !before.has(problem));
+}
+export function saveBlockedReason(problems: readonly string[]): string | null {
+  if (!problems.length) return null;
+  return `Save is unavailable until ${problems.length === 1 ? "1 item is" : `${problems.length} items are`} fixed: ${problems[0]}${problems.length > 1 ? `, and ${problems.length - 1} more listed above` : ""}.`;
+}
+
+// ---------- what Research Studio shows about recruitment and analysis ----------
+export const RS_PARTICIPANT_FIELD_LIMIT = 2_000;
+export const RS_ANALYSIS_LIMIT = 20_000;
+/**
+ * The plan's recruitment, exclusions and analysis as text for Research
+ * Studio's participant and analysis fields, so the loss assumption, each
+ * analysis denominator and the recruitment targets stay visible after import.
+ */
+/**
+ * The plan text Research Studio shows in its Participants and Analysis plan
+ * fields. Its plan editor shows Recruitment and Exclusions in one-line input
+ * boxes (line breaks are dropped and long text is cut off from view), so each is
+ * one short line. The per-activity detail, and how to read Research Studio's
+ * own sample-size numbers, go in the analysis plan, which it shows as a
+ * multi-line box and in full in the plan document.
+ */
+export function studioPlanTexts(setup: StudySetup, activities: readonly StudyActivity[]): { recruitment: string; exclusions: string; analysis: string } {
+  const loss = usableLoss(setup.lossAllowance);
+  const summary = summarizeActivities(activities, setup.lossAllowance);
+  const converted = convertActivities(activities);
+  const title = (index: number) => converted[index].task.title || `Activity ${index + 1}`;
+  const name = (index: number) => `${index + 1}. ${title(index)} (${methodLabel(converted[index].task.method)})`;
+  // Research Studio's largest need: the first activity with the largest analysis target, as its sampleSummary picks it.
+  const plannerTop = summary.items.reduce<number | null>((top, item, index) => item.plannerN && (top == null || item.plannerN > summary.items[top].plannerN!) ? index : top, null);
+  const planner = plannerTop == null ? null : summary.items[plannerTop].plannerN!;
+  const recruitTop = summary.items.reduce<number | null>((top, item, index) => item.recruit && (top == null || item.recruit > summary.items[top].recruit!) ? index : top, null);
+  const starterMethods = converted.some(item => ["tree_test", "first_click"].includes(item.task.method) || (item.task.method === "prototype" && item.plan?.goal !== "discover"));
+  const detail = "Each activity's target and analysis denominator are in the analysis plan.";
+  let recruitment: string;
+  if (planner == null) recruitment = `Recruitment target: no activity has a sample-size target. ${detail}`;
+  else if (loss == null || recruitTop == null) recruitment = `Recruitment target: not set until the loss allowance is a whole number from 0 to ${MAX_LOSS_ALLOWANCE}%. ${detail}`;
+  else {
+    const recruit = summary.items[recruitTop].recruit!;
+    const same = recruitTop === plannerTop;
+    recruitment = [
+      `Recruit about ${recruit} people for the largest need (${title(recruitTop)}), ${loss ? `allowing for ${loss}% of recruits lost before randomization or start` : "with no loss allowance"}. Everyone takes every activity.`,
+      loss
+        ? same
+          ? `Research Studio's sample-size summary shows about ${planner} "plus extra for drop-out": that's the analysis target, and the ${recruit} here already includes the extra.`
+          : `Research Studio's sample-size summary shows about ${planner} "plus extra for drop-out" for its largest analysis target (${title(plannerTop!)}); with the extra included, ${title(recruitTop)} needs the most recruits (${recruit}).`
+        : `Research Studio's sample-size summary shows the same ${planner} "plus extra for drop-out"; with no loss allowance, none is added.`,
+      detail,
+    ].join(" ");
+  }
+  const methods = new Set(converted.map(item => item.task.method));
+  const exclusions = [
+    `${methods.has("ab_test") ? "Before randomization or start" : "Before an activity starts"}: screen-outs, ineligible people, no-shows and technical failures are in no denominator${loss ? " (the loss allowance covers them)" : ""}.`,
+    methods.has("ab_test") || starterMethods ? `After ${methods.has("ab_test") ? "randomization or " : ""}start, nobody is excluded: anyone who doesn't finish counts as not successful.` : "",
+    converted.some(item => item.task.method === "prototype" && item.plan?.goal === "discover") ? "Discovery rounds use completed, usable sessions." : "",
+    ["card_sort", "preference", "survey"].some(method => methods.has(method as StudyMethod)) ? "Card sorts, preference tests and surveys use completed responses." : "",
+  ].filter(Boolean).join(" ");
+  const sampleSize = [
+    "Sample size and recruitment",
+    loss == null ? `Loss assumption: not set. ${NO_LOSS_ALLOWANCE_TEXT}` : loss ? `Loss assumption: ${loss}% of recruits won't reach each activity's analysis denominator, so each target is recruited as n ÷ (1 − ${(loss / 100).toFixed(2)}).` : "Loss assumption: none. Each target is recruited as it is.",
+    ...(planner != null ? [`Research Studio's sample-size summary and size text show each analysis target "plus extra for drop-out"; the recruit numbers here already include that extra.`] : []),
+    ...(starterMethods ? [`Research Studio's size text calls prototype-task, tree-test and first-click targets "people completing the activity": read them as people who start, as its standard analysis does.`] : []),
+    ...summary.items.map((item, index) => item.target && item.denominator
+      ? `${name(index)}: analysis denominator ${item.denominator.short}; target ${item.target}${item.plannerN != null && item.target !== String(item.plannerN) ? `, shown by Research Studio as ${item.plannerN}` : ""}; ${item.recruitLabel ? `recruit ${item.recruitLabel}` : "recruit number not set"}.`
+      : `${name(index)}: exploratory, with no sample-size target.`),
+  ].join("\n");
+  const analysis = [sampleSize, ...converted.map((item, index) => {
+    const d = methodDenominator(item.task.method, item.plan?.goal, item.experiment?.primaryMeasure ?? item.plan?.measure);
+    return [name(index), summary.items[index].analysis, ...(item.experiment ? [] : [`Analysis denominator: ${d.what}.`])].join("\n");
+  })].join("\n\n");
+  return { recruitment, exclusions, analysis };
 }
 
 // ---------- the working copy file ----------
@@ -434,6 +710,8 @@ export type StudyFileContext = {
   background?: string;
   setup: StudySetup;
   activities: readonly StudyActivity[];
+  /** The chosen existing prototype's live preview. Prototype activities left blank use it. */
+  prototypeUrl?: string;
 };
 
 /**
@@ -447,13 +725,14 @@ export function buildResearchStudioWorkingCopy(context: StudyFileContext) {
   const qualtrics = context.setup.collection !== "undecided";
   const desktop = context.setup.devices === "desktop";
   const questions = (context.question ?? "").split(/\r?\n/).map(line => clean(line, 1_000)).filter(Boolean).slice(0, 30);
+  const texts = studioPlanTexts(context.setup, context.activities);
   return {
     schemaVersion: 3,
     id: slugify(context.title, "research-study").slice(0, 64),
     version: "1.0.0",
     title: clean(context.title, 160),
     description: "",
-    prototypeUrl: "",
+    prototypeUrl: (context.prototypeUrl ?? "").trim(),
     welcome: "",
     consent: "",
     ...(qualtrics ? { consentMode: "external" as const } : {}),
@@ -464,10 +743,11 @@ export function buildResearchStudioWorkingCopy(context: StudyFileContext) {
     plan: {
       background: clean(context.background, 5_000),
       researchQuestions: questions.length ? questions : [""],
-      participants: { audience: clean(context.participants, 2_000), recruitment: "", exclusions: "", devices: desktop ? "desktop" : "any" },
+      participants: { audience: clean(context.participants, 2_000), recruitment: texts.recruitment, exclusions: texts.exclusions, devices: desktop ? "desktop" : "any" },
       experiments: Object.fromEntries(converted.filter(item => item.experiment).map(item => [item.task.experimentId!, item.experiment!])),
       activities: Object.fromEntries(converted.filter(item => item.plan).map(item => [item.task.id, item.plan!])),
-      analysis: "",
+      // Replaces Research Studio's standard plan, which doesn't carry these denominators.
+      analysis: texts.analysis,
       decisions: clean(context.decision, 5_000),
       locked: null,
       changes: [],
@@ -476,7 +756,7 @@ export function buildResearchStudioWorkingCopy(context: StudyFileContext) {
 }
 
 export function researchStudioFileName(title: string): string {
-  return `${slugify(title, "research-study").slice(0, 64)}.working-copy.json`;
+  return `${slugify(title, "research-study").slice(0, 64)}.working-draft.json`;
 }
 
 // ---------- Researcher agent prompt ----------
@@ -502,7 +782,7 @@ function activityDetails(item: Converted): string[] {
 export function studyActivitiesPrompt(setup: StudySetup, activities: readonly StudyActivity[]): string[] {
   if (!activities.length) return [];
   const converted = convertActivities(activities);
-  const summary = summarizeActivities(activities);
+  const summary = summarizeActivities(activities, setup.lossAllowance);
   const collection = STUDY_COLLECTIONS.find(item => item.id === setup.collection)!;
   return [
     "",
@@ -517,7 +797,8 @@ export function studyActivitiesPrompt(setup: StudySetup, activities: readonly St
         `   - Standard analysis: ${s.analysis.replace(/\n+/g, " ")}`,
       ];
     }),
-    ...(summary.largest ? [`Everyone takes every activity, so recruit for the largest need: about ${summary.largest.n} people (${summary.largest.title}), plus extra for drop-out.`] : []),
+    // The largest need already includes the loss allowance; it is never added twice.
+    ...(summary.largest ? [`Everyone takes every activity, so recruit for the largest need: about ${summary.largest.n} people (${summary.largest.title}), ${setup.lossAllowance ? `which already allows for ${setup.lossAllowance}% loss` : "with no loss allowance"}.`] : []),
     `Devices: ${setup.devices === "desktop" ? "laptops and desktops only" : "any device"}.`,
     `Data collection: ${collection.label}. ${collection.description}`,
     "",

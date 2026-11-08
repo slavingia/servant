@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { AppIcon } from "./AppIcon";
 import { Button } from "./Button";
@@ -7,18 +7,26 @@ import {
   MAX_STUDY_ACTIVITIES,
   STUDY_COLLECTIONS,
   STUDY_METHODS,
-  changeActivityMethod,
+  STOP_DEFAULT,
   changeSortMode,
+  chooseControl,
+  directionOptions,
   methodLabel,
   newStudyActivity,
   summarizeActivities,
+  switchActivityMethod,
+  usableLoss,
+  NO_LOSS_ALLOWANCE_TEXT,
   type HypothesisDirection,
   type StudyActivity,
   type StudyGoal,
   type StudyMethod,
   type StudySetup,
+  AB_DESIGNS,
+  POWERED_PREFERENCE_OPTIONS,
 } from "../lib/research-methods";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
+import { checkboxKeys, useRadioGroup } from "./useRadioGroup";
 
 const MAX_DESIGNS = 6;
 
@@ -27,18 +35,30 @@ const MAX_DESIGNS = 6;
  * caller owns the state, so the live study form and the local preview share it.
  * Sample sizes and standard analysis come from the ported Research Studio planner.
  */
-export function StudyActivities({ activities, setup, onActivities, onSetup, disabled = false }: {
+export function StudyActivities({ activities, setup, onActivities, onSetup, disabled = false, studyPrototype = null }: {
   activities: readonly StudyActivity[];
   setup: StudySetup;
   onActivities: (next: StudyActivity[]) => void;
   onSetup: (next: StudySetup) => void;
   disabled?: boolean;
+  /** The existing prototype chosen for the study; prototype activities without a link use it. */
+  studyPrototype?: { title: string; url: string } | null;
 }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const [choosing, setChoosing] = useState(false);
   const [openAnalysis, setOpenAnalysis] = useState<string | null>(null);
-  const summary = useMemo(() => summarizeActivities(activities), [activities]);
+  const [controlNotice, setControlNotice] = useState<{ key: string; text: string } | null>(null);
+  // Details entered for a method an activity was switched away from, so switching back restores them.
+  // Cleared when the activity is removed: keys can be reused by the next activity added.
+  const setAside = useRef<Record<string, Partial<Record<StudyMethod, StudyActivity>>>>({});
+  const changeMethod = (activity: StudyActivity, method: StudyMethod) => {
+    const result = switchActivityMethod(activity, method, setAside.current[activity.key]);
+    setAside.current[activity.key] = result.setAside;
+    update(activity.key, () => result.activity);
+  };
+  const loss = usableLoss(setup.lossAllowance);
+  const summary = useMemo(() => summarizeActivities(activities, setup.lossAllowance), [activities, setup.lossAllowance]);
   const update = (key: string, change: (activity: StudyActivity) => StudyActivity) =>
     onActivities(activities.map(activity => activity.key === key ? change(activity) : activity));
   const add = (method: StudyMethod) => {
@@ -61,6 +81,8 @@ export function StudyActivities({ activities, setup, onActivities, onSetup, disa
     <Choice label="Devices" value={setup.devices} disabled={disabled} inline
       options={[{ value: "any", label: "Any device" }, { value: "desktop", label: "Laptops and desktops only" }]}
       onChange={devices => onSetup({ ...setup, devices })} />
+    <NumberField label="Loss allowance before randomization or start (%)" value={setup.lossAllowance} onChange={lossAllowance => onSetup({ ...setup, lossAllowance })} disabled={disabled}
+      help="People you expect to lose before they're randomized or start an activity: screen-outs and technical failures. Recruitment targets allow for it once. People who don't finish after randomization aren't part of it: the analysis counts them as not successful. Enter 0 for none." />
 
     {activities.map((activity, index) => {
       const item = summary.items[index];
@@ -70,13 +92,14 @@ export function StudyActivities({ activities, setup, onActivities, onSetup, disa
         <View style={styles.cardHeader}>
           <Text accessibilityRole="header" style={styles.cardTitle} numberOfLines={2}>{index + 1}. {activity.title.trim() || "Untitled activity"} · {methodLabel(activity.method)}</Text>
           <Pressable accessibilityRole="button" accessibilityLabel={`Remove activity ${index + 1}`} disabled={disabled} hitSlop={8}
-            onPress={() => onActivities(activities.filter(item => item.key !== activity.key))} style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}>
+            onPress={() => { delete setAside.current[activity.key]; onActivities(activities.filter(item => item.key !== activity.key)); }} style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}>
             <AppIcon name="close" size={16} color={colors.muted} />
           </Pressable>
         </View>
-        <Choice label="Method" value={activity.method} disabled={disabled} inline
+        <Choice label="Method" value={activity.method} disabled={disabled} inline activation="manual"
           options={STUDY_METHODS.map(method => ({ value: method.id, label: method.label }))}
-          onChange={method => update(activity.key, current => changeActivityMethod(current, method))} />
+          help="Arrow keys move between methods; Space or Enter chooses one. Switching back to a method restores what you'd entered for it."
+          onChange={method => changeMethod(activity, method)} />
         <Field label="Activity title" value={activity.title} onChange={title => set({ title })} placeholder="e.g. Make a one-time payment" disabled={disabled} />
         <Field label="Instructions for participants" required value={activity.instructions} onChange={instructions => set({ instructions })} multiline
           placeholder="What participants see before they start" disabled={disabled} />
@@ -87,7 +110,8 @@ export function StudyActivities({ activities, setup, onActivities, onSetup, disa
           onChange={goal => set({ goal })} /> : null}
 
         {activity.method === "prototype" ? <>
-          <Field label="Prototype link" required value={activity.url} onChange={url => set({ url })} url placeholder="https://…" disabled={disabled} />
+          <Field label="Prototype link" required={!studyPrototype} value={activity.url} onChange={url => set({ url })} url placeholder={studyPrototype ? "Leave empty to use the study prototype" : "https://…"} disabled={disabled}
+            help={studyPrototype ? `Optional. Leave empty to use the study prototype, ${studyPrototype.title}.` : undefined} />
           <Field label="Success signal" value={activity.successSignal} onChange={successSignal => set({ successSignal })} disabled={disabled}
             help="Optional. The signal the prototype sends when the task is done, e.g. payment-submitted." />
           {activity.goal === "discover" ? <Row>
@@ -102,22 +126,56 @@ export function StudyActivities({ activities, setup, onActivities, onSetup, disa
         {activity.method === "ab_test" || activity.method === "preference" ? <Designs activity={activity} disabled={disabled} onChange={set} /> : null}
 
         {activity.method === "ab_test" ? <>
-          <Field label="Success signal" value={activity.successSignal} onChange={successSignal => set({ successSignal })} disabled={disabled}
-            help="Optional but recommended. Without it, the primary measure is self-reported completion." />
-          <Choice label="Hypothesis: compared with the control, each other design will have…" value={activity.direction} disabled={disabled} inline
-            options={[{ value: "higher", label: "Higher success" }, { value: "lower", label: "Lower success" }, { value: "different", label: "Different success" }] as { value: HypothesisDirection; label: string }[]}
+          <View style={styles.field}>
+            <Text style={styles.label}>Control design</Text>
+            <Text style={styles.optionLabel}>Design A{activity.designs[0]?.label.trim() ? ` (${activity.designs[0].label.trim()})` : ""} is the control.</Text>
+            {activity.designs.length > 1 ? <Button label={`Make Design B${activity.designs[1].label.trim() ? ` (${activity.designs[1].label.trim()})` : ""} the control`} kind="link" compact disabled={disabled}
+              accessibilityHint="Swaps the two designs, so the new control becomes Design A"
+              onPress={() => {
+                const chosen = activity.designs[1];
+                update(activity.key, current => chooseControl(current, 1));
+                setControlNotice({ key: activity.key, text: `${chosen?.label.trim() || "That design"} is now Design A, the control. The other design is now Design B.` });
+              }} style={styles.addButton} /> : null}
+          </View>
+          <Text style={styles.help}>The control is always Design A, here and in Research Studio. Making the other design the control swaps their letters.</Text>
+          <Text accessibilityLiveRegion="polite" style={controlNotice?.key === activity.key ? styles.help : styles.screenReaderOnly}>{controlNotice?.key === activity.key ? controlNotice.text : ""}</Text>
+          <Choice label="Primary outcome (choose one before fielding)" value={activity.primary} disabled={disabled}
+            options={[
+              { value: "success", label: "Task success", description: "Measured by the prototype's success signal." },
+              { value: "self", label: "Self-reported completion", description: "Participants say whether they finished." },
+            ] as { value: StudyActivity["primary"]; label: string; description: string }[]}
+            onChange={primary => set({ primary })} />
+          <Field label="Success signal" required={activity.primary === "success"} value={activity.successSignal} onChange={successSignal => set({ successSignal })} disabled={disabled}
+            help={activity.primary === "success" ? "Needed to measure task success." : "Optional. Recorded as a secondary measure."} />
+          <Choice label="Planning direction: compared with the control, the alternative will have…" value={activity.direction} disabled={disabled} inline
+            options={directionOptions(activity.primary) as { value: HypothesisDirection; label: string }[]}
             onChange={direction => set({ direction })} />
+          <Text style={styles.help}>The test is two-sided whichever you choose. The direction sets which change the sample size is planned to detect.</Text>
           <Row>
             <NumberField label="Expected control rate (%)" value={activity.baseline} onChange={baseline => set({ baseline })} disabled={disabled} />
             <NumberField label="Difference to detect (points)" value={activity.difference} onChange={difference => set({ difference })} disabled={disabled} />
           </Row>
           <PowerChoice value={activity.power} onChange={power => set({ power })} disabled={disabled} />
-          <Field label="Stopping rule" value={activity.stoppingRule} onChange={stoppingRule => set({ stoppingRule })} multiline disabled={disabled}
-            help="Optional. Default: field until every design reaches its target, then analyse once." />
+          <Field label="Stopping rule" required value={activity.stoppingRule} onChange={stoppingRule => set({ stoppingRule, stoppingRuleConfirmed: false })} multiline disabled={disabled}
+            help="Decide this before fielding: when data collection stops and when the results are analysed. Nothing is filled in for you." />
+          {activity.stoppingRule.trim() !== STOP_DEFAULT ? <Button label="Use the standard rule" kind="link" compact disabled={disabled}
+            accessibilityHint="Fills in: analyse once, after every design reaches its target, with no early stopping. You still need to confirm it."
+            onPress={() => set({ stoppingRule: STOP_DEFAULT, stoppingRuleConfirmed: false })} style={styles.addButton} /> : null}
+          <Pressable accessibilityRole="checkbox" role="checkbox" aria-checked={activity.stoppingRuleConfirmed} aria-disabled={disabled || !activity.stoppingRule.trim() || undefined}
+            accessibilityState={{ checked: activity.stoppingRuleConfirmed, disabled: disabled || !activity.stoppingRule.trim() }}
+            accessibilityLabel="I've reviewed this stopping rule and it's decided before fielding" disabled={disabled || !activity.stoppingRule.trim()}
+            {...checkboxKeys(() => set({ stoppingRuleConfirmed: !activity.stoppingRuleConfirmed }), disabled || !activity.stoppingRule.trim())}
+            onPress={() => set({ stoppingRuleConfirmed: !activity.stoppingRuleConfirmed })} style={({ pressed }) => [styles.check, pressed && styles.pressed]}>
+            <View style={[styles.checkbox, activity.stoppingRuleConfirmed && styles.checkboxChecked]}>
+              {activity.stoppingRuleConfirmed ? <AppIcon name="check" size={14} color={colors.onPrimary} /> : null}
+            </View>
+            <Text style={[styles.optionLabel, !activity.stoppingRule.trim() && styles.muted]}>I've reviewed this stopping rule and it's decided before fielding</Text>
+          </Pressable>
         </> : null}
 
         {activity.method === "card_sort" ? <>
-          <Choice label="Sort type" value={activity.sortMode} disabled={disabled} inline
+          <Choice label="Sort type" value={activity.sortMode} disabled={disabled} inline activation="manual"
+            help="Arrow keys move between sort types; Space or Enter chooses one. The sort type sets the goal and the sample size."
             options={[{ value: "open", label: "Open" }, { value: "closed", label: "Closed" }, { value: "hybrid", label: "Hybrid" }] as { value: StudyActivity["sortMode"]; label: string }[]}
             onChange={sortMode => update(activity.key, current => changeSortMode(current, sortMode))} />
           <Field label="Cards" required value={activity.cards} onChange={cards => set({ cards })} multiline help="One card per line." disabled={disabled} />
@@ -149,10 +207,10 @@ export function StudyActivities({ activities, setup, onActivities, onSetup, disa
           </Row>
         </> : null}
 
-        {activity.method === "preference" ? <>
+        {activity.method === "preference" ? activity.designs.length === POWERED_PREFERENCE_OPTIONS ? <>
           <NumberField label="Smallest split worth finding (% choosing one option)" value={activity.split} onChange={split => set({ split })} disabled={disabled} />
           <PowerChoice value={activity.power} onChange={power => set({ power })} disabled={disabled} />
-        </> : null}
+        </> : <Text style={styles.help}>Exploratory: with three or more options there's no sample-size estimate and no winner is declared. Use exactly two options for a powered comparison.</Text> : null}
 
         {activity.method === "survey" ? <>
           <Field label="Questions" required value={activity.questions} onChange={questions => set({ questions })} multiline disabled={disabled}
@@ -176,7 +234,8 @@ export function StudyActivities({ activities, setup, onActivities, onSetup, disa
       </View>;
     })}
 
-    {summary.largest && activities.length > 1 ? <Text style={styles.recruit}>Recruit for the largest need: about {summary.largest.n} people ({summary.largest.title}), plus extra for drop-out.</Text> : null}
+    {summary.largest && activities.length > 1 ? <Text style={styles.recruit}>Recruit for the largest need: about {summary.largest.n} people ({summary.largest.title}). {loss ? `That already allows for ${loss}% loss.` : "No loss allowance is set."}</Text> : null}
+    {loss == null && activities.length ? <Text style={styles.recruit}>{NO_LOSS_ALLOWANCE_TEXT}</Text> : null}
 
     {choosing ? <View accessibilityLabel="Choose an activity type" style={styles.picker}>
       {STUDY_METHODS.map(method => <Pressable key={method.id} accessibilityRole="button" accessibilityLabel={`Add ${method.label}`} accessibilityHint={method.description}
@@ -206,18 +265,15 @@ function Designs({ activity, disabled, onChange }: { activity: StudyActivity; di
   });
   return <View style={styles.designs}>
     <Text style={styles.label}>{ab ? "Designs" : "Options"} *</Text>
-    <Text style={styles.help}>{ab ? "A live prototype link for each design. Mark the current design as the control." : "An image link for each option. Presentation order is randomised."}</Text>
+    <Text style={styles.help}>{ab ? "Exactly two designs: a live prototype link for each. Choose the control below." : "An image link for each option. Presentation order is randomised. Two options support a powered comparison; three or more are exploratory."}</Text>
     {activity.designs.map((design, index) => {
       const letter = String.fromCharCode(65 + index);
       const control = ab && activity.controlIndex === index;
       return <View key={index} style={styles.designRow}>
         <View style={styles.designTop}>
           <Text style={styles.designLetter}>{noun} {letter}</Text>
-          {ab ? <Pressable accessibilityRole="radio" accessibilityState={{ checked: control, disabled }} accessibilityLabel={`${noun} ${letter} is the control`}
-            disabled={disabled} onPress={() => onChange({ controlIndex: index })} style={[styles.chip, control && styles.chipSelected]}>
-            <Text style={[styles.chipText, control && styles.chipTextSelected]}>{control ? "Control" : "Make control"}</Text>
-          </Pressable> : null}
-          {activity.designs.length > 2 ? <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${noun.toLowerCase()} ${letter}`} disabled={disabled} hitSlop={8}
+          {control ? <Text style={styles.help}>Control</Text> : null}
+          {(ab ? activity.designs.length > AB_DESIGNS : activity.designs.length > 2) ? <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${noun.toLowerCase()} ${letter}`} disabled={disabled} hitSlop={8}
             onPress={() => remove(index)} style={styles.iconButton}><AppIcon name="close" size={14} color={colors.muted} /></Pressable> : null}
         </View>
         <TextInput accessibilityLabel={`${noun} ${letter} name`} value={design.label} editable={!disabled} onChangeText={label => setDesign(index, { label })}
@@ -226,27 +282,32 @@ function Designs({ activity, disabled, onChange }: { activity: StudyActivity; di
           placeholder="https://…" placeholderTextColor={colors.muted} autoCapitalize="none" autoCorrect={false} keyboardType="url" style={styles.input} />
       </View>;
     })}
-    {activity.designs.length < MAX_DESIGNS ? <Button label={`Add ${noun.toLowerCase()}`} kind="link" compact disabled={disabled}
+    {!ab && activity.designs.length < MAX_DESIGNS ? <Button label={`Add ${noun.toLowerCase()}`} kind="link" compact disabled={disabled}
       onPress={() => onChange({ designs: [...activity.designs, { label: "", url: "" }] })} /> : null}
   </View>;
 }
 
-function Choice<T extends string>({ label, value, options, onChange, disabled, inline = false }: {
+function Choice<T extends string>({ label, value, options, onChange, disabled, inline = false, activation = "auto", help }: {
   label: string; value: T; options: { value: T; label: string; description?: string }[]; onChange: (value: T) => void; disabled: boolean; inline?: boolean;
+  /** "manual" when choosing has side effects: keys move focus, Space or Enter chooses. */
+  activation?: "auto" | "manual";
+  help?: string;
 }) {
   const styles = useStyles();
+  const radios = useRadioGroup({ values: options.map(option => option.value), value, onChange, label, disabled, activation });
+  const helpId = `choice-help-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   return <View style={styles.field}>
     <Text style={styles.label}>{label}</Text>
-    <View accessibilityRole="radiogroup" accessibilityLabel={label} style={inline ? styles.chips : styles.options}>
-      {options.map(option => {
+    <View {...radios.group} {...(help ? { "aria-describedby": helpId } : {})} style={inline ? styles.chips : styles.options}>
+      {options.map((option, index) => {
         const selected = option.value === value;
         return inline
-          ? <Pressable key={option.value} accessibilityRole="radio" accessibilityState={{ checked: selected, disabled }} disabled={disabled}
-            onPress={() => onChange(option.value)} style={({ pressed }) => [styles.chip, selected && styles.chipSelected, pressed && styles.pressed]}>
+          ? <Pressable key={option.value} {...radios.radio(option.value, index)} accessibilityLabel={option.label}
+            style={({ pressed }) => [styles.chip, selected && styles.chipSelected, pressed && styles.pressed]}>
             <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{option.label}</Text>
           </Pressable>
-          : <Pressable key={option.value} accessibilityRole="radio" accessibilityState={{ checked: selected, disabled }} disabled={disabled}
-            onPress={() => onChange(option.value)} style={({ pressed }) => [styles.option, selected && styles.optionSelected, pressed && styles.pressed]}>
+          : <Pressable key={option.value} {...radios.radio(option.value, index)} accessibilityLabel={option.description ? `${option.label}. ${option.description}` : option.label}
+            style={({ pressed }) => [styles.option, selected && styles.optionSelected, pressed && styles.pressed]}>
             <View style={[styles.radio, selected && styles.radioSelected]}>{selected ? <View style={styles.radioDot} /> : null}</View>
             <View style={styles.methodCopy}>
               <Text style={styles.optionLabel}>{option.label}</Text>
@@ -255,6 +316,7 @@ function Choice<T extends string>({ label, value, options, onChange, disabled, i
           </Pressable>;
       })}
     </View>
+    {help ? <Text nativeID={helpId} style={styles.help}>{help}</Text> : null}
   </View>;
 }
 
@@ -278,10 +340,11 @@ function Field({ label, value, onChange, required, multiline, url, mono, placeho
   </View>;
 }
 
-function NumberField({ label, value, onChange, disabled }: { label: string; value: number | null; onChange: (value: number | null) => void; disabled: boolean }) {
+function NumberField({ label, value, onChange, disabled, help }: { label: string; value: number | null; onChange: (value: number | null) => void; disabled: boolean; help?: string }) {
   const styles = useStyles();
   return <View style={[styles.field, styles.numberField]}>
     <Text style={styles.label}>{label}</Text>
+    {help ? <Text style={styles.help}>{help}</Text> : null}
     <TextInput accessibilityLabel={label} value={value == null ? "" : String(value)} editable={!disabled} keyboardType="number-pad" inputMode="numeric"
       onChangeText={text => { const digits = text.replace(/[^0-9]/g, "").slice(0, 4); onChange(digits ? Number(digits) : null); }} style={styles.input} />
   </View>;
@@ -335,5 +398,10 @@ const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create
   methodCopy: { flex: 1, minWidth: 0 },
   methodLabel: { ...typography.caption, color: colors.ink, fontWeight: "700" },
   addButton: { alignSelf: "flex-start" },
+  check: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: space.sm },
+  checkbox: { width: 22, height: 22, borderRadius: radius.sm, borderWidth: 2, borderColor: colors.borderStrong, alignItems: "center", justifyContent: "center" },
+  checkboxChecked: { borderColor: colors.blue, backgroundColor: colors.blue },
+  muted: { color: colors.muted },
+  screenReaderOnly: { position: "absolute", width: 1, height: 1, overflow: "hidden" },
   pressed: { opacity: 0.75 },
 }));

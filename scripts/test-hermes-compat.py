@@ -171,6 +171,10 @@ class HermesContractTests(unittest.IsolatedAsyncioTestCase):
                 async with client.get(f"http://127.0.0.1:{port}/v1/capabilities") as response:
                     self.assertEqual(response.status, 200)
                     self.assertIs((await response.json())["features"]["servant_durable_media_runs"], True)
+                # Run keys ride the stock run routes, so the launcher needs no extra route.
+                async with client.post(f"http://127.0.0.1:{port}/v1/runs/servant-key.servant_standalone/stop", json={}) as response:
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual((await response.json())["state"], "refused")
         finally:
             await adapter.disconnect()
 
@@ -211,6 +215,75 @@ class HermesContractTests(unittest.IsolatedAsyncioTestCase):
         data = await self.wait_status(run_id)
         self.assertEqual(data["status"], "cancelled", data)
         self.assertTrue(self.agents[0].interrupted.is_set())
+
+    async def keyed(self, key, **body):
+        return await self.client.post("/v1/runs", json={"input": "hello", **body}, headers={"X-Servant-Run-Key": key})
+
+    async def key_status(self, key):
+        response = await self.client.get(f"/v1/runs/servant-key.{key}")
+        return response.status, await response.json()
+
+    async def test_run_keys_find_and_stop_a_run_whose_reply_was_lost(self):
+        def slow(agent, call):
+            agent.interrupted.wait(5)
+            return {"final_response": "interrupted", "interrupted": True}
+        self.behavior = slow
+        caps = await (await self.client.get("/v1/capabilities")).json()
+        self.assertIs(caps["features"]["servant_run_keys"], True)
+        started = await self.keyed("servant_turn_lost")
+        self.assertEqual(started.status, 202, await started.text())
+        run_id = (await started.json())["run_id"]
+        # Servant never saw that reply: it asks by key.
+        status, data = await self.key_status("servant_turn_lost")
+        self.assertEqual((status, data["run_id"]), (200, run_id))
+        again = await self.keyed("servant_turn_lost")
+        self.assertEqual(again.status, 409)
+        self.assertEqual((await again.json())["run_id"], run_id, "a repeated start is refused and names the run to adopt")
+        self.assertEqual(len(self.agents), 1)
+        stopped = await self.client.post("/v1/runs/servant-key.servant_turn_lost/stop", json={})
+        self.assertEqual(stopped.status, 200, await stopped.text())
+        await self.wait_status(run_id)
+        status, data = await self.key_status("servant_turn_lost")
+        self.assertEqual((data["state"], data["stopped"], data["run_status"]), ("ended", True, "cancelled"))
+        self.assertTrue(self.agents[0].interrupted.is_set())
+
+    async def test_a_stop_by_key_before_the_start_means_it_never_starts(self):
+        stopped = await self.client.post("/v1/runs/servant-key.servant_turn_late/stop", json={})
+        self.assertEqual(stopped.status, 200)
+        self.assertEqual((await stopped.json())["state"], "refused")
+        late = await self.keyed("servant_turn_late")
+        self.assertEqual(late.status, 409)
+        self.assertEqual((await late.json())["error"]["code"], "run_key_refused")
+        self.assertEqual(self.agents, [], "no agent was created")
+
+    async def test_a_stop_by_key_during_the_start_stops_the_run_as_soon_as_it_exists(self):
+        def slow(agent, call):
+            agent.interrupted.wait(5)
+            return {"final_response": "interrupted", "interrupted": True}
+        self.behavior = slow
+        keys = self.adapter._servant_run_keys
+        original = keys.started
+        def started(key, run_id):
+            keys.cancel(key)  # the stop arrives while Hermes is still starting the run
+            return original(key, run_id)
+        with patch.object(keys, "started", started):
+            response = await self.keyed("servant_turn_mid")
+        self.assertEqual(response.status, 409)
+        body = await response.json()
+        self.assertEqual(body["error"]["code"], "run_key_cancelled")
+        data = await self.wait_status(body["run_id"])
+        self.assertEqual(data["status"], "cancelled", data)
+        self.assertTrue(self.agents[0].interrupted.is_set())
+
+    async def test_run_keys_are_checked_and_authenticated(self):
+        bad = await self.keyed("not-a-servant-key")
+        self.assertEqual(bad.status, 400)
+        unknown = await self.client.get("/v1/runs/servant-key.servant_never")
+        self.assertEqual(unknown.status, 404)
+        for request in (self.client.get("/v1/runs/servant-key.servant_x", headers={"Authorization": "Bearer incorrect"}),
+                        self.client.post("/v1/runs/servant-key.servant_x/stop", headers={"Authorization": "Bearer incorrect"})):
+            self.assertEqual((await request).status, 401)
+        self.assertIsNone(self.adapter._servant_run_keys.get("servant_x"), "an unauthenticated stop changes nothing")
 
     async def test_steer_reaches_running_agent_and_unread_text_is_reported(self):
         release = threading.Event()

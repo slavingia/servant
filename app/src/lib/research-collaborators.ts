@@ -55,26 +55,36 @@ export function withoutCollaborator(current: readonly ResearchCollaborator[], id
   return current.filter(item => item.id !== id);
 }
 
-/** Only ids and access go to the server; names and status come back from it. */
+/** Only ids and access go to the server; names and status come back from it. View only in the research pilot. */
 export function collaboratorPayload(current: readonly ResearchCollaborator[]): { id: string; access: CollaboratorAccess }[] {
-  return current.map(({ id, access }) => ({ id, access }));
+  return current.map(({ id }) => ({ id, access: "view" as const }));
 }
 
-export function accessLabel(access: CollaboratorAccess): string {
-  return access === "edit" ? "Can edit" : "Can view";
+// Research pilot: collaborators can view only. Older grants saved as edit read as view.
+export function accessLabel(_access: CollaboratorAccess): string {
+  return "Can view";
 }
 
 /** The banner a collaborator sees at the top of someone else's plan. */
-export function collaborationNotice(access: CollaboratorAccess, authorName: string): { title: string; body: string } {
-  return access === "edit"
-    ? {
-      title: `${authorName} invited you to edit this research plan`,
-      body: "Messages you send here go to the restricted Researcher agent, use your own token allowance, and are visible to everyone on this plan.",
-    }
-    : {
-      title: `${authorName} shared this research plan with you`,
-      body: "You can read this plan. Give feedback in a channel or DM.",
-    };
+export function collaborationNotice(_access: CollaboratorAccess, authorName: string): { title: string; body: string } {
+  return {
+    title: `${authorName} shared this research plan with you`,
+    body: "You can read this plan. You can't send messages or change it. Give feedback in a channel or DM.",
+  };
+}
+
+/** "Updated 2:14 PM" for the moment a shared plan was last loaded. */
+/**
+ * When the plan last changed (the chat's own updatedAt from the server) and
+ * when this screen last checked it. A load time is never shown as an update.
+ */
+export function planTimesText({ updatedAt, checkedAt }: { updatedAt?: number | null; checkedAt: number | null }, now = Date.now()): string {
+  if (!checkedAt) return "Not loaded yet";
+  const clock = (at: number) => new Date(at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const sameDay = (at: number) => new Date(at).toDateString() === new Date(now).toDateString();
+  const when = (at: number) => sameDay(at) ? clock(at) : `${new Date(at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${clock(at)}`;
+  const checked = `Checked at ${when(checkedAt)}`;
+  return typeof updatedAt === "number" && Number.isFinite(updatedAt) && updatedAt > 0 ? `Plan updated ${when(updatedAt)} · ${checked}` : checked;
 }
 
 /** Plans other people opened to you, newest activity first. */

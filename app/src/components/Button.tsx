@@ -9,10 +9,16 @@ type Props = {
   disabled?: boolean;
   compact?: boolean;
   accessibilityHint?: string;
+  /**
+   * The id (nativeID) of visible text explaining the button, e.g. why it's
+   * unavailable. Rendered as aria-describedby on the web, so the reason is
+   * read with the button (native platforms get accessibilityHint).
+   */
+  describedBy?: string;
   style?: StyleProp<ViewStyle>;
 };
 
-export function Button({ label, onPress, kind = "primary", busy, disabled, compact, accessibilityHint, style }: Props) {
+export function Button({ label, onPress, kind = "primary", busy, disabled, compact, accessibilityHint, describedBy, style }: Props) {
   const styles = useStyles();
   const { colors } = useTheme();
   const off = disabled || busy;
@@ -22,6 +28,7 @@ export function Button({ label, onPress, kind = "primary", busy, disabled, compa
       accessibilityLabel={label}
       accessibilityHint={accessibilityHint}
       accessibilityState={{ disabled: !!off, busy: !!busy }}
+      {...(describedBy ? { "aria-describedby": describedBy } : {})}
       disabled={!!off}
       onPress={off ? undefined : onPress}
       style={({ pressed }) => [styles.base, styles[kind], compact && styles.compact, off && (kind === "primary" && !busy ? styles.primaryOff : styles.off), pressed && !off && styles.pressed, style]}

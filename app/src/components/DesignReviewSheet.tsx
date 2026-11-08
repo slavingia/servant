@@ -2,11 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { designReviewText, designStatus, designTitle } from "../lib/designs";
+import { designPreviewPublished, designReviewText, designStatus, designTitle } from "../lib/designs";
 import { api, ServerError, type Chat, type Conversation } from "../lib/server";
 import { useSession } from "../lib/session";
 import { AppIcon } from "./AppIcon";
 import { Button } from "./Button";
+import { useRadioGroup } from "./useRadioGroup";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
 export function DesignReviewSheet({ design, onClose }: { design: Chat; onClose: () => void }) {
@@ -45,6 +46,7 @@ export function DesignReviewSheet({ design, onClose }: { design: Chat; onClose: 
     const q = query.trim().toLowerCase();
     return (list ?? []).filter(conversation => !q || conversationLabel(conversation).toLowerCase().includes(q));
   }, [list, query]);
+  const destinationRadios = useRadioGroup({ values: shown.map(item => item.id), value: picked, onChange: setPicked, label: "Share destination" });
   if (!account) return null;
 
   const share = async () => {
@@ -94,13 +96,13 @@ export function DesignReviewSheet({ design, onClose }: { design: Chat; onClose: 
               <View style={styles.designIcon}><AppIcon name="code" size={18} color={colors.blueDark} /></View>
               <View style={styles.summaryCopy}>
                 <Text style={styles.designTitle} numberOfLines={1}>{designTitle(design)}</Text>
-                <Text style={styles.meta}>{designStatus(design)} · Preview link included</Text>
+                <Text style={styles.meta}>{designStatus(design)} · {designPreviewPublished(design) ? "Preview link included" : "Not published yet"}</Text>
               </View>
             </View>
 
             <TextInput value={query} onChangeText={setQuery} placeholder="Search channels and direct messages" placeholderTextColor={colors.muted}
               accessibilityLabel="Search channels and direct messages" autoCorrect={false} style={styles.search} />
-            <View accessibilityRole="radiogroup" accessibilityLabel="Share destination" style={styles.list}>
+            <View {...destinationRadios.group} style={styles.list}>
               {list === null && !loadError
                 ? <ActivityIndicator accessibilityLabel="Loading channels and direct messages" accessibilityRole="progressbar" style={styles.loading} color={colors.blue} />
                 : loadError
@@ -110,9 +112,9 @@ export function DesignReviewSheet({ design, onClose }: { design: Chat; onClose: 
                   </View>
                   : shown.length === 0
                     ? <Text style={styles.empty}>{query ? "Nothing matches your search" : "Join a channel or start a direct message first"}</Text>
-                    : shown.map(item => {
+                    : shown.map((item, index) => {
                       const selected = picked === item.id;
-                      return <Pressable key={item.id} accessibilityRole="radio" accessibilityState={{ checked: selected }} accessibilityLabel={conversationLabel(item)} onPress={() => setPicked(item.id)}
+                      return <Pressable key={item.id} {...destinationRadios.radio(item.id, index)} accessibilityLabel={conversationLabel(item)}
                         style={({ pressed }) => [styles.row, selected && styles.rowSelected, pressed && { backgroundColor: colors.surface }]}>
                         <AppIcon name={item.kind === "channel" ? "hash" : "chat"} size={17} color={selected ? colors.blueDark : colors.muted} />
                         <Text numberOfLines={1} style={styles.rowText}>{conversationLabel(item)}</Text>

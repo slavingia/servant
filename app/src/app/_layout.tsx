@@ -1,6 +1,6 @@
 import { Platform, Text, View } from "react-native";
 import { DarkTheme, DefaultTheme, Redirect, router, Stack, ThemeProvider as NavigationThemeProvider, usePathname } from "expo-router";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { SessionProvider, useSession } from "../lib/session";
@@ -15,7 +15,8 @@ import { ThemeProvider, useTheme, typography } from "../lib/theme";
 import { validServerKey } from "../lib/tunnel-crypto";
 import { useWideLayout } from "../lib/layout";
 import { WideBack } from "../components/WideBack";
-import { onboardingRequired, roleIntroRequired } from "../lib/onboarding";
+import { completeRoleIntro, normalizeOnboarding, onboardingRequired, roleIntroRequired } from "../lib/onboarding";
+import { saveAccount } from "../lib/server";
 
 export default function RootLayout() {
   return (
@@ -30,7 +31,7 @@ export default function RootLayout() {
 }
 
 function SessionNavigation() {
-  const { ready, account, loadError, retryLoad } = useSession();
+  const { ready, account, loadError, retryLoad, setAccount } = useSession();
   const { colors, scheme } = useTheme();
   const pathname = usePathname();
   const wide = useWideLayout();
@@ -53,6 +54,14 @@ function SessionNavigation() {
   const paired = !!account && validServerKey(account.serverKey);
   const onboarding = paired && onboardingRequired(account?.uxOnboarding);
   const roleIntro = paired && !onboarding && roleIntroRequired(account?.uxOnboarding);
+  // The start page is where a new person lands, not a gate: going anywhere else
+  // from the navigation counts as having picked a starting point.
+  const leftStart = roleIntro && pathname !== "/" && pathname !== "/start";
+  useEffect(() => {
+    if (!leftStart || !account) return;
+    const updated = { ...account, uxOnboarding: completeRoleIntro(normalizeOnboarding(account.uxOnboarding)) };
+    saveAccount(updated).then(() => setAccount(updated)).catch(() => { /* asked again next time */ });
+  }, [leftStart, account, setAccount]);
   // Wait for the saved account before mounting any invite screen.
   if (!ready) {
     return (
@@ -68,7 +77,6 @@ function SessionNavigation() {
     );
   }
   if (onboarding && pathname !== "/onboarding") return <Redirect href="/onboarding" />;
-  if (roleIntro && pathname !== "/start") return <Redirect href="/start" />;
   return (
     <NavigationThemeProvider value={navigationTheme}>
     <PhotoProvider>
@@ -131,6 +139,8 @@ function SessionNavigation() {
         <Stack.Screen name="files" options={{ title: "Files", ...childScreen }} />
         <Stack.Screen name="project" options={{ title: "Project", ...childScreen }} />
         <Stack.Screen name="designs" options={{ title: "Designs", ...sidebarScreen }} />
+        <Stack.Screen name="adjust" options={{ title: "Quick adjustments", ...childScreen }} />
+        <Stack.Screen name="versions" options={{ title: "Version history", ...childScreen }} />
         <Stack.Screen name="research" options={{ title: "Research", ...sidebarScreen }} />
         <Stack.Screen name="research-new" options={{ title: "New research work", ...childScreen }} />
         <Stack.Screen name="chat/[id]" options={{ title: "", ...childScreen }} />

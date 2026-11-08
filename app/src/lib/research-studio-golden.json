@@ -1,0 +1,2014 @@
+{
+  "researchStudio": {
+    "version": "0.3.24",
+    "commit": "03cfcb2"
+  },
+  "cases": [
+    {
+      "name": "higher, control A",
+      "activities": [
+        {
+          "key": "higher-a",
+          "method": "ab_test",
+          "title": "AB higher-a",
+          "instructions": "Pay the sample balance.",
+          "objective": "",
+          "criteria": "",
+          "url": "",
+          "successSignal": "paid",
+          "goal": "measure",
+          "perRound": 6,
+          "rounds": 2,
+          "benchmark": null,
+          "directBenchmark": null,
+          "margin": 10,
+          "designs": [
+            {
+              "label": "Current flow",
+              "url": "https://example.com/a/"
+            },
+            {
+              "label": "New flow",
+              "url": "https://example.com/b/"
+            }
+          ],
+          "controlIndex": 0,
+          "primary": "success",
+          "direction": "higher",
+          "baseline": 60,
+          "difference": 15,
+          "power": 0.8,
+          "stoppingRule": "Analyse once after both designs reach the target.",
+          "stoppingRuleConfirmed": true,
+          "sortMode": "open",
+          "cards": "",
+          "categories": "",
+          "threshold": 60,
+          "target": 20,
+          "tree": "",
+          "split": 60,
+          "questions": "",
+          "constructs": ""
+        }
+      ],
+      "draft": {
+        "schemaVersion": 3,
+        "id": "golden-study",
+        "version": "1.0.0",
+        "title": "Golden study",
+        "description": "",
+        "prototypeUrl": "",
+        "welcome": "",
+        "consent": "",
+        "consentMode": "external",
+        "preQuestions": [],
+        "tasks": [
+          {
+            "id": "ab-higher-a",
+            "method": "ab_test",
+            "title": "AB higher-a",
+            "instructions": "Pay the sample balance.",
+            "questions": [],
+            "experimentId": "ab-higher-a",
+            "variants": [
+              {
+                "id": "design-a",
+                "label": "Current flow",
+                "prototypeUrl": "https://example.com/a/"
+              },
+              {
+                "id": "design-b",
+                "label": "New flow",
+                "prototypeUrl": "https://example.com/b/"
+              }
+            ],
+            "successSignal": "paid"
+          }
+        ],
+        "postQuestions": [],
+        "plan": {
+          "background": "",
+          "researchQuestions": [
+            "Question"
+          ],
+          "participants": {
+            "audience": "People",
+            "recruitment": "Recruit about 380 people for the largest need (AB higher-a), allowing for 20% of recruits lost before randomization or start. Everyone takes every activity. Research Studio's sample-size summary shows about 304 \"plus extra for drop-out\": that's the analysis target, and the 380 here already includes the extra. Each activity's target and analysis denominator are in the analysis plan.",
+            "exclusions": "Before randomization or start: screen-outs, ineligible people, no-shows and technical failures are in no denominator (the loss allowance covers them). After randomization or start, nobody is excluded: anyone who doesn't finish counts as not successful.",
+            "devices": "any"
+          },
+          "experiments": {
+            "ab-higher-a": {
+              "controlId": "design-a",
+              "treatments": {},
+              "hypotheses": [
+                {
+                  "id": "h1",
+                  "treatmentId": "design-b",
+                  "direction": "higher",
+                  "measure": "success",
+                  "rationale": ""
+                }
+              ],
+              "primaryMeasure": "success",
+              "secondary": [
+                "measured",
+                "self",
+                "time",
+                "dropout"
+              ],
+              "baseline": 60,
+              "difference": 15,
+              "power": 0.8,
+              "stoppingRule": "Analyse once after both designs reach the target."
+            }
+          },
+          "activities": {},
+          "analysis": "Sample size and recruitment\nLoss assumption: 20% of recruits won't reach each activity's analysis denominator, so each target is recruited as n ÷ (1 − 0.20).\nResearch Studio's sample-size summary and size text show each analysis target \"plus extra for drop-out\"; the recruit numbers here already include that extra.\n1. AB higher-a (A/B implementation test): analysis denominator eligible participants randomized to each design; target 152 per design (304 in total), shown by Research Studio as 304; recruit about 380.\n\n1. AB higher-a (A/B implementation test)\nPrimary analysis: compare the alternative with Design A (Current flow), the control, on task success (success signal). Each design's denominator is every eligible participant randomized to it. Anyone randomized who drops out or whose success cannot be measured counts as not successful; nobody is removed after randomization. People screened out or lost to technical failures before randomization are in no denominator.\nReport each design's rate with a 95% Wilson score interval and the difference from the control with a two-sided Newcombe hybrid score interval at 95%. An interval that excludes zero is reported as a clear difference; an interval that includes zero is reported as inconclusive, not as evidence that the designs perform the same. No winner is declared automatically: the team judges whether a difference matters in practice.\nTarget sample (estimate): 152 randomized eligible participants per design (304 in total) to detect a change from 60% to 75% with 80% power. Recruit about 380 (304 ÷ (1 − 0.20)), allowing for 20% of recruits not reaching the analysis (screen-outs, ineligible people and technical failures before randomization).\nStopping rule: Analyse once after both designs reach the target.\nBefore interpreting outcomes, check: group sizes (sample-ratio check), drop-out by design, success-tracking coverage by design and device mix. Any problem is reported with the results.\nSecondary measures (success among finishers with success measured; self-reported completion; active time on task; drop-out by design) are reported descriptively with intervals for context and are not used to decide between designs.",
+          "decisions": "Decide",
+          "locked": null,
+          "changes": []
+        }
+      },
+      "studio": {
+        "experiments": [
+          {
+            "id": "ab-higher-a",
+            "variantIds": [
+              "design-a",
+              "design-b"
+            ],
+            "labels": [
+              "Current flow",
+              "New flow"
+            ],
+            "controlId": "design-a",
+            "directions": [
+              "higher"
+            ],
+            "perDesign": 152,
+            "target": 75,
+            "stoppingRule": "Analyse once after both designs reach the target.",
+            "hypotheses": [
+              "Compared with Design A (Current flow), the control, Design B (New flow) will have a higher task success rate."
+            ]
+          }
+        ],
+        "preferences": [],
+        "sizes": {
+          "summary": {
+            "rows": [
+              {
+                "name": "A/B experiment ab-higher-a",
+                "n": 304
+              }
+            ],
+            "top": {
+              "name": "A/B experiment ab-higher-a",
+              "n": 304
+            }
+          },
+          "texts": [
+            {
+              "id": "ab-higher-a",
+              "text": "Recruit about 152 people assigned per design (304 in total), plus extra for drop-out. This gives an 80% chance of detecting a change from 60% to 75%."
+            }
+          ]
+        },
+        "shown": {
+          "recruitment": "Recruit about 380 people for the largest need (AB higher-a), allowing for 20% of recruits lost before randomization or start. Everyone takes every activity. Research Studio's sample-size summary shows about 304 \"plus extra for drop-out\": that's the analysis target, and the 380 here already includes the extra. Each activity's target and analysis denominator are in the analysis plan.",
+          "exclusions": "Before randomization or start: screen-outs, ineligible people, no-shows and technical failures are in no denominator (the loss allowance covers them). After randomization or start, nobody is excluded: anyone who doesn't finish counts as not successful.",
+          "analysis": "Sample size and recruitment\nLoss assumption: 20% of recruits won't reach each activity's analysis denominator, so each target is recruited as n ÷ (1 − 0.20).\nResearch Studio's sample-size summary and size text show each analysis target \"plus extra for drop-out\"; the recruit numbers here already include that extra.\n1. AB higher-a (A/B implementation test): analysis denominator eligible participants randomized to each design; target 152 per design (304 in total), shown by Research Studio as 304; recruit about 380.\n\n1. AB higher-a (A/B implementation test)\nPrimary analysis: compare the alternative with Design A (Current flow), the control, on task success (success signal). Each design's denominator is every eligible participant randomized to it. Anyone randomized who drops out or whose success cannot be measured counts as not successful; nobody is removed after randomization. People screened out or lost to technical failures before randomization are in no denominator.\nReport each design's rate with a 95% Wilson score interval and the difference from the control with a two-sided Newcombe hybrid score interval at 95%. An interval that excludes zero is reported as a clear difference; an interval that includes zero is reported as inconclusive, not as evidence that the designs perform the same. No winner is declared automatically: the team judges whether a difference matters in practice.\nTarget sample (estimate): 152 randomized eligible participants per design (304 in total) to detect a change from 60% to 75% with 80% power. Recruit about 380 (304 ÷ (1 − 0.20)), allowing for 20% of recruits not reaching the analysis (screen-outs, ineligible people and technical failures before randomization).\nStopping rule: Analyse once after both designs reach the target.\nBefore interpreting outcomes, check: group sizes (sample-ratio check), drop-out by design, success-tracking coverage by design and device mix. Any problem is reported with the results.\nSecondary measures (success among finishers with success measured; self-reported completion; active time on task; drop-out by design) are reported descriptively with intervals for context and are not used to decide between designs.",
+          "inEditor": {
+            "recruitment": true,
+            "exclusions": true,
+            "analysis": true
+          },
+          "editedIn": {
+            "recruitment": "input",
+            "exclusions": "input",
+            "analysis": "textarea"
+          },
+          "inDocument": {
+            "analysis": true
+          }
+        }
+      }
+    },
+    {
+      "name": "higher, Design B chosen as control",
+      "activities": [
+        {
+          "key": "higher-b",
+          "method": "ab_test",
+          "title": "AB higher-b",
+          "instructions": "Pay the sample balance.",
+          "objective": "",
+          "criteria": "",
+          "url": "",
+          "successSignal": "paid",
+          "goal": "measure",
+          "perRound": 6,
+          "rounds": 2,
+          "benchmark": null,
+          "directBenchmark": null,
+          "margin": 10,
+          "designs": [
+            {
+              "label": "New flow",
+              "url": "https://example.com/b/"
+            },
+            {
+              "label": "Current flow",
+              "url": "https://example.com/a/"
+            }
+          ],
+          "controlIndex": 0,
+          "primary": "success",
+          "direction": "higher",
+          "baseline": 60,
+          "difference": 15,
+          "power": 0.8,
+          "stoppingRule": "Analyse once after both designs reach the target.",
+          "stoppingRuleConfirmed": true,
+          "sortMode": "open",
+          "cards": "",
+          "categories": "",
+          "threshold": 60,
+          "target": 20,
+          "tree": "",
+          "split": 60,
+          "questions": "",
+          "constructs": ""
+        }
+      ],
+      "draft": {
+        "schemaVersion": 3,
+        "id": "golden-study",
+        "version": "1.0.0",
+        "title": "Golden study",
+        "description": "",
+        "prototypeUrl": "",
+        "welcome": "",
+        "consent": "",
+        "consentMode": "external",
+        "preQuestions": [],
+        "tasks": [
+          {
+            "id": "ab-higher-b",
+            "method": "ab_test",
+            "title": "AB higher-b",
+            "instructions": "Pay the sample balance.",
+            "questions": [],
+            "experimentId": "ab-higher-b",
+            "variants": [
+              {
+                "id": "design-a",
+                "label": "New flow",
+                "prototypeUrl": "https://example.com/b/"
+              },
+              {
+                "id": "design-b",
+                "label": "Current flow",
+                "prototypeUrl": "https://example.com/a/"
+              }
+            ],
+            "successSignal": "paid"
+          }
+        ],
+        "postQuestions": [],
+        "plan": {
+          "background": "",
+          "researchQuestions": [
+            "Question"
+          ],
+          "participants": {
+            "audience": "People",
+            "recruitment": "Recruit about 380 people for the largest need (AB higher-b), allowing for 20% of recruits lost before randomization or start. Everyone takes every activity. Research Studio's sample-size summary shows about 304 \"plus extra for drop-out\": that's the analysis target, and the 380 here already includes the extra. Each activity's target and analysis denominator are in the analysis plan.",
+            "exclusions": "Before randomization or start: screen-outs, ineligible people, no-shows and technical failures are in no denominator (the loss allowance covers them). After randomization or start, nobody is excluded: anyone who doesn't finish counts as not successful.",
+            "devices": "any"
+          },
+          "experiments": {
+            "ab-higher-b": {
+              "controlId": "design-a",
+              "treatments": {},
+              "hypotheses": [
+                {
+                  "id": "h1",
+                  "treatmentId": "design-b",
+                  "direction": "higher",
+                  "measure": "success",
+                  "rationale": ""
+                }
+              ],
+              "primaryMeasure": "success",
+              "secondary": [
+                "measured",
+                "self",
+                "time",
+                "dropout"
+              ],
+              "baseline": 60,
+              "difference": 15,
+              "power": 0.8,
+              "stoppingRule": "Analyse once after both designs reach the target."
+            }
+          },
+          "activities": {},
+          "analysis": "Sample size and recruitment\nLoss assumption: 20% of recruits won't reach each activity's analysis denominator, so each target is recruited as n ÷ (1 − 0.20).\nResearch Studio's sample-size summary and size text show each analysis target \"plus extra for drop-out\"; the recruit numbers here already include that extra.\n1. AB higher-b (A/B implementation test): analysis denominator eligible participants randomized to each design; target 152 per design (304 in total), shown by Research Studio as 304; recruit about 380.\n\n1. AB higher-b (A/B implementation test)\nPrimary analysis: compare the alternative with Design A (New flow), the control, on task success (success signal). Each design's denominator is every eligible participant randomized to it. Anyone randomized who drops out or whose success cannot be measured counts as not successful; nobody is removed after randomization. People screened out or lost to technical failures before randomization are in no denominator.\nReport each design's rate with a 95% Wilson score interval and the difference from the control with a two-sided Newcombe hybrid score interval at 95%. An interval that excludes zero is reported as a clear difference; an interval that includes zero is reported as inconclusive, not as evidence that the designs perform the same. No winner is declared automatically: the team judges whether a difference matters in practice.\nTarget sample (estimate): 152 randomized eligible participants per design (304 in total) to detect a change from 60% to 75% with 80% power. Recruit about 380 (304 ÷ (1 − 0.20)), allowing for 20% of recruits not reaching the analysis (screen-outs, ineligible people and technical failures before randomization).\nStopping rule: Analyse once after both designs reach the target.\nBefore interpreting outcomes, check: group sizes (sample-ratio check), drop-out by design, success-tracking coverage by design and device mix. Any problem is reported with the results.\nSecondary measures (success among finishers with success measured; self-reported completion; active time on task; drop-out by design) are reported descriptively with intervals for context and are not used to decide between designs.",
+          "decisions": "Decide",
+          "locked": null,
+          "changes": []
+        }
+      },
+      "studio": {
+        "experiments": [
+          {
+            "id": "ab-higher-b",
+            "variantIds": [
+              "design-a",
+              "design-b"
+            ],
+            "labels": [
+              "New flow",
+              "Current flow"
+            ],
+            "controlId": "design-a",
+            "directions": [
+              "higher"
+            ],
+            "perDesign": 152,
+            "target": 75,
+            "stoppingRule": "Analyse once after both designs reach the target.",
+            "hypotheses": [
+              "Compared with Design A (New flow), the control, Design B (Current flow) will have a higher task success rate."
+            ]
+          }
+        ],
+        "preferences": [],
+        "sizes": {
+          "summary": {
+            "rows": [
+              {
+                "name": "A/B experiment ab-higher-b",
+                "n": 304
+              }
+            ],
+            "top": {
+              "name": "A/B experiment ab-higher-b",
+              "n": 304
+            }
+          },
+          "texts": [
+            {
+              "id": "ab-higher-b",
+              "text": "Recruit about 152 people assigned per design (304 in total), plus extra for drop-out. This gives an 80% chance of detecting a change from 60% to 75%."
+            }
+          ]
+        },
+        "shown": {
+          "recruitment": "Recruit about 380 people for the largest need (AB higher-b), allowing for 20% of recruits lost before randomization or start. Everyone takes every activity. Research Studio's sample-size summary shows about 304 \"plus extra for drop-out\": that's the analysis target, and the 380 here already includes the extra. Each activity's target and analysis denominator are in the analysis plan.",
+          "exclusions": "Before randomization or start: screen-outs, ineligible people, no-shows and technical failures are in no denominator (the loss allowance covers them). After randomization or start, nobody is excluded: anyone who doesn't finish counts as not successful.",
+          "analysis": "Sample size and recruitment\nLoss assumption: 20% of recruits won't reach each activity's analysis denominator, so each target is recruited as n ÷ (1 − 0.20).\nResearch Studio's sample-size summary and size text show each analysis target \"plus extra for drop-out\"; the recruit numbers here already include that extra.\n1. AB higher-b (A/B implementation test): analysis denominator eligible participants randomized to each design; target 152 per design (304 in total), shown by Research Studio as 304; recruit about 380.\n\n1. AB higher-b (A/B implementation test)\nPrimary analysis: compare the alternative with Design A (New flow), the control, on task success (success signal). Each design's denominator is every eligible participant randomized to it. Anyone randomized who drops out or whose success cannot be measured counts as not successful; nobody is removed after randomization. People screened out or lost to technical failures before randomization are in no denominator.\nReport each design's rate with a 95% Wilson score interval and the difference from the control with a two-sided Newcombe hybrid score interval at 95%. An interval that excludes zero is reported as a clear difference; an interval that includes zero is reported as inconclusive, not as evidence that the designs perform the same. No winner is declared automatically: the team judges whether a difference matters in practice.\nTarget sample (estimate): 152 randomized eligible participants per design (304 in total) to detect a change from 60% to 75% with 80% power. Recruit about 380 (304 ÷ (1 − 0.20)), allowing for 20% of recruits not reaching the analysis (screen-outs, ineligible people and technical failures before randomization).\nStopping rule: Analyse once after both designs reach the target.\nBefore interpreting outcomes, check: group sizes (sample-ratio check), drop-out by design, success-tracking coverage by design and device mix. Any problem is reported with the results.\nSecondary measures (success among finishers with success measured; self-reported completion; active time on task; drop-out by design) are reported descriptively with intervals for context and are not used to decide between designs.",
+          "inEditor": {
+            "recruitment": true,
+            "exclusions": true,
+            "analysis": true
+          },
+          "editedIn": {
+            "recruitment": "input",
+            "exclusions": "input",
+            "analysis": "textarea"
+          },
+          "inDocument": {
+            "analysis": true
+          }
+        }
+      }
+    },
+    {
+      "name": "self-reported primary without a success signal",
+      "activities": [
+        {
+          "key": "self",
+          "method": "ab_test",
+          "title": "AB self",
+          "instructions": "Pay the sample balance.",
+          "objective": "",
+          "criteria": "",
+          "url": "",
+          "successSignal": "",
+          "goal": "measure",
+          "perRound": 6,
+          "rounds": 2,
+          "benchmark": null,
+          "directBenchmark": null,
+          "margin": 10,
+          "designs": [
+            {
+              "label": "Current flow",
+              "url": "https://example.com/a/"
+            },
+            {
+              "label": "New flow",
+              "url": "https://example.com/b/"
+            }
+          ],
+          "controlIndex": 0,
+          "primary": "self",
+          "direction": "higher",
+          "baseline": 60,
+          "difference": 15,
+          "power": 0.8,
+          "stoppingRule": "Analyse once after both designs reach the target.",
+          "stoppingRuleConfirmed": true,
+          "sortMode": "open",
+          "cards": "",
+          "categories": "",
+          "threshold": 60,
+          "target": 20,
+          "tree": "",
+          "split": 60,
+          "questions": "",
+          "constructs": ""
+        }
+      ],
+      "draft": {
+        "schemaVersion": 3,
+        "id": "golden-study",
+        "version": "1.0.0",
+        "title": "Golden study",
+        "description": "",
+        "prototypeUrl": "",
+        "welcome": "",
+        "consent": "",
+        "consentMode": "external",
+        "preQuestions": [],
+        "tasks": [
+          {
+            "id": "ab-self",
+            "method": "ab_test",
+            "title": "AB self",
+            "instructions": "Pay the sample balance.",
+            "questions": [],
+            "experimentId": "ab-self",
+            "variants": [
+              {
+                "id": "design-a",
+                "label": "Current flow",
+                "prototypeUrl": "https://example.com/a/"
+              },
+              {
+                "id": "design-b",
+                "label": "New flow",
+                "prototypeUrl": "https://example.com/b/"
+              }
+            ]
+          }
+        ],
+        "postQuestions": [],
+        "plan": {
+          "background": "",
+          "researchQuestions": [
+            "Question"
+          ],
+          "participants": {
+            "audience": "People",
+            "recruitment": "Recruit about 380 people for the largest need (AB self), allowing for 20% of recruits lost before randomization or start. Everyone takes every activity. Research Studio's sample-size summary shows about 304 \"plus extra for drop-out\": that's the analysis target, and the 380 here already includes the extra. Each activity's target and analysis denominator are in the analysis plan.",
+            "exclusions": "Before randomization or start: screen-outs, ineligible people, no-shows and technical failures are in no denominator (the loss allowance covers them). After randomization or start, nobody is excluded: anyone who doesn't finish counts as not successful.",
+            "devices": "any"
+          },
+          "experiments": {
+            "ab-self": {
+              "controlId": "design-a",
+              "treatments": {},
+              "hypotheses": [
+                {
+                  "id": "h1",
+                  "treatmentId": "design-b",
+                  "direction": "higher",
+                  "measure": "self",
+                  "rationale": ""
+                }
+              ],
+              "primaryMeasure": "self",
+              "secondary": [
+                "time",
+                "dropout"
+              ],
+              "baseline": 60,
+              "difference": 15,
+              "power": 0.8,
+              "stoppingRule": "Analyse once after both designs reach the target."
+            }
+          },
+          "activities": {},
+          "analysis": "Sample size and recruitment\nLoss assumption: 20% of recruits won't reach each activity's analysis denominator, so each target is recruited as n ÷ (1 − 0.20).\nResearch Studio's sample-size summary and size text show each analysis target \"plus extra for drop-out\"; the recruit numbers here already include that extra.\n1. AB self (A/B implementation test): analysis denominator eligible participants randomized to each design; target 152 per design (304 in total), shown by Research Studio as 304; recruit about 380.\n\n1. AB self (A/B implementation test)\nPrimary analysis: compare the alternative with Design A (Current flow), the control, on self-reported completion. Each design's denominator is every eligible participant randomized to it. Anyone randomized who drops out counts as not successful; nobody is removed after randomization. People screened out or lost to technical failures before randomization are in no denominator.\nReport each design's rate with a 95% Wilson score interval and the difference from the control with a two-sided Newcombe hybrid score interval at 95%. An interval that excludes zero is reported as a clear difference; an interval that includes zero is reported as inconclusive, not as evidence that the designs perform the same. No winner is declared automatically: the team judges whether a difference matters in practice.\nTarget sample (estimate): 152 randomized eligible participants per design (304 in total) to detect a change from 60% to 75% with 80% power. Recruit about 380 (304 ÷ (1 − 0.20)), allowing for 20% of recruits not reaching the analysis (screen-outs, ineligible people and technical failures before randomization).\nStopping rule: Analyse once after both designs reach the target.\nBefore interpreting outcomes, check: group sizes (sample-ratio check), drop-out by design, success-tracking coverage by design and device mix. Any problem is reported with the results.\nSecondary measures (active time on task; drop-out by design) are reported descriptively with intervals for context and are not used to decide between designs.",
+          "decisions": "Decide",
+          "locked": null,
+          "changes": []
+        }
+      },
+      "studio": {
+        "experiments": [
+          {
+            "id": "ab-self",
+            "variantIds": [
+              "design-a",
+              "design-b"
+            ],
+            "labels": [
+              "Current flow",
+              "New flow"
+            ],
+            "controlId": "design-a",
+            "directions": [
+              "higher"
+            ],
+            "perDesign": 152,
+            "target": 75,
+            "stoppingRule": "Analyse once after both designs reach the target.",
+            "hypotheses": [
+              "Compared with Design A (Current flow), the control, Design B (New flow) will have a higher self-reported completion rate."
+            ]
+          }
+        ],
+        "preferences": [],
+        "sizes": {
+          "summary": {
+            "rows": [
+              {
+                "name": "A/B experiment ab-self",
+                "n": 304
+              }
+            ],
+            "top": {
+              "name": "A/B experiment ab-self",
+              "n": 304
+            }
+          },
+          "texts": [
+            {
+              "id": "ab-self",
+              "text": "Recruit about 152 people assigned per design (304 in total), plus extra for drop-out. This gives an 80% chance of detecting a change from 60% to 75%."
+            }
+          ]
+        },
+        "shown": {
+          "recruitment": "Recruit about 380 people for the largest need (AB self), allowing for 20% of recruits lost before randomization or start. Everyone takes every activity. Research Studio's sample-size summary shows about 304 \"plus extra for drop-out\": that's the analysis target, and the 380 here already includes the extra. Each activity's target and analysis denominator are in the analysis plan.",
+          "exclusions": "Before randomization or start: screen-outs, ineligible people, no-shows and technical failures are in no denominator (the loss allowance covers them). After randomization or start, nobody is excluded: anyone who doesn't finish counts as not successful.",
+          "analysis": "Sample size and recruitment\nLoss assumption: 20% of recruits won't reach each activity's analysis denominator, so each target is recruited as n ÷ (1 − 0.20).\nResearch Studio's sample-size summary and size text show each analysis target \"plus extra for drop-out\"; the recruit numbers here already include that extra.\n1. AB self (A/B implementation test): analysis denominator eligible participants randomized to each design; target 152 per design (304 in total), shown by Research Studio as 304; recruit about 380.\n\n1. AB self (A/B implementation test)\nPrimary analysis: compare the alternative with Design A (Current flow), the control, on self-reported completion. Each design's denominator is every eligible participant randomized to it. Anyone randomized who drops out counts as not successful; nobody is removed after randomization. People screened out or lost to technical failures before randomization are in no denominator.\nReport each design's rate with a 95% Wilson score interval and the difference from the control with a two-sided Newcombe hybrid score interval at 95%. An interval that excludes zero is reported as a clear difference; an interval that includes zero is reported as inconclusive, not as evidence that the designs perform the same. No winner is declared automatically: the team judges whether a difference matters in practice.\nTarget sample (estimate): 152 randomized eligible participants per design (304 in total) to detect a change from 60% to 75% with 80% power. Recruit about 380 (304 ÷ (1 − 0.20)), allowing for 20% of recruits not reaching the analysis (screen-outs, ineligible people and technical failures before randomization).\nStopping rule: Analyse once after both designs reach the target.\nBefore interpreting outcomes, check: group sizes (sample-ratio check), drop-out by design, success-tracking coverage by design and device mix. Any problem is reported with the results.\nSecondary measures (active time on task; drop-out by design) are reported descriptively with intervals for context and are not used to decide between designs.",
+          "inEditor": {
+            "recruitment": true,
+            "exclusions": true,
+            "analysis": true
+          },
+          "editedIn": {
+            "recruitment": "input",
+            "exclusions": "input",
+            "analysis": "textarea"
+          },
+          "inDocument": {
+            "analysis": true
+          }
+        }
+      }
+    },
+    {
+      "name": "recruitment for every method",
+      "activities": [
+        {
+          "key": "discover",
+          "method": "prototype",
+          "title": "prototype discover",
+          "instructions": "Do the sample task.",
+          "objective": "",
+          "criteria": "",
+          "url": "https://example.com/p/",
+          "successSignal": "",
+          "goal": "discover",
+          "perRound": 5,
+          "rounds": 3,
+          "benchmark": null,
+          "directBenchmark": null,
+          "margin": 10,
+          "designs": [],
+          "controlIndex": 0,
+          "primary": "success",
+          "direction": "higher",
+          "baseline": 50,
+          "difference": 15,
+          "power": 0.8,
+          "stoppingRule": "",
+          "stoppingRuleConfirmed": false,
+          "sortMode": "open",
+          "cards": "",
+          "categories": "",
+          "threshold": 60,
+          "target": 20,
+          "tree": "",
+          "split": 60,
+          "questions": "",
+          "constructs": ""
+        },
+        {
+          "key": "explore",
+          "method": "card_sort",
+          "title": "card_sort explore",
+          "instructions": "Do the sample task.",
+          "objective": "",
+          "criteria": "",
+          "url": "",
+          "successSignal": "",
+          "goal": "explore",
+          "perRound": 6,
+          "rounds": 2,
+          "benchmark": null,
+          "directBenchmark": null,
+          "margin": 10,
+          "designs": [],
+          "controlIndex": 0,
+          "primary": "success",
+          "direction": "higher",
+          "baseline": 50,
+          "difference": 15,
+          "power": 0.8,
+          "stoppingRule": "",
+          "stoppingRuleConfirmed": false,
+          "sortMode": "open",
+          "cards": "Pay\nRecords",
+          "categories": "",
+          "threshold": 60,
+          "target": 20,
+          "tree": "",
+          "split": 60,
+          "questions": "",
+          "constructs": ""
+        },
+        {
+          "key": "tree",
+          "method": "tree_test",
+          "title": "tree_test tree",
+          "instructions": "Do the sample task.",
+          "objective": "",
+          "criteria": "",
+          "url": "",
+          "successSignal": "",
+          "goal": "measure",
+          "perRound": 6,
+          "rounds": 2,
+          "benchmark": 70,
+          "directBenchmark": null,
+          "margin": 10,
+          "designs": [],
+          "controlIndex": 0,
+          "primary": "success",
+          "direction": "higher",
+          "baseline": 50,
+          "difference": 15,
+          "power": 0.8,
+          "stoppingRule": "",
+          "stoppingRuleConfirmed": false,
+          "sortMode": "open",
+          "cards": "",
+          "categories": "",
+          "threshold": 60,
+          "target": 20,
+          "tree": "Home\n  Records *",
+          "split": 60,
+          "questions": "",
+          "constructs": ""
+        },
+        {
+          "key": "survey",
+          "method": "survey",
+          "title": "survey survey",
+          "instructions": "Do the sample task.",
+          "objective": "",
+          "criteria": "",
+          "url": "",
+          "successSignal": "",
+          "goal": "measure",
+          "perRound": 6,
+          "rounds": 2,
+          "benchmark": null,
+          "directBenchmark": null,
+          "margin": 10,
+          "designs": [],
+          "controlIndex": 0,
+          "primary": "success",
+          "direction": "higher",
+          "baseline": 50,
+          "difference": 15,
+          "power": 0.8,
+          "stoppingRule": "",
+          "stoppingRuleConfirmed": false,
+          "sortMode": "open",
+          "cards": "",
+          "categories": "",
+          "threshold": 60,
+          "target": 20,
+          "tree": "",
+          "split": 60,
+          "questions": "How confident are you?",
+          "constructs": ""
+        }
+      ],
+      "draft": {
+        "schemaVersion": 3,
+        "id": "golden-study",
+        "version": "1.0.0",
+        "title": "Golden study",
+        "description": "",
+        "prototypeUrl": "",
+        "welcome": "",
+        "consent": "",
+        "consentMode": "external",
+        "preQuestions": [],
+        "tasks": [
+          {
+            "id": "prototype-discover",
+            "method": "prototype",
+            "title": "prototype discover",
+            "instructions": "Do the sample task.",
+            "questions": [],
+            "prototypeUrl": "https://example.com/p/"
+          },
+          {
+            "id": "card-sort-explore",
+            "method": "card_sort",
+            "title": "card_sort explore",
+            "instructions": "Do the sample task.",
+            "questions": [],
+            "sortMode": "open",
+            "cards": [
+              {
+                "id": "pay",
+                "label": "Pay"
+              },
+              {
+                "id": "records",
+                "label": "Records"
+              }
+            ],
+            "categories": []
+          },
+          {
+            "id": "tree-test-tree",
+            "method": "tree_test",
+            "title": "tree_test tree",
+            "instructions": "Do the sample task.",
+            "questions": [],
+            "tree": [
+              {
+                "id": "home",
+                "label": "Home",
+                "children": [
+                  {
+                    "id": "records",
+                    "label": "Records"
+                  }
+                ]
+              }
+            ],
+            "correctNodeIds": [
+              "records"
+            ]
+          },
+          {
+            "id": "survey-survey",
+            "method": "survey",
+            "title": "survey survey",
+            "instructions": "Do the sample task.",
+            "questions": [
+              {
+                "id": "q1",
+                "type": "textarea",
+                "text": "How confident are you?",
+                "required": false
+              }
+            ]
+          }
+        ],
+        "postQuestions": [],
+        "plan": {
+          "background": "",
+          "researchQuestions": [
+            "Question"
+          ],
+          "participants": {
+            "audience": "People",
+            "recruitment": "Recruit about 122 people for the largest need (survey survey), allowing for 20% of recruits lost before randomization or start. Everyone takes every activity. Research Studio's sample-size summary shows about 97 \"plus extra for drop-out\": that's the analysis target, and the 122 here already includes the extra. Each activity's target and analysis denominator are in the analysis plan.",
+            "exclusions": "Before an activity starts: screen-outs, ineligible people, no-shows and technical failures are in no denominator (the loss allowance covers them). After start, nobody is excluded: anyone who doesn't finish counts as not successful. Discovery rounds use completed, usable sessions. Card sorts, preference tests and surveys use completed responses.",
+            "devices": "any"
+          },
+          "experiments": {},
+          "activities": {
+            "prototype-discover": {
+              "method": "prototype",
+              "objective": "",
+              "rqs": [],
+              "criteria": "",
+              "margin": 10,
+              "goal": "discover",
+              "measure": "self",
+              "benchmark": null,
+              "rounds": 3,
+              "perRound": 5
+            },
+            "card-sort-explore": {
+              "method": "card_sort",
+              "objective": "",
+              "rqs": [],
+              "criteria": "",
+              "margin": 10,
+              "goal": "explore",
+              "threshold": 60,
+              "target": 20
+            },
+            "tree-test-tree": {
+              "method": "tree_test",
+              "objective": "",
+              "rqs": [],
+              "criteria": "",
+              "margin": 10,
+              "benchmark": 70,
+              "directBenchmark": null
+            },
+            "survey-survey": {
+              "method": "survey",
+              "objective": "",
+              "rqs": [],
+              "criteria": "",
+              "margin": 10,
+              "constructs": ""
+            }
+          },
+          "analysis": "Sample size and recruitment\nLoss assumption: 20% of recruits won't reach each activity's analysis denominator, so each target is recruited as n ÷ (1 − 0.20).\nResearch Studio's sample-size summary and size text show each analysis target \"plus extra for drop-out\"; the recruit numbers here already include that extra.\nResearch Studio's size text calls prototype-task, tree-test and first-click targets \"people completing the activity\": read them as people who start, as its standard analysis does.\n1. prototype discover (Prototype usability): analysis denominator people completing a usable session, per round; target 5 per round (15 in total), shown by Research Studio as 15; recruit about 7 per round (21 in total).\n2. card_sort explore (Card sorting): analysis denominator completed sorts; target 20; recruit about 25.\n3. tree_test tree (Tree testing): analysis denominator people who start the activity; target 81; recruit about 102.\n4. survey survey (Survey): analysis denominator completed responses; target 97; recruit about 122.\n\n1. prototype discover (Prototype usability)\nList usability problems from click histories and follow-up answers, with the number of participants who met each and its severity. Counts describe this sample and are not population rates. Report self-reported completion and time for context.\nAnalysis denominator: people who complete a usable session in each round.\n\n2. card_sort explore (Card sorting)\nUse completed sorts. Report the similarity matrix (share of participants who grouped each pair together), common group names and cards with no clear home (no partner grouped with it by at least 60% of participants). Group names are not merged automatically.\nAnalysis denominator: completed sorts.\n\n3. tree_test tree (Tree testing)\nReport task success (ended at a correct destination) with a 95% Wilson interval, directness (no backtracking), first-level choices and the most common wrong destinations. People who started the activity but did not finish count as not successful. Compare with the benchmark of 70%: above if the whole 95% interval is above it, below if the whole interval is below it, otherwise inconclusive.\nAnalysis denominator: everyone who starts the activity; anyone who starts but doesn't finish stays in it and counts as not successful.\n\n4. survey survey (Survey)\nSummarise each question: distribution and median for scales, counts and percentages with 95% intervals for choices, and themes for open text.\nAnalysis denominator: completed responses.",
+          "decisions": "Decide",
+          "locked": null,
+          "changes": []
+        }
+      },
+      "studio": {
+        "experiments": [],
+        "preferences": [],
+        "sizes": {
+          "summary": {
+            "rows": [
+              {
+                "name": "prototype discover",
+                "n": 15
+              },
+              {
+                "name": "card_sort explore",
+                "n": 20
+              },
+              {
+                "name": "tree_test tree",
+                "n": 81
+              },
+              {
+                "name": "survey survey",
+                "n": 97
+              }
+            ],
+            "top": {
+              "name": "survey survey",
+              "n": 97
+            }
+          },
+          "texts": [
+            {
+              "id": "prototype-discover",
+              "text": "5 people per round, 3 rounds (15 in total), fixing problems between rounds. Small rounds find many of the most common problems; problems few people meet need more participants. Results describe problems, not rates for the whole population."
+            },
+            {
+              "id": "card-sort-explore",
+              "text": "About 20 people completing the sort. For open card sorts, 15–30 is common practice; similarity scores tend to settle at around 15–20 participants (Tullis & Wood, 2004)."
+            },
+            {
+              "id": "tree-test-tree",
+              "text": "About 81 people completing the activity, so that task success (correct destination) near 70% is estimated to within about ±10 points (95% interval). Many teams recruit about 50 per tree. Recruit extra for drop-out."
+            },
+            {
+              "id": "survey-survey",
+              "text": "About 97 people completing the activity, so that a percentage answer near 50% is estimated to within about ±10 points (95% interval). Recruit extra for drop-out."
+            }
+          ]
+        },
+        "shown": {
+          "recruitment": "Recruit about 122 people for the largest need (survey survey), allowing for 20% of recruits lost before randomization or start. Everyone takes every activity. Research Studio's sample-size summary shows about 97 \"plus extra for drop-out\": that's the analysis target, and the 122 here already includes the extra. Each activity's target and analysis denominator are in the analysis plan.",
+          "exclusions": "Before an activity starts: screen-outs, ineligible people, no-shows and technical failures are in no denominator (the loss allowance covers them). After start, nobody is excluded: anyone who doesn't finish counts as not successful. Discovery rounds use completed, usable sessions. Card sorts, preference tests and surveys use completed responses.",
+          "analysis": "Sample size and recruitment\nLoss assumption: 20% of recruits won't reach each activity's analysis denominator, so each target is recruited as n ÷ (1 − 0.20).\nResearch Studio's sample-size summary and size text show each analysis target \"plus extra for drop-out\"; the recruit numbers here already include that extra.\nResearch Studio's size text calls prototype-task, tree-test and first-click targets \"people completing the activity\": read them as people who start, as its standard analysis does.\n1. prototype discover (Prototype usability): analysis denominator people completing a usable session, per round; target 5 per round (15 in total), shown by Research Studio as 15; recruit about 7 per round (21 in total).\n2. card_sort explore (Card sorting): analysis denominator completed sorts; target 20; recruit about 25.\n3. tree_test tree (Tree testing): analysis denominator people who start the activity; target 81; recruit about 102.\n4. survey survey (Survey): analysis denominator completed responses; target 97; recruit about 122.\n\n1. prototype discover (Prototype usability)\nList usability problems from click histories and follow-up answers, with the number of participants who met each and its severity. Counts describe this sample and are not population rates. Report self-reported completion and time for context.\nAnalysis denominator: people who complete a usable session in each round.\n\n2. card_sort explore (Card sorting)\nUse completed sorts. Report the similarity matrix (share of participants who grouped each pair together), common group names and cards with no clear home (no partner grouped with it by at least 60% of participants). Group names are not merged automatically.\nAnalysis denominator: completed sorts.\n\n3. tree_test tree (Tree testing)\nReport task success (ended at a correct destination) with a 95% Wilson interval, directness (no backtracking), first-level choices and the most common wrong destinations. People who started the activity but did not finish count as not successful. Compare with the benchmark of 70%: above if the whole 95% interval is above it, below if the whole interval is below it, otherwise inconclusive.\nAnalysis denominator: everyone who starts the activity; anyone who starts but doesn't finish stays in it and counts as not successful.\n\n4. survey survey (Survey)\nSummarise each question: distribution and median for scales, counts and percentages with 95% intervals for choices, and themes for open text.\nAnalysis denominator: completed responses.",
+          "inEditor": {
+            "recruitment": true,
+            "exclusions": true,
+            "analysis": true
+          },
+          "editedIn": {
+            "recruitment": "input",
+            "exclusions": "input",
+            "analysis": "textarea"
+          },
+          "inDocument": {
+            "analysis": true
+          }
+        }
+      }
+    },
+    {
+      "name": "lower 60/15 (Research Studio plans a rise)",
+      "activities": [
+        {
+          "key": "lower-rise",
+          "method": "ab_test",
+          "title": "AB lower-rise",
+          "instructions": "Pay the sample balance.",
+          "objective": "",
+          "criteria": "",
+          "url": "",
+          "successSignal": "paid",
+          "goal": "measure",
+          "perRound": 6,
+          "rounds": 2,
+          "benchmark": null,
+          "directBenchmark": null,
+          "margin": 10,
+          "designs": [
+            {
+              "label": "Current flow",
+              "url": "https://example.com/a/"
+            },
+            {
+              "label": "New flow",
+              "url": "https://example.com/b/"
+            }
+          ],
+          "controlIndex": 0,
+          "primary": "success",
+          "direction": "lower",
+          "baseline": 60,
+          "difference": 15,
+          "power": 0.8,
+          "stoppingRule": "Analyse once after both designs reach the target.",
+          "stoppingRuleConfirmed": true,
+          "sortMode": "open",
+          "cards": "",
+          "categories": "",
+          "threshold": 60,
+          "target": 20,
+          "tree": "",
+          "split": 60,
+          "questions": "",
+          "constructs": ""
+        }
+      ],
+      "draft": {
+        "schemaVersion": 3,
+        "id": "golden-study",
+        "version": "1.0.0",
+        "title": "Golden study",
+        "description": "",
+        "prototypeUrl": "",
+        "welcome": "",
+        "consent": "",
+        "consentMode": "external",
+        "preQuestions": [],
+        "tasks": [
+          {
+            "id": "ab-lower-rise",
+            "method": "ab_test",
+            "title": "AB lower-rise",
+            "instructions": "Pay the sample balance.",
+            "questions": [],
+            "experimentId": "ab-lower-rise",
+            "variants": [
+              {
+                "id": "design-a",
+                "label": "Current flow",
+                "prototypeUrl": "https://example.com/a/"
+              },
+              {
+                "id": "design-b",
+                "label": "New flow",
+                "prototypeUrl": "https://example.com/b/"
+              }
+            ],
+            "successSignal": "paid"
+          }
+        ],
+        "postQuestions": [],
+        "plan": {
+          "background": "",
+          "researchQuestions": [
+            "Question"
+          ],
+          "participants": {
+            "audience": "People",
+            "recruitment": "Recruit about 433 people for the largest need (AB lower-rise), allowing for 20% of recruits lost before randomization or start. Everyone takes every activity. Research Studio's sample-size summary shows about 346 \"plus extra for drop-out\": that's the analysis target, and the 433 here already includes the extra. Each activity's target and analysis denominator are in the analysis plan.",
+            "exclusions": "Before randomization or start: screen-outs, ineligible people, no-shows and technical failures are in no denominator (the loss allowance covers them). After randomization or start, nobody is excluded: anyone who doesn't finish counts as not successful.",
+            "devices": "any"
+          },
+          "experiments": {
+            "ab-lower-rise": {
+              "controlId": "design-a",
+              "treatments": {},
+              "hypotheses": [
+                {
+                  "id": "h1",
+                  "treatmentId": "design-b",
+                  "direction": "lower",
+                  "measure": "success",
+                  "rationale": ""
+                }
+              ],
+              "primaryMeasure": "success",
+              "secondary": [
+                "measured",
+                "self",
+                "time",
+                "dropout"
+              ],
+              "baseline": 60,
+              "difference": 15,
+              "power": 0.8,
+              "stoppingRule": "Analyse once after both designs reach the target."
+            }
+          },
+          "activities": {},
+          "analysis": "Sample size and recruitment\nLoss assumption: 20% of recruits won't reach each activity's analysis denominator, so each target is recruited as n ÷ (1 − 0.20).\nResearch Studio's sample-size summary and size text show each analysis target \"plus extra for drop-out\"; the recruit numbers here already include that extra.\n1. AB lower-rise (A/B implementation test): analysis denominator eligible participants randomized to each design; target 173 per design (346 in total), shown by Research Studio as 346; recruit about 433.\n\n1. AB lower-rise (A/B implementation test)\nPrimary analysis: compare the alternative with Design A (Current flow), the control, on task success (success signal). Each design's denominator is every eligible participant randomized to it. Anyone randomized who drops out or whose success cannot be measured counts as not successful; nobody is removed after randomization. People screened out or lost to technical failures before randomization are in no denominator.\nReport each design's rate with a 95% Wilson score interval and the difference from the control with a two-sided Newcombe hybrid score interval at 95%. An interval that excludes zero is reported as a clear difference; an interval that includes zero is reported as inconclusive, not as evidence that the designs perform the same. No winner is declared automatically: the team judges whether a difference matters in practice.\nTarget sample (estimate): 173 randomized eligible participants per design (346 in total) to detect a change from 60% to 45% with 80% power. Recruit about 433 (346 ÷ (1 − 0.20)), allowing for 20% of recruits not reaching the analysis (screen-outs, ineligible people and technical failures before randomization).\nStopping rule: Analyse once after both designs reach the target.\nBefore interpreting outcomes, check: group sizes (sample-ratio check), drop-out by design, success-tracking coverage by design and device mix. Any problem is reported with the results.\nSecondary measures (success among finishers with success measured; self-reported completion; active time on task; drop-out by design) are reported descriptively with intervals for context and are not used to decide between designs.",
+          "decisions": "Decide",
+          "locked": null,
+          "changes": []
+        }
+      },
+      "studio": {
+        "experiments": [
+          {
+            "id": "ab-lower-rise",
+            "variantIds": [
+              "design-a",
+              "design-b"
+            ],
+            "labels": [
+              "Current flow",
+              "New flow"
+            ],
+            "controlId": "design-a",
+            "directions": [
+              "lower"
+            ],
+            "perDesign": 152,
+            "target": 75,
+            "stoppingRule": "Analyse once after both designs reach the target.",
+            "hypotheses": [
+              "Compared with Design A (Current flow), the control, Design B (New flow) will have a lower task success rate."
+            ]
+          }
+        ],
+        "preferences": [],
+        "sizes": {
+          "summary": {
+            "rows": [
+              {
+                "name": "A/B experiment ab-lower-rise",
+                "n": 304
+              }
+            ],
+            "top": {
+              "name": "A/B experiment ab-lower-rise",
+              "n": 304
+            }
+          },
+          "texts": [
+            {
+              "id": "ab-lower-rise",
+              "text": "Recruit about 152 people assigned per design (304 in total), plus extra for drop-out. This gives an 80% chance of detecting a change from 60% to 75%."
+            }
+          ]
+        },
+        "shown": {
+          "recruitment": "Recruit about 433 people for the largest need (AB lower-rise), allowing for 20% of recruits lost before randomization or start. Everyone takes every activity. Research Studio's sample-size summary shows about 346 \"plus extra for drop-out\": that's the analysis target, and the 433 here already includes the extra. Each activity's target and analysis denominator are in the analysis plan.",
+          "exclusions": "Before randomization or start: screen-outs, ineligible people, no-shows and technical failures are in no denominator (the loss allowance covers them). After randomization or start, nobody is excluded: anyone who doesn't finish counts as not successful.",
+          "analysis": "Sample size and recruitment\nLoss assumption: 20% of recruits won't reach each activity's analysis denominator, so each target is recruited as n ÷ (1 − 0.20).\nResearch Studio's sample-size summary and size text show each analysis target \"plus extra for drop-out\"; the recruit numbers here already include that extra.\n1. AB lower-rise (A/B implementation test): analysis denominator eligible participants randomized to each design; target 173 per design (346 in total), shown by Research Studio as 346; recruit about 433.\n\n1. AB lower-rise (A/B implementation test)\nPrimary analysis: compare the alternative with Design A (Current flow), the control, on task success (success signal). Each design's denominator is every eligible participant randomized to it. Anyone randomized who drops out or whose success cannot be measured counts as not successful; nobody is removed after randomization. People screened out or lost to technical failures before randomization are in no denominator.\nReport each design's rate with a 95% Wilson score interval and the difference from the control with a two-sided Newcombe hybrid score interval at 95%. An interval that excludes zero is reported as a clear difference; an interval that includes zero is reported as inconclusive, not as evidence that the designs perform the same. No winner is declared automatically: the team judges whether a difference matters in practice.\nTarget sample (estimate): 173 randomized eligible participants per design (346 in total) to detect a change from 60% to 45% with 80% power. Recruit about 433 (346 ÷ (1 − 0.20)), allowing for 20% of recruits not reaching the analysis (screen-outs, ineligible people and technical failures before randomization).\nStopping rule: Analyse once after both designs reach the target.\nBefore interpreting outcomes, check: group sizes (sample-ratio check), drop-out by design, success-tracking coverage by design and device mix. Any problem is reported with the results.\nSecondary measures (success among finishers with success measured; self-reported completion; active time on task; drop-out by design) are reported descriptively with intervals for context and are not used to decide between designs.",
+          "inEditor": {
+            "recruitment": true,
+            "exclusions": true,
+            "analysis": true
+          },
+          "editedIn": {
+            "recruitment": "input",
+            "exclusions": "input",
+            "analysis": "textarea"
+          },
+          "inDocument": {
+            "analysis": true
+          }
+        }
+      }
+    },
+    {
+      "name": "lower 90/15 (Research Studio also plans the drop)",
+      "activities": [
+        {
+          "key": "lower-drop",
+          "method": "ab_test",
+          "title": "AB lower-drop",
+          "instructions": "Pay the sample balance.",
+          "objective": "",
+          "criteria": "",
+          "url": "",
+          "successSignal": "paid",
+          "goal": "measure",
+          "perRound": 6,
+          "rounds": 2,
+          "benchmark": null,
+          "directBenchmark": null,
+          "margin": 10,
+          "designs": [
+            {
+              "label": "Current flow",
+              "url": "https://example.com/a/"
+            },
+            {
+              "label": "New flow",
+              "url": "https://example.com/b/"
+            }
+          ],
+          "controlIndex": 0,
+          "primary": "success",
+          "direction": "lower",
+          "baseline": 90,
+          "difference": 15,
+          "power": 0.8,
+          "stoppingRule": "Analyse once after both designs reach the target.",
+          "stoppingRuleConfirmed": true,
+          "sortMode": "open",
+          "cards": "",
+          "categories": "",
+          "threshold": 60,
+          "target": 20,
+          "tree": "",
+          "split": 60,
+          "questions": "",
+          "constructs": ""
+        }
+      ],
+      "draft": {
+        "schemaVersion": 3,
+        "id": "golden-study",
+        "version": "1.0.0",
+        "title": "Golden study",
+        "description": "",
+        "prototypeUrl": "",
+        "welcome": "",
+        "consent": "",
+        "consentMode": "external",
+        "preQuestions": [],
+        "tasks": [
+          {
+            "id": "ab-lower-drop",
+            "method": "ab_test",
+            "title": "AB lower-drop",
+            "instructions": "Pay the sample balance.",
+            "questions": [],
+            "experimentId": "ab-lower-drop",
+            "variants": [
+              {
+                "id": "design-a",
+                "label": "Current flow",
+                "prototypeUrl": "https://example.com/a/"
+              },
+              {
+                "id": "design-b",
+                "label": "New flow",
+                "prototypeUrl": "https://example.com/b/"
+              }
+            ],
+            "successSignal": "paid"
+          }
+        ],
+        "postQuestions": [],
+        "plan": {
+          "background": "",
+          "researchQuestions": [
+            "Question"
+          ],
+          "participants": {
+            "audience": "People",
+            "recruitment": "Recruit about 250 people for the largest need (AB lower-drop), allowing for 20% of recruits lost before randomization or start. Everyone takes every activity. Research Studio's sample-size summary shows about 200 \"plus extra for drop-out\": that's the analysis target, and the 250 here already includes the extra. Each activity's target and analysis denominator are in the analysis plan.",
+            "exclusions": "Before randomization or start: screen-outs, ineligible people, no-shows and technical failures are in no denominator (the loss allowance covers them). After randomization or start, nobody is excluded: anyone who doesn't finish counts as not successful.",
+            "devices": "any"
+          },
+          "experiments": {
+            "ab-lower-drop": {
+              "controlId": "design-a",
+              "treatments": {},
+              "hypotheses": [
+                {
+                  "id": "h1",
+                  "treatmentId": "design-b",
+                  "direction": "lower",
+                  "measure": "success",
+                  "rationale": ""
+                }
+              ],
+              "primaryMeasure": "success",
+              "secondary": [
+                "measured",
+                "self",
+                "time",
+                "dropout"
+              ],
+              "baseline": 90,
+              "difference": 15,
+              "power": 0.8,
+              "stoppingRule": "Analyse once after both designs reach the target."
+            }
+          },
+          "activities": {},
+          "analysis": "Sample size and recruitment\nLoss assumption: 20% of recruits won't reach each activity's analysis denominator, so each target is recruited as n ÷ (1 − 0.20).\nResearch Studio's sample-size summary and size text show each analysis target \"plus extra for drop-out\"; the recruit numbers here already include that extra.\n1. AB lower-drop (A/B implementation test): analysis denominator eligible participants randomized to each design; target 100 per design (200 in total), shown by Research Studio as 200; recruit about 250.\n\n1. AB lower-drop (A/B implementation test)\nPrimary analysis: compare the alternative with Design A (Current flow), the control, on task success (success signal). Each design's denominator is every eligible participant randomized to it. Anyone randomized who drops out or whose success cannot be measured counts as not successful; nobody is removed after randomization. People screened out or lost to technical failures before randomization are in no denominator.\nReport each design's rate with a 95% Wilson score interval and the difference from the control with a two-sided Newcombe hybrid score interval at 95%. An interval that excludes zero is reported as a clear difference; an interval that includes zero is reported as inconclusive, not as evidence that the designs perform the same. No winner is declared automatically: the team judges whether a difference matters in practice.\nTarget sample (estimate): 100 randomized eligible participants per design (200 in total) to detect a change from 90% to 75% with 80% power. Recruit about 250 (200 ÷ (1 − 0.20)), allowing for 20% of recruits not reaching the analysis (screen-outs, ineligible people and technical failures before randomization).\nStopping rule: Analyse once after both designs reach the target.\nBefore interpreting outcomes, check: group sizes (sample-ratio check), drop-out by design, success-tracking coverage by design and device mix. Any problem is reported with the results.\nSecondary measures (success among finishers with success measured; self-reported completion; active time on task; drop-out by design) are reported descriptively with intervals for context and are not used to decide between designs.",
+          "decisions": "Decide",
+          "locked": null,
+          "changes": []
+        }
+      },
+      "studio": {
+        "experiments": [
+          {
+            "id": "ab-lower-drop",
+            "variantIds": [
+              "design-a",
+              "design-b"
+            ],
+            "labels": [
+              "Current flow",
+              "New flow"
+            ],
+            "controlId": "design-a",
+            "directions": [
+              "lower"
+            ],
+            "perDesign": 100,
+            "target": 75,
+            "stoppingRule": "Analyse once after both designs reach the target.",
+            "hypotheses": [
+              "Compared with Design A (Current flow), the control, Design B (New flow) will have a lower task success rate."
+            ]
+          }
+        ],
+        "preferences": [],
+        "sizes": {
+          "summary": {
+            "rows": [
+              {
+                "name": "A/B experiment ab-lower-drop",
+                "n": 200
+              }
+            ],
+            "top": {
+              "name": "A/B experiment ab-lower-drop",
+              "n": 200
+            }
+          },
+          "texts": [
+            {
+              "id": "ab-lower-drop",
+              "text": "Recruit about 100 people assigned per design (200 in total), plus extra for drop-out. This gives an 80% chance of detecting a change from 90% to 75% (planned as a drop, since 105% is not possible)."
+            }
+          ]
+        },
+        "shown": {
+          "recruitment": "Recruit about 250 people for the largest need (AB lower-drop), allowing for 20% of recruits lost before randomization or start. Everyone takes every activity. Research Studio's sample-size summary shows about 200 \"plus extra for drop-out\": that's the analysis target, and the 250 here already includes the extra. Each activity's target and analysis denominator are in the analysis plan.",
+          "exclusions": "Before randomization or start: screen-outs, ineligible people, no-shows and technical failures are in no denominator (the loss allowance covers them). After randomization or start, nobody is excluded: anyone who doesn't finish counts as not successful.",
+          "analysis": "Sample size and recruitment\nLoss assumption: 20% of recruits won't reach each activity's analysis denominator, so each target is recruited as n ÷ (1 − 0.20).\nResearch Studio's sample-size summary and size text show each analysis target \"plus extra for drop-out\"; the recruit numbers here already include that extra.\n1. AB lower-drop (A/B implementation test): analysis denominator eligible participants randomized to each design; target 100 per design (200 in total), shown by Research Studio as 200; recruit about 250.\n\n1. AB lower-drop (A/B implementation test)\nPrimary analysis: compare the alternative with Design A (Current flow), the control, on task success (success signal). Each design's denominator is every eligible participant randomized to it. Anyone randomized who drops out or whose success cannot be measured counts as not successful; nobody is removed after randomization. People screened out or lost to technical failures before randomization are in no denominator.\nReport each design's rate with a 95% Wilson score interval and the difference from the control with a two-sided Newcombe hybrid score interval at 95%. An interval that excludes zero is reported as a clear difference; an interval that includes zero is reported as inconclusive, not as evidence that the designs perform the same. No winner is declared automatically: the team judges whether a difference matters in practice.\nTarget sample (estimate): 100 randomized eligible participants per design (200 in total) to detect a change from 90% to 75% with 80% power. Recruit about 250 (200 ÷ (1 − 0.20)), allowing for 20% of recruits not reaching the analysis (screen-outs, ineligible people and technical failures before randomization).\nStopping rule: Analyse once after both designs reach the target.\nBefore interpreting outcomes, check: group sizes (sample-ratio check), drop-out by design, success-tracking coverage by design and device mix. Any problem is reported with the results.\nSecondary measures (success among finishers with success measured; self-reported completion; active time on task; drop-out by design) are reported descriptively with intervals for context and are not used to decide between designs.",
+          "inEditor": {
+            "recruitment": true,
+            "exclusions": true,
+            "analysis": true
+          },
+          "editedIn": {
+            "recruitment": "input",
+            "exclusions": "input",
+            "analysis": "textarea"
+          },
+          "inDocument": {
+            "analysis": true
+          }
+        }
+      }
+    },
+    {
+      "name": "different 30/10 (the harder change is the rise, which Research Studio also plans)",
+      "activities": [
+        {
+          "key": "different-rise",
+          "method": "ab_test",
+          "title": "AB different-rise",
+          "instructions": "Pay the sample balance.",
+          "objective": "",
+          "criteria": "",
+          "url": "",
+          "successSignal": "paid",
+          "goal": "measure",
+          "perRound": 6,
+          "rounds": 2,
+          "benchmark": null,
+          "directBenchmark": null,
+          "margin": 10,
+          "designs": [
+            {
+              "label": "Current flow",
+              "url": "https://example.com/a/"
+            },
+            {
+              "label": "New flow",
+              "url": "https://example.com/b/"
+            }
+          ],
+          "controlIndex": 0,
+          "primary": "success",
+          "direction": "different",
+          "baseline": 30,
+          "difference": 10,
+          "power": 0.8,
+          "stoppingRule": "Analyse once after both designs reach the target.",
+          "stoppingRuleConfirmed": true,
+          "sortMode": "open",
+          "cards": "",
+          "categories": "",
+          "threshold": 60,
+          "target": 20,
+          "tree": "",
+          "split": 60,
+          "questions": "",
+          "constructs": ""
+        }
+      ],
+      "draft": {
+        "schemaVersion": 3,
+        "id": "golden-study",
+        "version": "1.0.0",
+        "title": "Golden study",
+        "description": "",
+        "prototypeUrl": "",
+        "welcome": "",
+        "consent": "",
+        "consentMode": "external",
+        "preQuestions": [],
+        "tasks": [
+          {
+            "id": "ab-different-rise",
+            "method": "ab_test",
+            "title": "AB different-rise",
+            "instructions": "Pay the sample balance.",
+            "questions": [],
+            "experimentId": "ab-different-rise",
+            "variants": [
+              {
+                "id": "design-a",
+                "label": "Current flow",
+                "prototypeUrl": "https://example.com/a/"
+              },
+              {
+                "id": "design-b",
+                "label": "New flow",
+                "prototypeUrl": "https://example.com/b/"
+              }
+            ],
+            "successSignal": "paid"
+          }
+        ],
+        "postQuestions": [],
+        "plan": {
+          "background": "",
+          "researchQuestions": [
+            "Question"
+          ],
+          "participants": {
+            "audience": "People",
+            "recruitment": "Recruit about 890 people for the largest need (AB different-rise), allowing for 20% of recruits lost before randomization or start. Everyone takes every activity. Research Studio's sample-size summary shows about 712 \"plus extra for drop-out\": that's the analysis target, and the 890 here already includes the extra. Each activity's target and analysis denominator are in the analysis plan.",
+            "exclusions": "Before randomization or start: screen-outs, ineligible people, no-shows and technical failures are in no denominator (the loss allowance covers them). After randomization or start, nobody is excluded: anyone who doesn't finish counts as not successful.",
+            "devices": "any"
+          },
+          "experiments": {
+            "ab-different-rise": {
+              "controlId": "design-a",
+              "treatments": {},
+              "hypotheses": [
+                {
+                  "id": "h1",
+                  "treatmentId": "design-b",
+                  "direction": "different",
+                  "measure": "success",
+                  "rationale": ""
+                }
+              ],
+              "primaryMeasure": "success",
+              "secondary": [
+                "measured",
+                "self",
+                "time",
+                "dropout"
+              ],
+              "baseline": 30,
+              "difference": 10,
+              "power": 0.8,
+              "stoppingRule": "Analyse once after both designs reach the target."
+            }
+          },
+          "activities": {},
+          "analysis": "Sample size and recruitment\nLoss assumption: 20% of recruits won't reach each activity's analysis denominator, so each target is recruited as n ÷ (1 − 0.20).\nResearch Studio's sample-size summary and size text show each analysis target \"plus extra for drop-out\"; the recruit numbers here already include that extra.\n1. AB different-rise (A/B implementation test): analysis denominator eligible participants randomized to each design; target 356 per design (712 in total), shown by Research Studio as 712; recruit about 890.\n\n1. AB different-rise (A/B implementation test)\nPrimary analysis: compare the alternative with Design A (Current flow), the control, on task success (success signal). Each design's denominator is every eligible participant randomized to it. Anyone randomized who drops out or whose success cannot be measured counts as not successful; nobody is removed after randomization. People screened out or lost to technical failures before randomization are in no denominator.\nReport each design's rate with a 95% Wilson score interval and the difference from the control with a two-sided Newcombe hybrid score interval at 95%. An interval that excludes zero is reported as a clear difference; an interval that includes zero is reported as inconclusive, not as evidence that the designs perform the same. No winner is declared automatically: the team judges whether a difference matters in practice.\nTarget sample (estimate): 356 randomized eligible participants per design (712 in total) to detect a change from 30% to 40% with 80% power. Recruit about 890 (712 ÷ (1 − 0.20)), allowing for 20% of recruits not reaching the analysis (screen-outs, ineligible people and technical failures before randomization).\nStopping rule: Analyse once after both designs reach the target.\nBefore interpreting outcomes, check: group sizes (sample-ratio check), drop-out by design, success-tracking coverage by design and device mix. Any problem is reported with the results.\nSecondary measures (success among finishers with success measured; self-reported completion; active time on task; drop-out by design) are reported descriptively with intervals for context and are not used to decide between designs.",
+          "decisions": "Decide",
+          "locked": null,
+          "changes": []
+        }
+      },
+      "studio": {
+        "experiments": [
+          {
+            "id": "ab-different-rise",
+            "variantIds": [
+              "design-a",
+              "design-b"
+            ],
+            "labels": [
+              "Current flow",
+              "New flow"
+            ],
+            "controlId": "design-a",
+            "directions": [
+              "different"
+            ],
+            "perDesign": 356,
+            "target": 40,
+            "stoppingRule": "Analyse once after both designs reach the target.",
+            "hypotheses": [
+              "Compared with Design A (Current flow), the control, Design B (New flow) will have a different task success rate."
+            ]
+          }
+        ],
+        "preferences": [],
+        "sizes": {
+          "summary": {
+            "rows": [
+              {
+                "name": "A/B experiment ab-different-rise",
+                "n": 712
+              }
+            ],
+            "top": {
+              "name": "A/B experiment ab-different-rise",
+              "n": 712
+            }
+          },
+          "texts": [
+            {
+              "id": "ab-different-rise",
+              "text": "Recruit about 356 people assigned per design (712 in total), plus extra for drop-out. This gives an 80% chance of detecting a change from 30% to 40%."
+            }
+          ]
+        },
+        "shown": {
+          "recruitment": "Recruit about 890 people for the largest need (AB different-rise), allowing for 20% of recruits lost before randomization or start. Everyone takes every activity. Research Studio's sample-size summary shows about 712 \"plus extra for drop-out\": that's the analysis target, and the 890 here already includes the extra. Each activity's target and analysis denominator are in the analysis plan.",
+          "exclusions": "Before randomization or start: screen-outs, ineligible people, no-shows and technical failures are in no denominator (the loss allowance covers them). After randomization or start, nobody is excluded: anyone who doesn't finish counts as not successful.",
+          "analysis": "Sample size and recruitment\nLoss assumption: 20% of recruits won't reach each activity's analysis denominator, so each target is recruited as n ÷ (1 − 0.20).\nResearch Studio's sample-size summary and size text show each analysis target \"plus extra for drop-out\"; the recruit numbers here already include that extra.\n1. AB different-rise (A/B implementation test): analysis denominator eligible participants randomized to each design; target 356 per design (712 in total), shown by Research Studio as 712; recruit about 890.\n\n1. AB different-rise (A/B implementation test)\nPrimary analysis: compare the alternative with Design A (Current flow), the control, on task success (success signal). Each design's denominator is every eligible participant randomized to it. Anyone randomized who drops out or whose success cannot be measured counts as not successful; nobody is removed after randomization. People screened out or lost to technical failures before randomization are in no denominator.\nReport each design's rate with a 95% Wilson score interval and the difference from the control with a two-sided Newcombe hybrid score interval at 95%. An interval that excludes zero is reported as a clear difference; an interval that includes zero is reported as inconclusive, not as evidence that the designs perform the same. No winner is declared automatically: the team judges whether a difference matters in practice.\nTarget sample (estimate): 356 randomized eligible participants per design (712 in total) to detect a change from 30% to 40% with 80% power. Recruit about 890 (712 ÷ (1 − 0.20)), allowing for 20% of recruits not reaching the analysis (screen-outs, ineligible people and technical failures before randomization).\nStopping rule: Analyse once after both designs reach the target.\nBefore interpreting outcomes, check: group sizes (sample-ratio check), drop-out by design, success-tracking coverage by design and device mix. Any problem is reported with the results.\nSecondary measures (success among finishers with success measured; self-reported completion; active time on task; drop-out by design) are reported descriptively with intervals for context and are not used to decide between designs.",
+          "inEditor": {
+            "recruitment": true,
+            "exclusions": true,
+            "analysis": true
+          },
+          "editedIn": {
+            "recruitment": "input",
+            "exclusions": "input",
+            "analysis": "textarea"
+          },
+          "inDocument": {
+            "analysis": true
+          }
+        }
+      }
+    },
+    {
+      "name": "different 70/10 (the harder change is the drop; Research Studio plans a rise)",
+      "activities": [
+        {
+          "key": "different-drop",
+          "method": "ab_test",
+          "title": "AB different-drop",
+          "instructions": "Pay the sample balance.",
+          "objective": "",
+          "criteria": "",
+          "url": "",
+          "successSignal": "paid",
+          "goal": "measure",
+          "perRound": 6,
+          "rounds": 2,
+          "benchmark": null,
+          "directBenchmark": null,
+          "margin": 10,
+          "designs": [
+            {
+              "label": "Current flow",
+              "url": "https://example.com/a/"
+            },
+            {
+              "label": "New flow",
+              "url": "https://example.com/b/"
+            }
+          ],
+          "controlIndex": 0,
+          "primary": "success",
+          "direction": "different",
+          "baseline": 70,
+          "difference": 10,
+          "power": 0.8,
+          "stoppingRule": "Analyse once after both designs reach the target.",
+          "stoppingRuleConfirmed": true,
+          "sortMode": "open",
+          "cards": "",
+          "categories": "",
+          "threshold": 60,
+          "target": 20,
+          "tree": "",
+          "split": 60,
+          "questions": "",
+          "constructs": ""
+        }
+      ],
+      "draft": {
+        "schemaVersion": 3,
+        "id": "golden-study",
+        "version": "1.0.0",
+        "title": "Golden study",
+        "description": "",
+        "prototypeUrl": "",
+        "welcome": "",
+        "consent": "",
+        "consentMode": "external",
+        "preQuestions": [],
+        "tasks": [
+          {
+            "id": "ab-different-drop",
+            "method": "ab_test",
+            "title": "AB different-drop",
+            "instructions": "Pay the sample balance.",
+            "questions": [],
+            "experimentId": "ab-different-drop",
+            "variants": [
+              {
+                "id": "design-a",
+                "label": "Current flow",
+                "prototypeUrl": "https://example.com/a/"
+              },
+              {
+                "id": "design-b",
+                "label": "New flow",
+                "prototypeUrl": "https://example.com/b/"
+              }
+            ],
+            "successSignal": "paid"
+          }
+        ],
+        "postQuestions": [],
+        "plan": {
+          "background": "",
+          "researchQuestions": [
+            "Question"
+          ],
+          "participants": {
+            "audience": "People",
+            "recruitment": "Recruit about 890 people for the largest need (AB different-drop), allowing for 20% of recruits lost before randomization or start. Everyone takes every activity. Research Studio's sample-size summary shows about 712 \"plus extra for drop-out\": that's the analysis target, and the 890 here already includes the extra. Each activity's target and analysis denominator are in the analysis plan.",
+            "exclusions": "Before randomization or start: screen-outs, ineligible people, no-shows and technical failures are in no denominator (the loss allowance covers them). After randomization or start, nobody is excluded: anyone who doesn't finish counts as not successful.",
+            "devices": "any"
+          },
+          "experiments": {
+            "ab-different-drop": {
+              "controlId": "design-a",
+              "treatments": {},
+              "hypotheses": [
+                {
+                  "id": "h1",
+                  "treatmentId": "design-b",
+                  "direction": "different",
+                  "measure": "success",
+                  "rationale": ""
+                }
+              ],
+              "primaryMeasure": "success",
+              "secondary": [
+                "measured",
+                "self",
+                "time",
+                "dropout"
+              ],
+              "baseline": 70,
+              "difference": 10,
+              "power": 0.8,
+              "stoppingRule": "Analyse once after both designs reach the target."
+            }
+          },
+          "activities": {},
+          "analysis": "Sample size and recruitment\nLoss assumption: 20% of recruits won't reach each activity's analysis denominator, so each target is recruited as n ÷ (1 − 0.20).\nResearch Studio's sample-size summary and size text show each analysis target \"plus extra for drop-out\"; the recruit numbers here already include that extra.\n1. AB different-drop (A/B implementation test): analysis denominator eligible participants randomized to each design; target 356 per design (712 in total), shown by Research Studio as 712; recruit about 890.\n\n1. AB different-drop (A/B implementation test)\nPrimary analysis: compare the alternative with Design A (Current flow), the control, on task success (success signal). Each design's denominator is every eligible participant randomized to it. Anyone randomized who drops out or whose success cannot be measured counts as not successful; nobody is removed after randomization. People screened out or lost to technical failures before randomization are in no denominator.\nReport each design's rate with a 95% Wilson score interval and the difference from the control with a two-sided Newcombe hybrid score interval at 95%. An interval that excludes zero is reported as a clear difference; an interval that includes zero is reported as inconclusive, not as evidence that the designs perform the same. No winner is declared automatically: the team judges whether a difference matters in practice.\nTarget sample (estimate): 356 randomized eligible participants per design (712 in total) to detect a change from 70% to 60% with 80% power. Recruit about 890 (712 ÷ (1 − 0.20)), allowing for 20% of recruits not reaching the analysis (screen-outs, ineligible people and technical failures before randomization).\nStopping rule: Analyse once after both designs reach the target.\nBefore interpreting outcomes, check: group sizes (sample-ratio check), drop-out by design, success-tracking coverage by design and device mix. Any problem is reported with the results.\nSecondary measures (success among finishers with success measured; self-reported completion; active time on task; drop-out by design) are reported descriptively with intervals for context and are not used to decide between designs.",
+          "decisions": "Decide",
+          "locked": null,
+          "changes": []
+        }
+      },
+      "studio": {
+        "experiments": [
+          {
+            "id": "ab-different-drop",
+            "variantIds": [
+              "design-a",
+              "design-b"
+            ],
+            "labels": [
+              "Current flow",
+              "New flow"
+            ],
+            "controlId": "design-a",
+            "directions": [
+              "different"
+            ],
+            "perDesign": 294,
+            "target": 80,
+            "stoppingRule": "Analyse once after both designs reach the target.",
+            "hypotheses": [
+              "Compared with Design A (Current flow), the control, Design B (New flow) will have a different task success rate."
+            ]
+          }
+        ],
+        "preferences": [],
+        "sizes": {
+          "summary": {
+            "rows": [
+              {
+                "name": "A/B experiment ab-different-drop",
+                "n": 588
+              }
+            ],
+            "top": {
+              "name": "A/B experiment ab-different-drop",
+              "n": 588
+            }
+          },
+          "texts": [
+            {
+              "id": "ab-different-drop",
+              "text": "Recruit about 294 people assigned per design (588 in total), plus extra for drop-out. This gives an 80% chance of detecting a change from 70% to 80%."
+            }
+          ]
+        },
+        "shown": {
+          "recruitment": "Recruit about 890 people for the largest need (AB different-drop), allowing for 20% of recruits lost before randomization or start. Everyone takes every activity. Research Studio's sample-size summary shows about 712 \"plus extra for drop-out\": that's the analysis target, and the 890 here already includes the extra. Each activity's target and analysis denominator are in the analysis plan.",
+          "exclusions": "Before randomization or start: screen-outs, ineligible people, no-shows and technical failures are in no denominator (the loss allowance covers them). After randomization or start, nobody is excluded: anyone who doesn't finish counts as not successful.",
+          "analysis": "Sample size and recruitment\nLoss assumption: 20% of recruits won't reach each activity's analysis denominator, so each target is recruited as n ÷ (1 − 0.20).\nResearch Studio's sample-size summary and size text show each analysis target \"plus extra for drop-out\"; the recruit numbers here already include that extra.\n1. AB different-drop (A/B implementation test): analysis denominator eligible participants randomized to each design; target 356 per design (712 in total), shown by Research Studio as 712; recruit about 890.\n\n1. AB different-drop (A/B implementation test)\nPrimary analysis: compare the alternative with Design A (Current flow), the control, on task success (success signal). Each design's denominator is every eligible participant randomized to it. Anyone randomized who drops out or whose success cannot be measured counts as not successful; nobody is removed after randomization. People screened out or lost to technical failures before randomization are in no denominator.\nReport each design's rate with a 95% Wilson score interval and the difference from the control with a two-sided Newcombe hybrid score interval at 95%. An interval that excludes zero is reported as a clear difference; an interval that includes zero is reported as inconclusive, not as evidence that the designs perform the same. No winner is declared automatically: the team judges whether a difference matters in practice.\nTarget sample (estimate): 356 randomized eligible participants per design (712 in total) to detect a change from 70% to 60% with 80% power. Recruit about 890 (712 ÷ (1 − 0.20)), allowing for 20% of recruits not reaching the analysis (screen-outs, ineligible people and technical failures before randomization).\nStopping rule: Analyse once after both designs reach the target.\nBefore interpreting outcomes, check: group sizes (sample-ratio check), drop-out by design, success-tracking coverage by design and device mix. Any problem is reported with the results.\nSecondary measures (success among finishers with success measured; self-reported completion; active time on task; drop-out by design) are reported descriptively with intervals for context and are not used to decide between designs.",
+          "inEditor": {
+            "recruitment": true,
+            "exclusions": true,
+            "analysis": true
+          },
+          "editedIn": {
+            "recruitment": "input",
+            "exclusions": "input",
+            "analysis": "textarea"
+          },
+          "inDocument": {
+            "analysis": true
+          }
+        }
+      }
+    },
+    {
+      "name": "two-option preference 65/35",
+      "activities": [
+        {
+          "key": "two",
+          "method": "preference",
+          "title": "Pref two",
+          "instructions": "Choose the layout you prefer.",
+          "objective": "",
+          "criteria": "",
+          "url": "",
+          "successSignal": "",
+          "goal": "measure",
+          "perRound": 6,
+          "rounds": 2,
+          "benchmark": null,
+          "directBenchmark": null,
+          "margin": 10,
+          "designs": [
+            {
+              "label": "Layout 1",
+              "url": "https://example.com/0.png"
+            },
+            {
+              "label": "Layout 2",
+              "url": "https://example.com/1.png"
+            }
+          ],
+          "controlIndex": 0,
+          "primary": "success",
+          "direction": "higher",
+          "baseline": 50,
+          "difference": 15,
+          "power": 0.8,
+          "stoppingRule": "",
+          "stoppingRuleConfirmed": false,
+          "sortMode": "open",
+          "cards": "",
+          "categories": "",
+          "threshold": 60,
+          "target": 20,
+          "tree": "",
+          "split": 65,
+          "questions": "",
+          "constructs": ""
+        }
+      ],
+      "draft": {
+        "schemaVersion": 3,
+        "id": "golden-study",
+        "version": "1.0.0",
+        "title": "Golden study",
+        "description": "",
+        "prototypeUrl": "",
+        "welcome": "",
+        "consent": "",
+        "consentMode": "external",
+        "preQuestions": [],
+        "tasks": [
+          {
+            "id": "pref-two",
+            "method": "preference",
+            "title": "Pref two",
+            "instructions": "Choose the layout you prefer.",
+            "questions": [],
+            "variants": [
+              {
+                "id": "option-a",
+                "label": "Layout 1",
+                "imageUrl": "https://example.com/0.png"
+              },
+              {
+                "id": "option-b",
+                "label": "Layout 2",
+                "imageUrl": "https://example.com/1.png"
+              }
+            ]
+          }
+        ],
+        "postQuestions": [],
+        "plan": {
+          "background": "",
+          "researchQuestions": [
+            "Question"
+          ],
+          "participants": {
+            "audience": "People",
+            "recruitment": "Recruit about 107 people for the largest need (Pref two), allowing for 20% of recruits lost before randomization or start. Everyone takes every activity. Research Studio's sample-size summary shows about 85 \"plus extra for drop-out\": that's the analysis target, and the 107 here already includes the extra. Each activity's target and analysis denominator are in the analysis plan.",
+            "exclusions": "Before an activity starts: screen-outs, ineligible people, no-shows and technical failures are in no denominator (the loss allowance covers them). Card sorts, preference tests and surveys use completed responses.",
+            "devices": "any"
+          },
+          "experiments": {},
+          "activities": {
+            "pref-two": {
+              "method": "preference",
+              "objective": "",
+              "rqs": [],
+              "criteria": "",
+              "margin": 10,
+              "split": 65,
+              "power": 0.8
+            }
+          },
+          "analysis": "Sample size and recruitment\nLoss assumption: 20% of recruits won't reach each activity's analysis denominator, so each target is recruited as n ÷ (1 − 0.20).\nResearch Studio's sample-size summary and size text show each analysis target \"plus extra for drop-out\"; the recruit numbers here already include that extra.\n1. Pref two (Preference testing): analysis denominator people who choose an option; target 85; recruit about 107.\n\n1. Pref two (Preference testing)\nReport the share choosing each option with 95% Wilson intervals, and whether the interval for the leading option excludes 50%. Summarise reasons from follow-up answers. Preference is not performance: compare with task results where available. Presentation order is randomised.\nAnalysis denominator: people who choose an option.",
+          "decisions": "Decide",
+          "locked": null,
+          "changes": []
+        }
+      },
+      "studio": {
+        "experiments": [],
+        "preferences": [
+          {
+            "id": "pref-two",
+            "options": 2,
+            "split": 65,
+            "n": 85,
+            "text": "About 85 people choosing between two options, to tell a 65/35 split from 50/50 with 80% power. \"No preference\" answers and a third option need more people."
+          }
+        ],
+        "sizes": {
+          "summary": {
+            "rows": [
+              {
+                "name": "Pref two",
+                "n": 85
+              }
+            ],
+            "top": {
+              "name": "Pref two",
+              "n": 85
+            }
+          },
+          "texts": [
+            {
+              "id": "pref-two",
+              "text": "About 85 people choosing between two options, to tell a 65/35 split from 50/50 with 80% power. \"No preference\" answers and a third option need more people."
+            }
+          ]
+        },
+        "shown": {
+          "recruitment": "Recruit about 107 people for the largest need (Pref two), allowing for 20% of recruits lost before randomization or start. Everyone takes every activity. Research Studio's sample-size summary shows about 85 \"plus extra for drop-out\": that's the analysis target, and the 107 here already includes the extra. Each activity's target and analysis denominator are in the analysis plan.",
+          "exclusions": "Before an activity starts: screen-outs, ineligible people, no-shows and technical failures are in no denominator (the loss allowance covers them). Card sorts, preference tests and surveys use completed responses.",
+          "analysis": "Sample size and recruitment\nLoss assumption: 20% of recruits won't reach each activity's analysis denominator, so each target is recruited as n ÷ (1 − 0.20).\nResearch Studio's sample-size summary and size text show each analysis target \"plus extra for drop-out\"; the recruit numbers here already include that extra.\n1. Pref two (Preference testing): analysis denominator people who choose an option; target 85; recruit about 107.\n\n1. Pref two (Preference testing)\nReport the share choosing each option with 95% Wilson intervals, and whether the interval for the leading option excludes 50%. Summarise reasons from follow-up answers. Preference is not performance: compare with task results where available. Presentation order is randomised.\nAnalysis denominator: people who choose an option.",
+          "inEditor": {
+            "recruitment": true,
+            "exclusions": true,
+            "analysis": true
+          },
+          "editedIn": {
+            "recruitment": "input",
+            "exclusions": "input",
+            "analysis": "textarea"
+          },
+          "inDocument": {
+            "analysis": true
+          }
+        }
+      }
+    },
+    {
+      "name": "three-option exploratory preference",
+      "activities": [
+        {
+          "key": "three",
+          "method": "preference",
+          "title": "Pref three",
+          "instructions": "Choose the layout you prefer.",
+          "objective": "",
+          "criteria": "",
+          "url": "",
+          "successSignal": "",
+          "goal": "measure",
+          "perRound": 6,
+          "rounds": 2,
+          "benchmark": null,
+          "directBenchmark": null,
+          "margin": 10,
+          "designs": [
+            {
+              "label": "Layout 1",
+              "url": "https://example.com/0.png"
+            },
+            {
+              "label": "Layout 2",
+              "url": "https://example.com/1.png"
+            },
+            {
+              "label": "Layout 3",
+              "url": "https://example.com/2.png"
+            }
+          ],
+          "controlIndex": 0,
+          "primary": "success",
+          "direction": "higher",
+          "baseline": 50,
+          "difference": 15,
+          "power": 0.8,
+          "stoppingRule": "",
+          "stoppingRuleConfirmed": false,
+          "sortMode": "open",
+          "cards": "",
+          "categories": "",
+          "threshold": 60,
+          "target": 20,
+          "tree": "",
+          "split": null,
+          "questions": "",
+          "constructs": ""
+        }
+      ],
+      "draft": {
+        "schemaVersion": 3,
+        "id": "golden-study",
+        "version": "1.0.0",
+        "title": "Golden study",
+        "description": "",
+        "prototypeUrl": "",
+        "welcome": "",
+        "consent": "",
+        "consentMode": "external",
+        "preQuestions": [],
+        "tasks": [
+          {
+            "id": "pref-three",
+            "method": "preference",
+            "title": "Pref three",
+            "instructions": "Choose the layout you prefer.",
+            "questions": [],
+            "variants": [
+              {
+                "id": "option-a",
+                "label": "Layout 1",
+                "imageUrl": "https://example.com/0.png"
+              },
+              {
+                "id": "option-b",
+                "label": "Layout 2",
+                "imageUrl": "https://example.com/1.png"
+              },
+              {
+                "id": "option-c",
+                "label": "Layout 3",
+                "imageUrl": "https://example.com/2.png"
+              }
+            ]
+          }
+        ],
+        "postQuestions": [],
+        "plan": {
+          "background": "",
+          "researchQuestions": [
+            "Question"
+          ],
+          "participants": {
+            "audience": "People",
+            "recruitment": "Recruitment target: no activity has a sample-size target. Each activity's target and analysis denominator are in the analysis plan.",
+            "exclusions": "Before an activity starts: screen-outs, ineligible people, no-shows and technical failures are in no denominator (the loss allowance covers them). Card sorts, preference tests and surveys use completed responses.",
+            "devices": "any"
+          },
+          "experiments": {},
+          "activities": {
+            "pref-three": {
+              "method": "preference",
+              "objective": "",
+              "rqs": [],
+              "criteria": "",
+              "margin": 10,
+              "split": null,
+              "power": 0.8
+            }
+          },
+          "analysis": "Sample size and recruitment\nLoss assumption: 20% of recruits won't reach each activity's analysis denominator, so each target is recruited as n ÷ (1 − 0.20).\n1. Pref three (Preference testing): exploratory, with no sample-size target.\n\n1. Pref three (Preference testing)\nExploratory: report the share choosing each option with 95% Wilson intervals and summarise reasons from follow-up answers. Don't declare a winner or claim a difference between options. Preference is not performance. Presentation order is randomised.\nAnalysis denominator: people who choose an option.",
+          "decisions": "Decide",
+          "locked": null,
+          "changes": []
+        }
+      },
+      "studio": {
+        "experiments": [],
+        "preferences": [
+          {
+            "id": "pref-three",
+            "options": 3,
+            "split": 60,
+            "n": 194,
+            "text": "About 194 people choosing between two options, to tell a 60/40 split from 50/50 with 80% power. \"No preference\" answers and a third option need more people."
+          }
+        ],
+        "sizes": {
+          "summary": {
+            "rows": [
+              {
+                "name": "Pref three",
+                "n": 194
+              }
+            ],
+            "top": {
+              "name": "Pref three",
+              "n": 194
+            }
+          },
+          "texts": [
+            {
+              "id": "pref-three",
+              "text": "About 194 people choosing between two options, to tell a 60/40 split from 50/50 with 80% power. \"No preference\" answers and a third option need more people."
+            }
+          ]
+        },
+        "shown": {
+          "recruitment": "Recruitment target: no activity has a sample-size target. Each activity's target and analysis denominator are in the analysis plan.",
+          "exclusions": "Before an activity starts: screen-outs, ineligible people, no-shows and technical failures are in no denominator (the loss allowance covers them). Card sorts, preference tests and surveys use completed responses.",
+          "analysis": "Sample size and recruitment\nLoss assumption: 20% of recruits won't reach each activity's analysis denominator, so each target is recruited as n ÷ (1 − 0.20).\n1. Pref three (Preference testing): exploratory, with no sample-size target.\n\n1. Pref three (Preference testing)\nExploratory: report the share choosing each option with 95% Wilson intervals and summarise reasons from follow-up answers. Don't declare a winner or claim a difference between options. Preference is not performance. Presentation order is randomised.\nAnalysis denominator: people who choose an option.",
+          "inEditor": {
+            "recruitment": true,
+            "exclusions": true,
+            "analysis": true
+          },
+          "editedIn": {
+            "recruitment": "input",
+            "exclusions": "input",
+            "analysis": "textarea"
+          },
+          "inDocument": {
+            "analysis": true
+          }
+        }
+      }
+    }
+  ]
+}

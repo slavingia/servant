@@ -5,7 +5,8 @@ import { useSession } from "./session";
 // The projects you're in, shared by the sidebar, Home, the Agent tab's picker and the project
 // page: one list, so a project made or renamed in one place shows up in the others right away.
 // vibeCoder: you only build prototypes; vibe: vibe coding is set up on this server.
-export type Projects = { list: Project[]; vibeCoder: boolean; vibe: boolean; agentTier: number | null | undefined };
+// researchHold: the research pilot has Research Hub work (evidence, the Researcher Agent's design guidance and Hub prototype handoffs) on hold.
+export type Projects = { list: Project[]; vibeCoder: boolean; vibe: boolean; agentTier: number | null | undefined; researchHold?: boolean; prototypeOrigin?: string | null };
 type State = { who: string; loaded: Projects | null };
 let state: State = { who: "", loaded: null };
 let inflight: Promise<void> | null = null;
@@ -21,7 +22,7 @@ export function refreshProjects(account: Account) {
       const tier = r.agentTier === undefined
         ? (r.vibeCoder ? 2 : undefined)
         : Number.isInteger(r.agentTier) ? r.agentTier : null;
-      emit({ who: whoIs(account), loaded: { list: r.projects, vibeCoder: r.vibeCoder, vibe: r.vibe, agentTier: tier } });
+      emit({ who: whoIs(account), loaded: { list: r.projects, vibeCoder: r.vibeCoder, vibe: r.vibe, agentTier: tier, researchHold: r.researchHold === true, prototypeOrigin: typeof r.prototypeOrigin === "string" ? r.prototypeOrigin : null } });
     })
     .catch(() => {})
     .finally(() => { inflight = null; });

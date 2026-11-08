@@ -168,6 +168,8 @@ export type SearchMessage = {
   user: Person;
   createdAt: number;
 };
+/** One kept version of a hosted design (a read-only copy at its own link). */
+export type DesignVersion = { n: number; at: number; files: number; latest: boolean; url?: string; restoredFrom?: number; request?: string };
 export type SearchResults = { channels: SearchChannel[]; people: Person[]; messages: SearchMessage[] };
 export type ResearchHubAvailableMetadata = {
   available: true;
@@ -481,7 +483,12 @@ export const api = {
       }),
   setChatShared: (a: Account, id: string, shared: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ shared }) }).then((r) => r.json()).then((d) => d.chat as Chat),
   // Projects: shared bodies of work with notes, files, rules and who can read, write or merge (docs/projects.md).
-  projects: (a: Account) => request(a, "/v1/projects").then(json<{ projects: Project[]; vibeCoder: boolean; agentTier?: number; vibe: boolean }>),
+  // researchHold: the research pilot has Research Studio sends, Research Hub
+  // evidence and Hub prototype handoffs on hold (older servers omit it).
+  // Researchers can still make prototypes.
+  // prototypeOrigin: where this server's prototype pages are served (its public address), so the app only
+  // opens its own prototype links for quick adjustments. Older servers omit it, and adjustments stay off.
+  projects: (a: Account) => request(a, "/v1/projects").then(json<{ projects: Project[]; vibeCoder: boolean; agentTier?: number; vibe: boolean; researchHold?: boolean; prototypeOrigin?: string | null }>),
   project: (a: Account, id: string) => request(a, `/v1/projects/${encodeURIComponent(id)}`).then(json<{ project: Project; sharedChats: Chat[] }>),
   createProject: (a: Account, body: { name: string; description?: string; notes?: string }) => request(a, "/v1/projects", { method: "POST", body: JSON.stringify(body) }).then(json<{ project: Project }>).then(d => d.project),
   updateProject: (a: Account, id: string, change: Partial<Pick<Project, "name" | "description" | "notes" | "repo" | "path" | "pages" | "workflow" | "rules" | "stages">>) => request(a, `/v1/projects/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(change) }).then(json<{ project: Project }>).then(d => d.project),
@@ -510,6 +517,13 @@ export const api = {
   setAgentTier: (a: Account, userId: string, agentTier: number) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ agentTier }) }).then(json<{ person: Person }>),
   setVibeCoder: (a: Account, userId: string, vibeCoder: boolean) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ vibeCoder }) }).then(json<{ person: Person }>),
   deleteChat: (a: Account, id: string) => request(a, `/v1/chats/${id}`, { method: "DELETE" }),
+  // The author renames a chat or design (1-80 characters).
+  renameChat: (a: Account, id: string, title: string) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ title }) }).then(json<{ chat: Chat }>).then(d => d.chat),
+  // Earlier versions of a hosted design, newest first. Anyone who can see the design can list them; canRestore is the author's.
+  designVersions: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/versions`).then(json<{ versions: DesignVersion[]; canRestore: boolean }>),
+  restoreDesignVersion: (a: Account, id: string, n: number) => request(a, `/v1/chats/${encodeURIComponent(id)}/versions/${n}/restore`, { method: "POST", body: "{}" }).then(json<{ versions: DesignVersion[]; restored: number }>),
+  // Duplicate: copies the current page of a design this person can see into their new, empty design.
+  copyDesign: (a: Account, id: string, from: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/copy`, { method: "POST", body: JSON.stringify({ from }) }).then(json<{ chat: Chat }>).then(d => d.chat),
   archiveChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/archive`, { method: "POST", body: "{}" }),
   restoreChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/restore`, { method: "POST", body: "{}" }),
   messages: (a: Account, id: string) => request(a, `/v1/chats/${id}/messages`).then((r) => r.json()).then((d) => d.messages as Message[]),

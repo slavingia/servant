@@ -6,12 +6,20 @@ import {
 } from "./research-studio.ts";
 import { changeSortMode, newStudyActivity, type StudyActivity } from "./research-methods.ts";
 
-/** Synthetic study activities. Links use the reserved example.com domain. */
+/**
+ * Synthetic study activities. Links use the reserved example.com domain. The
+ * A/B stopping rule is written but not yet confirmed, so the preview shows the
+ * confirmation step; the prototype task has no link of its own and uses the
+ * study's prototype.
+ */
 export function researchPreviewActivities(): StudyActivity[] {
   return [
     { ...newStudyActivity("ab_test", "preview-ab"), title: "Make a one-time payment", instructions: "Pay a balance of $50 using the sample account.",
       objective: "Whether the new payment flow helps more people finish", successSignal: "payment-submitted", baseline: 60, difference: 15,
+      stoppingRule: "Field until both designs reach the target sample, then analyse once. No early stopping based on results.", stoppingRuleConfirmed: false,
       designs: [{ label: "Current flow", url: "https://example.com/prototypes/current/" }, { label: "New flow", url: "https://example.com/prototypes/new/" }] },
+    { ...newStudyActivity("prototype", "preview-prototype"), title: "Find your balance", instructions: "Find how much the sample account owes.",
+      goal: "measure", successSignal: "balance-found", benchmark: 80, url: "" },
     { ...newStudyActivity("tree_test", "preview-tree"), title: "Find a transcript", instructions: "Where would you go to get a copy of your tax transcript?",
       tree: "Home\nPayments\n  Make a payment\n  Payment history\nRecords\n  Tax transcripts *\n  Tax documents\nHelp", benchmark: 70 },
     changeSortMode({ ...newStudyActivity("card_sort", "preview-sort"), title: "Group account features", instructions: "Group these features in a way that makes sense to you.",
@@ -20,6 +28,13 @@ export function researchPreviewActivities(): StudyActivity[] {
       questions: "How confident are you that your payment went through?\nWhat, if anything, was confusing?", constructs: "confidence, clarity" },
   ];
 }
+
+/** Synthetic Design Studio prototypes for "Choose an existing prototype". */
+export type ResearchPreviewPrototype = { id: string; title: string; author: string; previewUrl: string };
+export const RESEARCH_PREVIEW_PROTOTYPES: readonly ResearchPreviewPrototype[] = [
+  { id: "preview-prototype-payment", title: "Sample payment flow", author: "Sample Designer", previewUrl: "https://example.com/prototypes/payment/" },
+  { id: "preview-prototype-notices", title: "Sample notices inbox", author: "Sample Researcher A", previewUrl: "https://example.com/prototypes/notices/" },
+];
 
 /** Synthetic teammates for the collaborator picker. Never real people or accounts. */
 export const RESEARCH_PREVIEW_ME = "preview-you";
@@ -99,6 +114,12 @@ export const RESEARCH_PREVIEW_STUDY = {
     constraints: "Mobile-first, plain language, no production or personally identifying data.",
   } satisfies Partial<Record<ResearchFieldId, string>>,
   purpose: "Compare a small set of task-finding patterns before the team commits to a navigation direction.",
+  // Synthetic, generalized findings a researcher might write themselves.
+  findings: [
+    "People weren't sure which action matched what they came to do.",
+    "Similar-looking actions made people hesitate before choosing.",
+    "It's still unknown whether grouping tasks by goal helps screen-reader users.",
+  ].join("\n"),
 } as const;
 
 export const RESEARCH_PREVIEW_EVIDENCE: readonly ResearchPreviewEvidence[] = [

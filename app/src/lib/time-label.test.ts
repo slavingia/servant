@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { shortTime } from "./time-label.ts";
+import { shortTime, whenInSentence } from "./time-label.ts";
 
 const time = (d: Date) => d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const day = (d: Date) => d.toLocaleDateString([], { month: "short", day: "numeric" });
@@ -44,4 +44,14 @@ test("earlier today always shows the time", () => {
 test("older years include the year", () => {
   const now = new Date(2026, 10, 3, 9, 0);
   assert.match(shortTime(new Date(2025, 5, 1).getTime(), now.getTime()), /2025/);
+});
+
+test("in a sentence: “at” a time today, “yesterday” in lower case, “on” a day or date", () => {
+  const now = new Date(2026, 10, 10, 9, 0);
+  assert.equal(whenInSentence(new Date(2026, 10, 10, 8, 30).getTime(), now.getTime()), `at ${time(new Date(2026, 10, 10, 8, 30))}`);
+  assert.equal(whenInSentence(new Date(2026, 10, 9, 7, 0).getTime(), now.getTime()), "yesterday");
+  const friday = new Date(2026, 10, 6, 8, 0);
+  assert.equal(whenInSentence(friday.getTime(), now.getTime()), `on ${friday.toLocaleDateString([], { weekday: "long" })}`);
+  const older = new Date(2026, 10, 1, 8, 0);
+  assert.equal(whenInSentence(older.getTime(), now.getTime()), `on ${day(older)}`);
 });

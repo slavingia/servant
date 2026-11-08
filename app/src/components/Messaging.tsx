@@ -1,6 +1,6 @@
 import { useLayoutEffect, useEffect, useRef, useState, type ComponentRef, type ReactNode } from "react";
 import { MeetingCard } from "./MeetingCard";
-import { ActivityIndicator, Alert, Image, Keyboard, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type PressableProps } from "react-native";
+import { ActivityIndicator, Alert, Image, Keyboard, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, type PressableProps } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -17,9 +17,11 @@ import { usePhotos } from "../lib/photos";
 import { useWideLayout } from "../lib/layout";
 import { shortTime } from "../lib/time-label";
 import { validateAttachmentSelection } from "../lib/media";
-import { getDraft, loadDrafts, setDraft } from "../lib/drafts";
+import { getDraft, loadDrafts, onAttachRequested, onDraftReplaced, setDraft } from "../lib/drafts";
 import { Attachments, DraftAttachments, attachmentsFromFiles, pickAttachments, pickDocuments, type DraftAttachment } from "./Attachments";
 import { AppIcon } from "./AppIcon";
+import { DesignReviewCard, SuggestionCard, designCardKind } from "./DesignReviewCard";
+import { useProjects } from "../lib/projects-store";
 import { MessageText } from "./MessageText";
 import { TweetEmbed } from "./TweetEmbed";
 import { tweetIds } from "../lib/tweet-embed";
@@ -184,6 +186,10 @@ type PostProps = {
   onAskAgent?: () => void;
   /** Sends a suggested reply. Given only for the newest message, so old chips go away. */
   onSuggest?: (text: string) => void;
+  /** A design review's thread: the viewer's own design behind it, so its card offers Adjust design. */
+  ownDesign?: string | null;
+  /** A reviewer's suggestion in the author's design review thread: adds it to their design chat. */
+  onAddSuggestion?: () => void;
 };
 
 const REACTIONS = [
@@ -192,8 +198,11 @@ const REACTIONS = [
   ["👀", "Looking"], ["🔥", "Fire"], ["👏", "Applause"], ["💯", "Hundred"],
 ];
 
-export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDelete, onReact, onAskAgent, onSuggest }: PostProps) {
+export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDelete, onReact, onAskAgent, onSuggest, ownDesign, onAddSuggestion }: PostProps) {
   const styles = useStyles();
+  const projects = useProjects();
+  // A design review or a reviewer's suggestion shows as a card instead of its text (older apps show the text).
+  const card = !post.deleted && !post.pending && !post.user.agent && post.text ? designCardKind(post.text, projects?.prototypeOrigin) : null;
   const { colors } = useTheme();
   const { account } = useSession();
   const deviceLabel = messageDeviceLabel(account?.user.role, post);
@@ -277,6 +286,10 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
           <Text style={styles.deleted}>Message deleted</Text>
         ) : working || (post.pending && !post.text && !post.attachments?.length) ? (
           <Text style={styles.deleted}>Working…</Text>
+        ) : card === "review" && !post.threadRoot ? (
+          <DesignReviewCard text={post.text} origin={projects?.prototypeOrigin} conv={post.conversationId} root={post.id} ownDesign={ownDesign} inChannel={!!onOpenThread} />
+        ) : card === "suggestion" ? (
+          <SuggestionCard text={post.text} onAdd={onAddSuggestion} />
         ) : post.text ? (
           post.user.agent ? <MessageText text={post.text} /> : <ForwardedPost text={post.text} edited={!!post.editedAt} />
         ) : null}
@@ -412,6 +425,13 @@ export function Composer({
   const wide = useWideLayout();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  // The box grows with what's in it, up to 40% of the window; a long message
+  // (a prepared build prompt, say) can be expanded to 70% to read it through.
+  const screen = useWindowDimensions();
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+  const autoMax = Math.max(144, Math.round(screen.height * 0.4));
+  const inputMax = expanded && overflowing ? Math.max(autoMax, Math.round(screen.height * 0.7)) : autoMax;
   // The home-indicator inset only applies when the keyboard is down; above the keyboard the
   // composer should sit flush.
   const [keyboard, setKeyboard] = useState(false);
@@ -432,6 +452,8 @@ export function Composer({
     return () => { live = false; };
   }, [draftKey]);
   useEffect(() => { if (draftKey) setDraft(draftKey, text); }, [draftKey, text]);
+  // A request added from another screen (prototype adjustments) shows up here.
+  useEffect(() => draftKey ? onDraftReplaced(draftKey, setText) : undefined, [draftKey]);
   const [busy, setBusy] = useState(false);
   const [files, setFiles] = useState<DraftAttachment[]>([]);
   const [picking, setPicking] = useState(false);
@@ -454,7 +476,22 @@ export function Composer({
     } catch (e) { setFileError(e instanceof Error ? e.message : "Couldn't select files"); }
     finally { setPicking(false); }
   };
+  // Another screen can ask this box to open its photo picker (the "From a sketch or screenshot" starter).
+  // It runs inside that tap, so a browser lets the picker open.
+  const pickRef = useRef(pick);
+  useEffect(() => { pickRef.current = pick; });
+  useEffect(() => draftKey && allowAttachments ? onAttachRequested(draftKey, () => { void pickRef.current(true); }) : undefined, [draftKey, allowAttachments]);
   const input = useRef<ComponentRef<typeof TextInput>>(null);
+  // Browsers don't grow a textarea with its text: size it to fit, within the limit.
+  useLayoutEffect(() => {
+    if (Platform.OS !== "web") return;
+    const node = input.current as unknown as { style?: { height: string }; scrollHeight?: number } | null;
+    if (!node?.style || typeof node.scrollHeight !== "number") return;
+    node.style.height = "auto";
+    const needed = node.scrollHeight;
+    node.style.height = `${Math.min(Math.max(needed, 44), inputMax)}px`;
+    setOverflowing(needed > autoMax + 1);
+  }, [text, inputMax, autoMax, screen.width]);
   const filesRef = useRef<DraftAttachment[]>([]);
   useEffect(() => { filesRef.current = files; }, [files]);
   useEffect(() => {
@@ -541,7 +578,7 @@ export function Composer({
       if (!body && !files.length && !canSendEmpty) return;
       if (clearNow) setText("");
       const ok = await onSend(body, files.map(({ name, data, document }) => document ? { name, data, document } : { name, data }));
-      if (ok) { if (!clearNow) setText(""); setFiles([]); setInsertedSelection(undefined); }
+      if (ok) { if (!clearNow) setText(""); setFiles([]); setInsertedSelection(undefined); setExpanded(false); }
       else if (clearNow) setText(current => current || body);
     } catch {
       if (clearNow) setText(current => current || body);
@@ -641,7 +678,7 @@ export function Composer({
           placeholder={placeholder}
           placeholderTextColor={colors.muted}
           multiline
-          style={[styles.input, highlight && styles.inputOverlay]}
+          style={[styles.input, { maxHeight: inputMax }, highlight && styles.inputOverlay]}
           cursorColor={colors.ink}
           selectionColor={Platform.OS === "web" ? undefined : colors.blue}
           onKeyPress={enterSends ? (event) => {
@@ -672,6 +709,10 @@ export function Composer({
             : allowAttachments ? <Pressable accessibilityRole="button" accessibilityLabel={attachmentMenu ? "Close attachment options" : "Add attachments"} accessibilityState={{ disabled: busy || picking, expanded: attachmentMenu }} disabled={busy || picking} onPress={() => setAttachmentMenu(open => !open)} style={[styles.attachmentButton, attachmentMenu && styles.attachmentButtonSelected]}>
               <AppIcon name={attachmentMenu ? "close" : "plus"} size={21} color={colors.muted} />
             </Pressable> : null}
+          {overflowing ? <Pressable testID="composer-expand" accessibilityRole="button" accessibilityLabel={expanded ? "Make the message box smaller" : "Make the message box larger"} accessibilityState={{ expanded }}
+            onPress={() => setExpanded(value => !value)} style={styles.copySelected}>
+            <Text style={styles.copySelectedText}>{expanded ? "Smaller" : "Larger"}</Text>
+          </Pressable> : null}
           {selection.end > selection.start && !dictation.listening ? <Pressable testID="composer-copy" accessibilityRole="button" accessibilityLabel="Copy the highlighted text" onPress={copySelected} style={styles.copySelected}>
             <AppIcon name="copy" size={17} color={colors.blue} /><Text style={styles.copySelectedText}>{copiedSelected ? "Copied" : "Copy"}</Text>
           </Pressable> : null}

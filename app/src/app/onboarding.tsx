@@ -11,7 +11,6 @@ import {
   agentAccessLabel,
   chooseRole,
   completeOnboarding,
-  firstActionForRole,
   goalLabels,
   moveOnboarding,
   normalizeOnboarding,
@@ -22,7 +21,7 @@ import {
   type UXRole,
 } from "../lib/onboarding";
 import { createThemedStyles, radius, space, typography } from "../lib/theme";
-import { canCreateDesign as mayCreateDesign } from "../lib/designs";
+import { checkboxKeys, useRadioGroup } from "../components/useRadioGroup";
 
 export default function Onboarding() {
   const { account, setAccount } = useSession();
@@ -31,7 +30,6 @@ export default function Onboarding() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [agentTier, setAgentTier] = useState<number | null | undefined>(undefined);
-  const [designAvailable, setDesignAvailable] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (!account) return;
@@ -42,9 +40,8 @@ export default function Onboarding() {
           ? (result.vibeCoder ? 2 : undefined)
           : Number.isInteger(result.agentTier) ? result.agentTier : null;
         setAgentTier(tier);
-        setDesignAvailable(result.vibe === true);
       }
-    }).catch(() => { if (active) { setAgentTier(null); setDesignAvailable(null); } });
+    }).catch(() => { if (active) setAgentTier(null); });
     return () => { active = false; };
   }, [account?.serverUrl, account?.serverKey, account?.user.id]);
 
@@ -83,21 +80,8 @@ export default function Onboarding() {
         <Progress step={state.step} />
         {state.step === "role" ? <>
           <Text accessibilityRole="header" style={styles.title}>How do you work?</Text>
-          <Text style={styles.lead}>Choose the closest fit. Servant uses this to tailor your starting points.</Text>
-          <AccessNote agentTier={agentTier} />
-          <View accessibilityRole="radiogroup" style={styles.options}>
-            {UX_ROLES.map(role => {
-              const selected = state.role === role.id;
-              return <Pressable key={role.id} accessibilityRole="radio" accessibilityState={{ selected, checked: selected, disabled: busy }} disabled={busy}
-                onPress={() => selectRole(role.id)} style={({ pressed }) => [styles.option, selected && styles.optionSelected, pressed && styles.pressed]}>
-                <View style={[styles.radio, selected && styles.radioSelected]}>{selected ? <View style={styles.radioDot} /> : null}</View>
-                <View style={styles.optionCopy}>
-                  <Text style={styles.optionTitle}>{role.label}</Text>
-                  <Text style={styles.optionDescription}>{role.description}</Text>
-                </View>
-              </Pressable>;
-            })}
-          </View>
+          <Text style={styles.lead}>Choose the closest fit. It only shapes your starting points; it doesn't change what you can access.</Text>
+          <RoleOptions value={state.role ?? null} disabled={busy} onChange={selectRole} />
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           <Button label="Continue" disabled={!state.role} busy={busy} onPress={() => goTo("goals")} style={styles.action} />
         </> : state.step === "goals" ? <>
@@ -106,7 +90,7 @@ export default function Onboarding() {
           <View style={styles.options}>
             {UX_GOALS.map(goal => {
               const selected = state.goals.includes(goal.id);
-              return <Pressable key={goal.id} accessibilityRole="checkbox" accessibilityState={{ checked: selected, disabled: busy }} disabled={busy}
+              return <Pressable key={goal.id} accessibilityRole="checkbox" role="checkbox" aria-checked={selected} aria-disabled={busy || undefined} accessibilityState={{ checked: selected, disabled: busy }} disabled={busy} {...checkboxKeys(() => selectGoal(goal.id), busy)}
                 onPress={() => selectGoal(goal.id)} style={({ pressed }) => [styles.goal, selected && styles.optionSelected, pressed && styles.pressed]}>
                 <View style={[styles.checkbox, selected && styles.checkboxSelected]}>{selected ? <Text style={styles.check}>✓</Text> : null}</View>
                 <Text style={styles.optionTitle}>{goal.label}</Text>
@@ -116,7 +100,7 @@ export default function Onboarding() {
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           <Button label="Review setup" disabled={state.goals.length === 0} busy={busy} onPress={() => goTo("ready")} style={styles.action} />
           <Button label="Back" kind="link" disabled={busy} onPress={() => goTo("role")} />
-        </> : <Ready state={state} agentTier={agentTier} designAvailable={designAvailable} busy={busy} error={error} onBack={() => goTo("goals")} onFinish={() => void finish()} />}
+        </> : <Ready state={state} agentTier={agentTier} busy={busy} error={error} onBack={() => goTo("goals")} onFinish={() => void finish()} />}
       </ScrollView>
     </View>
   );
@@ -134,18 +118,17 @@ function AccessNote({ agentTier }: { agentTier: number | null | undefined }) {
   const styles = useStyles();
   const access = agentAccessLabel(agentTier);
   return <View style={styles.note}>
-    <Text style={styles.noteTitle}>{access ? `Admin-granted access: ${access}` : "Preferences, not permissions"}</Text>
-    <Text style={styles.noteBody}>{access ? "Your workspace owner controls this access. " : "A workspace owner grants agent tiers and tools separately. "}Choosing Researcher or Design engineer as your role preference does not enable research, code, files, or GitHub access.</Text>
+    <Text style={styles.noteTitle}>{access ? `Your agent access: ${access === "No agent" ? "none yet" : `${access} tier`}` : "Your role is a preference, not access"}</Text>
+    <Text style={styles.noteBody}>{access ? "Your workspace owner sets this, separately from your role. " : "A workspace owner grants agent access separately. "}A role like UX researcher or Design engineer doesn't turn on research, code, files or GitHub access.</Text>
   </View>;
 }
 
-function Ready({ state, agentTier, designAvailable, busy, error, onBack, onFinish }: { state: UXOnboardingState; agentTier: number | null | undefined; designAvailable: boolean | null; busy: boolean; error: string | null; onBack: () => void; onFinish: () => void }) {
+// The next screen lists the starting points; this one confirms the choices and the access they don't change.
+function Ready({ state, agentTier, busy, error, onBack, onFinish }: { state: UXOnboardingState; agentTier: number | null | undefined; busy: boolean; error: string | null; onBack: () => void; onFinish: () => void }) {
   const styles = useStyles();
-  const canCreateDesign = mayCreateDesign(agentTier, designAvailable);
-  const action = firstActionForRole(state.role, { canCreateDesign, agentTier });
   return <>
-    <Text accessibilityRole="header" style={styles.title}>Your starting point is ready</Text>
-    <Text style={styles.lead}>These choices stay on this device and can be changed from You → Restart onboarding.</Text>
+    <Text accessibilityRole="header" style={styles.title}>You're all set</Text>
+    <Text style={styles.lead}>These choices stay on this device. You can change them from You → Restart onboarding.</Text>
     <View style={styles.summary}>
       <Text style={styles.summaryLabel}>Your role</Text>
       <Text style={styles.summaryValue}>{roleLabel(state.role)}</Text>
@@ -154,12 +137,8 @@ function Ready({ state, agentTier, designAvailable, busy, error, onBack, onFinis
       {goalLabels(state.goals).map(goal => <Text key={goal} style={styles.summaryGoal}>• {goal}</Text>)}
     </View>
     <AccessNote agentTier={agentTier} />
-    <View style={styles.firstAction}>
-      <Text style={styles.firstActionTitle}>{action.label}</Text>
-      <Text style={styles.optionDescription}>{action.description}</Text>
-    </View>
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-    <Button label="Continue to your starting point" busy={busy} onPress={onFinish} style={styles.action} />
+    <Button label="See your starting points" busy={busy} onPress={onFinish} style={styles.action} />
     <Button label="Back" kind="link" disabled={busy} onPress={onBack} />
   </>;
 }
@@ -197,6 +176,21 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   summaryValue: { ...typography.heading, color: colors.ink, marginTop: space.xxs },
   summaryGoal: { ...typography.body, color: colors.ink, marginTop: space.xs },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.line, marginVertical: space.md },
-  firstAction: { marginTop: space.lg },
-  firstActionTitle: { ...typography.heading, color: colors.ink },
 }));
+
+function RoleOptions({ value, disabled, onChange }: { value: UXRole | null; disabled: boolean; onChange: (role: UXRole) => void }) {
+  const styles = useStyles();
+  const roleRadios = useRadioGroup({ values: UX_ROLES.map(role => role.id), value, onChange, label: "How do you work?", disabled });
+  return <View {...roleRadios.group} style={styles.options}>
+            {UX_ROLES.map((role, index) => {
+              const selected = value === role.id;
+              return <Pressable key={role.id} {...roleRadios.radio(role.id, index)} accessibilityLabel={`${role.label}. ${role.description}`} style={({ pressed }) => [styles.option, selected && styles.optionSelected, pressed && styles.pressed]}>
+                <View style={[styles.radio, selected && styles.radioSelected]}>{selected ? <View style={styles.radioDot} /> : null}</View>
+                <View style={styles.optionCopy}>
+                  <Text style={styles.optionTitle}>{role.label}</Text>
+                  <Text style={styles.optionDescription}>{role.description}</Text>
+                </View>
+              </Pressable>;
+            })}
+  </View>;
+}

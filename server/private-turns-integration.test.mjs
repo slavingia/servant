@@ -11,12 +11,13 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { testFetch } from './encrypted-test-client.mjs';
+import { DatabaseSync } from 'node:sqlite';
 
 async function until(check) {
   for (let i = 0; i < 300; i++) { const value = await check(); if (value) return value; await sleep(20); }
   throw new Error('Timed out waiting for private turn');
 }
-async function fixture(t, { durable = true, restricted = false } = {}) {
+async function fixture(t, { durable = true, restricted = false, member = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'servant-turn-api-'));
   const children = [], runs = new Map(), histories = new Map([['session', []]]), approvals = [];
   let historyOffline = false, pollsOffline = 0, controlsOffline = 0, startCount = 0;
@@ -79,9 +80,9 @@ async function fixture(t, { durable = true, restricted = false } = {}) {
   const up = { url: `http://127.0.0.1:${upstream.address().port}`, key: 'fixture-key' };
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ host: '127.0.0.1', port: 0, agentAccess: restricted ? 'limited' : 'full', upstreams: { owner: up, member: up } }));
   fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify({
-    users: { owner: { id: 'owner', role: 'owner', name: 'Owner' }, stranger: { id: 'stranger', role: 'owner', name: 'Stranger' } },
-    devices: Object.fromEntries(['owner', 'stranger'].map(id => [crypto.createHash('sha256').update(id).digest('hex'), { id: `device_${id}`, userId: id }])),
-    chats: { chat: { id: 'chat', userId: 'owner', role: restricted ? 'member' : 'owner', hermesSessionId: 'session', title: 'Test', createdAt: 1, updatedAt: 1 } }, invites: {},
+    users: { owner: { id: 'owner', role: 'owner', name: 'Owner' }, stranger: { id: 'stranger', role: 'owner', name: 'Stranger' }, ...(member ? { mem: { id: 'mem', role: 'member', name: 'Mem' } } : {}) },
+    devices: Object.fromEntries([['owner', 'owner'], ['stranger', 'stranger'], ...(member ? [['mem', 'mem'], ['mem-phone', 'mem']] : [])].map(([token, userId]) => [crypto.createHash('sha256').update(token).digest('hex'), { id: `device_${token}`, userId }])),
+    chats: { chat: { id: 'chat', userId: member ? 'mem' : 'owner', role: restricted || member ? 'member' : 'owner', hermesSessionId: 'session', title: 'Test', createdAt: 1, updatedAt: 1 } }, invites: {},
   }));
   let apiChild, workerChild, base;
   const start = async name => {
@@ -101,7 +102,7 @@ async function fixture(t, { durable = true, restricted = false } = {}) {
   });
   const api = (route, method = 'GET', body, user = 'owner') => testFetch(dir, base + route, { method,
     headers: { Authorization: `Bearer ${user}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
-  const latest = async () => (await (await api('/v1/chats/chat/turns')).json()).turns[0];
+  const latest = async (user = member ? 'mem' : 'owner') => (await (await api('/v1/chats/chat/turns', 'GET', undefined, user)).json()).turns[0];
   return { dir, api, latest, runs, approvals, startCount: () => startCount,
     disconnectEvents: run => run.response?.destroy(),
     offlineHistory: value => { historyOffline = value; }, offlinePolls: count => { pollsOffline = count; },
@@ -111,6 +112,8 @@ async function fixture(t, { durable = true, restricted = false } = {}) {
     finish: (run, text, history = text) => { run.output = text; run.status = 'completed'; run.usage = { input_tokens: 1200, output_tokens: 300, total_tokens: 1500 }; histories.get('session').push({ id: `reply_${run.id}`, role: 'assistant', content: history }); emit(run, 'run.completed', { output: text, usage: run.usage }); run.response?.end(); },
     restartApi: async () => { apiChild.child.kill('SIGKILL'); await apiChild.closed; apiChild = await start('server'); },
     restartWorker: async () => { workerChild.child.kill('SIGKILL'); await workerChild.closed; workerChild = await start('worker'); },
+    stopWorker: async () => { workerChild.child.kill('SIGKILL'); await workerChild.closed; },
+    startWorker: async () => { workerChild = await start('worker'); },
   };
 }
 
@@ -420,4 +423,75 @@ test('conversations never close themselves: only the person archives, and a new 
   await next.body.cancel();
   assert.equal((await chat()).archived, false);
   assert.equal((await (await f.api('/v1/chats/chat/restore', 'POST', {})).json()).chat.archived, false);
+});
+
+test('revocation stops a silent durable run within 500 ms, cancels waiting messages and steers, and clears the draft reply', { timeout: 20000 }, async t => {
+  const f = await fixture(t, { member: true });
+  const first = await f.api('/v1/chats/chat/messages', 'POST', { text: 'Long silent task', requestId: 'request_silent' }, 'mem');
+  await first.body.cancel();
+  await until(async () => (await f.latest())?.accepted && f.runs.size === 1);
+  const run = [...f.runs.values()][0];
+  f.emit(run, 'Partial draft');
+  await until(async () => (await f.latest()).assistantText === 'Partial draft');
+  // A waiting message, which the member asks to fold into the running reply.
+  const second = await f.api('/v1/chats/chat/messages', 'POST', { text: 'Also check the footer', requestId: 'request_steer' }, 'mem');
+  await second.body.cancel();
+  const waiting = await until(async () => (await (await f.api('/v1/chats/chat/turns', 'GET', undefined, 'mem')).json()).turns.find(turn => turn.text === 'Also check the footer' && turn.status === 'queued'));
+  const steer = await f.api(`/v1/chats/chat/turns/${waiting.id}/steer`, 'POST', {}, 'mem');
+  assert.equal(steer.status, 200, await steer.text());
+  // The agent goes silent. The owner removes the member.
+  const revokedAt = Date.now();
+  assert.equal((await f.api('/v1/people/mem', 'DELETE')).status, 200);
+  await until(() => run.status === 'cancelled');
+  const elapsed = Date.now() - revokedAt;
+  assert.ok(elapsed < 500, `the bridge was told to stop ${elapsed} ms after revocation`);
+  // The agent's late words, if any, go nowhere; nothing else runs.
+  f.finish(run, 'Late answer');
+  await new Promise(resolve => setTimeout(resolve, 1200));
+  assert.equal(f.startCount(), 1, 'the waiting message and its steer never reach the agent');
+  const db = new DatabaseSync(path.join(f.dir, 'agent-turns.db'), { readOnly: true });
+  t.after(() => db.close());
+  const rows = db.prepare("SELECT text,status,assistant_text,payload,steer_requested FROM private_turns WHERE chat_id='chat' ORDER BY seq").all();
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].status, 'cancelled', 'the revoked run ends as cancelled, not failed');
+  assert.deepEqual({ ...rows[1] }, { text: 'Also check the footer', status: 'cancelled', assistant_text: '', payload: '{}', steer_requested: 0 });
+  assert.ok(rows.every(row => !row.assistant_text), 'the partial draft is cleared');
+  assert.ok(!rows.some(row => /Late answer/.test(row.assistant_text)));
+});
+
+test('queued work is cancelled the moment eligibility changes: a downgrade then restore never runs the old request', { timeout: 20000 }, async t => {
+  const f = await fixture(t, { member: true });
+  const db = new DatabaseSync(path.join(f.dir, 'agent-turns.db'), { readOnly: true });
+  t.after(() => db.close());
+  const row = () => db.prepare("SELECT status,payload,assistant_text,steer_requested FROM private_turns WHERE chat_id='chat'").all().map(r => ({ ...r }));
+  const tierOf = async () => (await (await f.api('/v1/people')).json()).people.find(p => p.id === 'mem').agentTier;
+  const before = await tierOf();
+  // No worker is running, so the message only waits in the queue.
+  await f.stopWorker();
+  const sent = await f.api('/v1/chats/chat/messages', 'POST', { text: 'Old request', requestId: 'request_queued_only' }, 'mem');
+  await sent.body.cancel();
+  await until(() => row().length === 1);
+  assert.equal(row()[0].status, 'queued');
+  // The owner removes agent access, then restores it, before any worker runs.
+  assert.equal((await f.api('/v1/people/mem', 'PATCH', { agentTier: 0 })).status, 200);
+  assert.deepEqual(row(), [{ status: 'cancelled', payload: '{}', assistant_text: '', steer_requested: 0 }], 'cancelled as soon as the change committed');
+  assert.equal((await f.api('/v1/people/mem', 'PATCH', { agentTier: before })).status, 200);
+  await f.startWorker();
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  assert.equal(f.startCount(), 0, 'the old request never reaches the agent');
+  assert.equal(row()[0].status, 'cancelled');
+  // Signing out the device that sent it, and removing the person, cancel waiting work the same way.
+  for (const [device, revoke] of [['mem', () => f.api('/v1/signout', 'POST', {}, 'mem')], ['mem-phone', () => f.api('/v1/people/mem', 'DELETE')]]) {
+    await f.stopWorker();
+    const count = row().length;
+    const again = await f.api('/v1/chats/chat/messages', 'POST', { text: `Waiting from ${device}`, requestId: `request_waiting_${count}` }, device);
+    await again.body.cancel();
+    await until(() => row().length === count + 1);
+    assert.equal(row().at(-1).status, 'queued');
+    assert.equal((await revoke()).status, 200);
+    assert.equal(row().at(-1).status, 'cancelled', `${device}: cancelled when it committed`);
+    await f.startWorker();
+  }
+  await new Promise(resolve => setTimeout(resolve, 800));
+  assert.equal(f.startCount(), 0);
 });

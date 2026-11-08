@@ -40,7 +40,8 @@ import { privateMessageView } from "./source-device.mjs";
 import { createChatMediaStore } from "./chat-media.mjs";
 import { createUsageStore, limitMessage, agentTierOf, AGENT_TIERS, RESEARCHER_TIER } from "./usage.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
-import { supportsDurableRuns, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
+import { copyPrototype, listVersions, removeVersions, restoreVersion, snapshotPrototype } from "./prototype-versions.mjs";
+import { supportsDurableRuns, supportsRunKeys, supportsSteer, runDurableHermes, runKeyFor, stopRunByKey, stopRunVerified } from "./hermes-runs.mjs";
 import { createReadmeCache } from "./project-readme.mjs";
 import { MAX_ITEMS, MAX_PEOPLE, MAX_PROJECTS, MAX_RELEASES, VIBE_PROJECT, accessOf, accessibleProjects, cleanDate, cleanDescription, cleanLevel, cleanLogin, cleanName, cleanNotes, cleanPath, cleanReleaseName, cleanRepo, cleanRules, cleanStage, cleanStages, cleanTitle, cleanUrl, cleanWorkflow, createProjectFiles, createProjectStore, expandPath, migrateFolders, needsMigration, newItem, newProject, newRelease, patchCell, projectInstructions, projectPeople, projectSharedWith, projectView, removeAccess, setAccess, validProjectId, vibeFolder, vibePreview } from "./projects.mjs";
 import { validTermsAcceptance } from "./terms.mjs";
@@ -62,6 +63,8 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.SERVANT_DATA_DIR || path.join(HERE, "data");
 const PROTOTYPES_DIR = path.join(DATA_DIR, "prototypes");
+// Earlier versions of hosted prototypes (prototype-versions.mjs), outside the folders the agent writes.
+const PROTOTYPE_VERSIONS_DIR = path.join(DATA_DIR, "prototype-versions");
 const CONFIG_FILE = path.join(DATA_DIR, "config.json");
 const researchHub = createResearchHub(path.join(DATA_DIR, "research-hub.json"));
 
@@ -167,6 +170,14 @@ export function loadConfig() {
       member: { url: "http://127.0.0.1:8643", key: process.env.SERVANT_MEMBER_KEY || "" },
       researcher: { url: "http://127.0.0.1:8646", key: process.env.SERVANT_RESEARCHER_KEY || "" },
     },
+    // Research pilot: Servant UX research features that are on hold stay off
+    // unless the owner sets "researchHold": false. Held on the server: Research
+    // Hub evidence and design guidance, and Research Hub prototype handoffs
+    // (including design workspaces started from one). Research Studio's
+    // Researcher Agent actions are paused in the app. Ordinary researcher chats
+    // from any client still work, and researchers can still make prototypes
+    // (from their own reviewed findings, never Hub records).
+    researchHold: cfg.researchHold !== false,
   };
 }
 
@@ -210,7 +221,73 @@ async function adminPost(route, payload) {
   return { r, data: await r.json().catch(() => ({})) };
 }
 
-const mutateState = fn => store().mutate(fn);
+// Any state change can end someone's eligibility (tier, removal, a revoked
+// device, collaborator lists). Waiting agent work that no longer qualifies is
+// cancelled as soon as the change commits, so it can't run later even if
+// access comes back before a worker would have reached it.
+// Only changes to who may use which chat are checked (people, their tier and
+// removal, devices, chats and collaborators), so ordinary writes stay cheap.
+function eligibilityKey(state) {
+  const parts = [];
+  for (const u of Object.values(state.users || {})) parts.push(u.id, u.role, u.agentTier ?? "", u.vibeCoder ? 1 : 0, u.removedAt ?? "");
+  for (const d of Object.values(state.devices || {})) parts.push(d.id, d.userId, d.revokedAt ?? "");
+  for (const c of Object.values(state.chats || {})) parts.push(c.id, c.userId, c.role ?? "", c.deletedAt ?? "", c.collaborators ? JSON.stringify(c.collaborators) : "");
+  return parts.join("\u0000");
+}
+const mutateState = fn => {
+  let committed = null;
+  const result = store().mutate(state => {
+    const before = agentTurns ? eligibilityKey(state) : "";
+    const value = fn(state);
+    if (agentTurns && eligibilityKey(state) !== before) committed = state;
+    return value;
+  });
+  if (committed) cancelIneligibleWaitingWork(committed);
+  return result;
+};
+let eligibilityCfg = null;
+// A worker that stopped mid-start can't know whether the run began: stop it by
+// its run key, so nothing keeps working for a turn that will never be shown.
+// The bridge may still be starting up too, so this retries for about a minute
+// and logs if it gives up.
+export async function stopInterruptedStart(turn, cfg = loadConfig(), { attempts = 6, delayMs = 2000 } = {}) {
+  const key = runKeyFor(turn.id);
+  const chat = store().read().chats[turn.chat_id];
+  const up = chat && upstreamForLane(chatUpstreamLane(chat, cfg), cfg);
+  if (!up) { console.error(`[servant] couldn't stop interrupted start ${key}: its chat or agent is gone`); return false; }
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const caps = await hermes(up, "GET", "/v1/capabilities");
+      // A bridge without run keys never started a keyed run: nothing to stop.
+      if (caps.ok && (await caps.json())?.features?.servant_run_keys !== true) return true;
+      if (caps.ok && await stopRunByKey(up, key)) return true;
+    } catch { /* unreachable: try again */ }
+    if (attempt < attempts) await new Promise(resolve => setTimeout(resolve, Math.min(delayMs * 2 ** (attempt - 1), 30000)));
+  }
+  console.error(`[servant] an interrupted start's run key ${key} couldn't be confirmed stopped`);
+  return false;
+}
+function cancelIneligibleWaitingWork(latest) {
+  if (!agentTurns) return 0;
+  try {
+    const waiting = agentTurns.waitingTurns();
+    if (!waiting.length) return 0;
+    const state = latest ?? store().read(), cfg = eligibilityCfg?.() ?? loadConfig();
+    let cancelled = 0;
+    for (const turn of waiting) {
+      if (turnEligible(turn, state, cfg)) continue;
+      cancelled += agentTurns.revokeChatWork(turn.chat_id, turn.user_id).cancelled;
+      // A waiting turn can hold a run a restarted worker was about to resume.
+      const chat = state.chats[turn.chat_id];
+      const up = turn.run_id && chat && upstreamForLane(chatUpstreamLane(chat, cfg), cfg);
+      if (up) void stopRunVerified(up, turn.run_id).then(ok => { if (!ok) console.error(`[servant] access changed, but the agent didn't confirm run ${turn.run_id} stopped`); });
+    }
+    return cancelled;
+  } catch (error) {
+    console.error("[servant] couldn't check waiting agent work", error);
+    return 0;
+  }
+}
 
 const id = (prefix) => `${prefix}_${crypto.randomBytes(9).toString("base64url")}`;
 const sha256 = (s) => crypto.createHash("sha256").update(s).digest("hex");
@@ -396,8 +473,32 @@ const mutateAuthenticated = (req, fn, owner = false) => mutateState(state => {
 function requireChat(state, userId, chatId) {
   const chat = state.chats[chatId];
   if (!chat || chat.deletedAt || chat.userId !== userId) throw requestError(404, "not_found", "No such chat");
+  if (!chatLaneAllowed(chat, state.users[userId])) throw requestError(403, "access_changed", "Your access to this chat changed");
   return chat;
 }
+// An agent reply's push preview. Resolved again on every delivery attempt
+// (queued or retried), so it's dropped once the person loses the chat.
+export function agentNotificationFor(event, user, state = readState()) {
+  const chat = state.chats[event.chatId];
+  const current = state.users[user?.id];
+  if (!current || event.userId !== current.id || !chat || chat.deletedAt || chat.userId !== current.id || !chatLaneAllowed(chat, current)) return null;
+  return { kind: "agent", chatId: chat.id, title: "Agent · " + chat.title, body: event.text };
+}
+// Researcher and prototype chats are purpose-bound. When the person who
+// started one no longer qualifies, they lose read and write access to it:
+// no reading, sending, uploading, sharing, forwarding, deleting or agent work
+// on hosted files. Nothing is deleted, and the owner can still open it for audit.
+function chatLaneAllowed(chat, user) {
+  if (!chat || !user || isRemoved(user)) return false;
+  if (chat.role === "researcher") return user.role !== "owner" && agentTierOf(user) === RESEARCHER_TIER;
+  if (chat.role === "prototype") return prototypeAgentAccess(user);
+  return true;
+}
+const PURPOSE_ROLES = ["researcher", "prototype"];
+const ACCESS_CHANGED_REPLY = "Your access changed, so this question wasn't answered. Ask again.";
+const RESEARCH_PAUSED = "Paused for the research pilot. A workspace owner can turn it back on later";
+export const RESEARCHER_CHANNEL_PAUSED_REPLY = "Asking the agent in channels is paused for Researcher access during the research pilot. Ask in your Agent tab chat instead.";
+const researchPaused = () => requestError(403, "research_paused", RESEARCH_PAUSED);
 function revokeDevice(device) {
   device.revokedAt = now();
   delete device.push;
@@ -499,7 +600,9 @@ function requirePrototypeChatScope(chat) {
   }
 }
 
-function requireAgentChatAccess(user, chat) {
+function requireAgentChatAccess(user, chat, cfg) {
+  // A design workspace started from a Research Hub handoff is held with the Hub.
+  if (cfg?.researchHold && chat.role === "prototype" && (chat.mode === "research-vibe" || chat.researchHandoff)) throw researchPaused();
   requirePrototypeChatScope(chat);
   if (chat.role === "prototype" && !prototypeAgentAccess(user)) {
     throw requestError(403, "forbidden", "Your prototype agent access changed. Start a new prototype");
@@ -604,13 +707,17 @@ async function hermes(up, method, pathname, body, extraHeaders = {}, signal) {
 
 // Sends one turn to Hermes and calls onEvent(name, payload) for each SSE event.
 // Resolves with the final assistant text.
-async function streamTurn(up, sessionId, text, key, onEvent, isClosed = () => false, onAccepted = () => {}, onUsage = () => {}, instructions = "") {
+// `signal` abandons the stream from outside (access was revoked), even while
+// the agent sends nothing.
+async function streamTurn(up, sessionId, text, key, onEvent, isClosed = () => false, onAccepted = () => {}, onUsage = () => {}, instructions = "", signal) {
+  signal?.throwIfAborted();
   const r = await hermes(
     up,
     "POST",
     `/api/sessions/${encodeURIComponent(sessionId)}/chat/stream`,
     { message: text, ...(instructions ? { system_message: instructions } : {}) },
     { Accept: "text/event-stream", "X-Hermes-Session-Key": key },
+    signal,
   );
   if (!r.ok || !r.body) throw Object.assign(new Error(`The agent didn't answer (${r.status})`), { status: 502, code: "agent_error" });
   await onAccepted();
@@ -683,7 +790,10 @@ const chatShared = chat => chat.shared === true;
 // sharing, archive state, or deletes the plan.
 const RESEARCH_STUDY_TITLE_PREFIX = "[Research study] ";
 const MAX_RESEARCH_COLLABORATORS = 10;
-const COLLABORATOR_ACCESS = ["view", "edit"];
+// Research pilot: collaborators can view only. Grants saved as "edit" before
+// the pilot are treated as view; nobody but the author sends to the agent.
+const COLLABORATOR_ACCESS = ["view"];
+const STORED_COLLABORATOR_ACCESS = ["view", "edit"];
 const hasCollaborators = chat => !!chat?.collaborators && Object.keys(chat.collaborators).length > 0;
 function researchPlanChat(chat) {
   return !!chat && !chat.deletedAt && chat.role === "researcher" && !chat.privateForward &&
@@ -695,16 +805,30 @@ function researchCollaboratorEligible(person, cfg = loadConfig()) {
 function collaboratorAccess(chat, viewer, users = readState().users, cfg) {
   if (!viewer || !chat || chat.userId === viewer.id) return null;
   const access = chat.collaborators?.[viewer.id];
-  if (!COLLABORATOR_ACCESS.includes(access) || !researchPlanChat(chat)) return null;
-  if (!users[chat.userId] || isRemoved(users[chat.userId])) return null;
-  return researchCollaboratorEligible(users[viewer.id], cfg ?? loadConfig()) ? access : null;
+  if (!STORED_COLLABORATOR_ACCESS.includes(access) || !researchPlanChat(chat)) return null;
+  // When the author loses the plan, so do collaborators. The owner keeps the record.
+  if (!chatLaneAllowed(chat, users[chat.userId])) return null;
+  return researchCollaboratorEligible(users[viewer.id], cfg ?? loadConfig()) ? "view" : null;
 }
 function collaboratorViews(chat, users, cfg = loadConfig()) {
   return Object.entries(chat.collaborators || {})
-    .filter(([, access]) => COLLABORATOR_ACCESS.includes(access))
-    .map(([userId, access]) => ({ id: userId, name: users[userId]?.name || "Former member", access,
+    .filter(([, access]) => STORED_COLLABORATOR_ACCESS.includes(access))
+    .map(([userId]) => ({ id: userId, name: users[userId]?.name || "Former member", access: "view",
       active: researchCollaboratorEligible(users[userId], cfg) }))
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+// Who sent each user message, from the message-author record (never the
+// person who happens to be viewing). Messages without a record are the author's.
+function messageSender(chat, users) {
+  return senderFrom(agentTurns.messageAuthors(chat.id), chat, users);
+}
+// Who sent a user message, from the message-author record (a research plan's
+// earlier edit collaborators wrote some); the chat's author otherwise.
+export function senderFrom(authors, chat, users) {
+  return messageId => {
+    const userId = authors.get(messageId) || chat.userId;
+    return { id: userId, name: users[userId]?.name || "Former member" };
+  };
 }
 // Once someone other than the author has written in a chat, every user
 // message names its sender so readers can tell the voices apart.
@@ -730,8 +854,9 @@ function cleanCollaborators(value) {
   const out = {};
   for (const entry of value) {
     const userId = typeof entry?.id === "string" ? entry.id : "";
+    if (entry?.access === "edit") throw requestError(400, "collaborator_view_only", "Collaborators can view only during the research pilot");
     if (!userId || !COLLABORATOR_ACCESS.includes(entry.access) || Object.hasOwn(out, userId)) {
-      throw requestError(400, "bad_request", "Each collaborator needs a person and view or edit access");
+      throw requestError(400, "bad_request", "Each collaborator needs a person and view access");
     }
     out[userId] = entry.access;
   }
@@ -740,20 +865,34 @@ function cleanCollaborators(value) {
 // "Forward" on an agent chat message: post it, with a server-written header,
 // into a channel or DM the person is in. Agent chat documents stay on disk
 // with the chat and are named instead of copied.
-async function forwardChatMessage(req, res, { chat, author, user, device, messageId, cfg, readAuthorizedBody }) {
+async function forwardChatMessage(req, res, { chat, user, device, messageId, cfg, readAuthorizedBody, allowed }) {
   const body = await readAuthorizedBody(req);
+  // Access is checked again after the body arrives, right before forwarding.
+  const latest = readState();
+  const current = requireAuth(req, latest).user;
+  const active = latest.chats[chat.id];
+  if (!allowed(active, latest.users[current.id] || current, latest)) throw requestError(404, "not_found", "That message is unavailable");
   if (!messaging) return fail(res, 404, "not_found", "Messages aren't set up on this server");
   const source = chatMediaStore().forwardable(chat.id, messageId);
   if (!source || !source.text && !source.files.length) return fail(res, 404, "not_found", "That message is unavailable");
+  // Credit whoever actually sent the message, from the message-author record.
+  const sender = source.role === "assistant" ? null : messageSender(active, latest.users)(String(messageId || ""));
   const { text, attachments } = composeForward({ text: String(body.text || "").trim(), attachments: [] }, {
-    author: source.role === "assistant" ? cfg.agentName || "Agent" : author?.name || "Former member",
+    author: source.role === "assistant" ? cfg.agentName || "Agent" : sender?.name || "Former member",
     where: "an agent chat", at: source.at, text: source.text, files: source.files,
   }, { skippedNote: name => `> [Attachment: ${name}]` });
   return send(res, 201, messaging.forwardInto(body.conversationId, user, text, attachments, device));
 }
 
-function canReadChat(chat, viewer) {
-  return !!chat && !chat.deletedAt && !!viewer && (chat.userId === viewer.id || viewer.role === "owner" || chatShared(chat) || projectSharedWith(projects().read(), readState().users, chat, viewer) || !!collaboratorAccess(chat, viewer));
+// One rule for every way into a chat (its author, workspace or project
+// sharing, collaborators, attachments, forwards, notifications): a
+// purpose-bound researcher or prototype chat is closed to everyone but the
+// owner, who keeps it for audit, once its author no longer qualifies.
+function canReadChat(chat, viewer, users = readState().users) {
+  if (!chat || chat.deletedAt || !viewer) return false;
+  if (viewer.role === "owner") return true;
+  if (!chatLaneAllowed(chat, users[chat.userId])) return false;
+  return chat.userId === viewer.id || chatShared(chat) || projectSharedWith(projects().read(), users, chat, viewer) || !!collaboratorAccess(chat, viewer, users);
 }
 // A chat shows in lists only once someone has sent something in it. Tapping
 // New chat and backing out leaves nothing behind in the list.
@@ -855,6 +994,26 @@ function prototypePreview(chat) {
   if (chat.hosted === "server") { const origin = loadConfig().publicUrl.replace(/\/+$/, ""); return origin ? `${origin}/p/${chat.vibeFolder}/` : ""; }
   return vibePreview(vibeProject(), chat);
 }
+// Where this server's prototype pages live, so the app can tell its own prototype links from any other link.
+function prototypeOrigin(cfg = loadConfig()) {
+  try { return cfg.publicUrl ? new URL(cfg.publicUrl).origin : null; } catch { return null; }
+}
+function savePrototypeVersion(chat, request) {
+  try { return snapshotPrototype({ dir: PROTOTYPES_DIR, versionsDir: PROTOTYPE_VERSIONS_DIR, folder: chat.vibeFolder, at: now(), request }); }
+  catch (error) { console.error(`[servant] couldn't save a version of ${chat.vibeFolder}: ${error.message}`); return null; }
+}
+// The versions of a hosted prototype, newest first, each with a read-only link.
+function prototypeVersionsView(chat) {
+  const origin = loadConfig().publicUrl.replace(/\/+$/, "");
+  return listVersions(PROTOTYPE_VERSIONS_DIR, chat.vibeFolder).reverse().map((v, index) => ({
+    n: v.n, at: v.at, files: v.files, latest: index === 0,
+    ...(origin ? { url: `${origin}/p/${chat.vibeFolder}.v${v.n}/` } : {}),
+    ...(v.restoredFrom ? { restoredFrom: v.restoredFrom } : {}),
+    // The message that led to this version, for anyone who can read the design chat.
+    ...(typeof v.request === "string" && v.request ? { request: v.request } : {}),
+  }));
+}
+const hostedPrototype = chat => isVibeChat(chat) && chat.hosted === "server" && PROTOTYPE_FOLDER.test(chat.vibeFolder || "");
 function prototypeReady(chat) {
   if (!isVibeChat(chat)) return false;
   // GitHub-hosted prototypes predate server-local publication and have no
@@ -960,7 +1119,7 @@ async function handle(req, res, cfg) {
   }
   if (url.pathname === "/robots.txt") { res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" }); res.end("User-agent: *\nDisallow: /p/\n"); return undefined; }
   // Prototypes built in Prototyping chats (prototypes.mjs): public by unguessable folder name, sandboxed.
-  if (url.pathname.startsWith("/p/") && servePrototype(req, res, url, { dir: PROTOTYPES_DIR, kitDir: expandPath(vibeProject()?.path), ip: clientIp(req) })) return undefined;
+  if (url.pathname.startsWith("/p/") && servePrototype(req, res, url, { dir: PROTOTYPES_DIR, kitDir: expandPath(vibeProject()?.path), versionsDir: PROTOTYPE_VERSIONS_DIR, ip: clientIp(req) })) return undefined;
   // Privacy policy for the app stores (Google Play and App Store link here).
   if (method === "GET" && url.pathname === "/privacy") {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=300", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'" });
@@ -1150,6 +1309,7 @@ async function handle(req, res, cfg) {
     return body;
   };
 
+  if (parts[1] === "research-hub" && cfg.researchHold) return fail(res, 403, "research_paused", RESEARCH_PAUSED);
   if (parts[1] === "research-hub") {
     const researcherOnly = current => {
       if (agentTierOf(current) !== RESEARCHER_TIER) throw new ResearchHubError("Researcher access is required", 403, "forbidden");
@@ -1346,7 +1506,14 @@ async function handle(req, res, cfg) {
     const legacy = parts[1] === "folders";
     const wrap = (one, value) => ({ [legacy ? (one ? "folder" : "folders") : (one ? "project" : "projects")]: value });
     const users = () => readState().users;
-    const allChats = () => Object.values(readState().chats);
+    // Only chats this person may read under the one purpose-chat rule
+    // (canReadChat): a downgraded author's research or prototype chat is
+    // neither listed nor counted.
+    const allChats = () => {
+      const state = readState();
+      const viewer = state.users[user.id] || user;
+      return Object.values(state.chats).filter(chat => canReadChat(chat, viewer, state.users));
+    };
     const found = (data, pid) => {
       const project = data.projects.find(p => p.id === pid);
       const access = project && accessOf(project, user, users(), data.people);
@@ -1364,7 +1531,7 @@ async function handle(req, res, cfg) {
       const data = projects().read();
       const chats = allChats();
       const list = accessibleProjects(data, user, users()).map(({ project, access }) => projectView(project, access, user, users(), data.people, chats));
-      return send(res, 200, { ...wrap(false, list), vibeCoder: agentTierOf(users()[user.id]) === 2, agentTier: agentTierOf(users()[user.id]), vibe: !!vibeProject() });
+      return send(res, 200, { ...wrap(false, list), vibeCoder: agentTierOf(users()[user.id]) === 2, agentTier: agentTierOf(users()[user.id]), vibe: !!vibeProject(), researchHold: !!cfg.researchHold, prototypeOrigin: prototypeOrigin(cfg) });
     }
     if (method === "POST" && parts.length === 2) {
       const body = await readAuthorizedBody(req);
@@ -1606,7 +1773,7 @@ async function handle(req, res, cfg) {
   if (parts[1] !== "chats") return fail(res, 404, "not_found", "Not found");
   const currentState = readState();
   requireAuth(req, currentState);
-  const mine = Object.values(currentState.chats).filter((c) => c.userId === user.id && !c.deletedAt);
+  const mine = Object.values(currentState.chats).filter((c) => c.userId === user.id && !c.deletedAt && chatLaneAllowed(c, currentState.users[user.id] || user));
 
   if (method === "GET" && parts.length === 2) {
     const viewer = currentState.users[user.id] || user;
@@ -1665,6 +1832,10 @@ async function handle(req, res, cfg) {
     if (requiredAgentRole === "prototype" && (!vibe || !prototypeAgentAccess(creator))) {
       return fail(res, 403, "forbidden", "Prototype agent access is required");
     }
+    // Research pilot: Research Hub prototype handoffs are on hold (checked before
+    // the handoff touches the Hub). Researcher prototypes without one, and
+    // ordinary researcher chats, are unaffected.
+    if (cfg.researchHold && body.researchHandoff !== undefined) throw researchPaused();
     // Validate before opening an upstream session. The exact same handoff is
     // revalidated after that awaited call before it is bound to the chat.
     if (body.researchHandoff !== undefined) canonicalResearchHandoff(body.researchHandoff, creator);
@@ -1708,6 +1879,8 @@ async function handle(req, res, cfg) {
         if (requiredAgentRole === "researcher" && agentLane(current.user, cfg) !== "researcher") throw requestError(403, "forbidden", "Your Researcher access changed. Start a new chat");
         if (chatRole === "prototype" && !prototypeAgentAccess(current.user)) throw requestError(403, "forbidden", "Your prototype agent access changed. Start a new chat");
         if (chat.researchHandoff && agentTierOf(current.user) !== RESEARCHER_TIER) throw requestError(403, "forbidden", "Your Researcher access changed. Start a new prototype handoff");
+        // The hold can be turned on while the session call is pending: check it again here.
+        if (loadConfig().researchHold && body.researchHandoff !== undefined) throw researchPaused();
         state.chats[chatId] = chat;
       });
     } catch (error) {
@@ -1728,22 +1901,38 @@ async function handle(req, res, cfg) {
     // Someone else's shared chat (or any chat, for the owner): read only.
     // A shared chat's messages can be forwarded to a channel or DM for feedback.
     if (method === "POST" && parts[3] === "messages" && parts[5] === "forward" && parts.length === 6 && chatShared(visible)) {
-      return forwardChatMessage(req, res, { chat: visible, author: currentState.users[visible.userId], user: viewer, device, messageId: parts[4], cfg, readAuthorizedBody });
+      return forwardChatMessage(req, res, { chat: visible, user: viewer, device, messageId: parts[4], cfg, readAuthorizedBody,
+        allowed: (active, person, latest) => canReadChat(active, person, latest.users) && chatShared(active) });
     }
-    if (method !== "GET" || !["messages", "media", undefined].includes(parts[3]) || parts.length > 4) {
+    if (method !== "GET" || !["messages", "media", "versions", undefined].includes(parts[3]) || parts.length > 4) {
       return fail(res, 403, "read_only", "Only the person who started this chat can do that");
+    }
+    // Earlier versions of a design anyone who can see it can look at (restoring is the author's).
+    if (parts[3] === "versions") {
+      if (!hostedPrototype(visible)) return fail(res, 404, "not_found", "This chat has no hosted prototype");
+      // A page published without a version yet (made before versions, or changed outside a reply) gets one now.
+      savePrototypeVersion(visible);
+      return send(res, 200, { versions: prototypeVersionsView(visible), canRestore: false });
     }
     const history = chatMediaStore().history(visible.id);
     if (parts.length === 3) return send(res, 200, { chat: chatView(visible, viewer, currentState.users) });
     if (parts[3] === "media") {
-      const author = currentState.users[visible.userId];
-      return send(res, 200, mediaPage(chatMediaStore().media(visible.id, { id: visible.userId, name: author?.name || "Former member" }, cfg.agentName || "Agent"), url.searchParams));
+      return send(res, 200, mediaPage(chatMediaStore().media(visible.id, messageSender(visible, currentState.users), cfg.agentName || "Agent"), url.searchParams));
     }
     const sources = agentTurns.messageSources(visible.id);
     return send(res, 200, { chat: chatView(visible, viewer, currentState.users), messages: withSenders(visible, history.map(message => privateMessageView(message, viewer, sources)), currentState.users), latestTurn: null, upstreamUnavailable: false });
   }
   const chat = collaborating ? visible : mine.find((c) => c.id === parts[2]);
   if (!chat) return fail(res, 404, "not_found", "No such chat");
+  // Rechecks this person's access to this chat against the latest state. Used
+  // after every request-body read or network await, right before a read
+  // response, a mutation or a delivery.
+  const recheckChat = () => {
+    const latest = readState();
+    const current = requireAuth(req, latest);
+    requireChatWriter(latest, current.user.id, chat.id);
+    return current;
+  };
   if (collaborating && !collaboratorRoute(method, parts)) {
     return fail(res, 403, "read_only", "Only the person who started this research plan can do that");
   }
@@ -1758,7 +1947,11 @@ async function handle(req, res, cfg) {
     const hasProjectShared = Object.hasOwn(body, "projectShared") || Object.hasOwn(body, "folderShared");
     const nextShared = Object.hasOwn(body, "projectShared") ? body.projectShared : body.folderShared;
     const hasCollaboratorList = Object.hasOwn(body, "collaborators");
-    if (typeof body.shared !== "boolean" && !hasProject && !hasProjectShared && !hasCollaboratorList) return fail(res, 400, "bad_request", "shared must be true or false");
+    // Renaming: the author names their chat or design (1-80 characters).
+    const hasTitle = Object.hasOwn(body, "title");
+    const nextTitle = hasTitle && typeof body.title === "string" ? body.title.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) : "";
+    if (hasTitle && !nextTitle) return fail(res, 400, "bad_request", "title must be 1 to 80 characters");
+    if (typeof body.shared !== "boolean" && !hasProject && !hasProjectShared && !hasCollaboratorList && !hasTitle) return fail(res, 400, "bad_request", "shared must be true or false");
     if (typeof body.shared !== "boolean" && body.shared !== undefined) return fail(res, 400, "bad_request", "shared must be true or false");
     if (hasProjectShared && typeof nextShared !== "boolean") return fail(res, 400, "bad_request", "projectShared must be true or false");
     if (hasProject && nextProject !== null && !validProjectId(nextProject)) return fail(res, 400, "bad_request", "projectId must be a project or null");
@@ -1770,6 +1963,7 @@ async function handle(req, res, cfg) {
       updated = requireChat(state, current.user.id, chat.id);
       if (hasProject && updated.role === "prototype") throw requestError(409, "prototype_scope", "Prototype workspaces stay in Design Studio");
       if (typeof body.shared === "boolean") updated.shared = body.shared;
+      if (hasTitle) { updated.title = nextTitle; updated.updatedAt = now(); }
       if (hasProject) {
         if (nextProject === null) { delete updated.projectId; delete updated.projectShared; }
         else if (projectFor(current.user, nextProject, state.users)) {
@@ -1799,6 +1993,44 @@ async function handle(req, res, cfg) {
     });
     return send(res, 200, { chat: chatView(updated, user) });
   }
+  // Version history for a hosted design: listing saves a version if the page changed since the last one.
+  if (parts[3] === "versions" && hostedPrototype(chat) && !collaborating) {
+    if (method === "GET" && parts.length === 4) {
+      recheckChat();
+      savePrototypeVersion(chat);
+      let canRestore = true;
+      try { requireAgentChatAccess(viewer, chat, cfg); } catch { canRestore = false; }
+      return send(res, 200, { versions: prototypeVersionsView(chat), canRestore });
+    }
+    if (method === "POST" && parts.length === 6 && parts[5] === "restore" && /^[1-9]\d{0,5}$/.test(parts[4])) {
+      await readAuthorizedBody(req);
+      const current = recheckChat();
+      const latest = readState();
+      const active = requireChat(latest, current.user.id, chat.id);
+      // The same access as sending in this workspace, and never while the agent is working on it.
+      requireAgentChatAccess(latest.users[current.user.id], active, cfg);
+      const working = agentTurns.latest(chat.id)[0];
+      if (working && !terminalTurn(working) && working.status !== "steered") return fail(res, 409, "agent_working", "The agent is working on this design. Restore a version when it's done");
+      const restored = restoreVersion({ dir: PROTOTYPES_DIR, versionsDir: PROTOTYPE_VERSIONS_DIR, folder: active.vibeFolder, n: Number(parts[4]), at: now() });
+      if (!restored) return fail(res, 404, "not_found", "No such version");
+      mutateAuthenticated(req, (state, person) => { requireChat(state, person.user.id, chat.id).updatedAt = now(); });
+      return send(res, 200, { versions: prototypeVersionsView(active), restored: restored.n });
+    }
+  }
+  // Duplicate: a new, empty design of this person's starts from the current page of one they can see.
+  if (method === "POST" && parts[3] === "prototype" && parts[4] === "copy" && parts.length === 5 && !collaborating) {
+    const body = await readAuthorizedBody(req);
+    const current = recheckChat();
+    const latest = readState();
+    const target = requireChat(latest, current.user.id, chat.id);
+    requireAgentChatAccess(latest.users[current.user.id], target, cfg);
+    const source = typeof body.from === "string" ? latest.chats[body.from] : null;
+    if (!source || source.deletedAt || !canReadChat(source, latest.users[current.user.id], latest.users)) return fail(res, 404, "not_found", "No such design");
+    if (!hostedPrototype(target) || !hostedPrototype(source)) return fail(res, 409, "not_hosted", "Only designs hosted on this server can be duplicated");
+    if (!copyPrototype({ dir: PROTOTYPES_DIR, from: source.vibeFolder, to: target.vibeFolder })) return fail(res, 409, "copy_refused", "Couldn't copy this design. The new design must be empty and the original must have a page");
+    savePrototypeVersion(target);
+    return send(res, 200, { chat: chatView(readState().chats[chat.id], user) });
+  }
   // A member promoted to owner (or the reverse) keeps old chats on the old agent.
   const chatLane = chatUpstreamLane(chat, cfg);
   const chatUp = upstreamForLane(chatLane, cfg);
@@ -1821,7 +2053,7 @@ async function handle(req, res, cfg) {
     chatMediaStore().deleteChat(chat.id);
     documents().deleteChat(chat.id);
     removeLongMessages(chat.id);
-    if (chat.hosted === "server") removePrototype(PROTOTYPES_DIR, chat.vibeFolder);
+    if (chat.hosted === "server") { removePrototype(PROTOTYPES_DIR, chat.vibeFolder); removeVersions(PROTOTYPE_VERSIONS_DIR, chat.vibeFolder); }
     hermes(chatUp, "DELETE", `/api/sessions/${encodeURIComponent(chat.hermesSessionId)}`).catch(() => {});
     return send(res, 200, { ok: true });
   }
@@ -1833,7 +2065,7 @@ async function handle(req, res, cfg) {
       const current = requireAuth(req, latest);
       const active = requireChatWriter(latest, current.user.id, chat.id);
       requirePrototypeChatScope(active);
-      if (forTurn) requireAgentChatAccess(current.user, active);
+      if (forTurn) requireAgentChatAccess(current.user, active, cfg);
       return current;
     };
     const cached = () => {
@@ -1876,15 +2108,15 @@ async function handle(req, res, cfg) {
       attachments: [], pending: !terminalTurn(turn), interrupted: terminalTurn(turn), turnId: turn.id,
     });
     messages.sort((a, b) => a.at - b.at);
-    const current = requireAuth(req);
+    const current = recheckChat();
     const sources = agentTurns.messageSources(chat.id);
     return send(res, 200, { messages: withSenders(chat, messages.map(message => privateMessageView(message, current.user, sources)), readState().users), latestTurn, upstreamUnavailable });
   }
 
   if (method === "GET" && parts[3] === "media" && parts.length === 4) {
     await syncChatHistory(true);
-    const sender = { id: user.id, name: user.name };
-    return send(res, 200, mediaPage(chatMediaStore().media(chat.id, sender, cfg.agentName || "Agent"), url.searchParams));
+    recheckChat();
+    return send(res, 200, mediaPage(chatMediaStore().media(chat.id, messageSender(chat, readState().users), cfg.agentName || "Agent"), url.searchParams));
   }
 
   const ownTurn = turnId => {
@@ -1925,15 +2157,18 @@ async function handle(req, res, cfg) {
   // Documents and design files upload in chunks first; the message then names them.
   if (method === "POST" && parts[3] === "uploads" && parts.length === 4) {
     const body = await readAuthorizedBody(req);
+    recheckChat();
     return send(res, 201, documents().create({ chatId: chat.id, userId: user.id, name: body.name, size: body.size }));
   }
   if (method === "POST" && parts[3] === "uploads" && parts.length === 5) {
     const body = await readAuthorizedBody(req, DOCUMENT_CHUNK_BODY);
+    recheckChat();
     return send(res, 200, documents().append({ chatId: chat.id, userId: user.id, id: parts[4], offset: body.offset, data: body.data }));
   }
 
   if (method === "POST" && parts[3] === "messages" && parts[5] === "forward" && parts.length === 6) {
-    return forwardChatMessage(req, res, { chat, author: user, user, device, messageId: parts[4], cfg, readAuthorizedBody });
+    return forwardChatMessage(req, res, { chat, user, device, messageId: parts[4], cfg, readAuthorizedBody,
+      allowed: (active, person, latest) => { try { return !!requireChatWriter(latest, person.id, active?.id ?? chat.id); } catch { return false; } } });
   }
 
   if (method === "POST" && parts[3] === "messages" && parts.length === 4) {
@@ -2005,7 +2240,7 @@ async function handle(req, res, cfg) {
     try {
       turn = mutateAuthenticated(req, (state, current) => {
         const active = requireChatWriter(state, current.user.id, chat.id);
-        requireAgentChatAccess(current.user, active);
+        requireAgentChatAccess(current.user, active, cfg);
         if (requestedResearchHandoff) {
           if (!active.researchHandoff || active.researchHandoff.id !== requestedResearchHandoff.id || active.researchHandoff.acceptedAt) {
             throw requestError(409, "research_handoff_changed", "This research handoff is no longer available. Return to Research Studio and create a new one");
@@ -2111,15 +2346,71 @@ function streamPrivateTurn(req, res, turnId, authorize, after = 0) {
   });
 }
 
+// Whether a turn's sender may still have it run: person, device, chat lane,
+// collaborator access and the agent tier, as of `state`. Deleting the chat
+// doesn't count (the record stays for audit); losing access does.
+function turnEligible(turn, state, cfg) {
+  const current = state.users[turn.user_id];
+  const active = state.chats[turn.chat_id];
+  if (!current || isRemoved(current) || !active) return false;
+  if (current.role !== "owner" && agentTierOf(current) === 0) return false;
+  if (!Object.values(state.devices).some(d => d.id === turn.device_id && d.userId === turn.user_id && !d.revokedAt)) return false;
+  if (active.userId === turn.user_id ? !chatLaneAllowed(active, current) : collaboratorAccess(active, current, state.users) !== "edit") return false;
+  if (active.role === "owner" && current.role !== "owner") return false;
+  try { requireAgentChatAccess(current, active, cfg); } catch { return false; }
+  return true;
+}
+
 async function executePrivateTurn(turn, hooks, cfg) {
-  const initial = readState();
-  const user = initial.users[turn.user_id];
-  const device = Object.values(initial.devices).find(d => d.id === turn.device_id && d.userId === turn.user_id && !d.revokedAt);
-  const chat = requireChatWriter(initial, turn.user_id, turn.chat_id);
-  if (!user || !device || (chat.role === "owner" && user.role !== "owner")) throw requestError(403, "forbidden", "Access changed before this turn started");
-  // Someone moved to Researcher can't keep using an arbitrary older full-agent
-  // chat. Only explicitly marked, folder-scoped prototype chats are allowed.
-  requireAgentChatAccess(user, chat);
+  // Access is checked against the latest state at the start, after every
+  // await, and immediately before anything is delivered to an agent: the
+  // person, their device, their tier, the chat lane and collaborator access.
+  const reauthorize = () => {
+    const latest = readState();
+    const current = latest.users[turn.user_id];
+    const liveDevice = Object.values(latest.devices).some(d => d.id === turn.device_id && d.userId === turn.user_id && !d.revokedAt);
+    if (!current || isRemoved(current) || !liveDevice) throw requestError(403, "forbidden", "Access changed before this message was sent");
+    const active = requireChatWriter(latest, turn.user_id, turn.chat_id);
+    if (active.role === "owner" && current.role !== "owner") throw requestError(403, "forbidden", "Access changed before this message was sent");
+    // Someone moved to Researcher can't keep using an arbitrary older full-agent
+    // chat. Only explicitly marked, folder-scoped prototype chats are allowed.
+    requireAgentChatAccess(current, active, cfg);
+    return { user: current, chat: active };
+  };
+  // Checked while the agent works. Deleting the chat doesn't stop the reply
+  // (the record stays for audit); losing access does.
+  // Losing access ends this person's work in the chat: queued messages and
+  // steers are cancelled and unsaved draft replies are cleared.
+  const revoked = error => { try { agentTurns.revokeChatWork(turn.chat_id, turn.user_id); } catch { /* best effort */ } return error; };
+  const stillAllowed = () => turnEligible(turn, readState(), cfg);
+  const accessChanged = () => requestError(403, "access_changed", "Access changed while the agent was working");
+  let user, chat;
+  try { ({ user, chat } = reauthorize()); } catch (error) {
+    // A run already started for this turn (a worker restart resumed it) is
+    // stopped too, so nothing keeps working for someone who lost access.
+    if (turn.run_id && !stillAllowed()) {
+      const latest = readState(), active = latest.chats[turn.chat_id];
+      const up = active && upstreamForLane(chatUpstreamLane(active, cfg), cfg);
+      if (up) await stopRunVerified(up, turn.run_id).catch(() => false);
+    }
+    throw revoked(stillAllowed() ? error : accessChanged());
+  }
+  // Checked every 200 ms whatever the agent is doing, so a revoked run is
+  // abandoned within half a second even while the agent is silent.
+  const revocation = new AbortController();
+  const watch = setInterval(() => { if (!revocation.signal.aborted && !stillAllowed()) revocation.abort(); }, 200);
+  try {
+    const result = await runPrivateTurn();
+    // However the run ended, a person who lost access gets nothing from it.
+    if (revocation.signal.aborted || !stillAllowed()) throw accessChanged();
+    return result;
+  } catch (error) {
+    if (revocation.signal.aborted || error?.code === "access_changed" || !stillAllowed()) throw revoked(accessChanged());
+    throw error;
+  } finally {
+    clearInterval(watch);
+  }
+  async function runPrivateTurn() {
   let researchHandoffConsumed = !!turn.accepted;
   const authorizeResearchHandoffTurn = () => {
     if (!turn.research_handoff_id || researchHandoffConsumed) return;
@@ -2142,8 +2433,20 @@ async function executePrivateTurn(turn, hooks, cfg) {
   if (!up) throw requestError(502, "agent_error", "The agent is unavailable");
   const full = ["owner", "prototype"].includes(lane);
   if (!full) await verifyUpstream(lane, up);
+  reauthorize();
   if (!turn.run_id && usageStore().overLimit(user)) throw requestError(429, "usage_limit", limitText(user));
   const durable = !!turn.run_id || await supportsDurableRuns(up);
+  // Run keys let a run be stopped even when the reply with its ID is lost or late.
+  const runKey = durable && !turn.run_id && await supportsRunKeys(up) ? runKeyFor(turn.id) : undefined;
+  // Researcher and prototype purpose chats run only where losing access can
+  // stop the agent's work: a durable run, started under a run key, with a
+  // confirmed stop. Closing a legacy stream doesn't stop the agent, and
+  // without a key a run whose start reply is lost can't be found, so those
+  // chats fail closed.
+  if (PURPOSE_ROLES.includes(chat.role) && (!durable || (!turn.run_id && !runKey))) {
+    throw requestError(503, "durable_runs_required", "This agent can't confirm it stopped if access changes, so research and prototype chats are paused. Ask a workspace owner to update the agent bridge to one with durable runs and run keys");
+  }
+  reauthorize();
   authorizeResearchHandoffTurn();
   // Legacy owner agents can read the exact saved input instead of receiving
   // altered chunks. Restricted agents never receive a local-file fallback.
@@ -2152,7 +2455,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
   const input = hermesInput(files ? (text ? `${text}\n\n${files}` : files) : text, turn.attachments, { durable, full });
   let assistantMessage;
   const saveAssistant = content => {
-    if (assistantMessage) return;
+    if (assistantMessage || revocation.signal.aborted || !stillAllowed()) return;
     const latest = readState();
     const active = latest.chats[turn.chat_id];
     if (!active || (active.userId !== turn.user_id && collaboratorAccess(active, latest.users[turn.user_id], latest.users) !== "edit")) throw requestError(404, "not_found", "That chat is gone");
@@ -2163,9 +2466,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
     hooks.emit("message", assistantMessage);
   };
   const onAccepted = () => {
-    const latest = readState();
-    requireChatWriter(latest, turn.user_id, turn.chat_id);
-    if (!Object.values(latest.devices).some(d => d.id === turn.device_id && d.userId === turn.user_id && !d.revokedAt)) throw requestError(401, "unauthorized", "Device removed");
+    reauthorize();
     if (turn.research_handoff_id && !researchHandoffConsumed) {
       mutateState(state => {
         const currentUser = state.users[turn.user_id];
@@ -2191,6 +2492,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
   // tapping the progress line can show everything the agent has done so far.
   const step = (label, detail) => hooks.emit("step", { label, ...(full && detail ? { detail: stepDetail(detail) } : {}) });
   const onEvent = (name, payload) => {
+    if (revocation.signal.aborted) return;
     if (name === "assistant.delta") { if (payload.delta) { if (activity !== WRITING_LINE) step(WRITING_LINE); setActivity(WRITING_LINE); } hooks.emit("delta", { text: payload.delta || "" }); }
     else if (name === "tool.started") { const line = toolStatusLine(payload.tool_name, { full }); step(line, typeof payload.preview === "string" ? payload.preview : ""); setActivity(line); }
     else if (name === "reasoning.available" || (name === "tool.progress" && payload.tool_name === "_thinking")) { step(THINKING_LINE, payload.text ?? payload.delta); setActivity(THINKING_LINE); }
@@ -2212,6 +2514,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
   if (durable) {
     if (turn.run_id && !turn.accepted) onAccepted();
     const canSteer = full && await supportsSteer(up);
+    reauthorize();
     authorizeResearchHandoffTurn();
     const steered = steerId => {
       // The steer is now part of this conversation: show it as a sent message.
@@ -2221,8 +2524,17 @@ async function executePrivateTurn(turn, hooks, cfg) {
       hooks.steered?.(steerId);
     };
     if (!turn.run_id) hooks.deliveryStarted();
-    result = await runDurableHermes({ up, sessionId: turn.session_id, input, sessionKey: sessionKey(user, turn.chat_id), instructions: chatContext(chat), runId: turn.run_id,
-      onAccepted, onEvent, checkpoint: hooks.checkpoint, controls: hooks.controls, steered, canSteer });
+    // The run is polled every half second. If access changes mid-run, it stops
+    // and no queued steer messages are delivered.
+    const controls = () => {
+      const control = hooks.controls();
+      if (stillAllowed()) return control;
+      revocation.abort();
+      return { ...control, stop: true, steers: [] };
+    };
+    reauthorize();
+    result = await runDurableHermes({ up, sessionId: turn.session_id, input, sessionKey: sessionKey(user, turn.chat_id), instructions: chatContext(chat), runId: turn.run_id, runKey,
+      onAccepted, onEvent, checkpoint: hooks.checkpoint, controls, steered, canSteer, signal: revocation.signal });
     if (result.usage) recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", chatId: turn.chat_id, text: turn.text, usage: result.usage });
     // Run output is resolved by the bridge, while history contains its original
     // MEDIA source. Bind the cache record to that source for later galleries.
@@ -2236,8 +2548,9 @@ async function executePrivateTurn(turn, hooks, cfg) {
   } else {
     authorizeResearchHandoffTurn();
     hooks.deliveryStarted();
-    const answer = await streamTurn(up, turn.session_id, input, sessionKey(user, turn.chat_id), onEvent, () => false, onAccepted,
-      usage => recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", chatId: turn.chat_id, text: turn.text, usage }), chatContext(chat));
+    reauthorize();
+    const answer = await streamTurn(up, turn.session_id, input, sessionKey(user, turn.chat_id), onEvent, () => revocation.signal.aborted || !stillAllowed(), onAccepted,
+      usage => recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", chatId: turn.chat_id, text: turn.text, usage }), chatContext(chat), revocation.signal);
     if (!assistantMessage && answer) saveAssistant(answer);
     result = { status: "completed" };
   }
@@ -2250,10 +2563,15 @@ async function executePrivateTurn(turn, hooks, cfg) {
       delete current.researchHandoff;
     }
   });
+  // Each reply in a design workspace may have republished the page: keep a version when it changed.
+  if (isVibeChat(chat) && chat.hosted === "server") savePrototypeVersion(chat, turn.text);
+  if (result?.status === "revoked" && result.stopConfirmed === false) console.error(`[servant] access changed, but the agent didn't confirm ${result.runId ? `run ${result.runId}` : `run key ${result.runKey}`} stopped`);
+  if (revocation.signal.aborted || result.status === "revoked") throw accessChanged();
   return { status: result.status, unreadSteers: result.unreadSteers, notification: assistantMessage && (assistantMessage.text || assistantMessage.attachments.length) ? {
     kind: "agent", eventId: turn.id, chatId: turn.chat_id, userId: turn.user_id,
     text: assistantMessage.text || (assistantMessage.attachments.some(a => a.mime.startsWith("video/")) ? "Sent a video" : "Sent an image"),
   } : undefined };
+  }
 }
 
 // Runs in a separate worker so deploying/restarting the API cannot lose a report. No AI: the report becomes a GitHub issue.
@@ -2268,6 +2586,7 @@ export async function runFeedback(report) {
 function createServices(fixedCfg, { externalWorker = false, autoDrain = true } = {}) {
   process.umask(0o077); // messages.db and its WAL files are private to this user
   store();
+  eligibilityCfg = () => fixedCfg || loadConfig();
   let servicePush;
   const approvedAnswers = createApprovedAnswers({ directory: DATA_DIR });
   const serviceMessaging = createMessaging({
@@ -2309,9 +2628,19 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
       const chatId = id("cht"), hermesSessionId = `servant_${user.id}_${chatId}`;
       const made = await hermes(up, "POST", "/api/sessions", { id: hermesSessionId, title: `Servant · ${user.name} · ${chatId.slice(-6)}` });
       if (!made.ok) throw new Error(`agent ${made.status}`);
-      const chat = { id: chatId, userId: user.id, role: agentLane(user, cfg) === "researcher" ? "researcher" : user.role, hermesSessionId, title: title.slice(0, 80), shared: true,
+      const lane = agentLane(user, cfg);
+      const chat = { id: chatId, userId: user.id, role: lane === "researcher" ? "researcher" : user.role, hermesSessionId, title: title.slice(0, 80), shared: true,
         startedAt: now(), createdAt: now(), updatedAt: now(), fromConversation: where };
-      mutateState(s => { s.chats[chatId] = chat; });
+      // The session call can outlast an access change: check again, in the
+      // same write that saves the chat.
+      try { mutateState(s => {
+        const latest = s.users[userId], signedIn = s.devices[Object.keys(s.devices).find(key => s.devices[key].id === device.id)];
+        if (!latest || isRemoved(latest) || agentLane(latest, fixedCfg || loadConfig()) !== lane || latest.role !== user.role || (latest.role !== "owner" && agentTierOf(latest) === 0) || !signedIn || signedIn.revokedAt) throw new Error("access changed");
+        s.chats[chatId] = chat;
+      }); } catch (error) {
+        void hermes(up, "DELETE", `/api/sessions/${encodeURIComponent(hermesSessionId)}`).catch(() => {});
+        throw error;
+      }
       const text = `${user.name} asked for this in ${where}. Do the work here; others can follow along.\n\n${transcript}`.slice(0, INLINE_MESSAGE_CHARS);
       serviceTurns.enqueue({ chat, user, device, text, attachments: [] });
       return chat;
@@ -2322,6 +2651,10 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
       // A researcher's @s runs on the researcher agent too, never the full one.
       const asker = readState().users[userId];
       const lane = asker ? agentLane(asker, cfg) : "member";
+      // Channel answers use the legacy stream, which can be abandoned but not
+      // confirmed stopped if access changes. During the research pilot,
+      // Researchers ask in their Agent tab chats (durable runs) instead.
+      if (lane === "researcher" && cfg.researchHold) return RESEARCHER_CHANNEL_PAUSED_REPLY;
       const up = lane === "researcher" ? upstreamFor(asker, cfg) : upstreamFor({ role: "member" }, cfg);
       if (!up) return "The agent isn't set up on this server yet";
       if (lane === "researcher") await verifyResearcherUpstream(up);
@@ -2337,14 +2670,35 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
         const made = await hermes(up, "POST", "/api/sessions", { id: sessionId, title: `Servant · ${sessionId.slice(8, 30)}` });
         if (!made.ok && made.status !== 409) throw new Error(`session ${made.status}`);
       }
-      const answer = await streamTurn(up, sessionId, hermesInput(text, attachments), key, (name, p) => {
-        if (name === "assistant.delta") onDelta(p.delta || "");
-      }, () => false, () => {}, onUsage);
-      return normalizeMediaContent(answer);
+      // Those awaits could outlast an access change. Check again right before
+      // the question goes to the agent, and keep checking while it answers.
+      const askerNow = () => {
+        const latest = readState().users[userId];
+        return !!latest && !isRemoved(latest) && (asker ? agentLane(latest, cfg) : "member") === lane;
+      };
+      if (!askerNow()) return ACCESS_CHANGED_REPLY;
+      if (usageStore().overLimit(readState().users[userId])) return limitText(readState().users[userId]);
+      // Watched every 200 ms, so a silent agent is abandoned within half a
+      // second of an access change and nothing more it says is posted.
+      const revocation = new AbortController();
+      const watch = setInterval(() => { if (!revocation.signal.aborted && !askerNow()) revocation.abort(); }, 200);
+      try {
+        const answer = await streamTurn(up, sessionId, hermesInput(text, attachments), key, (name, p) => {
+          if (name === "assistant.delta" && !revocation.signal.aborted) onDelta(p.delta || "");
+        }, () => revocation.signal.aborted || !askerNow(), () => {}, onUsage, "", revocation.signal);
+        if (revocation.signal.aborted || !askerNow()) return ACCESS_CHANGED_REPLY;
+        return normalizeMediaContent(answer);
+      } catch (error) {
+        if (revocation.signal.aborted || !askerNow()) return ACCESS_CHANGED_REPLY;
+        throw error;
+      } finally {
+        clearInterval(watch);
+      }
     },
   });
   const serviceTurns = createAgentTurns({ file: path.join(DATA_DIR, "agent-turns.db"),
-    execute: (turn, hooks) => executePrivateTurn(turn, hooks, fixedCfg || loadConfig()) });
+    execute: (turn, hooks) => executePrivateTurn(turn, hooks, fixedCfg || loadConfig()),
+    onInterruptedStart: turn => void stopInterruptedStart(turn, fixedCfg || loadConfig()) });
   // A crash can leave a prepared row on either side of the state commit.
   // Release only rows backed by the exact persisted chat binding and delete
   // every orphan before an external worker can claim it.
@@ -2364,9 +2718,7 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
     mutate: mutateState,
     resolve: (event, user) => {
       if (event.kind === "message") return serviceMessaging.notificationFor(event.messageId, user, event);
-      const chat = readState().chats[event.chatId];
-      if (event.userId !== user.id || !chat || chat.deletedAt || chat.userId !== user.id) return null;
-      return { kind: "agent", chatId: chat.id, title: "Agent · " + chat.title, body: event.text };
+      return agentNotificationFor(event, user);
     },
     send: createPushTransport(() => loadJson(process.env.SERVANT_PUSH_CONFIG || path.join(os.homedir(), ".config/servant/push.json"), {})),
   });

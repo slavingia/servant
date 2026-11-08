@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Platform, StyleSheet, Text, View } from "react-native";
 import { router, Stack, useIsFocused, useLocalSearchParams } from "expo-router";
 import { Button } from "../components/Button";
 import { ConversationKeyboardView } from "../components/ConversationKeyboardView";
@@ -15,6 +15,9 @@ import { canCompactPost } from "../lib/message-device";
 import { useLive } from "../lib/live";
 import { useSession } from "../lib/session";
 import { askAgentAbout } from "../lib/ask-agent";
+import { appendToDraft } from "../lib/drafts";
+import { useProjects } from "../lib/projects-store";
+import { parseDesignReview, parseSuggestion, prototypePageUrl, suggestionPrompt } from "../lib/prototype-adjustments";
 import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
 export default function ThreadScreen() {
@@ -56,6 +59,7 @@ export default function ThreadScreen() {
   const typingNames = useTyping(conv, root, account?.user.id ?? "");
   const ping = useTypingPing(account, conv, root);
   const rows = useMemo(() => head ? [head, ...(replies ?? [])] : replies ?? [], [head, replies]);
+  const { review, ownDesign, sendSuggestion } = useDesignReview(head);
   const receipts = useMemo(() => conversation && conversation.id === conv && conversation.kind === "dm"
     ? latestMessageReceipts(rows, account?.user.id ?? "", conversation.members)
     : undefined, [rows, account?.user.id, conversation, conv]);
@@ -251,7 +255,7 @@ export default function ThreadScreen() {
                 {title ? <Text style={styles.where}>In {title}</Text> : null}
                 <PostRow post={item} receipt={receipts?.get(item.id)} onReact={(emoji, active) => react(item, emoji, active)} onAskAgent={() => askAgent(item)}
                   onSuggest={joined && item.user.agent && index === rows.length - 1 ? text => { void send(text); } : undefined}
-                  me={me} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
+                  me={me} onEdit={() => setEditing(item)} onDelete={() => remove(item)} ownDesign={ownDesign} />
                 <Text accessibilityRole="header" style={styles.count}>
                   {!replies?.length ? "No replies yet" : `${replies.length} ${replies.length === 1 ? "reply" : "replies"}`}
                 </Text>
@@ -264,7 +268,8 @@ export default function ThreadScreen() {
                 {item.id === focus && matchLabel ? <Text style={styles.searchLabel}>{matchLabel}</Text> : null}
                 <PostRow post={item} receipt={receipts?.get(item.id)} onReact={(emoji, active) => react(item, emoji, active)} onAskAgent={() => askAgent(item)}
                   onSuggest={joined && item.user.agent && index === rows.length - 1 ? text => { void send(text); } : undefined}
-                  me={me} compact={compact && item.id !== focus} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
+                  me={me} compact={compact && item.id !== focus} onEdit={() => setEditing(item)} onDelete={() => remove(item)}
+                  onAddSuggestion={ownDesign && review && parseSuggestion(item.text) ? () => sendSuggestion(item) : undefined} />
               </View>;
             }}
           />
@@ -279,6 +284,41 @@ export default function ThreadScreen() {
     </View>
     </MediaGalleryProvider>
   );
+}
+
+// A design review thread (web and Mac): reviewers suggest quick adjustments on its preview; the
+// design's author adjusts it directly, and can move a reviewer's suggestion into the design chat.
+function useDesignReview(head: Post | null) {
+  const { account } = useSession();
+  const projects = useProjects();
+  const origin = projects?.prototypeOrigin;
+  const review = useMemo(() => {
+    if (Platform.OS !== "web" || !head) return null;
+    const parsed = parseDesignReview(head.text);
+    const page = parsed && prototypePageUrl(parsed.preview, origin);
+    return parsed && page ? { title: parsed.title, page } : null;
+  }, [head, origin]);
+  const reviewPage = review?.page ?? null;
+  // The design chat behind this review, when it's yours (the page it was found for, and its chat).
+  const [found, setFound] = useState<{ page: string; chat: string | null } | null>(null);
+  const ownDesign = found && found.page === reviewPage ? found.chat : null;
+  useEffect(() => {
+    if (!reviewPage || !account) return;
+    let live = true;
+    api.orgChats(account).then(({ mine }) => {
+      const design = mine.find(chat => chat.mode === "vibe" && !chat.readOnly && prototypePageUrl(chat.previewUrl, origin) === reviewPage);
+      if (live) setFound({ page: reviewPage, chat: design?.id ?? null });
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [reviewPage, account, origin]);
+  const sendSuggestion = (post: Post) => {
+    const suggestion = parseSuggestion(post.text);
+    if (!ownDesign || !review || !suggestion) return;
+    // Left unsent: the author reviews the request in the design chat and sends it.
+    appendToDraft(`chat:${ownDesign}`, suggestionPrompt({ reviewer: post.user.name, title: review.title, page: review.page, body: suggestion.body }));
+    router.push({ pathname: "/chat/[id]", params: { id: ownDesign, title: review.title, compose: "1", studio: "1" } });
+  };
+  return { review, ownDesign, sendSuggestion };
 }
 
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({

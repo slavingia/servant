@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router, type Href } from "expo-router";
 import { AppIcon } from "../components/AppIcon";
-import { Band } from "../components/Band";
 import { Button } from "../components/Button";
 import { api, saveAccount } from "../lib/server";
 import { useSession } from "../lib/session";
@@ -10,6 +9,28 @@ import { completeRoleIntro, goalLabels, normalizeOnboarding, roleLabel } from ".
 import { roleStartTasks } from "../lib/role-start";
 import { canCreateDesign as mayCreateDesign } from "../lib/designs";
 import { createThemedStyles, radius, space, typography } from "../lib/theme";
+
+// "Product designer" mid-sentence is "product designer"; "UX researcher" keeps its capitals.
+const roleInSentence = (label: string) => /^[A-Z][a-z]/.test(label) ? label.charAt(0).toLowerCase() + label.slice(1) : label;
+
+// Each kind of starting point gets its own icon, so the list scans at a glance.
+const TASK_ICONS: Record<string, Parameters<typeof AppIcon>[0]["name"]> = {
+  "research-study": "compose",
+  "research-synthesis": "sparkles",
+  "research-prototype": "code",
+  "research-design-review": "eye",
+  "product-prototype": "code",
+  "product-accessibility": "eye",
+  "product-review": "search",
+  "product-share": "people",
+  "content-draft": "compose",
+  "content-review": "eye",
+  "content-share": "people",
+  "engineer-prototype": "code",
+  "engineer-accessibility": "eye",
+  "engineer-review": "search",
+  "engineer-project": "folder",
+};
 
 export default function RoleStart() {
   const styles = useStyles();
@@ -64,11 +85,11 @@ export default function RoleStart() {
     }
   };
 
+  // The app's navigation is already around this page, so it has no brand band of its own.
   return <View style={styles.root}>
-    <Band />
     <ScrollView contentContainerStyle={styles.body}>
       <Text style={styles.eyebrow}>START HERE</Text>
-      <Text accessibilityRole="header" style={styles.title}>Your {roleLabel(onboarding.role)} workspace</Text>
+      <Text accessibilityRole="header" style={styles.title}>Your {roleInSentence(roleLabel(onboarding.role))} workspace</Text>
       <Text style={styles.lead}>We used your goals to put the most useful work first. You can reach every team feature from the main navigation too.</Text>
       <View style={styles.summary}>
         <Text style={styles.summaryLabel}>Your goals</Text>
@@ -84,7 +105,7 @@ export default function RoleStart() {
           accessibilityState={{ disabled: task.locked || busy }} disabled={task.locked || busy}
           onPress={() => void finish(task.href as Href)}
           style={({ pressed }) => [styles.task, task.recommended && styles.taskRecommended, task.locked && styles.taskLocked, pressed && styles.taskPressed]}>
-          <View style={styles.taskIcon}><AppIcon name={task.locked ? "lock" : "search"} size={18} /></View>
+          <View style={styles.taskIcon}><AppIcon name={task.locked ? "lock" : TASK_ICONS[task.id] ?? "chevronRight"} size={18} /></View>
           <View style={styles.taskCopy}>
             {task.recommended ? <Text style={styles.recommended}>RECOMMENDED</Text> : null}
             <Text style={styles.taskTitle}>{task.title}</Text>

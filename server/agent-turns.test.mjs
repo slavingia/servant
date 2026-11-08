@@ -99,13 +99,15 @@ test('uncertain starts become interrupted; checkpointed runs resume without anot
   const known = seed.enqueue(input('known'));
   seed.close();
   const db = new DatabaseSync(file);
-  db.prepare("UPDATE private_turns SET status='running',accepted=1,assistant_text='Partial' WHERE id=?").run(uncertain.id);
-  db.prepare("UPDATE private_turns SET status='running',accepted=1,run_id='existing_run' WHERE id=?").run(known.id);
+  db.prepare("UPDATE private_turns SET status='running',accepted=1,delivery_started=1,assistant_text='Partial' WHERE id=?").run(uncertain.id);
+  db.prepare("UPDATE private_turns SET status='running',accepted=1,delivery_started=1,run_id='existing_run' WHERE id=?").run(known.id);
   db.close();
-  const resumed = [];
-  const replacement = createAgentTurns({ file, execute: async turn => { resumed.push(turn.run_id); return {}; } });
+  const resumed = [], stopped = [];
+  const replacement = createAgentTurns({ file, execute: async turn => { resumed.push(turn.run_id); return {}; }, onInterruptedStart: turn => stopped.push(turn.id) });
   try {
     assert.equal(replacement.recoverInterrupted(), 2);
+    // The uncertain start may have reached the agent: it's stopped by run key, never resubmitted (audit 3).
+    assert.deepEqual(stopped, [uncertain.id]);
     assert.equal(replacement.get(uncertain.id).status, 'interrupted');
     assert.equal(replacement.get(uncertain.id).assistantText, 'Partial');
     await replacement.processNext();
@@ -300,4 +302,35 @@ test('each progress step is kept on the turn while it runs, then cleared', async
     finish.resolve(); await run;
     assert.deepEqual(worker.get(turn.id).steps, []);
   } finally { finish.resolve(); await worker.whenIdle(); worker.close(); }
+});
+
+test('revoking a person\'s chat work cancels their waiting messages and steers, clears unsaved drafts, and records access changes as cancelled', async t => {
+  const file = fixture(t), started = deferred(), revoke = deferred();
+  const worker = createAgentTurns({ file, execute: async (_t, { emit }) => {
+    emit('delta', { text: 'Unsaved draft' }); started.resolve(); await revoke.promise;
+    throw Object.assign(new Error('Access changed'), { code: 'access_changed' });
+  } });
+  try {
+    const first = worker.enqueue(input()); const run = worker.processNext(); await started.promise;
+    const waiting = worker.enqueue({ ...input(), requestId: 'request_r1', text: 'Fold this in' });
+    const later = worker.enqueue({ ...input(), requestId: 'request_r2', text: 'And then this' });
+    const other = worker.enqueue({ ...input('other_chat'), requestId: 'request_r3', text: 'Another chat' });
+    worker.requestSteer(waiting.id);
+    assert.equal(worker.get(first.id).assistantText, 'Unsaved draft');
+    assert.deepEqual(worker.revokeChatWork('chat', 'owner'), { cancelled: 2, drafts: 1 });
+    for (const id of [waiting.id, later.id]) {
+      const turn = worker.get(id);
+      assert.deepEqual([turn.status, turn.steerRequested, turn.assistantText], ['cancelled', false, '']);
+    }
+    assert.equal(worker.get(first.id).assistantText, '', 'the running reply\'s draft is cleared');
+    assert.equal(worker.get(other.id).status, 'queued', 'other chats are untouched');
+    assert.equal(worker.revokeChatWork('chat', 'stranger').cancelled, 0, 'only that person\'s work');
+    revoke.resolve(); await run;
+    assert.equal(worker.get(first.id).status, 'cancelled', 'an access change is a cancellation, not a failure');
+    const db = new DatabaseSync(file, { readOnly: true });
+    try {
+      const rows = db.prepare("SELECT payload,steer_requested FROM private_turns WHERE chat_id='chat'").all();
+      assert.ok(rows.every(row => row.payload === '{}' && row.steer_requested === 0), 'nothing waiting is kept');
+    } finally { db.close(); }
+  } finally { revoke.resolve(); await worker.whenIdle(); worker.close(); }
 });

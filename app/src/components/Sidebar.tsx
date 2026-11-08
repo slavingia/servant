@@ -85,7 +85,7 @@ export function Sidebar() {
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         <NavItem icon="home" label="Home" count={unread.channels} selected={pathname === "/channels" || pathname === "/"} onPress={() => go(pathname, "/channels")} />
         <NavItem icon="sparkles" label="Agent" count={unread.agent} selected={pathname === "/agent" || (pathname.startsWith("/chat/") && params.studio !== "1" && params.research !== "1") || (pathname === "/files" && params.kind === "chat")} onPress={() => go(pathname, "/agent")} />
-        <NavItem icon="code" label="Designs" selected={pathname === "/designs" || (pathname.startsWith("/chat/") && params.studio === "1")} onPress={() => go(pathname, "/designs")} />
+        <NavItem icon="code" label="Designs" selected={pathname === "/designs" || pathname === "/adjust" || (pathname.startsWith("/chat/") && params.studio === "1")} onPress={() => go(pathname, "/designs")} />
         <NavItem icon="search" label="Research" selected={pathname === "/research" || pathname === "/research-new" || (pathname.startsWith("/chat/") && params.research === "1")} onPress={() => go(pathname, "/research")} />
         <NavItem icon="chat" label="Direct messages" count={unread.messages} selected={pathname === "/messages"} onPress={() => go(pathname, "/messages")} />
         <NavItem icon="people" label="People" selected={pathname === "/members" || pathname === "/invite"} onPress={() => go(pathname, "/members")} />
@@ -146,7 +146,7 @@ function NavItem({ icon, label, selected = false, quiet = false, count = 0, coun
   const styles = useStyles();
   const colors = useSidebarColors();
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={count ? `${label}, ${count}` : label} accessibilityState={{ selected }} onPress={onPress}
+    <Pressable accessibilityRole="button" accessibilityLabel={count ? `${label}, ${count}` : label} accessibilityState={{ selected }} aria-current={selected ? "page" : undefined} onPress={onPress}
       style={state => [styles.item, hovered(state) && styles.hovered, selected && styles.selected]}>
       <View style={styles.itemIcon}><AppIcon name={icon} size={16} color={selected ? colors.ink : colors.muted} /></View>
       <Text numberOfLines={1} style={[styles.itemLabel, quiet && styles.quietLabel, selected && styles.selectedLabel]}>{label}</Text>

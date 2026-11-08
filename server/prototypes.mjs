@@ -7,6 +7,8 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { mimeFor } from "./ota.mjs";
+import { ADJUST_SCRIPT } from "./prototype-adjust.mjs";
+import { versionRoot } from "./prototype-versions.mjs";
 
 export const FOLDER = /^[a-z0-9][a-z0-9-]{2,40}$/;
 const KIT = new Set(["components", "assets"]);
@@ -34,19 +36,32 @@ export function removePrototype(dir, folder) {
 /** A new unguessable folder name for a chat's prototype. */
 export const newFolder = () => `proto-${crypto.randomBytes(9).toString("hex")}`;
 
+const PAGE_CSP = "sandbox allow-scripts allow-forms allow-popups allow-modals; default-src 'self' data: blob: 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self'; form-action 'self'; base-uri 'self'";
+export const ADJUST_PATH = "/p/_servant/adjust.js";
+const ADJUST_TAG = Buffer.from(`<script src="${ADJUST_PATH}" data-servant-adjust></script>`);
+/** The page with the adjustments script added before its closing </body> (or at the end). */
+export function withAdjustScript(body) {
+  const text = body.toString("latin1");
+  const at = text.search(/<\/body\s*>(?![\s\S]*<\/body\s*>)/i);
+  return at < 0 ? Buffer.concat([body, ADJUST_TAG]) : Buffer.concat([body.subarray(0, at), ADJUST_TAG, body.subarray(at)]);
+}
+
 /**
  * Serve GET/HEAD /p/<folder>/<file…>. Pages run in a sandbox with no access to this server's origin (so a
  * prototype can't read anything from the API); static files are public. Returns false when the URL isn't ours.
  */
-export function servePrototype(req, res, url, { dir, kitDir, ip = "" }) {
+export function servePrototype(req, res, url, { dir, kitDir, versionsDir, ip = "" }) {
   if (!url.pathname.startsWith("/p/")) return false;
   const send = (status, body, headers = {}) => { res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", ...headers }); res.end(req.method === "HEAD" ? undefined : body); return true; };
   if (!allowed(ip)) return send(429, "Too many requests. Try again in a minute.", { "Retry-After": "60" });
   if (req.method !== "GET" && req.method !== "HEAD") return send(405, "Method not allowed", { Allow: "GET, HEAD" });
+  // Servant's own quick-adjustments script (prototype-adjust.mjs), same origin as the pages that load it.
+  if (url.pathname === ADJUST_PATH) return send(200, ADJUST_SCRIPT, { "Content-Type": "text/javascript; charset=utf-8", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": PAGE_CSP });
   let parts;
   try { parts = url.pathname.slice(3).split("/").map(decodeURIComponent); } catch { return send(404, "Not found"); }
   const [first, ...rest] = parts;
-  const root = KIT.has(first) ? (kitDir ? path.join(kitDir, first) : null) : FOLDER.test(first || "") ? path.join(dir, first) : null;
+  // An earlier version is served from its copy at /p/<folder>.v<n>/ (prototype-versions.mjs), read only like the live page.
+  const root = KIT.has(first) ? (kitDir ? path.join(kitDir, first) : null) : FOLDER.test(first || "") ? path.join(dir, first) : versionsDir ? versionRoot(versionsDir, first) : null;
   if (!root || rest.some(p => p === ".." || p.includes("\0") || p.startsWith("."))) return send(404, "Not found");
   // Folder URLs need the trailing slash so relative links (../components/) land in the right place.
   if (!KIT.has(first) && rest.length === 0) { res.writeHead(301, { Location: `${url.pathname}/${url.search}`, "Cache-Control": "no-store" }); res.end(); return true; }
@@ -56,7 +71,9 @@ export function servePrototype(req, res, url, { dir, kitDir, ip = "" }) {
     const real = fs.realpathSync(file), base = fs.realpathSync(root);
     if (real !== base && !real.startsWith(base + path.sep)) return send(404, "Not found");
     if (fs.statSync(real).size > MAX_FILE) return send(413, "File too large");
-    const body = fs.readFileSync(real);
+    let body = fs.readFileSync(real);
+    // Opened for quick adjustments: the page also loads Servant's adjustments script. Viewing only; nothing is saved.
+    if (url.searchParams.get("servant-adjust") === "1" && /\.html?$/i.test(real)) body = withAdjustScript(body);
     return send(200, body, {
       "Content-Type": typeFor(real),
       "Content-Length": String(body.length),
@@ -64,7 +81,7 @@ export function servePrototype(req, res, url, { dir, kitDir, ip = "" }) {
       "X-Content-Type-Options": "nosniff",
       "X-Robots-Tag": "noindex, nofollow, noarchive",
       "Referrer-Policy": "no-referrer",
-      "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups allow-modals; default-src 'self' data: blob: 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self'; form-action 'self'; base-uri 'self'",
+      "Content-Security-Policy": PAGE_CSP,
     });
   } catch { return send(404, "Not found"); }
 }

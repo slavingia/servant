@@ -29,3 +29,11 @@ export function shortTime(at: number, now = Date.now()) {
   }
   return dayLabel(at, now);
 }
+
+// shortTime for the middle of a sentence: "at 12:45 PM", "yesterday", "on Friday", "on Nov 2".
+export function whenInSentence(at: number, now = Date.now()) {
+  const label = shortTime(at, now);
+  if (label === "Yesterday") return "yesterday";
+  if (/^\d/.test(label)) return `at ${label}`;
+  return `on ${label}`;
+}

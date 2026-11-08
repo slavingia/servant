@@ -57,6 +57,15 @@ test("chat seeds handle both roles and number, ISO, and unavailable timestamps",
   assert.equal(items[2].createdAt, 0);
 });
 
+test("chat files are credited to the message's sender, not the reader (UX-M01)", () => {
+  const items = mediaFromMessages([
+    { id: "1", role: "user", text: "Plan", at: 10, attachments: [photo("from-author")] },
+    { id: "2", role: "user", text: "Notes", at: 20, attachments: [photo("from-colleague")], sentBy: { id: "usr_eli", name: "Eli Colleague" } },
+  ], "Pia Author", "Agent");
+  assert.deepEqual(items.map(item => item.sender.name), ["Pia Author", "Eli Colleague"]);
+  assert.equal(items[1].sender.id, "usr_eli");
+});
+
 test("gallery routes encode conversation IDs and opaque cursors", () => {
   assert.equal(mediaRoute({ kind: "conversation", id: "one/two" }, "a+=b"), "/v1/conversations/one%2Ftwo/media?limit=100&after=a%2B%3Db");
   assert.equal(mediaRoute({ kind: "chat", id: "chat" }), "/v1/chats/chat/media?limit=100");

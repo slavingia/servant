@@ -59,11 +59,13 @@ export function mediaFromPosts(posts: readonly Post[]): MediaItem[] {
 }
 
 export function mediaFromMessages(messages: readonly {
-  id: string; role: "user" | "assistant"; text: string; at?: number | string | null; attachments?: Attachment[]; pending?: boolean;
+  id: string; role: "user" | "assistant"; text: string; at?: number | string | null; attachments?: Attachment[]; pending?: boolean; sentBy?: { id: string; name: string };
 }[], userName: string, agentName = "Agent"): MediaItem[] {
   return messages.flatMap(message => message.role === "assistant" && message.pending ? [] : (message.attachments ?? []).map(file => {
     const timestamp = typeof message.at === "number" ? message.at : message.at ? Date.parse(message.at) : 0;
-    return { ...file, messageId: message.id, sender: { id: message.role, name: message.role === "user" ? userName : agentName, agent: message.role === "assistant" }, createdAt: Number.isFinite(timestamp) ? timestamp : 0, text: message.text };
+    // The server names each user message's sender when more than one person wrote.
+    const sender = message.role === "assistant" ? { id: "agent", name: agentName, agent: true } : { id: message.sentBy?.id ?? "user", name: message.sentBy?.name ?? userName, agent: false };
+    return { ...file, messageId: message.id, sender, createdAt: Number.isFinite(timestamp) ? timestamp : 0, text: message.text };
   }));
 }
 

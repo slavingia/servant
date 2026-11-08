@@ -19,6 +19,7 @@ The suite uses actual Hermes HTTP handlers, session storage, member AIAgent cons
 
 - Bearer authentication, advertised capabilities, session creation, and message history.
 - Structured image input and canonical multimodal history through durable runs.
+- Run keys (`servant_run_keys`): a run found and stopped by its key after a lost start reply, a stop by key before the start that refuses it, and a stop during the start that stops the run as soon as it exists. The key bookkeeping also has Hermes-free unit tests: `python3 -m unittest server/test_servant_run_keys.py`.
 - Resolved output images in both `run.completed` SSE events and pollable run status.
 - Native cancellation, structured run failures, and inactive approval rejection.
 - Pending approval recovery without an SSE connection, exact action identifiers, and safe retries that cannot approve a later action.

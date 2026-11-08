@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canCreateDesign, designChatOptions, designChats, designCreationAccess, designCreationErrorMessage, designReviewText, designStatus, designTitle, isVerifiedDesignChat, studyPrototypeChats } from "./designs.ts";
+import { canCreateDesign, designChatOptions, designChats, designCreationAccess, designCreationErrorMessage, designPreviewPublished, designReviewText, designStatus, designTitle, isVerifiedDesignChat, studyPrototypeChats } from "./designs.ts";
 import type { Chat } from "./server.ts";
 
 const chat = (id: string, change: Partial<Chat> = {}) => ({
@@ -63,9 +63,9 @@ test("study prototype choices allow shared teammate designs and deduplicate them
 
 test("design status follows the workspace state", () => {
   assert.equal(designStatus(chat("draft")), "Draft");
-  assert.equal(designStatus(chat("ready", { previewUrl: "https://example.test/design/" })), "Ready for review");
+  assert.equal(designStatus(chat("ready", { previewUrl: "https://example.test/design/" })), "Published");
   assert.equal(designStatus(chat("reserved-url", { previewUrl: "https://example.test/design/", previewReady: false })), "Draft");
-  assert.equal(designStatus(chat("published", { previewUrl: "https://example.test/design/", previewReady: true })), "Ready for review");
+  assert.equal(designStatus(chat("published", { previewUrl: "https://example.test/design/", previewReady: true })), "Published");
   assert.equal(designStatus(chat("working", { previewUrl: "https://example.test/design/", latestTurn: { status: "running" } as Chat["latestTurn"] })), "Building");
   assert.equal(designStatus(chat("shared-working", { previewUrl: "https://example.test/design/", lastMessage: { role: "assistant", text: "Updating", at: 1, attachments: 0, pending: true } })), "Building");
   assert.equal(designStatus(chat("archived", { archived: true, latestTurn: { status: "running" } as Chat["latestTurn"] })), "Archived");
@@ -117,9 +117,20 @@ test("review text is useful in clients that only understand plain messages", () 
   assert.equal(designTitle(design), "Refund status");
   assert.equal(designReviewText(design, "Check the mobile navigation"), [
     "Design review: Refund status",
-    "Status: Ready for review",
+    "Status: Published",
     "Preview: https://example.test/refund/",
     "Review focus: Check the mobile navigation",
     "Please leave feedback in this message's thread.",
   ].join("\n"));
+});
+
+test("a draft without a published page is never shared with a dead preview link", () => {
+  const draft = chat("sketch", { title: "Sketch", previewUrl: "https://example.test/p/proto-ffffffffffffffffffff/", previewReady: false });
+  assert.equal(designPreviewPublished(draft), false);
+  assert.equal(designStatus(draft), "Draft");
+  assert.match(designReviewText(draft), /^Preview: Not published yet$/m);
+  assert.doesNotMatch(designReviewText(draft), /example\.test/);
+  // Older servers don't report readiness: the established link is still used.
+  assert.equal(designPreviewPublished(chat("old", { previewUrl: "https://example.test/old/" })), true);
+  assert.equal(designPreviewPublished(chat("none", {})), false);
 });

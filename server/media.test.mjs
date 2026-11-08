@@ -265,3 +265,18 @@ test("legacy splitting preserves newline boundaries or rejects an unrepresentabl
     assert.throws(() => hermesInput(text), { code: "agent_text_too_long", status: 413 });
   }
 });
+
+test("files are credited to whoever sent each message, never to the person viewing (UX-M01)", t => {
+  const store = createChatMediaStore(path.join(directory(t), "chat.db"));
+  try {
+    const fromAuthor = store.accept("plan", "user", "", [attachment]);
+    const fromColleague = store.accept("plan", "user", "", [attachment]);
+    store.accept("plan", "assistant", "Here it is.", [attachment]);
+    const authors = new Map([[fromColleague.id, "usr_colleague"]]);
+    const names = { usr_author: "Pia Author", usr_colleague: "Eli Colleague" };
+    const senderOf = messageId => { const id = authors.get(messageId) || "usr_author"; return { id, name: names[id] }; };
+    assert.deepEqual(store.media("plan", senderOf, "Agent").map(item => item.sender.name), ["Pia Author", "Eli Colleague", "Agent"]);
+    assert.ok(store.media("plan", senderOf).every(item => item.sender.name !== "Vic Viewer"));
+    assert.equal(fromAuthor.role, "user");
+  } finally { store.close(); }
+});

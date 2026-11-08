@@ -103,6 +103,14 @@ answer content or sources change. Supported statuses are `draft`, `published`,
 and `retired`, but only fresh `published` entries can match. The rendered answer,
 sources, and governance details together must fit in one 8,000-character message.
 
+Only the fields shown above are accepted, at every level (the manifest, each
+answer, and each source). Any other field fails validation and publishing with
+an error that names it, and a hand-edited active file with one stops serving
+every answer until it's fixed. Nothing is silently dropped: a field such as
+`"audience": "owner-only"` looks like a restriction, and ignoring it would
+publish the answer to the whole workspace. Approved answers are always
+workspace-wide; restricted audiences aren't supported.
+
 ## Owner CLI
 
 Author the candidate outside the active data directory, then use the local

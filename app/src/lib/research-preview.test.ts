@@ -147,14 +147,23 @@ test("the preview route is visibly local-only and has no data or network capabil
   ]) assert.doesNotMatch(source, forbidden, `preview route matched forbidden capability: ${forbidden}`);
 });
 
-test("preview activities are synthetic and always produce an importable Research Studio file", async () => {
-  const { researchPreviewActivities } = await import("./research-preview.ts");
-  const { buildResearchStudioWorkingCopy, researchStudioFileProblems, DEFAULT_STUDY_SETUP } = await import("./research-methods.ts");
-  const activities = researchPreviewActivities();
-  assert.deepEqual(activities.map(a => a.method), ["ab_test", "tree_test", "card_sort", "survey"]);
-  assert.deepEqual(researchStudioFileProblems(RESEARCH_PREVIEW_STUDY.title, activities), []);
-  const links = JSON.stringify(buildResearchStudioWorkingCopy({ title: RESEARCH_PREVIEW_STUDY.title, setup: DEFAULT_STUDY_SETUP, activities })).match(/https?:\/\/[^"\s]+/g) ?? [];
+test("preview activities are synthetic, exercise the prototype selection and stopping-rule confirmation, and produce an importable file", async () => {
+  const { researchPreviewActivities, RESEARCH_PREVIEW_PROTOTYPES } = await import("./research-preview.ts");
+  const { buildResearchStudioWorkingCopy, studyDraftProblems, recheckStudyPrototype, DEFAULT_STUDY_SETUP } = await import("./research-methods.ts");
+  const fresh = researchPreviewActivities();
+  assert.deepEqual(fresh.map(a => a.method), ["ab_test", "prototype", "tree_test", "card_sort", "survey"]);
+  const draft = (activities = fresh, url: string | null = RESEARCH_PREVIEW_PROTOTYPES[0].previewUrl) => ({ title: RESEARCH_PREVIEW_STUDY.title, ...RESEARCH_PREVIEW_STUDY.answers, setup: DEFAULT_STUDY_SETUP, activities, prototype: { mode: "existing" as const, url } });
+  assert.deepEqual(studyDraftProblems(draft()), ["Activity 1 (A/B implementation test): review the stopping rule and confirm it"], "the preview starts one confirmation short");
+  const activities = fresh.map(a => a.method === "ab_test" ? { ...a, stoppingRuleConfirmed: true } : a);
+  assert.deepEqual(studyDraftProblems(draft(activities)), []);
+  assert.deepEqual(studyDraftProblems(draft(activities, null)), ["Choose an existing prototype, or select No prototype", "Activity 2 (Prototype usability): the prototype needs a link, or choose a study prototype"]);
+  // Rechecked right before export: a prototype that stopped being ready fails closed.
+  assert.equal(recheckStudyPrototype(RESEARCH_PREVIEW_PROTOTYPES[1].id, RESEARCH_PREVIEW_PROTOTYPES).ok, true);
+  assert.equal(recheckStudyPrototype(RESEARCH_PREVIEW_PROTOTYPES[1].id, RESEARCH_PREVIEW_PROTOTYPES.slice(0, 1)).ok, false);
+  const file = buildResearchStudioWorkingCopy({ title: RESEARCH_PREVIEW_STUDY.title, setup: DEFAULT_STUDY_SETUP, activities, prototypeUrl: RESEARCH_PREVIEW_PROTOTYPES[0].previewUrl });
+  assert.equal(file.prototypeUrl, RESEARCH_PREVIEW_PROTOTYPES[0].previewUrl);
+  const links = JSON.stringify(file).match(/https?:\/\/[^"\s]+/g) ?? [];
   assert.ok(links.length > 0);
   for (const link of links) assert.match(link, /^https:\/\/example\.com\//, "only reserved example links");
-  assert.notEqual(researchPreviewActivities()[0], activities[0], "each reset gets fresh copies");
+  assert.notEqual(researchPreviewActivities()[0], fresh[0], "each reset gets fresh copies");
 });

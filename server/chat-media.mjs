@@ -137,10 +137,13 @@ export function createChatMediaStore(file) {
       return result;
     });
   }
+  // sender: one person for every user message, or a function of the message id
+  // so each file is credited to whoever actually sent it.
   function media(chatId, sender, agentName = "Agent") {
+    const senderOf = typeof sender === "function" ? sender : () => sender;
     return db.prepare(`SELECT a.id,a.name,a.mime,a.size,m.id AS messageId,m.role,m.at AS createdAt,m.text
       FROM chat_attachments a JOIN chat_messages m ON m.id=a.message_id
-      WHERE m.chat_id=? ORDER BY m.at,m.seq,a.rowid`).all(chatId).map(({ role, ...item }) => ({ ...item, sender: role === "assistant" ? { id: "agent", name: agentName, agent: true } : sender }));
+      WHERE m.chat_id=? ORDER BY m.at,m.seq,a.rowid`).all(chatId).map(({ role, ...item }) => ({ ...item, sender: role === "assistant" ? { id: "agent", name: agentName, agent: true } : senderOf(item.messageId) }));
   }
   return {
     accept, identify, identifyInput, beginSync, sync, media,

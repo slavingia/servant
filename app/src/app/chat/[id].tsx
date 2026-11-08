@@ -1,5 +1,5 @@
 import { createElement, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, AppState, FlatList, Modal, Platform, Pressable, StyleSheet, Switch, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, AppState, FlatList, Modal, Platform, Pressable, StyleSheet, Switch, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { randomUUID } from "expo-crypto";
@@ -23,12 +23,15 @@ import { estimateCost, formatCost, formatTokens } from "../../lib/token-format";
 import { helpText, parseSlash } from "../../lib/slash-commands";
 import { api, sendMessage, ServerError, uploadPost, type Chat, type Person, type Project, type Message, type ResearchCollaborator, type Upload } from "../../lib/server";
 import { ResearchCollaborators } from "../../components/ResearchCollaborators";
-import { collaborationNotice, collaboratorCandidates, collaboratorPayload, type CollaboratorCandidate } from "../../lib/research-collaborators";
+import { collaborationNotice, collaboratorCandidates, collaboratorPayload, planTimesText, type CollaboratorCandidate } from "../../lib/research-collaborators";
 import { useSession } from "../../lib/session";
 import { useLive } from "../../lib/live";
+import { prototypePageUrl } from "../../lib/prototype-adjustments";
 import { useProjects } from "../../lib/projects-store";
 import { VIBE_CHOICE, canChangeChatAbout, choiceKey, lastChatKey, choiceName, needsNewChat, newChatMatchesChoice, newChatOptions } from "../../lib/new-chat-choice";
-import { canCreateDesign as mayCreateDesign, designCreationErrorMessage } from "../../lib/designs";
+import { DESIGN_STARTERS, canCreateDesign as mayCreateDesign, designCreationErrorMessage, designHeading } from "../../lib/designs";
+import { appendToDraft, getDraft, requestAttachment } from "../../lib/drafts";
+import { duplicateDesign } from "../../lib/design-actions";
 import { setItem } from "../../lib/storage";
 import { forwardTitle, parseForward, type ForwardCard } from "../../lib/forward";
 import { AppIcon } from "../../components/AppIcon";
@@ -69,18 +72,28 @@ function SharedChatView() {
   const [error, setError] = useState<string | null>(null);
   const [showTitle, setShowTitle] = useState(false);
   const [forwarding, setForwarding] = useState<ForwardTarget | null>(null);
-  const [sending, setSending] = useState(false);
-  const [sendError, setSendError] = useState<string | null>(null);
+  const [loadedAt, setLoadedAt] = useState<number | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  // Every load asks the server again, so access is rechecked on each refresh.
   const load = useCallback(async () => {
     if (!account || !id) return;
     try {
       const [history, info] = await Promise.all([api.messages(account, id), api.chat(account, id)]);
-      setMessages(history); setChat(info); setError(null);
+      setMessages(history); setChat(info); setError(null); setLoadedAt(Date.now());
+      // However it was opened (a list, search, Back), a design keeps Designs selected in the sidebar.
+      if (info.mode === "vibe") router.setParams({ studio: "1" });
     } catch (e) {
-      setMessages(current => current ?? []);
-      setError(e instanceof ServerError ? e.message : "Check your connection and try again.");
+      const gone = e instanceof ServerError && (e.status === 403 || e.status === 404);
+      if (gone) { setMessages([]); setChat(null); }
+      else setMessages(current => current ?? []);
+      setError(gone ? "You no longer have access to this conversation." : e instanceof ServerError ? e.message : "Check your connection and try again.");
     }
   }, [account, id]);
+  const refresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try { await load(); } finally { setRefreshing(false); }
+  };
   useEffect(() => {
     const timer = setTimeout(() => { void load(); }, 0);
     return () => clearTimeout(timer);
@@ -91,32 +104,24 @@ function SharedChatView() {
   const data = [...(messages ?? [])].reverse();
   const access = chat?.collaboration?.access ?? null;
   const notice = access ? collaborationNotice(access, authorName) : null;
-  // An edit collaborator on a research plan sends text to the same restricted
-  // Researcher agent; the server checks their access again on every message.
-  const send = async (text: string) => {
-    if (!chat?.canSend || sending) return false;
-    setSending(true); setSendError(null);
-    try {
-      await sendMessage(account, String(id), text, () => {}, undefined, undefined, [], randomUUID());
-      await load();
-      return true;
-    } catch (e) {
-      setSendError(e instanceof ServerError ? e.message : "Couldn't send. Check your connection and try again.");
-      await load();
-      return false;
-    } finally { setSending(false); }
-  };
+  // A design someone shared: its earlier versions can be looked at (not restored).
+  const sharedLinks: HeaderLink[] = chat?.mode === "vibe" && chat.previewReady !== false
+    ? [{ label: "Versions", testID: "open-versions", accessibilityLabel: "Version history", onPress: () => router.push({ pathname: "/versions", params: { chat: String(id) } }) }] : [];
   return (
     <MediaGalleryProvider key={id} scope={{ kind: "chat", id }} items={media}>
     <ConversationKeyboardView>
     <View style={styles.root}>
-      <Stack.Screen options={{ title: chat?.title || title || "Conversation", headerTitle: titleButton(showTitle, setShowTitle), ...filesHeader(String(id), chat?.title || title || "Conversation", colors.blue) }} />
+      <Stack.Screen options={{ title: chat?.title || title || "Conversation", headerTitle: titleButton(showTitle, setShowTitle, sharedLinks.length), ...filesHeader(String(id), chat?.title || title || "Conversation", colors.blue, sharedLinks) }} />
       {showTitle ? <FullTitle title={chat?.title || title || "Conversation"} onClose={() => setShowTitle(false)} /> : null}
       <View style={styles.sharedBanner}>
         <Text style={styles.turnLabel}>{notice ? notice.title : `${authorName}'s conversation`}</Text>
         <Text style={styles.turnDetail}>{notice ? notice.body : chat?.shared === true ? `Shared with ${account.serverName}. Read only: give feedback in a channel or DM.`
           : chat?.projectShared ? "Shared with their project. Read only."
             : "Private. You can see it because you're an admin."}</Text>
+        {notice ? <View style={styles.sharedRefresh}>
+          <Text accessibilityLiveRegion="polite" style={[styles.time, styles.sharedTimes]}>{planTimesText({ updatedAt: chat?.updatedAt, checkedAt: loadedAt })}</Text>
+          <Button compact kind="secondary" label="Refresh" busy={refreshing} onPress={() => { void refresh(); }} accessibilityHint="Loads the latest version and checks your access again" />
+        </View> : null}
       </View>
       {messages === null ? <SkeletonRows label="Loading messages" count={8} style={{ flex: 1 }} /> : (
         <FlatList inverted data={data} keyExtractor={(m) => m.id} contentContainerStyle={[styles.list, styles.readOnlyList]}
@@ -144,11 +149,6 @@ function SharedChatView() {
             </MessageActions>;
           }} />
       )}
-      {chat?.canSend ? <View style={styles.collaboratorComposer}>
-        {sending ? <Text accessibilityLiveRegion="polite" style={styles.turnDetail}>The Researcher agent is working on your message…</Text> : null}
-        {sendError ? <Text accessibilityRole="alert" style={styles.shareError}>{sendError}</Text> : null}
-        <Composer placeholder="Message the Researcher agent about this plan" onSend={text => send(text)} allowAttachments={false} allowFileAttachments={false} clearOnSend />
-      </View> : null}
       {forwarding ? <ForwardSheet target={forwarding} onClose={() => setForwarding(null)} /> : null}
     </View>
     </ConversationKeyboardView>
@@ -216,13 +216,16 @@ let NativeWebView: any = null;
 if (Platform.OS !== "web") { try { NativeWebView = require("react-native-webview").WebView; } catch { NativeWebView = null; } }
 export const canSplitPreview = Platform.OS === "web" || !!NativeWebView;
 
-function PreviewPane({ url, version, stacked, onClose }: { url: string; version: number; stacked: boolean; onClose: () => void }) {
+function PreviewPane({ url, version, stacked, onClose, onAdjust }: { url: string; version: number; stacked: boolean; onClose: () => void; onAdjust?: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const src = `${url}${url.includes("?") ? "&" : "?"}v=${version}`;
   return <View testID="preview-pane" style={[styles.previewPane, stacked && styles.previewPaneStacked]}>
     <View style={styles.previewBar}>
       <Text accessibilityRole="header" style={[styles.turnLabel, styles.turnCopy]}>Preview</Text>
+      {onAdjust ? <Pressable accessibilityRole="button" accessibilityLabel="Adjust design" accessibilityHint="Change text, styles and layout on the preview, then add them to your design chat" onPress={onAdjust} hitSlop={8} style={styles.previewBarLink}>
+        <Text style={styles.headerLinkText}>Adjust design</Text>
+      </Pressable> : null}
       <Pressable accessibilityRole="button" accessibilityLabel={Platform.OS === "web" ? "Open preview in a new tab" : "Open preview full screen"} onPress={() => openPreview(url)} hitSlop={8} style={styles.previewBarLink}>
         <Text style={styles.headerLinkText}>{Platform.OS === "web" ? "Open" : "Full screen"}</Text>
       </Pressable>
@@ -269,7 +272,7 @@ function ReplyText({ text, failed }: { text: string; failed?: boolean }) {
 }
 
 // Header "•••": chat options. Your own chat is private until you choose to share it with the server; Files lives here too.
-function OptionsSheet({ id, title, shared, projectId, projectShared, canMoveProject, collaborators, onProject, onProjectShared, onChange, onCollaborators, onClose }: { id: string; title: string; shared: boolean | null; projectId: string | null; projectShared: boolean; canMoveProject: boolean; collaborators: ResearchCollaborator[] | null; onProject: (projectId: string | null) => void; onProjectShared: (shared: boolean) => void; onChange: (shared: boolean) => void; onCollaborators: (next: ResearchCollaborator[]) => void; onClose: () => void }) {
+function OptionsSheet({ id, title, design, onRename, onDuplicate, shared, projectId, projectShared, canMoveProject, collaborators, onProject, onProjectShared, onChange, onCollaborators, onClose }: { id: string; title: string; design?: boolean; onRename?: (title: string) => Promise<void>; onDuplicate?: () => Promise<void>; shared: boolean | null; projectId: string | null; projectShared: boolean; canMoveProject: boolean; collaborators: ResearchCollaborator[] | null; onProject: (projectId: string | null) => void; onProjectShared: (shared: boolean) => void; onChange: (shared: boolean) => void; onCollaborators: (next: ResearchCollaborator[]) => void; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const { account } = useSession();
@@ -280,6 +283,16 @@ function OptionsSheet({ id, title, shared, projectId, projectShared, canMoveProj
   const [people, setPeople] = useState<Person[] | null>(null);
   const [collabSaving, setCollabSaving] = useState(false);
   const [collabError, setCollabError] = useState<string | null>(null);
+  const [naming, setNaming] = useState<string | null>(null);
+  const [designBusy, setDesignBusy] = useState(false);
+  const [designError, setDesignError] = useState<string | null>(null);
+  const runDesign = async (work: () => Promise<void>) => {
+    if (designBusy) return;
+    setDesignBusy(true); setDesignError(null);
+    try { await work(); } catch (e) { setDesignError(e instanceof Error && e.message ? e.message : "That didn't work. Try again."); }
+    finally { setDesignBusy(false); }
+  };
+  const noun = design ? "design" : "chat";
   useEffect(() => {
     if (!account || !canMoveProject) return;
     api.projects(account).then(r => setProjects(r.projects)).catch(() => setProjects([]));
@@ -327,7 +340,7 @@ function OptionsSheet({ id, title, shared, projectId, projectShared, canMoveProj
         {shared !== null ? <View style={styles.shareRow}>
           <View style={styles.turnCopy}>
             <Text style={styles.turnLabel}>Share with {account.serverName}</Text>
-            <Text style={styles.turnDetail}>{shared ? `Everyone on ${account.serverName} can read this chat. They can't reply in it. Turn off to make it private again.` : "Only you and admins can see this chat. Turn on to let others read it and give feedback."}</Text>
+            <Text style={styles.turnDetail}>{shared ? `Everyone on ${account.serverName} can see this ${noun}. They can't reply in its chat. Turn off to make it private again.` : `Only you and admins can see this ${noun}. Turn on to let others see it and give feedback.`}</Text>
           </View>
           <Switch accessibilityLabel={`Share this chat with ${account.serverName}`} value={shared} disabled={saving}
             onValueChange={next => { void change(next); }} trackColor={{ true: colors.blue, false: colors.borderStrong }} thumbColor="#FFFFFF" {...(Platform.OS === "web" ? { activeThumbColor: "#FFFFFF" } : {})} />
@@ -355,6 +368,20 @@ function OptionsSheet({ id, title, shared, projectId, projectShared, canMoveProj
         </> : null}
         {collaborators ? <ResearchCollaborators collaborators={collaborators} candidates={candidates} saving={collabSaving} error={collabError}
           onChange={next => { void saveCollaborators(next); }} onAdding={loadPeople} /> : null}
+        {design && onRename ? naming !== null ? <View style={styles.renameBox}>
+          <TextInput accessibilityLabel="Design name" autoFocus value={naming} onChangeText={setNaming} maxLength={80} style={styles.renameInput}
+            onSubmitEditing={() => naming.trim() && void runDesign(async () => { await onRename(naming.trim()); setNaming(null); })} />
+          <View style={styles.renameActions}>
+            <Button label="Cancel" kind="secondary" compact disabled={designBusy} onPress={() => setNaming(null)} />
+            <Button label="Save name" compact busy={designBusy} disabled={!naming.trim() || naming.trim() === title}
+              onPress={() => void runDesign(async () => { await onRename(naming.trim()); setNaming(null); })} />
+          </View>
+        </View> : <Pressable accessibilityRole="button" onPress={() => setNaming(title === "Untitled design" ? "" : title)} style={styles.menuAction}><Text style={styles.menuActionText}>Rename</Text></Pressable> : null}
+        {design && onDuplicate ? <Pressable accessibilityRole="button" accessibilityHint="Make your own copy to change" disabled={designBusy}
+          onPress={() => void runDesign(onDuplicate)} style={styles.menuAction}><Text style={styles.menuActionText}>{designBusy && naming === null ? "Duplicating…" : "Duplicate"}</Text></Pressable> : null}
+        {designError ? <Text accessibilityRole="alert" style={styles.renameError}>{designError}</Text> : null}
+        {design ? <Pressable testID="open-versions" accessibilityRole="button" accessibilityHint="Earlier versions of the published page, to compare or restore"
+          onPress={() => { onClose(); router.push({ pathname: "/versions", params: { chat: id } }); }} style={styles.menuAction}><Text style={styles.menuActionText}>Version history</Text></Pressable> : null}
         <Pressable testID="open-files" accessibilityRole="button" onPress={() => { onClose(); router.push({ pathname: "/files", params: { kind: "chat", id, title } }); }} style={styles.menuAction}><Text style={styles.menuActionText}>Files</Text></Pressable>
         <Pressable accessibilityRole="button" onPress={onClose} style={styles.menuAction}><Text style={styles.menuActionText}>Done</Text></Pressable>
       </Pressable>
@@ -365,7 +392,7 @@ function OptionsSheet({ id, title, shared, projectId, projectShared, canMoveProj
 function ChatConversation() {
   const styles = useStyles();
   const { colors } = useTheme();
-  const { id, title, compose, forward, forwardAuthor, forwardWhere, forwardText, forwardFiles } = useLocalSearchParams<{ id: string; title?: string; compose?: string; forward?: string; forwardAuthor?: string; forwardWhere?: string; forwardText?: string; forwardFiles?: string }>();
+  const { id, title, compose, studio, forward, forwardAuthor, forwardWhere, forwardText, forwardFiles } = useLocalSearchParams<{ id: string; title?: string; compose?: string; studio?: string; forward?: string; forwardAuthor?: string; forwardWhere?: string; forwardText?: string; forwardFiles?: string }>();
   const { account, setAccount } = useSession();
   const { refreshAgent } = useLive();
   // A message brought here with "Ask the agent", until it's sent or removed.
@@ -399,6 +426,8 @@ function ChatConversation() {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projectShared, setProjectShared] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  // Quick adjustments (web and Mac): the author, on a design with a published page from this server.
+  const [adjustable, setAdjustable] = useState(false);
   // What this chat is about, changeable until the first message is sent. Choosing
   // prototyping starts a scoped workspace whose context cannot later be reassigned.
   const [vibe, setVibe] = useState(false);
@@ -412,6 +441,8 @@ function ChatConversation() {
   const stacked = winWidth < 600;
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewVersion, setPreviewVersion] = useState(0);
+  // Read again after each reply, so a preview the agent just published shows up.
+  const [detailsTick, setDetailsTick] = useState(0);
   // Links, pushes and the sidebar may open a chat without its title: read it from the server.
   useEffect(() => {
     if (!account || !id) return;
@@ -424,12 +455,16 @@ function ChatConversation() {
       setCollaborators(Array.isArray(c.collaborators) ? c.collaborators : null);
       setProjectId(c.projectId ?? null);
       setProjectShared(c.projectShared === true);
-      setPreviewUrl(c.mode === "vibe" && c.previewUrl ? c.previewUrl : null);
+      // Nothing to preview until the agent has published a page.
+      setPreviewUrl(c.mode === "vibe" && c.previewUrl && c.previewReady !== false ? c.previewUrl : null);
+      setAdjustable(c.mode === "vibe" && !c.readOnly && c.canSend !== false && c.previewReady !== false);
       setVibe(c.mode === "vibe");
+      // However it was opened (a list, search, Back), a design keeps Designs selected in the sidebar.
+      if (c.mode === "vibe" && studio !== "1") router.setParams({ studio: "1" });
       setDetailsChatId(String(id));
     }).catch(() => {});
     return () => { live = false; };
-  }, [account, id]);
+  }, [account, id, detailsTick, studio]);
   const list = useRef<FlatList<Row>>(null);
   const abort = useRef<AbortController | null>(null);
   const currentLoad = useRef<object | null>(null);
@@ -531,6 +566,8 @@ function ChatConversation() {
   useEffect(() => { discardable.current = untouched; }, [untouched]);
   useEffect(() => () => { if (discardable.current && account) void api.deleteChat(account, String(id)).catch(() => {}); }, [account, id]);
   const loaded = messages !== null && !loadError;
+  // Opened with a build prompt already in the message box (from a study plan): no starters to add to it.
+  const preparedPrompt = useMemo(() => !!getDraft(`chat:${id}`).trim(), [id]);
   useEffect(() => { if (id && loaded && account) setItem(lastChatKey(account.user.id), String(id)).catch(() => {}); }, [id, loaded, account]);
   if (!account) return null;
 
@@ -722,6 +759,10 @@ function ChatConversation() {
             : history.slice(userIndex + 1).some(message => message.role === "assistant"));
           if (isCurrent() && hasUser && hasReply) setMessages(history);
         } catch { /* The completed reply remains visible if history refresh fails. */ }
+        if (isCurrent()) {
+          setDetailsTick(tick => tick + 1);
+          setPreviewVersion(version => version + 1);
+        }
       }
     } catch (e) {
       failed = true;
@@ -806,6 +847,9 @@ function ChatConversation() {
     if (!previewOpen) setPreviewVersion(version => version + 1);
     setPreviewOpen(!previewOpen);
   };
+  const designWithPage = vibe && !!previewUrl;
+  // A design workspace nobody has named yet reads as a design, not a chat.
+  const shownHeading = designHeading(heading, vibe || studio === "1");
   const headerLinks: HeaderLink[] = [
     ...(previewUrl ? [{ label: "Preview", testID: "open-preview", accessibilityLabel: previewOpen ? "Hide preview" : "Open preview", onPress: showPreview }] : []),
     { label: "•••", testID: "open-options", accessibilityLabel: "Chat options", onPress: () => setSharing(true) },
@@ -855,9 +899,17 @@ function ChatConversation() {
   return (
     <MediaGalleryProvider key={id} scope={{ kind: "chat", id }} items={media}>
     <View style={styles.root}>
-      <Stack.Screen options={{ title: heading, headerTitle: titleButton(showTitle, setShowTitle, headerLinks.length), ...filesHeader(String(id), heading, colors.blue, headerLinks, false) }} />
-      {showTitle ? <FullTitle title={heading} onClose={() => setShowTitle(false)} /> : null}
-      {sharing ? <OptionsSheet id={String(id)} title={heading} shared={shared} projectId={projectId} projectShared={projectShared} canMoveProject={canChangeAbout} collaborators={collaborators} onProject={setProjectId} onProjectShared={setProjectShared} onChange={setShared} onCollaborators={setCollaborators} onClose={() => setSharing(false)} /> : null}
+      <Stack.Screen options={{ title: shownHeading, headerTitle: titleButton(showTitle, setShowTitle, headerLinks.length), ...filesHeader(String(id), shownHeading, colors.blue, headerLinks, false) }} />
+      {showTitle ? <FullTitle title={shownHeading} onClose={() => setShowTitle(false)} /> : null}
+      {sharing ? <OptionsSheet id={String(id)} title={shownHeading} design={vibe}
+        onRename={vibe ? async name => {
+          try { setHeading((await api.renameChat(account, String(id), name)).title); } catch (e) { throw e instanceof ServerError ? new Error(e.message) : e; }
+        } : undefined}
+        onDuplicate={vibe && previewUrl && projects && mayCreateDesign(projects.agentTier, projects.vibe) ? async () => {
+          const copy = await duplicateDesign(account, { id: String(id), title: heading }, projects.agentTier);
+          setSharing(false);
+          router.push({ pathname: "/chat/[id]", params: { id: copy.id, title: copy.title, studio: "1" } });
+        } : undefined} shared={shared} projectId={projectId} projectShared={projectShared} canMoveProject={canChangeAbout} collaborators={collaborators} onProject={setProjectId} onProjectShared={setProjectShared} onChange={setShared} onCollaborators={setCollaborators} onClose={() => setSharing(false)} /> : null}
       {choosing && projects && canChangeAbout ? <ProjectSheet visible projects={projects.list} vibe={mayCreateDesign(projects.agentTier, projects.vibe)} selected={about} title="This chat is about" onPick={project => { void pickAbout(project); }} onClose={() => setChoosing(false)} /> : null}
       <View style={[styles.split, stacked && previewOpen && styles.splitStacked]}>
       <View style={[styles.chatColumn, stacked && previewOpen && styles.chatColumnStacked]}>
@@ -874,10 +926,28 @@ function ChatConversation() {
             ListFooterComponent={
               messages.length === 0 && !firstRow ? (
                 <View style={styles.empty}>
-                  <Text accessibilityRole="header" style={styles.emptyTitle}>{loadError ? "Couldn't load this chat" : "What can I help with?"}</Text>
+                  <Text accessibilityRole="header" style={styles.emptyTitle}>{loadError ? "Couldn't load this chat" : designWithPage ? "This design already has a page" : (vibe || studio === "1") && preparedPrompt ? "Your build prompt is ready" : vibe || studio === "1" ? "What should we build?" : "What can I help with?"}</Text>
                   {loadError ? <>
                     <Text accessibilityRole="alert" style={styles.emptyBody}>{loadError}</Text>
                     <Button label="Try again" kind="secondary" onPress={() => { setMessages(null); setLoadError(null); void load(); }} style={styles.retry} />
+                  </> : designWithPage ? <>
+                    {/* A duplicate, or a page published before anyone chatted here: no starters, it's not blank. */}
+                    <Text style={styles.emptyBody}>Ask the agent for changes, or open the preview to adjust it yourself.</Text>
+                    <View style={styles.starters}>
+                      <Button label="Open preview" kind="secondary" compact onPress={showPreview} />
+                      {adjustable && Platform.OS === "web" ? <Button label="Adjust design" kind="secondary" compact onPress={() => router.push({ pathname: "/adjust", params: { chat: String(id) } })} /> : null}
+                    </View>
+                  </> : (vibe || studio === "1") && preparedPrompt ? <>
+                    <Text style={styles.emptyBody}>Review the prompt in the message box, then choose Send when you're ready. Nothing is sent until you do.</Text>
+                  </> : vibe || studio === "1" ? <>
+                    <Text style={styles.emptyBody}>Describe a page or flow, and the agent builds a live preview you can adjust and share. Starters only fill in the message box.</Text>
+                    <View accessibilityRole="list" style={styles.starters}>
+                      {DESIGN_STARTERS.map(starter => <Pressable key={starter.label} accessibilityRole="button" accessibilityLabel={`Start from: ${starter.label}`}
+                        accessibilityHint={starter.attach ? "Adds a starting description to the message box and opens the photo picker. Nothing is sent." : "Adds a starting description to the message box. Nothing is sent."}
+                        onPress={() => { appendToDraft(`chat:${id}`, starter.text); if (starter.attach) requestAttachment(`chat:${id}`); }} style={({ pressed }) => [styles.starter, pressed && { opacity: 0.7 }]}>
+                        <Text style={styles.starterText}>{starter.label}</Text>
+                      </Pressable>)}
+                    </View>
                   </> : <Text style={styles.emptyBody}>A private conversation with the agent on {account.serverName}.</Text>}
                 </View>
               ) : undefined
@@ -956,7 +1026,9 @@ function ChatConversation() {
         {messages !== null && !loadError ? <Composer draftKey={`chat:${id}`} autoFocus={compose === "1"} commands={{ channel: false, agent: true }} placeholder={pendingForward ? "Ask about this message, or just send" : "Message the agent"} onSend={send} allowFileAttachments={false} allowDocuments canSendEmpty={!!pendingForward} /> : null}
       </ConversationKeyboardView>
       </View>
-      {previewOpen && previewUrl && canSplitPreview ? <PreviewPane url={previewUrl} version={previewVersion} stacked={stacked} onClose={() => setPreviewOpen(false)} /> : null}
+      {previewOpen && previewUrl && canSplitPreview ? <PreviewPane url={previewUrl} version={previewVersion} stacked={stacked} onClose={() => setPreviewOpen(false)}
+        onAdjust={Platform.OS === "web" && adjustable && prototypePageUrl(previewUrl, projects?.prototypeOrigin)
+          ? () => router.push({ pathname: "/adjust", params: { chat: String(id) } }) : undefined} /> : null}
       </View>
     </View>
     </MediaGalleryProvider>
@@ -1075,13 +1147,14 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   previewBarLink: { minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center" },
   headerLinkText: { ...typography.label, color: colors.blue },
   shareError: { ...typography.meta, color: colors.red, marginTop: space.xxs },
-  collaboratorComposer: { gap: space.xxs, paddingTop: space.xs, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
+  sharedRefresh: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm, marginTop: space.xs },
   message: { flexDirection: "row", paddingHorizontal: space.side, paddingVertical: space.sm, gap: 10 },
   messageCopy: { flex: 1, minWidth: 0 },
   messageMeta: { flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", gap: space.xs, marginBottom: 1 },
   author: { ...typography.bodyStrong, color: colors.ink },
   agentTag: { ...typography.meta, color: colors.muted, backgroundColor: colors.subtle, paddingHorizontal: space.xxs },
   time: { ...typography.meta, color: colors.muted },
+  sharedTimes: { flex: 1, minWidth: 0 },
   failed: { backgroundColor: colors.redSoft },
   // Sent but not yet received by the server; full opacity once it's accepted.
   unconfirmed: { opacity: 0.9 },
@@ -1094,6 +1167,13 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   empty: { alignItems: "center", marginTop: space.xxl, paddingHorizontal: space.side, paddingBottom: space.lg },
   emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center" },
   emptyBody: { ...typography.body, marginTop: space.xs, color: colors.muted, textAlign: "center", maxWidth: 360 },
+  renameBox: { gap: space.xs, paddingVertical: space.xs },
+  renameInput: { ...typography.body, color: colors.ink, minHeight: 44, paddingHorizontal: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line },
+  renameActions: { flexDirection: "row", justifyContent: "flex-end", gap: space.xs },
+  renameError: { ...typography.caption, color: colors.red, paddingVertical: space.xxs },
+  starters: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: space.xs, marginTop: space.md, maxWidth: 420 },
+  starter: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.md, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, backgroundColor: colors.surface },
+  starterText: { ...typography.caption, color: colors.blueDark, fontWeight: "600" },
   retry: { marginTop: space.lg },
   // "About: <choice>" above the message box of a chat with nothing sent yet.
   aboutRow: { paddingHorizontal: space.side, paddingTop: space.xxs, paddingBottom: space.xs, gap: space.xxs },

@@ -9,13 +9,8 @@ import {
   withoutCollaborator,
   type CollaboratorCandidate,
 } from "../lib/research-collaborators";
-import type { CollaboratorAccess, ResearchCollaborator } from "../lib/server";
+import type { ResearchCollaborator } from "../lib/server";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
-
-const ACCESS: readonly { value: CollaboratorAccess; label: string }[] = [
-  { value: "view", label: "View" },
-  { value: "edit", label: "Edit" },
-];
 
 /**
  * Who else can open a research plan. Presentational only: the caller loads
@@ -40,7 +35,7 @@ export function ResearchCollaborators({ collaborators, candidates, saving, error
 
   return <View style={styles.root}>
     <Text accessibilityRole="header" style={styles.title}>Collaborators</Text>
-    <Text style={styles.detail}>Add teammates with Researcher access. View lets them read this plan. Edit also lets them message the Researcher agent here, using their own tokens.</Text>
+    <Text style={styles.detail}>Add teammates with Researcher access so they can read this plan. During the research pilot, collaborators can view only: they can't send messages or change the plan.</Text>
     {collaborators.length === 0
       ? <Text style={styles.empty}>Only you and admins can see this plan.</Text>
       : collaborators.map(person => <View key={person.id} style={styles.row}>
@@ -48,17 +43,7 @@ export function ResearchCollaborators({ collaborators, candidates, saving, error
           <Text style={styles.name} numberOfLines={1}>{person.name}</Text>
           {!person.active ? <Text style={styles.paused}>Paused until they have Researcher access again</Text> : null}
         </View>
-        <View accessibilityRole="radiogroup" accessibilityLabel={`Access for ${person.name}`} style={styles.segment}>
-          {ACCESS.map(option => {
-            const selected = person.access === option.value;
-            return <Pressable key={option.value} accessibilityRole="radio" accessibilityLabel={`${option.label} access for ${person.name}`}
-              accessibilityState={{ checked: selected, disabled: saving }} disabled={saving || selected}
-              onPress={() => onChange(withCollaborator(collaborators, person, option.value))}
-              style={({ pressed }) => [styles.segmentOption, selected && styles.segmentSelected, pressed && styles.pressed]}>
-              <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>{option.label}</Text>
-            </Pressable>;
-          })}
-        </View>
+        <Text style={styles.paused}>Can view</Text>
         <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${person.name}`} disabled={saving}
           onPress={() => onChange(withoutCollaborator(collaborators, person.id))} hitSlop={8}
           style={({ pressed }) => [styles.remove, pressed && styles.pressed]}>
@@ -101,11 +86,6 @@ const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create
   rowCopy: { flex: 1, minWidth: 0 },
   name: { ...typography.caption, color: colors.ink },
   paused: { ...typography.meta, color: colors.muted },
-  segment: { flexDirection: "row", borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, overflow: "hidden" },
-  segmentOption: { minWidth: 52, minHeight: 36, paddingHorizontal: space.sm, alignItems: "center", justifyContent: "center", backgroundColor: colors.background },
-  segmentSelected: { backgroundColor: colors.blueSoft },
-  segmentText: { ...typography.meta, color: colors.muted },
-  segmentTextSelected: { color: colors.blueDark, fontWeight: "700" },
   remove: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: radius.sm },
   error: { ...typography.meta, color: colors.red },
   add: { alignSelf: "flex-start", marginTop: space.xs },

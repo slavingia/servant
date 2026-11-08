@@ -199,3 +199,33 @@ test("the runtime facade exposes safe matching, bounded search, status and publi
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("unknown manifest, answer or source fields fail visibly instead of being dropped", () => {
+  const cases = [
+    [{ ...manifest(), audience: "owner-only" }, /approved answers file has unsupported field "audience"/],
+    [manifest(entry({ audience: "owner-only" })), /Answer show-me-around has unsupported field "audience".*restricted audiences aren't supported/],
+    [manifest(entry({ sources: [{ title: "Guide", url: "https://servant.example/guide", internal: true }] })), /source 1 has unsupported field "internal"/],
+    [manifest(entry({ visibility: "private", channel: "leadership" })), /unsupported fields "visibility", "channel"/],
+  ];
+  for (const [raw, message] of cases) {
+    assert.throws(() => validateApprovedAnswers(raw), error => error instanceof ApprovedAnswersError && message.test(error.message), String(message));
+  }
+  assert.throws(() => renderApprovedAnswer(entry({ audience: "owner-only" })), /unsupported field "audience"/);
+  // Publishing refuses, and a file edited by hand stops serving any answer.
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "servant-approved-answers-"));
+  const file = approvedAnswersPath(directory);
+  const errors = [];
+  const store = createApprovedAnswersStore(file, { log: { error: message => errors.push(message) } });
+  try {
+    store.publish(manifest());
+    const before = fs.readFileSync(file, "utf8");
+    assert.throws(() => store.publish(manifest(entry({ audience: "owner-only" }))), /unsupported field "audience"/);
+    assert.equal(fs.readFileSync(file, "utf8"), before, "nothing is published");
+    fs.writeFileSync(file, JSON.stringify(manifest(entry({ audience: "owner-only" }))), { mode: 0o600 });
+    assert.equal(store.match("Show me around", NOW).kind, "miss", "fails closed to the live agent");
+    assert.match(store.status(NOW).error, /unsupported field "audience"/);
+    assert.ok(errors.some(message => /audience/.test(message)));
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

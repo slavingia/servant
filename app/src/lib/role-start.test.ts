@@ -71,12 +71,14 @@ test("product designer tasks use existing destinations and retain available work
   assert.deepEqual(tasks.map(task => task.title), [
     "Share a design for feedback",
     "Create an interactive design",
-    "Review evidence and accessibility",
+    "Check a design's accessibility",
+    "Review evidence with the agent",
   ]);
   assert.deepEqual(new Set(tasks.map(task => task.href)), new Set(["/channels", "/designs", "/agent"]));
   assert.equal(tasks.find(task => task.id === "product-prototype")?.locked, true);
   assert.match(tasks.find(task => task.id === "product-prototype")?.reason ?? "", /Design prototyper, Design engineer, or Researcher/);
   assert.equal(tasks.find(task => task.id === "product-review")?.locked, true);
+  assert.equal(tasks.find(task => task.id === "product-accessibility")?.locked, true, "the check is in your own designs");
   assert.equal(tasks.find(task => task.id === "product-share")?.locked, false);
 });
 
@@ -108,7 +110,8 @@ test("research-informed review is a relevant recommendation for every non-resear
 
 test("design engineer tasks prioritize goals and model design and agent access independently", () => {
   assert.equal(titles("design-engineer", ["prototype"], { agentTier: 3, canCreateDesign: true })[0], "Build an interactive prototype");
-  assert.equal(titles("design-engineer", ["accessibility"], { agentTier: 3, canCreateDesign: true })[0], "Review evidence and accessibility");
+  assert.equal(titles("design-engineer", ["accessibility"], { agentTier: 3, canCreateDesign: true })[0], "Check a design's accessibility");
+  assert.equal(titles("product-designer", ["accessibility"], { agentTier: 3, canCreateDesign: true })[0], "Check a design's accessibility", "the accessibility goal leads to Design Studio's check");
   assert.equal(titles("design-engineer", ["share"], { agentTier: 3, canCreateDesign: true })[0], "Coordinate project work");
 
   const limited = roleStartTasks(state("design-engineer"), { agentTier: 1, canCreateDesign: false });
@@ -122,8 +125,8 @@ test("goal ordering is stable and does not mutate onboarding state", () => {
   Object.freeze(goals);
   const input = Object.freeze({ role: "product-designer" as const, goals });
   const tasks = roleStartTasks(input, Object.freeze({ agentTier: 3, canCreateDesign: true }));
-  assert.deepEqual(tasks.map(task => task.id), ["product-prototype", "product-share", "product-review"]);
-  assert.deepEqual(tasks.map(task => task.recommended), [true, true, false]);
+  assert.deepEqual(tasks.map(task => task.id), ["product-prototype", "product-share", "product-accessibility", "product-review"]);
+  assert.deepEqual(tasks.map(task => task.recommended), [true, true, false, false]);
   assert.deepEqual(goals, ["share", "prototype"]);
   assert.notStrictEqual(tasks, roleStartTasks(input, { agentTier: 3, canCreateDesign: true }));
 });

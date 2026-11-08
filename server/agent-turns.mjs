@@ -12,7 +12,7 @@ const active = status => activeStates.includes(status);
 const fault = (status, code, message) => Object.assign(new Error(message), { status, code });
 export const terminalTurn = turn => !active(turn.status);
 
-export function createAgentTurns({ file, execute, clock = Date.now, concurrency = 4 }) {
+export function createAgentTurns({ file, execute, clock = Date.now, concurrency = 4, onInterruptedStart = () => {} }) {
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16) throw new Error('Invalid private turn concurrency');
   const db = new DatabaseSync(file);
   db.exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
@@ -260,6 +260,20 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
       return view(row(id));
     });
   }
+  // When someone loses access to a chat, nothing more of theirs runs there:
+  // their waiting messages and queued steers are cancelled, and replies that
+  // never became a saved message (streamed drafts) are cleared.
+  function revokeChatWork(chatId, userId) {
+    return tx(() => {
+      const waiting = db.prepare("SELECT id FROM private_turns WHERE chat_id=? AND user_id=? AND status IN ('queued','research_queued','held')").all(chatId, userId);
+      for (const { id } of waiting) {
+        db.prepare("UPDATE private_turns SET status='cancelled',payload='{}',assistant_text='',steer_requested=0,updated_at=? WHERE id=?").run(clock(), id);
+        event(id, 'turn', { turn: view(row(id)) }); event(id, 'done', { status: 'cancelled' });
+      }
+      const drafts = db.prepare("UPDATE private_turns SET assistant_text='',updated_at=? WHERE chat_id=? AND user_id=? AND message_id IS NULL AND assistant_text<>''").run(clock(), chatId, userId).changes;
+      return { cancelled: waiting.length, drafts };
+    });
+  }
   // One tap: fold a waiting message into the reply that's running now. The
   // worker running that reply delivers it; if the reply finishes first, the
   // message simply runs next as its own turn, so nothing is lost.
@@ -346,6 +360,15 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
       finish(t.id, result?.status || 'completed', undefined, result?.notification);
       return true;
     }).catch(error => {
+      // Access changed: the turn is cancelled, not failed, and keeps no draft
+      // reply or steer request that could surface later.
+      if (error?.code === 'access_changed') {
+        tx(() => db.prepare("UPDATE private_turns SET assistant_text='',steer_requested=0,updated_at=? WHERE id=?").run(clock(), t.id));
+        finish(t.id, 'cancelled', "Your access changed, so this wasn't answered");
+        return false;
+      }
+      // Servant's own fixed explanation for a purpose chat on a bridge that can't confirm a stop.
+      if (error?.code === 'durable_runs_required') { finish(t.id, 'failed', error.message); return false; }
       finish(t.id, error?.code === 'run_lost' ? 'interrupted' : 'failed', error?.code === 'agent_error' ? "The agent didn't answer. Try again" : 'The agent connection ended before the answer finished');
       return false;
     }).finally(() => { tasks.delete(task); });
@@ -356,7 +379,12 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
     const interrupted = db.prepare("SELECT * FROM private_turns WHERE status IN ('running','waiting_for_approval','stopping')").all();
     for (const t of interrupted) {
       if (t.run_id) db.prepare("UPDATE private_turns SET status='queued',updated_at=? WHERE id=?").run(clock(), t.id);
-      else finish(t.id, 'interrupted', 'The worker restarted before this answer finished. Review the partial reply before trying again');
+      else {
+        finish(t.id, 'interrupted', 'The worker restarted before this answer finished. Review the partial reply before trying again');
+        // The start may have reached the agent without its run ID being saved.
+        // It's never resubmitted; a run it may have started is stopped by key.
+        if (t.delivery_started) { try { onInterruptedStart({ id: t.id, chat_id: t.chat_id, user_id: t.user_id }); } catch { /* best effort */ } }
+      }
     }
     return interrupted.length;
   }
@@ -371,7 +399,7 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
   // without requiring the independent worker to rewrite cached messages/events.
   const userMessageId = t => `msg_${crypto.createHash('sha256').update(`${t.chat_id}:user:${t.id}`).digest('hex').slice(0, 32)}`;
   const sourceMap = rows => new Map(rows.map(t => [userMessageId(t), t.source_device_kind]));
-return { unreadByChat, markChatRead, enqueue, replay, releaseResearchHandoff, abandonResearchHandoff, researchHandoffRetryable, rearmResearchHandoff, reconcileResearchHandoffs, processNext, recoverInterrupted, requestStop, requestApproval, requestSteer, markSteered, requeueSteer, drainOutbox,
+return { revokeChatWork, waitingTurns: () => db.prepare("SELECT id,chat_id,user_id,device_id,run_id FROM private_turns WHERE status IN ('queued','research_queued','held')").all(), unreadByChat, markChatRead, enqueue, replay, releaseResearchHandoff, abandonResearchHandoff, researchHandoffRetryable, rearmResearchHandoff, reconcileResearchHandoffs, processNext, recoverInterrupted, requestStop, requestApproval, requestSteer, markSteered, requeueSteer, drainOutbox,
     messageSources: chatId => sourceMap(db.prepare('SELECT id,chat_id,source_device_kind FROM private_turns WHERE chat_id=?').all(chatId)),
     // Who sent each user message; a research plan can have edit collaborators.
     messageAuthors: chatId => new Map(db.prepare('SELECT id,chat_id,user_id FROM private_turns WHERE chat_id=?').all(chatId).map(t => [userMessageId(t), t.user_id])),

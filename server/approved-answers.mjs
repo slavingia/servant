@@ -30,6 +30,19 @@ export class ApprovedAnswersError extends Error {
 }
 
 const invalid = message => { throw new ApprovedAnswersError(message); };
+
+// Every field must be one this version understands. An unknown field is never
+// dropped: something like "audience": "owner-only" looks like a restriction,
+// and silently ignoring it would publish the answer to the whole workspace.
+const MANIFEST_FIELDS = ["version", "answers"];
+const ANSWER_FIELDS = ["id", "question", "aliases", "answer", "status", "sources", "approvedBy", "approvedAt", "reviewBy", "expiresAt", "version"];
+const SOURCE_FIELDS = ["title", "url", "date"];
+function rejectUnknownFields(value, allowed, where) {
+  const unknown = Object.keys(value).filter(key => !allowed.includes(key));
+  if (!unknown.length) return;
+  const named = unknown.slice(0, 5).map(key => `"${String(key).slice(0, 40)}"`).join(", ");
+  invalid(`${where} has unsupported ${unknown.length === 1 ? "field" : "fields"} ${named}. Remove ${unknown.length === 1 ? "it" : "them"} and try again. Approved answers are always workspace-wide; restricted audiences aren't supported`);
+}
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 const cleanLine = value => typeof value === "string" ? value.normalize("NFKC").replace(/\s+/gu, " ").trim() : "";
 const cleanText = value => typeof value === "string" ? value.normalize("NFKC").trim() : "";
@@ -64,6 +77,7 @@ function isoTime(value, label) {
 
 function validateSource(source, answerId, index) {
   if (!source || typeof source !== "object" || Array.isArray(source)) invalid(`Answer ${answerId} source ${index + 1} must be an object`);
+  rejectUnknownFields(source, SOURCE_FIELDS, `Answer ${answerId} source ${index + 1}`);
   const title = cleanLine(source.title);
   const url = cleanLine(source.url);
   const date = cleanLine(source.date);
@@ -81,6 +95,7 @@ function validateAnswer(raw, index) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) invalid(`Answer ${index + 1} must be an object`);
   const id = cleanLine(raw.id);
   if (!ID.test(id)) invalid(`Answer ${index + 1} needs a lowercase id using letters, numbers, _ or -`);
+  rejectUnknownFields(raw, ANSWER_FIELDS, `Answer ${id}`);
   const question = cleanLine(raw.question);
   if (!question || question.length > 200 || !normalizeApprovedQuestion(question)) invalid(`Answer ${id} needs a canonical question under 200 characters`);
   if (/^ask live\s*:/iu.test(stripAgentHandle(question))) invalid(`Answer ${id} question uses the reserved ask live bypass`);
@@ -119,6 +134,7 @@ function validateAnswer(raw, index) {
 /** Strict validation used by both the live reader and the publishing path. */
 export function validateApprovedAnswers(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) invalid("Approved answers must be a JSON object");
+  rejectUnknownFields(raw, MANIFEST_FIELDS, "The approved answers file");
   if (raw.version !== APPROVED_ANSWERS_VERSION) invalid(`Approved answers version must be ${APPROVED_ANSWERS_VERSION}`);
   if (!Array.isArray(raw.answers) || raw.answers.length > MAX_ANSWERS) invalid(`Approved answers must contain at most ${MAX_ANSWERS} entries`);
   const answers = raw.answers.map(validateAnswer);

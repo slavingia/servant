@@ -11,12 +11,15 @@ import {
   researchChats,
   researchDisplayTitle,
   researchTask,
+  researchEmptyState,
   type ResearchTaskKind,
 } from "../lib/research-studio";
 import { accessLabel, sharedResearchPlans } from "../lib/research-collaborators";
 import { api, ServerError, type Chat } from "../lib/server";
 import { useSession } from "../lib/session";
-import { shortTime as when } from "../lib/time-label";
+import { formDraftKey, readFormDraft } from "../lib/form-drafts";
+import { parseResearchFormDraft, researchFormDraftEmpty } from "../lib/research-form-draft";
+import { shortTime as when, whenInSentence } from "../lib/time-label";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
 
 const taskIcons: Record<ResearchTaskKind, AppIconName> = {
@@ -37,9 +40,19 @@ export default function ResearchStudio() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [accessError, setAccessError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  // Research pilot: only the study builder (with its prototype option) is open; the rest is paused.
+  const [held, setHeld] = useState(false);
+  // Forms left part-way, kept on this device (research-new saves them).
+  const [drafts, setDrafts] = useState<Partial<Record<ResearchTaskKind, { title: string; savedAt: number }>>>({});
 
   const load = useCallback(async () => {
     if (!account) return;
+    const saved = await Promise.all(RESEARCH_TASKS.map(async task => {
+      const draft = await readFormDraft(formDraftKey(account, `research-new:${task.kind}`)).catch(() => null);
+      const parsed = draft ? parseResearchFormDraft(draft.value, task.kind) : null;
+      return parsed && !researchFormDraftEmpty(parsed) ? [task.kind, { title: parsed.title.trim(), savedAt: draft!.savedAt }] as const : null;
+    }));
+    setDrafts(Object.fromEntries(saved.filter(item => item !== null)));
     const [chats, projects] = await Promise.allSettled([
       api.orgChats(account, setAccount),
       api.projects(account),
@@ -54,6 +67,7 @@ export default function ResearchStudio() {
       setLoadError(chats.reason instanceof ServerError ? chats.reason.message : "Couldn't load your research work");
     }
     if (projects.status === "fulfilled") {
+      setHeld(projects.value.researchHold === true);
       const tier = projects.value.agentTier;
       if (typeof tier === "number" && Number.isInteger(tier)) {
         setAgentTier(tier);
@@ -78,8 +92,13 @@ export default function ResearchStudio() {
     setRefreshing(true);
     try { await load(); } finally { setRefreshing(false); }
   };
+  const paused = (kind: ResearchTaskKind) => held && kind !== "study";
+  const draftText = (kind: ResearchTaskKind) => {
+    const draft = drafts[kind];
+    return draft ? `Continue where you left off${draft.title ? `: ${draft.title}` : ""} (last saved ${whenInSentence(draft.savedAt)})` : null;
+  };
   const start = (kind: ResearchTaskKind) => {
-    if (!unlocked) return;
+    if (!unlocked || paused(kind)) return;
     router.push({ pathname: "/research-new", params: { kind } });
   };
   const open = (chat: Chat) => router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, research: "1" } });
@@ -98,22 +117,28 @@ export default function ResearchStudio() {
             <Text style={styles.accessBody}>{checking
               ? "Your workspace controls which agent tools are available."
               : unlocked
-                ? "New work starts as an ordinary private Servant chat, so teammates on the original app can read and continue it when you share."
+                ? held
+                ? "Research pilot: build a study plan, create a prototype from your research findings, and save a working draft. Researcher Agent chats and Research Hub evidence are paused."
+                : "New work starts as an ordinary private Servant chat, so teammates on the original app can read and continue it when you share."
                 : accessError ?? "Ask a workspace owner to grant the Researcher agent tier. Your onboarding preference does not change access."}</Text>
           </View>
         </View>
         <Text accessibilityRole="header" style={styles.sectionTitle}>Start new research</Text>
         <View style={styles.actions}>
-          {RESEARCH_TASKS.map(task => <Pressable key={task.kind} accessibilityRole="button" accessibilityLabel={task.actionLabel}
-            accessibilityHint={unlocked ? task.description : "Researcher access is required"} accessibilityState={{ disabled: !unlocked }} disabled={!unlocked}
-            onPress={() => start(task.kind)} style={({ pressed }) => [styles.action, !unlocked && styles.actionDisabled, pressed && unlocked && styles.pressed]}>
-            <View style={styles.actionIcon}><AppIcon name={taskIcons[task.kind]} size={20} color={unlocked ? colors.blueDark : colors.muted} /></View>
-            <View style={styles.actionCopy}>
-              <Text style={styles.actionTitle}>{task.actionLabel}</Text>
-              <Text style={styles.actionBody}>{task.description}</Text>
-            </View>
-            <AppIcon name={unlocked ? "chevronRight" : "lock"} size={16} color={colors.muted} />
-          </Pressable>)}
+          {RESEARCH_TASKS.map(task => {
+            const open = unlocked && !paused(task.kind);
+            return <Pressable key={task.kind} accessibilityRole="button" accessibilityLabel={task.actionLabel}
+              accessibilityHint={!unlocked ? "Researcher access is required" : paused(task.kind) ? "Paused for the research pilot" : draftText(task.kind) ?? task.description} accessibilityState={{ disabled: !open }} disabled={!open}
+              onPress={() => start(task.kind)} style={({ pressed }) => [styles.action, !open && styles.actionDisabled, pressed && open && styles.pressed]}>
+              <View style={styles.actionIcon}><AppIcon name={taskIcons[task.kind]} size={20} color={open ? colors.blueDark : colors.muted} /></View>
+              <View style={styles.actionCopy}>
+                <Text style={styles.actionTitle}>{task.actionLabel}</Text>
+                <Text style={styles.actionBody}>{unlocked && paused(task.kind) ? "Paused for the research pilot." : task.description}</Text>
+                {open && draftText(task.kind) ? <Text style={styles.actionDraft}>{draftText(task.kind)}</Text> : null}
+              </View>
+              <AppIcon name={open ? "chevronRight" : "lock"} size={16} color={colors.muted} />
+            </Pressable>;
+          })}
         </View>
         {sharedWithMe.length ? <>
           <Text accessibilityRole="header" style={styles.sectionTitle}>Shared with you</Text>
@@ -148,8 +173,8 @@ export default function ResearchStudio() {
           <Button label="Try again" kind="secondary" onPress={() => { void load(); }} style={styles.emptyAction} />
         </View> : <View style={styles.empty}>
           <View style={styles.emptyIcon}><AppIcon name="search" size={26} color={colors.blueDark} /></View>
-          <Text accessibilityRole="header" style={styles.emptyTitle}>No research work yet</Text>
-          <Text style={styles.emptyBody}>{unlocked ? "Choose a starting point above. Your brief will open as a draft for you to review before sending." : "Research chats you start after access is granted will appear here."}</Text>
+          <Text accessibilityRole="header" style={styles.emptyTitle}>{researchEmptyState({ unlocked, held }).title}</Text>
+          <Text style={styles.emptyBody}>{researchEmptyState({ unlocked, held }).body}</Text>
         </View>}
       renderItem={({ item }) => {
         const kind = researchChatKind(item)!;
@@ -191,6 +216,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   actionCopy: { flex: 1, minWidth: 0 },
   actionTitle: { ...typography.bodyStrong, color: colors.ink },
   actionBody: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
+  actionDraft: { ...typography.captionStrong, color: colors.blueDark, marginTop: space.xxs },
   listHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm, paddingRight: space.side },
   error: { ...typography.caption, color: colors.red, marginHorizontal: space.side, marginBottom: space.sm },
   row: { minHeight: 72, flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.side, paddingVertical: space.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },

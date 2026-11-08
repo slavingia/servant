@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { clearAccount, loadAccount, saveAccount, api, type Account } from "./server";
+import { clearFormDraftsFor } from "./form-drafts";
 
 type Session = {
   ready: boolean;
@@ -49,6 +50,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     if (account) await api.signOut(account);
+    // Research form drafts on this device go with the person who typed them.
+    if (account) await clearFormDraftsFor(account).catch(() => {});
     await clearAccount();
     setAccount(null);
   }, [account]);

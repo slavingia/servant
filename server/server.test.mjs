@@ -69,19 +69,32 @@ async function withAgentAccess(value, fn) {
 }
 process.env.SERVANT_DATA_DIR = dataDir;
 
-function fakeHermes(key, label, capabilities = restrictedTestCapabilities) {
+// Researcher and prototype purpose chats need durable runs (a verifiable stop),
+// so those test agents advertise and serve them.
+const withDurableRuns = capabilities => ({ ...capabilities, features: { ...capabilities.features, servant_durable_media_runs: true, servant_exact_approvals: true, servant_run_keys: true } });
+const turnText = content => typeof content === "string" ? content : (content || []).filter(part => part.type === "text").map(part => part.text).join("");
+function fakeHermes(key, label, shared = restrictedTestCapabilities) {
+  const capabilities = structuredClone(shared);
   const sessions = new Map();
   const calls = [];
+  const runs = new Map();
+  // Run keys, as server/servant_run_keys.py keeps them: key -> { state, runId }.
+  const runKeys = new Map();
+  let runsGate = null, creationGate = null, arrivalGate = null, runCount = 0;
   let capabilityRequests = 0;
   let capabilitiesGate = null;
   let completionsGate = null;
   let streamsGate = null;
+  let historyGate = null;
+  let sessionsGate = null;
   let droppedStreams = 0;
+  let abandonedStreams = 0;
   const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && req.url === "/v1/capabilities") {
       capabilityRequests += 1;
       const gate = capabilitiesGate;
-      if (gate) { gate.enter(); await gate.wait; }
+      if (gate && gate.skip > 0) gate.skip -= 1;
+      else if (gate) { gate.enter(); await gate.wait; }
       return res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(capabilities));
     }
     const chunks = [];
@@ -110,9 +123,80 @@ function fakeHermes(key, label, capabilities = restrictedTestCapabilities) {
       }));
       return;
     }
+    const keyMatch = req.url.match(/^\/v1\/runs\/servant-key\.([^/]+)(\/stop)?$/);
+    if (keyMatch && capabilities.features?.servant_run_keys) {
+      const key = decodeURIComponent(keyMatch[1]);
+      let entry = runKeys.get(key);
+      if (req.method === "POST" && keyMatch[2]) {
+        if (entry?.state === "running") { const run = runs.get(entry.runId); run.stops += 1; if (run.status === "running") run.status = "cancelled"; run.done?.(); }
+        else { entry = { state: "refused", runId: null }; runKeys.set(key, entry); }
+      } else if (req.method !== "GET" || keyMatch[2]) return res.writeHead(404).end();
+      if (!entry) return res.writeHead(404, { "Content-Type": "application/json" }).end("{}");
+      const runStatus = entry.runId ? runs.get(entry.runId).status : null;
+      const state = entry.state === "running" && runStatus !== "running" ? "ended" : entry.state;
+      return res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ key, state, run_id: entry.runId, run_status: runStatus, stopped: ["ended", "refused", "not_started"].includes(state) }));
+    }
+    if (req.method === "POST" && req.url === "/v1/runs" && capabilities.features?.servant_durable_media_runs) {
+      const key = capabilities.features?.servant_run_keys ? req.headers["x-servant-run-key"] : undefined;
+      // The start request is still on its way: no run exists yet.
+      const arrival = arrivalGate;
+      if (arrival) { arrival.enter(); await arrival.wait; }
+      const known = key && runKeys.get(key);
+      if (known) return res.writeHead(409, { "Content-Type": "application/json" }).end(JSON.stringify({ error: { code: known.state === "refused" ? "run_key_refused" : "run_key_in_use" }, run_id: known.runId }));
+      // The run exists as soon as the request arrives; a creation gate only delays the reply.
+      const id = `run_${label}_${++runCount}`;
+      const message = turnText(body.input?.at(-1)?.content);
+      const run = { id, key, sessionId: body.session_id, message, status: "running", silent: runsGate, stops: 0, done: null };
+      runs.set(id, run);
+      if (key) runKeys.set(key, { state: "running", runId: id });
+      runsGate?.enter();
+      // The prompt arrived, but the reply never does.
+      if (droppedStreams > 0) { droppedStreams--; req.socket.destroy(); return; }
+      const gate = creationGate;
+      if (gate) { gate.enter(); await gate.wait; }
+      res.writeHead(202, { "Content-Type": "application/json" }).end(JSON.stringify({ run_id: id }));
+      return;
+    }
+    const runMatch = req.url.match(/^\/v1\/runs\/([^/]+)(\/.*)?$/);
+    if (runMatch) {
+      const run = runs.get(decodeURIComponent(runMatch[1]));
+      if (!run) return res.writeHead(404, { "Content-Type": "application/json" }).end("{}");
+      if (req.method === "POST" && runMatch[2] === "/stop") {
+        run.stops += 1;
+        if (run.status === "running") run.status = "cancelled";
+        run.done?.();
+        return res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ status: "stopping" }));
+      }
+      if (req.method === "GET" && runMatch[2] === "/events") {
+        res.writeHead(200, { "Content-Type": "text/event-stream" });
+        res.write(": connected\n\n");
+        if (run.silent) {
+          // Says nothing until released or stopped.
+          await new Promise(resolve => { run.done = resolve; run.silent.wait.then(resolve); });
+          if (run.status !== "running") { res.write(`data: ${JSON.stringify({ event: "run.cancelled" })}\n\n`); return res.end(); }
+        }
+        const reply = `${label} heard: ${run.message}`;
+        const msgs = sessions.get(run.sessionId) || [];
+        msgs.push({ id: msgs.length + 1, role: "user", content: run.message });
+        msgs.push({ id: msgs.length + 2, role: "assistant", content: reply });
+        sessions.set(run.sessionId, msgs);
+        run.status = "completed";
+        run.output = reply;
+        for (const word of reply.split(/(?= )/)) res.write(`data: ${JSON.stringify({ event: "message.delta", delta: word })}\n\n`);
+        res.write(`data: ${JSON.stringify({ event: "run.completed", output: reply, usage: { input_tokens: run.message.length, output_tokens: reply.length, total_tokens: run.message.length + reply.length } })}\n\n`);
+        return res.end();
+      }
+      if (req.method === "GET" && !runMatch[2]) {
+        return res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ run_id: run.id, status: run.status, ...(run.output ? { output: run.output } : {}) }));
+      }
+      return res.writeHead(404).end();
+    }
     const m = req.url.match(/^\/api\/sessions(?:\/([^/]+))?(\/.*)?$/);
     const sid = m && m[1] && decodeURIComponent(m[1]);
     if (req.method === "POST" && req.url === "/api/sessions") {
+      const gate = sessionsGate;
+      if (gate && gate.skip > 0) gate.skip -= 1;
+      else if (gate) { gate.enter(); await gate.wait; }
       sessions.set(body.id, []);
       res.writeHead(201, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ object: "hermes.session", session: { id: body.id } }));
@@ -128,6 +212,8 @@ function fakeHermes(key, label, capabilities = restrictedTestCapabilities) {
       return;
     }
     if (req.method === "GET" && m[2] === "/messages") {
+      const gate = historyGate;
+      if (gate) { gate.enter(); await gate.wait; }
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ object: "list", data: sessions.get(sid) }));
       return;
@@ -143,8 +229,11 @@ function fakeHermes(key, label, capabilities = restrictedTestCapabilities) {
         req.socket.destroy();
         return;
       }
+      // Servant hanging up before the reply is finished (access changed).
+      res.on("close", () => { if (!res.writableEnded) abandonedStreams += 1; });
       const gate = streamsGate;
       if (gate) { gate.enter(); await gate.wait; }
+      if (res.destroyed) return;
       // A request containing WORKCHAT gets the hand-off to a shared agent chat.
       const reply = /WORKCHAT/.test(body.message) ? "Taking this to a shared chat.\n<servant-chat>Refund script update</servant-chat>" : `${label} heard: ${body.message}`;
       const msgs = sessions.get(sid);
@@ -176,8 +265,9 @@ function fakeHermes(key, label, capabilities = restrictedTestCapabilities) {
       release,
     };
   };
-  return { server, calls, sessions, capabilityRequestCount: () => capabilityRequests, pauseCapabilities(expected = 1) {
+  return { server, calls, sessions, capabilityRequestCount: () => capabilityRequests, pauseCapabilities(expected = 1, { skip = 0 } = {}) {
     const paused = pause(expected);
+    paused.gate.skip = skip;
     capabilitiesGate = paused.gate;
     return { entered: paused.entered, release: () => { capabilitiesGate = null; paused.release(); } };
   }, pauseCompletions(expected = 1) {
@@ -188,16 +278,43 @@ function fakeHermes(key, label, capabilities = restrictedTestCapabilities) {
     const paused = pause(expected);
     streamsGate = paused.gate;
     return { entered: paused.entered, release: () => { streamsGate = null; paused.release(); } };
-  }, dropNextStream() { droppedStreams++; } };
+  }, pauseHistory(expected = 1) {
+    const paused = pause(expected);
+    historyGate = paused.gate;
+    return { entered: paused.entered, release: () => { historyGate = null; paused.release(); } };
+  }, pauseRuns(expected = 1) {
+    // Runs started now stay silent until released (or stopped).
+    const paused = pause(expected);
+    runsGate = paused.gate;
+    return { entered: paused.entered, release: () => { runsGate = null; paused.release(); } };
+  }, pauseSessions(expected = 1, { skip = 0 } = {}) {
+    const paused = pause(expected);
+    paused.gate.skip = skip;
+    sessionsGate = paused.gate;
+    return { entered: paused.entered, release: () => { sessionsGate = null; paused.release(); } };
+  }, pauseRunArrival(expected = 1) {
+    const paused = pause(expected);
+    arrivalGate = paused.gate;
+    return { entered: paused.entered, release: () => { arrivalGate = null; paused.release(); } };
+  }, pauseRunCreation(expected = 1) {
+    const paused = pause(expected);
+    creationGate = paused.gate;
+    return { entered: paused.entered, release: () => { creationGate = null; paused.release(); } };
+  }, runs, runKeys, setRunKeys(on) { capabilities.features = { ...capabilities.features, servant_run_keys: on }; }, setDurable(on) { capabilities.features = { ...capabilities.features, servant_durable_media_runs: on, servant_exact_approvals: on }; },
+  abandonedStreamCount: () => abandonedStreams, dropNextStream() { droppedStreams++; } };
 }
 
 const owner = fakeHermes("owner-key", "owner-agent");
 const member = fakeHermes("member-key", "member-agent");
-const researcher = fakeHermes("researcher-key", "researcher-agent", researcherTestCapabilities);
-const prototype = fakeHermes("prototype-key", "prototype-agent");
+const researcher = fakeHermes("researcher-key", "researcher-agent", withDurableRuns(researcherTestCapabilities));
+const prototype = fakeHermes("prototype-key", "prototype-agent", withDurableRuns(restrictedTestCapabilities));
 const hermesUpstreams = [owner, member, researcher, prototype];
 const sessionCallCount = () => hermesUpstreams.reduce((n, up) => n + up.calls.filter(call => call.method === "POST" && call.url === "/api/sessions").length, 0);
-const streamCallCounts = () => hermesUpstreams.map(up => up.calls.filter(call => call.url.endsWith("/chat/stream")).length);
+// An agent turn reaches an agent as a legacy stream or a durable run.
+const isAgentTurn = call => call.url.endsWith("/chat/stream") || (call.method === "POST" && call.url === "/v1/runs");
+// The prompt and instructions a turn sent, in either shape.
+const turnBody = call => call.url === "/v1/runs" ? { message: turnText(call.body.input?.at(-1)?.content), system_message: call.body.instructions } : call.body;
+const streamCallCounts = () => hermesUpstreams.map(up => up.calls.filter(isAgentTurn).length);
 let server;
 let base;
 let mod;
@@ -212,6 +329,8 @@ before(async () => {
     JSON.stringify({
       port: 0,
       defaultAgentTier: 3,
+      // These tests cover features the research pilot holds; the hold has its own test.
+      researchHold: false,
       name: "Test server",
       publicUrl: "https://tsoa.example.test",
       discoveryUrl: "https://example.test/hub.json",
@@ -461,6 +580,162 @@ test("the join link works for many people, asks each for a name, and a fresh lin
 });
 
 // config.json is re-read per request; set work hours for one test.
+test("the projects reply says where this server's prototype pages live, so the app adjusts only its own", async () => {
+  const token = await pair("member", "Origin Checker");
+  const r = await api("GET", "/v1/projects", { token });
+  assert.equal(r.json.prototypeOrigin, "https://tsoa.example.test");
+});
+
+test("prototype versions: kept after each reply, listed with read-only links, restored by the author only; rename and duplicate", async () => {
+  const boss = await pair("owner", "Version Owner");
+  const token = await pair("member", "Vera Versions");
+  const other = await pair("member", "Otto Onlooker");
+  const chat = (await api("POST", "/v1/chats", { token, body: { mode: "vibe" } })).json.chat;
+  const folder = chat.previewUrl.split("/p/")[1].replace(/\/$/, "");
+  const live = path.join(dataDir, "prototypes", folder);
+  const route = `/v1/chats/${chat.id}`;
+  assert.deepEqual((await api("GET", `${route}/versions`, { token })).json.versions, [], "nothing published yet, nothing kept");
+  fs.mkdirSync(path.join(live, "css"), { recursive: true });
+  fs.writeFileSync(path.join(live, "index.html"), "<h1>First</h1>");
+  fs.writeFileSync(path.join(live, "css", "site.css"), "h1{color:red}");
+  fs.writeFileSync(path.join(live, ".agent-notes"), "the agent's own file");
+  // A reply in the workspace saves a version when the page changed.
+  assert.equal((await api("POST", `${route}/messages`, { token, body: { text: "build it" } })).status, 200);
+  let versions = (await waitFor(async () => { const v = (await api("GET", `${route}/versions`, { token })).json.versions; return v.length ? v : null; }));
+  assert.deepEqual(versions.map(v => [v.n, v.files, v.latest]), [[1, 2, true]], "dotfiles aren't part of a version");
+  assert.equal(versions[0].request, "build it", "a version made by a reply says what was asked for");
+  assert.equal(versions[0].url, `https://tsoa.example.test/p/${folder}.v1/`);
+  assert.deepEqual((await api("GET", `${route}/versions`, { token })).json.versions.map(v => v.n), [1], "no change, no new version");
+  fs.writeFileSync(path.join(live, "index.html"), "<h1>Second</h1>");
+  versions = (await api("GET", `${route}/versions`, { token })).json.versions;
+  assert.deepEqual(versions.map(v => v.n), [2, 1], "newest first; listing catches changes made outside a reply");
+  assert.equal(versions[0].request, undefined, "a change made outside a reply has no request to show");
+  assert.equal((await api("GET", `${route}/versions`, { token })).json.canRestore, true);
+  // Old versions are served read-only, in the same sandbox, and nothing else is.
+  const old = await fetch(`${base}/p/${folder}.v1/`);
+  assert.equal(await old.text(), "<h1>First</h1>");
+  assert.match(old.headers.get("content-security-policy"), /^sandbox allow-scripts /);
+  assert.equal(await (await fetch(`${base}/p/${folder}.v1/css/site.css`)).text(), "h1{color:red}");
+  for (const bad of [`/p/${folder}.v9/`, `/p/${folder}.v0/`, `/p/${folder}.v1/.agent-notes`, `/p/${folder}.v1/%2e%2e/%2e%2e/${folder}/index.html`, `/p/proto-nothere00000000000.v1/`, `/p/${folder}.v1x/`]) {
+    assert.equal((await fetch(`${base}${bad}`)).status, 404, bad);
+  }
+  // Someone who can see the design can look at its versions, not restore one.
+  assert.equal((await api("GET", `${route}/versions`, { token: other })).status, 404, "a private design stays private");
+  assert.equal((await api("PATCH", route, { token, body: { shared: true } })).status, 200);
+  const seen = (await api("GET", `${route}/versions`, { token: other })).json;
+  assert.deepEqual([seen.versions.map(v => v.n), seen.canRestore], [[2, 1], false]);
+  assert.equal((await api("POST", `${route}/versions/1/restore`, { token: other, body: {} })).status, 403);
+  assert.equal(fs.readFileSync(path.join(live, "index.html"), "utf8"), "<h1>Second</h1>");
+  // The author restores: the live page saved first, then the old one back, as a new version.
+  assert.equal((await api("POST", `${route}/versions/7/restore`, { token, body: {} })).status, 404);
+  const restored = await api("POST", `${route}/versions/1/restore`, { token, body: {} });
+  assert.equal(restored.status, 200, restored.text);
+  assert.equal(restored.json.restored, 3);
+  assert.deepEqual(restored.json.versions.map(v => [v.n, v.restoredFrom ?? null]), [[3, 1], [2, null], [1, null]]);
+  assert.equal(fs.readFileSync(path.join(live, "index.html"), "utf8"), "<h1>First</h1>");
+  assert.equal(fs.readFileSync(path.join(live, ".agent-notes"), "utf8"), "the agent's own file", "the agent's dotfiles are left alone");
+  assert.equal((await api("POST", `${route}/versions/2/restore`, { token, body: {} })).json.restored, 4, "a restore can be undone");
+  assert.equal(fs.readFileSync(path.join(live, "index.html"), "utf8"), "<h1>Second</h1>");
+
+  // Renaming is the author's; titles are tidied and can't be empty.
+  assert.equal((await api("PATCH", route, { token, body: { title: "  Refund\n status  " } })).json.chat.title, "Refund status");
+  assert.equal((await api("PATCH", route, { token, body: { title: "   " } })).status, 400);
+  assert.equal((await api("PATCH", route, { token: other, body: { title: "Mine now" } })).status, 403);
+  assert.equal((await api("GET", route, { token })).json.chat.title, "Refund status");
+
+  // Duplicate: a new, empty design starts from a design this person can see.
+  const copy = (await api("POST", "/v1/chats", { token: other, body: { mode: "vibe" } })).json.chat;
+  const copied = await api("POST", `/v1/chats/${copy.id}/prototype/copy`, { token: other, body: { from: chat.id } });
+  assert.equal(copied.status, 200, copied.text);
+  assert.equal(copied.json.chat.previewReady, true);
+  const copyFolder = copy.previewUrl.split("/p/")[1].replace(/\/$/, "");
+  assert.equal(fs.readFileSync(path.join(dataDir, "prototypes", copyFolder, "index.html"), "utf8"), "<h1>Second</h1>");
+  assert.equal(fs.existsSync(path.join(dataDir, "prototypes", copyFolder, ".agent-notes")), false);
+  assert.equal((await api("POST", `/v1/chats/${copy.id}/prototype/copy`, { token: other, body: { from: chat.id } })).status, 409, "only into an empty design");
+  assert.equal((await api("PATCH", route, { token, body: { shared: false } })).status, 200);
+  const blank = (await api("POST", "/v1/chats", { token: other, body: { mode: "vibe" } })).json.chat;
+  assert.equal((await api("POST", `/v1/chats/${blank.id}/prototype/copy`, { token: other, body: { from: chat.id } })).status, 404, "not from a design they can't see");
+  assert.equal((await api("POST", `/v1/chats/${copy.id}/prototype/copy`, { token, body: { from: chat.id } })).status, 404, "not into someone else's design");
+  const plain = (await api("POST", "/v1/chats", { token, body: {} })).json.chat;
+  assert.equal((await api("POST", `/v1/chats/${plain.id}/prototype/copy`, { token, body: { from: chat.id } })).status, 409, "only into a design");
+
+  // Deleting the design removes its versions too.
+  assert.equal((await api("DELETE", route, { token })).status, 200);
+  assert.equal(fs.existsSync(path.join(dataDir, "prototype-versions", folder)), false);
+  assert.equal((await fetch(`${base}/p/${folder}.v1/`)).status, 404);
+  void boss;
+});
+
+test("prototype versions: no restore while the agent is working or for a held Research Hub design; kept versions are capped and never follow links", async () => {
+  const boss = await pair("owner", "Hold Version Owner");
+  const token = await pair("member", "Hal Held Versions");
+  const me = (await api("GET", "/v1/people", { token: boss })).json.people.find(person => person.name === "Hal Held Versions");
+  await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 4 } });
+  const chat = (await api("POST", "/v1/chats", { token, body: { mode: "vibe", requiredAgentRole: "prototype" } })).json.chat;
+  const folder = chat.previewUrl.split("/p/")[1].replace(/\/$/, "");
+  fs.mkdirSync(path.join(dataDir, "prototypes", folder), { recursive: true });
+  fs.writeFileSync(path.join(dataDir, "prototypes", folder, "index.html"), "<p>one</p>");
+  assert.deepEqual((await api("GET", `/v1/chats/${chat.id}/versions`, { token })).json.versions.map(v => v.n), [1]);
+  fs.writeFileSync(path.join(dataDir, "prototypes", folder, "index.html"), "<p>two</p>");
+  // While the agent is mid-reply it may be writing the page: no restore then.
+  const gate = prototype.pauseRuns();
+  const sending = api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "keep working", requestId: "version_busy_1" } });
+  try {
+    await gate.entered;
+    const busy = await api("POST", `/v1/chats/${chat.id}/versions/1/restore`, { token, body: {} });
+    assert.deepEqual([busy.status, busy.json.error.code], [409, "agent_working"]);
+  } finally { gate.release(); }
+  await sending;
+  await withResearchHold(async () => {
+    // A researcher's own prototype isn't held during the pilot.
+    const own = await api("GET", `/v1/chats/${chat.id}/versions`, { token });
+    assert.equal(own.json.canRestore, true, own.text);
+    // A design started from a Research Hub handoff is held with the Hub.
+    mod.mutateStateForTest(state => { state.chats[chat.id].mode = "research-vibe"; });
+    try {
+      const held = await api("GET", `/v1/chats/${chat.id}/versions`, { token });
+      assert.ok(held.status === 403 || held.json.canRestore === false, held.text);
+      assert.equal((await api("POST", `/v1/chats/${chat.id}/versions/1/restore`, { token, body: {} })).status, 403);
+    } finally { mod.mutateStateForTest(state => { state.chats[chat.id].mode = "vibe"; }); }
+  });
+  assert.equal(fs.readFileSync(path.join(dataDir, "prototypes", folder, "index.html"), "utf8"), "<p>two</p>");
+  const { snapshotPrototype, restoreVersion, listVersions, MAX_VERSIONS } = await import("./prototype-versions.mjs");
+  // Kept versions are capped; the oldest go first.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "servant-versions-"));
+  fs.mkdirSync(path.join(dir, "live", "proto-capcapcapcap"), { recursive: true });
+  for (let i = 0; i < MAX_VERSIONS + 5; i++) {
+    fs.writeFileSync(path.join(dir, "live", "proto-capcapcapcap", "index.html"), `<p>${i}</p>`);
+    snapshotPrototype({ dir: path.join(dir, "live"), versionsDir: path.join(dir, "kept"), folder: "proto-capcapcapcap", at: i });
+  }
+  const kept = listVersions(path.join(dir, "kept"), "proto-capcapcapcap");
+  assert.deepEqual([kept.length, kept[0].n, kept.at(-1).n], [MAX_VERSIONS, 6, MAX_VERSIONS + 5]);
+  assert.equal(fs.existsSync(path.join(dir, "kept", "proto-capcapcapcap", "5")), false);
+  // Links out of the folder are never copied.
+  fs.symlinkSync("/etc/hostname", path.join(dir, "live", "proto-capcapcapcap", "linked.txt"));
+  fs.writeFileSync(path.join(dir, "live", "proto-capcapcapcap", "index.html"), "<p>link</p>");
+  const linked = snapshotPrototype({ dir: path.join(dir, "live"), versionsDir: path.join(dir, "kept"), folder: "proto-capcapcapcap" });
+  assert.equal(fs.existsSync(path.join(dir, "kept", "proto-capcapcapcap", String(linked.n), "linked.txt")), false);
+  assert.equal(restoreVersion({ dir: path.join(dir, "live"), versionsDir: path.join(dir, "kept"), folder: "proto-capcapcapcap", n: 1 }), null, "a version that's gone can't come back");
+  assert.equal(snapshotPrototype({ dir: path.join(dir, "live"), versionsDir: path.join(dir, "kept"), folder: "../escape" }), null);
+  // A duplicate only goes into an empty design, and never writes through a link planted there.
+  const { copyPrototype } = await import("./prototype-versions.mjs");
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "servant-outside-"));
+  fs.mkdirSync(path.join(dir, "live", "proto-copysource"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "live", "proto-copysource", "css"));
+  fs.writeFileSync(path.join(dir, "live", "proto-copysource", "index.html"), "<p>source</p>");
+  fs.writeFileSync(path.join(dir, "live", "proto-copysource", "css", "a.css"), "p{}");
+  fs.mkdirSync(path.join(dir, "live", "proto-copytarget"));
+  fs.symlinkSync(outside, path.join(dir, "live", "proto-copytarget", ".css"));
+  fs.writeFileSync(path.join(dir, "live", "proto-copytarget", "notes.txt"), "x");
+  assert.equal(copyPrototype({ dir: path.join(dir, "live"), from: "proto-copysource", to: "proto-copytarget" }), false, "not into a design with files");
+  fs.rmSync(path.join(dir, "live", "proto-copytarget", "notes.txt"));
+  fs.symlinkSync(outside, path.join(dir, "live", "proto-copytarget", "css"));
+  assert.equal(copyPrototype({ dir: path.join(dir, "live"), from: "proto-copysource", to: "proto-copytarget" }), false, "a planted link counts as a file");
+  fs.rmSync(path.join(dir, "live", "proto-copytarget", "css"));
+  assert.equal(copyPrototype({ dir: path.join(dir, "live"), from: "proto-copysource", to: "proto-copytarget" }), true);
+  assert.deepEqual(fs.readdirSync(outside), [], "nothing was written outside");
+});
+
 test("@s with real work opens a shared agent chat with the request, linked from the thread", async () => {
   const ana = await pair("owner", "Work Ana");
   const ch = (await api("POST", "/v1/conversations", { token: ana, body: { name: "work-handoff" } })).json.conversation;
@@ -480,6 +755,48 @@ test("@s with real work opens a shared agent chat with the request, linked from 
   const turns = (await api("GET", `/v1/chats/${chatId}/turns`, { token: ana })).json.turns;
   assert.ok(turns.length >= 1, "the agent was started on it");
   assert.match(turns.at(-1).text, /asked for this in #work-handoff/);
+});
+
+test("@s work chats recheck access after the agent session call; a revoked asker gets no chat (audit 8)", async () => {
+  const boss = await pair("owner", "Work Recheck Owner");
+  const token = await pair("member", "Wes Work Recheck");
+  const me = (await api("GET", "/v1/people", { token: boss })).json.people.find(person => person.name === "Wes Work Recheck");
+  const ch = (await api("POST", "/v1/conversations", { token, body: { name: "work-recheck" } })).json.conversation;
+  const route = `/v1/conversations/${ch.id}`;
+  const sessionsBefore = owner.calls.filter(call => call.method === "POST" && call.url === "/api/sessions").length;
+  // The channel answer opens a session first; the work chat's session is the next one.
+  const gate = owner.pauseSessions(1, { skip: 1 });
+  try {
+    const ask = await api("POST", route + "/messages", { token, body: { text: "@s WORKCHAT update the refund script" } });
+    assert.ok(ask.status < 300, ask.text);
+    await gate.entered;
+    assert.equal((await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 0 } })).status, 200);
+  } finally { gate.release(); }
+  await until(() => owner.calls.some(call => call.method === "DELETE" && call.url.startsWith(`/api/sessions/servant_${me.id}_cht_`)), 3000);
+  let made = [];
+  mod.mutateStateForTest(state => { made = Object.values(state.chats).filter(chat => chat.userId === me.id && chat.fromConversation); });
+  assert.deepEqual(made, [], "no work chat was saved");
+  assert.ok(owner.calls.filter(call => call.method === "POST" && call.url === "/api/sessions").length >= sessionsBefore + 2);
+});
+
+test("research pilot hold turned on while a Research Hub handoff's session is being created: the chat isn't saved (audit 8)", async () => {
+  const boss = await pair("owner", "Hold Race Owner");
+  const token = await pair("member", "Hal Hold Race");
+  const me = (await api("GET", "/v1/people", { token: boss })).json.people.find(person => person.name === "Hal Hold Race");
+  await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 4 } });
+  const file = path.join(dataDir, "config.json"), before = fs.readFileSync(file, "utf8");
+  const gate = prototype.pauseSessions();
+  let created;
+  try {
+    const creating = api("POST", "/v1/chats", { token, body: { mode: "vibe", requiredAgentRole: "prototype" } });
+    await gate.entered;
+    fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(before), researchHold: true }));
+    gate.release();
+    created = await creating;
+  } finally { gate.release(); fs.writeFileSync(file, before); }
+  // A researcher's own prototype isn't held: the hold covers Hub handoffs only.
+  assert.equal(created.status, 201, created.text);
+  assert.equal(created.json.chat.agentRole, "prototype");
 });
 
 test("agent chats: swipe to archive, restore, and a new message un-archives; only the owner can", async () => {
@@ -560,8 +877,9 @@ test("researcher (tier 4): runs only on the researcher agent, never the full one
   assert.ok(researcher.calls.length > r, "went to the researcher agent");
   assert.equal(prototype.calls.length, p, "never touched the prototype agent");
   // The agent is told the rules, and is never given a project's repo or GitHub workflow.
-  const turn = researcher.calls.slice(r).find((c) => c.url.endsWith("/chat/stream"));
-  const prompt = JSON.stringify(turn.body);
+  const turn = researcher.calls.slice(r).find(isAgentTurn);
+  assert.equal(turn.url, "/v1/runs", "purpose chats run as durable runs");
+  const prompt = JSON.stringify(turnBody(turn));
   assert.match(prompt, /GitHub/);
   assert.match(prompt, /no gh, no git/);
   assert.doesNotMatch(prompt, /slavingia\/servant|design-prototypes/);
@@ -606,10 +924,10 @@ test("researcher (tier 4): explicit prototype chats use the prototype agent whil
   assert.equal(member.calls.length, m, "did not use the member agent");
   assert.equal(researcher.calls.length, r, "did not use the researcher agent");
   assert.ok(prototype.calls.length > p, "used the configured prototype agent");
-  const prototypeTurn = prototype.calls.slice(p).find(call => call.url.endsWith("/chat/stream"));
-  assert.match(prototypeTurn.body.system_message, /prototyping session/);
-  assert.match(prototypeTurn.body.system_message, /Build only inside .*prototypes\/proto-/);
-  assert.match(prototypeTurn.body.system_message, /Never touch other folders or other people's prototypes/);
+  const prototypeTurn = turnBody(prototype.calls.slice(p).find(isAgentTurn));
+  assert.match(prototypeTurn.system_message, /prototyping session/);
+  assert.match(prototypeTurn.system_message, /Build only inside .*prototypes\/proto-/);
+  assert.match(prototypeTurn.system_message, /Never touch other folders or other people's prototypes/);
 
   const research = await api("POST", "/v1/chats", { token, body: { title: "Refund study", requiredAgentRole: "researcher" } });
   assert.equal(research.json.chat.agentRole, "researcher");
@@ -626,8 +944,15 @@ test("researcher (tier 4): explicit prototype chats use the prototype agent whil
   await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 1 } });
   const streamsBeforeRevoked = streamCallCounts();
   const denied = await api("POST", `/v1/chats/${revoked.json.chat.id}/messages`, { token, body: { text: "this must not run" } });
-  assert.equal(denied.status, 403, denied.text);
+  assert.equal(denied.status, 404, denied.text);
   assert.deepEqual(streamCallCounts(), streamsBeforeRevoked, "revoked prototype access fails before contacting any agent");
+  // The whole workspace closes: no reading, listing, uploading, sharing or deleting.
+  const prototypeId = revoked.json.chat.id;
+  assert.equal((await api("GET", `/v1/chats/${prototypeId}`, { token })).status, 404);
+  assert.equal((await api("GET", `/v1/chats/${prototypeId}/messages`, { token })).status, 404);
+  assert.equal((await api("PATCH", `/v1/chats/${prototypeId}`, { token, body: { shared: true } })).status, 404);
+  assert.equal((await api("DELETE", `/v1/chats/${prototypeId}`, { token })).status, 404);
+  assert.ok(!(await api("GET", "/v1/chats", { token })).json.chats.some(c => c.id === prototypeId));
 });
 
 test("researcher (tier 4): ordinary markerless chats stay on the restricted lane", async () => {
@@ -713,12 +1038,18 @@ test("owner-fallback prototype chats stay on their original upstream after a ded
   } finally {
     fs.writeFileSync(cfgFile, before);
   }
-  const streamsBefore = streamCallCounts();
-  const sent = await api("POST", `/v1/chats/${created.json.chat.id}/messages`, { token, body: { text: "build with the existing design agent" } });
-  assert.equal(sent.status, 200, sent.text);
-  assert.equal(parseSse(sent.text).filter(event => event.event === "delta").map(event => event.data.text).join(""), "owner-agent heard: build with the existing design agent");
-  assert.equal((await api("POST", `/v1/chats/${legacy.json.chat.id}/messages`, { token, body: { text: "continue an older prototype" } })).status, 200);
-  const streamsAfter = streamCallCounts();
+  // Prototype chats need durable runs; this owner/design agent has them for now.
+  owner.setDurable(true);
+  owner.setRunKeys(true);
+  let streamsAfter, streamsBefore;
+  try {
+    streamsBefore = streamCallCounts();
+    const sent = await api("POST", `/v1/chats/${created.json.chat.id}/messages`, { token, body: { text: "build with the existing design agent" } });
+    assert.equal(sent.status, 200, sent.text);
+    assert.equal(parseSse(sent.text).filter(event => event.event === "delta").map(event => event.data.text).join(""), "owner-agent heard: build with the existing design agent");
+    assert.equal((await api("POST", `/v1/chats/${legacy.json.chat.id}/messages`, { token, body: { text: "continue an older prototype" } })).status, 200);
+    streamsAfter = streamCallCounts();
+  } finally { owner.setDurable(false); owner.setRunKeys(false); }
   assert.equal(streamsAfter[0], streamsBefore[0] + 2, "persisted and legacy prototype chats keep using the owner/design upstream that owns their sessions");
   assert.equal(streamsAfter[3], streamsBefore[3], "did not reroute the existing session to the newly configured prototype upstream");
 });
@@ -1031,7 +1362,7 @@ test("Research Hub prototype handoffs bind one exact authorized first prompt wit
     requiredAgentRole: "prototype",
     researchHandoff: handoff(change),
   } });
-  const prototypeStreams = () => prototype.calls.filter(call => call.url.endsWith("/chat/stream"));
+  const prototypeStreams = () => prototype.calls.filter(isAgentTurn).map(call => ({ ...call, body: turnBody(call) }));
   const assertNoPrivateHandoffMetadata = chat => {
     const encoded = JSON.stringify(chat);
     assert.doesNotMatch(encoded, /rhe_|guidanceHash|messageHash|turnId|firstMessage/);
@@ -1105,7 +1436,7 @@ test("Research Hub prototype handoffs bind one exact authorized first prompt wit
     const concurrent = await createHandoffChat();
     assert.equal(concurrent.status, 201);
     const streamsBeforeConcurrent = prototypeStreams().length;
-    const streamGate = prototype.pauseStreams();
+    const streamGate = prototype.pauseRunCreation();
     const firstSend = api("POST", `/v1/chats/${concurrent.json.chat.id}/messages`, { token, body: { text: firstMessage, requestId: "handoff_first_send" } });
     await streamGate.entered;
     let released = false;
@@ -1178,15 +1509,17 @@ test("Research Hub prototype handoffs bind one exact authorized first prompt wit
     } });
     assert.equal(uncertainFirst.status, 200, uncertainFirst.text);
     assert.equal(prototypeStreams().length, streamsBeforeUncertain + 1, "the upstream received the prompt before its connection dropped");
+    // The lost "run created" reply is recovered by run key: the same run is
+    // used, so the handoff is accepted once and nothing is left running.
     const uncertainEvents = parseSse(uncertainFirst.text);
-    assert.equal(uncertainEvents.some(event => event.event === "sent"), false);
-    assert.deepEqual(uncertainEvents.at(-1), { event: "done", data: { status: "failed" } });
+    assert.equal(uncertainEvents.some(event => event.event === "sent"), true, "the run was found by its key and accepted");
+    assert.deepEqual(uncertainEvents.at(-1), { event: "done", data: { status: "completed" } });
     const uncertainRetry = await api("POST", `/v1/chats/${uncertain.json.chat.id}/messages`, { token, body: {
       text: firstMessage,
       requestId: "handoff_uncertain_delivery",
     } });
     assert.equal(uncertainRetry.status, 200, uncertainRetry.text);
-    assert.equal(prototypeStreams().length, streamsBeforeUncertain + 1, "an uncertain delivery replays its failed status instead of submitting the prompt twice");
+    assert.equal(prototypeStreams().length, streamsBeforeUncertain + 1, "a retry replays the turn instead of submitting the prompt twice");
 
     const ordinary = await api("POST", "/v1/chats", { token, body: { mode: "vibe", title: "Ordinary prototype", requiredAgentRole: "prototype" } });
     assert.equal(ordinary.status, 201);
@@ -1810,7 +2143,7 @@ test("a chat the author chooses to share: others read, only the author writes", 
   assert.equal((await api("GET", `/v1/chats/${chat.id}/turns`, { token: b })).status, 403);
 });
 
-test("research plan collaborators: view reads, edit sends text on the researcher lane, only the author manages access", async () => {
+test("research plan collaborators: view-only, existing edit grants read as view, only the author manages access", async () => {
   const boss = await pair("owner", "Plan Owner Admin");
   const author = await pair("member", "Pia Plan Author");
   const viewer = await pair("member", "Vic Plan Viewer");
@@ -1826,61 +2159,52 @@ test("research plan collaborators: view reads, edit sends text on the researcher
   assert.deepEqual(plan.collaborators, [], "study plans report collaborator support");
   assert.equal((await api("POST", `/v1/chats/${plan.id}/messages`, { token: author, body: { text: "draft a study plan" } })).status, 200);
 
-  // Only people who currently hold Researcher access, never the author, and only on study plans.
+  // Only view access, only for people who currently hold Researcher access, never the author, only on study plans.
   const bad = async (token, collaborators, status, code) => {
     const r = await api("PATCH", `/v1/chats/${plan.id}`, { token, body: { collaborators } });
     assert.equal(r.status, status, r.text);
     if (code) assert.equal(r.json.error?.code ?? r.json.code, code, r.text);
   };
   await bad(author, [{ id: idOf("Mo Plan Member"), access: "view" }], 400, "collaborator_ineligible");
-  await bad(author, [{ id: idOf("Pia Plan Author"), access: "edit" }], 400, "collaborator_ineligible");
+  await bad(author, [{ id: idOf("Pia Plan Author"), access: "view" }], 400, "collaborator_ineligible");
+  await bad(author, [{ id: idOf("Eli Plan Editor"), access: "edit" }], 400, "collaborator_view_only");
   await bad(author, [{ id: idOf("Vic Plan Viewer"), access: "admin" }], 400);
-  await bad(author, [{ id: idOf("Vic Plan Viewer"), access: "view" }, { id: idOf("Vic Plan Viewer"), access: "edit" }], 400);
+  await bad(author, [{ id: idOf("Vic Plan Viewer"), access: "view" }, { id: idOf("Vic Plan Viewer"), access: "view" }], 400);
   const other = (await api("POST", "/v1/chats", { token: author, body: { title: "Quick question", requiredAgentRole: "researcher" } })).json.chat;
   assert.equal(other.collaborators, undefined, "ordinary researcher chats have no collaborator list");
   const notPlan = await api("PATCH", `/v1/chats/${other.id}`, { token: author, body: { collaborators: [{ id: idOf("Vic Plan Viewer"), access: "view" }] } });
   assert.equal(notPlan.status, 409, notPlan.text);
 
-  const added = await api("PATCH", `/v1/chats/${plan.id}`, { token: author, body: { collaborators: [
-    { id: idOf("Vic Plan Viewer"), access: "view" }, { id: idOf("Eli Plan Editor"), access: "edit" },
-  ] } });
+  const added = await api("PATCH", `/v1/chats/${plan.id}`, { token: author, body: { collaborators: [{ id: idOf("Vic Plan Viewer"), access: "view" }] } });
   assert.equal(added.status, 200, added.text);
-  assert.deepEqual(added.json.chat.collaborators.map(c => [c.name, c.access, c.active]), [["Eli Plan Editor", "edit", true], ["Vic Plan Viewer", "view", true]]);
   assert.equal(added.json.chat.shared, false, "collaborators do not share the plan with the workspace");
+  // A grant saved as "edit" before the pilot reads as view everywhere.
+  mod.mutateStateForTest(state => { state.chats[plan.id].collaborators[idOf("Eli Plan Editor")] = "edit"; });
+  const listed = (await api("GET", `/v1/chats/${plan.id}`, { token: author })).json.chat.collaborators;
+  assert.deepEqual(listed.map(c => [c.name, c.access, c.active]), [["Eli Plan Editor", "view", true], ["Vic Plan Viewer", "view", true]]);
   assert.equal((await api("GET", `/v1/chats/${plan.id}/messages`, { token: outsider })).status, 404, "everyone else still can't see it");
   assert.ok(!(await api("GET", "/v1/chats?scope=org", { token: outsider })).json.orgChats.some(c => c.id === plan.id));
 
-  // View: listed and readable, never writable.
-  const viewList = (await api("GET", "/v1/chats?scope=org", { token: viewer })).json.orgChats.find(c => c.id === plan.id);
-  assert.ok(viewList, "listed for the viewer");
-  assert.deepEqual([viewList.readOnly, viewList.collaboration?.access, viewList.canSend], [true, "view", undefined]);
-  assert.equal((await api("GET", `/v1/chats/${plan.id}/messages`, { token: viewer })).status, 200);
-  assert.equal((await api("POST", `/v1/chats/${plan.id}/messages`, { token: viewer, body: { text: "hi" } })).status, 403);
-  await bad(viewer, [], 403);
-
-  // Edit: text turns on the restricted researcher agent; nothing else the author controls.
-  const editList = (await api("GET", "/v1/chats?scope=org", { token: editor })).json.orgChats.find(c => c.id === plan.id);
-  assert.deepEqual([editList.readOnly, editList.collaboration?.access, editList.canSend], [true, "edit", true], "old clients still see read-only");
+  // Both read; neither can send or change anything, and no agent is contacted.
   const before = [owner.calls.length, member.calls.length, researcher.calls.length, prototype.calls.length];
-  const sent = await api("POST", `/v1/chats/${plan.id}/messages`, { token: editor, body: { text: "add accessibility criteria" } });
-  assert.equal(sent.status, 200, sent.text);
-  assert.match(parseSse(sent.text).filter(e => e.event === "delta").map(e => e.data.text).join(""), /^researcher-agent heard: add accessibility criteria/);
-  assert.deepEqual([owner.calls.length, member.calls.length, prototype.calls.length], [before[0], before[1], before[3]], "only the researcher agent");
-  assert.ok(researcher.calls.length > before[2]);
-  assert.equal((await api("POST", `/v1/chats/${plan.id}/messages`, { token: editor, body: { text: "see file", attachments: [{ name: "a.png", type: "image/png", data: "AA==" }] } })).status, 400, "text only");
-  await bad(editor, [], 403);
-  assert.equal((await api("PATCH", `/v1/chats/${plan.id}`, { token: editor, body: { shared: true } })).status, 403);
-  assert.equal((await api("POST", `/v1/chats/${plan.id}/archive`, { token: editor })).status, 403);
-  assert.equal((await api("DELETE", `/v1/chats/${plan.id}`, { token: editor })).status, 403);
-  const read = await api("GET", `/v1/chats/${plan.id}/messages`, { token: editor });
-  assert.equal(read.status, 200, read.text);
-  const own = (await api("GET", `/v1/chats/${plan.id}/messages`, { token: author })).json.messages.filter(m => m.role === "user");
-  assert.deepEqual(own.map(m => [m.text, m.sentBy?.name]), [["draft a study plan", "Pia Plan Author"], ["add accessibility criteria", "Eli Plan Editor"]], "user messages name their sender");
+  for (const token of [viewer, editor]) {
+    const entry = (await api("GET", "/v1/chats?scope=org", { token })).json.orgChats.find(c => c.id === plan.id);
+    assert.deepEqual([entry.readOnly, entry.collaboration?.access, entry.canSend], [true, "view", undefined]);
+    const read = await api("GET", `/v1/chats/${plan.id}/messages`, { token });
+    assert.equal(read.status, 200, read.text);
+    assert.equal((await api("POST", `/v1/chats/${plan.id}/messages`, { token, body: { text: "add accessibility criteria" } })).status, 403);
+    assert.equal((await api("POST", `/v1/chats/${plan.id}/turns`, { token, body: { text: "hi" } })).status, 403);
+    await bad(token, [], 403);
+    assert.equal((await api("PATCH", `/v1/chats/${plan.id}`, { token, body: { shared: true } })).status, 403);
+    assert.equal((await api("DELETE", `/v1/chats/${plan.id}`, { token })).status, 403);
+    const files = await api("GET", `/v1/chats/${plan.id}/media`, { token });
+    assert.equal(files.status, 200, files.text);
+  }
+  assert.deepEqual([owner.calls.length, member.calls.length, researcher.calls.length, prototype.calls.length], before, "collaborators never reach an agent");
 
-  // Losing Researcher access ends both kinds of access at once; the stored list is untouched.
+  // Losing Researcher access ends a collaborator's access; the stored list is untouched.
   await setTier("Eli Plan Editor", 1);
   assert.equal((await api("GET", `/v1/chats/${plan.id}/messages`, { token: editor })).status, 404);
-  assert.equal((await api("POST", `/v1/chats/${plan.id}/messages`, { token: editor, body: { text: "still here?" } })).status, 404);
   assert.ok(!(await api("GET", "/v1/chats?scope=org", { token: editor })).json.orgChats.some(c => c.id === plan.id));
   assert.equal((await api("GET", `/v1/chats/${plan.id}`, { token: author })).json.chat.collaborators.find(c => c.name === "Eli Plan Editor").active, false);
   await setTier("Eli Plan Editor", 4);
@@ -1893,14 +2217,21 @@ test("research plan collaborators: view reads, edit sends text on the researcher
   const removed = await api("PATCH", `/v1/chats/${plan.id}`, { token: author, body: { collaborators: [{ id: idOf("Eli Plan Editor"), access: "view" }] } });
   assert.equal(removed.status, 200, removed.text);
   assert.equal((await api("GET", `/v1/chats/${plan.id}/messages`, { token: viewer })).status, 404, "removed");
-  assert.equal((await api("POST", `/v1/chats/${plan.id}/messages`, { token: editor, body: { text: "edit?" } })).status, 403, "downgraded to view");
+  assert.equal((await api("GET", `/v1/chats/${plan.id}`, { token: author })).json.chat.collaborators[0].access, "view", "a re-saved list stores view");
 
-  // An author without Researcher access can remove collaborators but not add them.
+  // An author who loses Researcher access loses the plan entirely, and so do
+  // collaborators. Nothing is deleted, and the owner can still open it for audit.
   await setTier("Pia Plan Author", 1);
-  await bad(author, [{ id: idOf("Vic Plan Viewer"), access: "view" }], 403);
-  const cleared = await api("PATCH", `/v1/chats/${plan.id}`, { token: author, body: { collaborators: [] } });
-  assert.equal(cleared.status, 200, cleared.text);
-  assert.equal((await api("GET", `/v1/chats/${plan.id}/messages`, { token: editor })).status, 404);
+  await bad(author, [{ id: idOf("Vic Plan Viewer"), access: "view" }], 404);
+  assert.equal((await api("GET", `/v1/chats/${plan.id}/messages`, { token: author })).status, 404);
+  assert.equal((await api("POST", `/v1/chats/${plan.id}/messages`, { token: author, body: { text: "still here?" } })).status, 404);
+  assert.ok(!(await api("GET", "/v1/chats", { token: author })).json.chats.some(c => c.id === plan.id), "hidden from the author's list");
+  assert.equal((await api("GET", `/v1/chats/${plan.id}/messages`, { token: editor })).status, 404, "collaborators lose it too");
+  assert.equal((await api("GET", `/v1/chats/${plan.id}/messages`, { token: boss })).status, 200, "the owner keeps the audit record");
+  // Restored access brings the plan back unchanged.
+  await setTier("Pia Plan Author", 4);
+  assert.equal((await api("GET", `/v1/chats/${plan.id}/messages`, { token: author })).status, 200);
+  assert.equal((await api("GET", `/v1/chats/${plan.id}/messages`, { token: editor })).status, 200);
 });
 
 test("people can't see chats the author made private", async () => {
@@ -2719,12 +3050,523 @@ test("agent tiers: new people have no agent; 1 tester, 2 vibe coder, 3 design en
   } finally { fs.writeFileSync(cfgFile, before); }
 });
 
+// config.json is re-read per request; turn the research pilot hold on for one test.
+async function withResearchHold(fn) {
+  const file = path.join(dataDir, "config.json");
+  const before = fs.readFileSync(file, "utf8");
+  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(before), researchHold: true }));
+  try { return await fn(); } finally { fs.writeFileSync(file, before); }
+}
+
+test("research pilot hold: held Servant UX features are off, ordinary researcher chats and researcher prototypes still work", async () => {
+  const boss = await pair("owner", "Hold Owner");
+  const token = await pair("member", "Hana Held Researcher");
+  const me = (await api("GET", "/v1/people", { token: boss })).json.people.find(person => person.name === "Hana Held Researcher");
+  await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: 4 } });
+  // A prototype workspace made before the hold.
+  const prototype = await api("POST", "/v1/chats", { token, body: { mode: "vibe", requiredAgentRole: "prototype" } });
+  assert.equal(prototype.status, 201, prototype.text);
+  const handoffChat = await api("POST", "/v1/chats", { token, body: { mode: "vibe", requiredAgentRole: "prototype" } });
+  assert.equal(handoffChat.status, 201, handoffChat.text);
+  await withResearchHold(async () => {
+    assert.equal((await api("GET", "/v1/projects", { token })).json.researchHold, true);
+    const paused = async (method, route, body) => {
+      const r = await api(method, route, { token, body });
+      assert.equal(r.status, 403, `${route} ${r.text}`);
+      assert.equal(r.json.error.code, "research_paused", route);
+    };
+    await paused("GET", "/v1/research-hub/status");
+    await paused("GET", "/v1/research-hub/evidence?q=payments");
+    await paused("POST", "/v1/research-hub/design-guidance", { ids: [], revision: "0".repeat(64), context: {} });
+    await paused("POST", "/v1/chats", { mode: "vibe", requiredAgentRole: "prototype", researchHandoff: { ids: [], revision: "0".repeat(64), guidance: "x", firstMessage: "x" } });
+    // A design workspace started from a Research Hub handoff before the hold is held with the Hub.
+    mod.mutateStateForTest(state => { state.chats[handoffChat.json.chat.id].mode = "research-vibe"; });
+    const streams = streamCallCounts();
+    await paused("POST", `/v1/chats/${handoffChat.json.chat.id}/messages`, { text: "keep building" });
+    assert.deepEqual(streamCallCounts(), streams, "held Hub prototype work never reaches an agent");
+    // Researchers can still make prototypes of their own, and keep working in them.
+    const own = await api("POST", "/v1/chats", { token, body: { mode: "vibe", requiredAgentRole: "prototype" } });
+    assert.equal(own.status, 201, own.text);
+    assert.equal(own.json.chat.agentRole, "prototype");
+    const studio = await api("POST", "/v1/chats", { token, body: { mode: "vibe" } });
+    assert.equal(studio.status, 201, studio.text);
+    assert.equal((await api("POST", `/v1/chats/${prototype.json.chat.id}/messages`, { token, body: { text: "keep building" } })).status, 200);
+    // Researchers on any Servant client keep their ordinary restricted chats,
+    // including the Servant UX Agent tab, which names the lane explicitly.
+    const marked = await api("POST", "/v1/chats", { token, body: { requiredAgentRole: "researcher" } });
+    assert.equal(marked.status, 201, marked.text);
+    const ordinary = await api("POST", "/v1/chats", { token, body: {} });
+    assert.equal(ordinary.status, 201, ordinary.text);
+    assert.equal(ordinary.json.chat.agentRole, "researcher");
+    assert.equal((await api("POST", `/v1/chats/${ordinary.json.chat.id}/messages`, { token, body: { text: "what changed this week?" } })).status, 200);
+  });
+  assert.equal((await api("GET", "/v1/projects", { token })).json.researchHold, false);
+});
+
+test("access changes take effect immediately: downgraded researchers lose their research chats, and nothing is sent after access changes", async () => {
+  const boss = await pair("owner", "Revoke Owner");
+  const token = await pair("member", "Rory Revoked Researcher");
+  const me = (await api("GET", "/v1/people", { token: boss })).json.people.find(person => person.name === "Rory Revoked Researcher");
+  const setTier = async agentTier => assert.equal((await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier } })).status, 200);
+  await setTier(4);
+  const chat = (await api("POST", "/v1/chats", { token, body: {} })).json.chat;
+  assert.equal(chat.agentRole, "researcher");
+  assert.equal((await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "first question" } })).status, 200);
+
+  // B02: access changes while the turn runner waits on the agent's capability
+  // check, after the send was accepted.
+  const gate = researcher.pauseCapabilities(1, { skip: 1 });
+  const before = streamCallCounts();
+  const sending = api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "this must not be delivered" } });
+  await gate.entered;
+  await setTier(1);
+  gate.release();
+  await sending;
+  for (let i = 0; i < 20; i++) await new Promise(resolve => setTimeout(resolve, 25));
+  assert.deepEqual(streamCallCounts(), before, "the prompt never reaches any agent after access changed");
+  assert.ok(!researcher.calls.some(call => JSON.stringify(call).includes("this must not be delivered")));
+
+  // B01: the downgraded author can't read, send to, list, share or delete the chat.
+  assert.equal((await api("GET", `/v1/chats/${chat.id}`, { token })).status, 404);
+  assert.equal((await api("GET", `/v1/chats/${chat.id}/messages`, { token })).status, 404);
+  assert.equal((await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "hello?" } })).status, 404);
+  assert.equal((await api("PATCH", `/v1/chats/${chat.id}`, { token, body: { shared: true } })).status, 404);
+  assert.equal((await api("DELETE", `/v1/chats/${chat.id}`, { token })).status, 404);
+  assert.ok(!(await api("GET", "/v1/chats", { token })).json.chats.some(c => c.id === chat.id));
+  // The record is kept for the owner.
+  assert.equal((await api("GET", `/v1/chats/${chat.id}/messages`, { token: boss })).status, 200);
+  await setTier(4);
+  assert.equal((await api("GET", `/v1/chats/${chat.id}/messages`, { token })).status, 200, "restored access brings it back");
+});
+
+// ----- Access revocation fails closed (research pilot blocker 1) -----
+const PIXEL = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=";
+const sleepMs = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function until(check, ms = 3000) {
+  for (const end = Date.now() + ms; Date.now() < end; await sleepMs(10)) { const value = await check(); if (value) return value; }
+  throw new Error("timed out");
+}
+async function researcherFixture(name) {
+  const boss = await pair("owner", `${name} Owner`);
+  const token = await pair("member", name);
+  const people = (await api("GET", "/v1/people", { token: boss })).json.people;
+  const me = people.find(person => person.name === name);
+  const setTier = async agentTier => assert.equal((await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier } })).status, 200);
+  await setTier(4);
+  const chat = (await api("POST", "/v1/chats", { token, body: {} })).json.chat;
+  assert.equal(chat.agentRole, "researcher");
+  return { boss, token, me, setTier, chat };
+}
+
+test("one purpose-chat rule: a downgraded author's research chat closes for shared and project readers, attachments, media and forwards", async () => {
+  const { boss, token, setTier, chat } = await researcherFixture("Ula Rule Researcher");
+  const reader = await pair("member", "Rae Rule Reader");
+  const sent = await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "plan notes", attachments: [{ name: "sketch.png", data: PIXEL }] } });
+  assert.equal(sent.status, 200, sent.text);
+  // Ro Reader reads the "servant" project (projects.json above).
+  const roId = (await api("GET", "/v1/people", { token: boss })).json.people.find(p => p.name === "Ro Reader")?.id;
+  const ro = roId ? await (async () => {
+    const r = await api("POST", "/v1/pair", { body: { terms: ACCEPT, code: mod.createInvite({ name: "Ro Reader", userId: roId }).toLowerCase(), device: "Second phone" } });
+    assert.equal(r.status, 201, r.text);
+    return r.json.token;
+  })() : await pair("member", "Ro Reader");
+  mod.mutateStateForTest(state => { state.chats[chat.id].projectId = "servant"; state.chats[chat.id].projectShared = true; });
+  const open = { chat: 200, messages: 200, media: 200, attachment: 200 };
+  const closed = { chat: 404, messages: 404, media: 404, attachment: 404 };
+  assert.equal((await api("PATCH", `/v1/chats/${chat.id}`, { token, body: { shared: true } })).status, 200);
+  const history = (await api("GET", `/v1/chats/${chat.id}/messages`, { token: reader })).json.messages;
+  const mine = history.find(m => m.role === "user");
+  const attachment = mine.attachments[0];
+  assert.match(attachment.id, /^chatfile_/);
+  const general = (await api("GET", "/v1/conversations", { token: reader })).json.conversations.find(c => c.name === "general");
+  const reads = async who => ({
+    chat: (await api("GET", `/v1/chats/${chat.id}`, { token: who })).status,
+    messages: (await api("GET", `/v1/chats/${chat.id}/messages`, { token: who })).status,
+    media: (await api("GET", `/v1/chats/${chat.id}/media`, { token: who })).status,
+    attachment: (await api("GET", `/v1/attachments/${attachment.id}`, { token: who })).status,
+  });
+  assert.deepEqual(await reads(reader), open, "workspace sharing");
+  assert.equal((await api("PATCH", `/v1/chats/${chat.id}`, { token, body: { shared: false } })).status, 200);
+  assert.deepEqual(await reads(reader), closed, "not shared with the workspace now");
+  assert.deepEqual(await reads(ro), open, "project sharing");
+  assert.equal((await api("PATCH", `/v1/chats/${chat.id}`, { token, body: { shared: true } })).status, 200);
+  // B5: a reader forwarding the author's message credits the author, from the message-author record.
+  const forwarded = await api("POST", `/v1/chats/${chat.id}/messages/${mine.id}/forward`, { token: reader, body: { conversationId: general.id } });
+  assert.equal(forwarded.status, 201, forwarded.text);
+  assert.match(forwarded.json.message.text, /^Forwarded message from Ula Rule Researcher \(an agent chat · /);
+
+  await setTier(1);
+  assert.deepEqual(await reads(reader), closed, "workspace readers lose it");
+  assert.deepEqual(await reads(ro), closed, "project readers lose it");
+  assert.deepEqual(await reads(token), closed, "the author loses it");
+  for (const who of [reader, token]) {
+    const r = await api("POST", `/v1/chats/${chat.id}/messages/${mine.id}/forward`, { token: who, body: { conversationId: general.id } });
+    assert.equal(r.status, 404, "nothing in it can be forwarded");
+  }
+  assert.equal((await api("POST", `/v1/chats/${chat.id}/uploads`, { token, body: { name: "notes.pdf", size: 10 } })).status, 404);
+  // The owner keeps it for audit; nothing was deleted.
+  assert.deepEqual(await reads(boss), open);
+  await setTier(4);
+  assert.deepEqual([await reads(reader), await reads(ro)], [open, open], "restored access brings it back");
+});
+
+test("project lists and counts follow the purpose-chat rule: GET /v1/projects and /v1/projects/:id drop a downgraded author's chat", async () => {
+  const { boss, token, me, setTier, chat } = await researcherFixture("Pru Project Researcher");
+  const reader = await pair("member", "Rex Project Reader");
+  const readerId = (await api("GET", "/v1/people", { token: boss })).json.people.find(p => p.name === "Rex Project Reader").id;
+  const project = (await api("POST", "/v1/projects", { token: boss, body: { name: "Purpose rule project" } })).json.project;
+  for (const [userId, level] of [[me.id, "write"], [readerId, "read"]]) {
+    const added = await api("POST", `/v1/projects/${project.id}/people`, { token: boss, body: { userId, level } });
+    assert.equal(added.status, 200, added.text);
+  }
+  assert.equal((await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "plan" } })).status, 200);
+  const moved = await api("PATCH", `/v1/chats/${chat.id}`, { token, body: { projectId: project.id, projectShared: true } });
+  assert.equal(moved.status, 200, moved.text);
+  const listed = async who => (await api("GET", "/v1/projects", { token: who })).json.projects.find(p => p.id === project.id);
+  const one = async who => (await api("GET", `/v1/projects/${project.id}`, { token: who })).json;
+  const snapshot = async () => ({
+    author: { chatCount: (await listed(token)).chatCount, oneChatCount: (await one(token)).project.chatCount },
+    reader: { sharedCount: (await listed(reader)).sharedCount, oneSharedCount: (await one(reader)).project.sharedCount, shared: (await one(reader)).sharedChats.map(c => c.id) },
+  });
+  assert.deepEqual(await snapshot(), { author: { chatCount: 1, oneChatCount: 1 }, reader: { sharedCount: 1, oneSharedCount: 1, shared: [chat.id] } });
+  await setTier(1);
+  assert.deepEqual(await snapshot(), { author: { chatCount: 0, oneChatCount: 0 }, reader: { sharedCount: 0, oneSharedCount: 0, shared: [] } },
+    "neither listed nor counted for anyone who can't read it");
+  await setTier(4);
+  assert.deepEqual((await snapshot()).reader.shared, [chat.id], "restored access brings it back");
+});
+
+test("forwarded historical messages are credited from the message-author record (blocker 5)", () => {
+  const chat = { id: "c", userId: "author" };
+  const users = { author: { id: "author", name: "Ada Author" }, editor: { id: "editor", name: "Eli Earlier Editor" } };
+  const sender = mod.senderFrom(new Map([["msg_by_editor", "editor"], ["msg_by_gone", "gone"]]), chat, users);
+  assert.deepEqual(sender("msg_by_editor"), { id: "editor", name: "Eli Earlier Editor" }, "not the chat's author, and not whoever forwards it");
+  assert.deepEqual(sender("msg_unrecorded"), { id: "author", name: "Ada Author" });
+  assert.deepEqual(sender("msg_by_gone"), { id: "gone", name: "Former member" });
+});
+
+test("access is rechecked after the request body arrives, before uploads, forwards, sharing and sends", async () => {
+  const { token, setTier, chat } = await researcherFixture("Bo Body Researcher");
+  await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "first" } });
+  const message = (await api("GET", `/v1/chats/${chat.id}/messages`, { token })).json.messages.find(m => m.role === "user");
+  const general = (await api("GET", "/v1/conversations", { token })).json.conversations.find(c => c.name === "general");
+  const store = createStateStore({ directory: dataDir });
+  store.mutate(state => { for (const d of Object.values(state.devices)) if (state.users[d.userId]?.name === "Bo Body Researcher") d.legacyPlaintextUntil = Date.now() + 600000; });
+  store.close();
+  // A grandfathered plaintext client can stream its body slowly; access
+  // changes after the server has started handling it.
+  const finishers = [];
+  const slow = (method, route, body) => new Promise((resolve, reject) => {
+    const req = http.request(base + route, { method, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "Transfer-Encoding": "chunked" } }, res => {
+      let text = ""; res.on("data", c => { text += c; }); res.on("end", () => resolve({ status: res.statusCode, text }));
+    });
+    req.on("error", reject);
+    const json = JSON.stringify(body);
+    req.write(json.slice(0, 5));
+    finishers.push(() => req.end(json.slice(5)));
+  });
+  const cases = [
+    ["POST", `/v1/chats/${chat.id}/messages`, { text: "must not be sent" }],
+    ["POST", `/v1/chats/${chat.id}/uploads`, { name: "notes.pdf", size: 10 }],
+    ["POST", `/v1/chats/${chat.id}/messages/${message.id}/forward`, { conversationId: general.id, text: "must not be posted" }],
+    ["PATCH", `/v1/chats/${chat.id}`, { shared: true }],
+  ];
+  const streams = streamCallCounts();
+  const pending = cases.map(([method, route, body]) => slow(method, route, body));
+  await sleepMs(100);
+  await setTier(1);
+  for (const finish of finishers) finish();
+  const results = await Promise.all(pending);
+  results.forEach((r, i) => assert.ok([403, 404].includes(r.status), `${cases[i][1]} ${r.status} ${r.text}`));
+  await sleepMs(300);
+  assert.deepEqual(streamCallCounts(), streams, "nothing reached an agent");
+  const posted = (await api("GET", `/v1/conversations/${general.id}/messages`, { token })).json.messages;
+  assert.ok(!posted.some(m => /must not be posted/.test(m.text)), "nothing was forwarded");
+  await setTier(4);
+  assert.equal((await api("GET", `/v1/chats/${chat.id}`, { token })).json.chat.shared, false, "sharing did not change");
+  const after = (await api("GET", `/v1/chats/${chat.id}/messages`, { token })).json.messages;
+  assert.ok(!after.some(m => /must not be sent/.test(m.text)), "the send was not accepted");
+});
+
+test("access is rechecked after the agent-history network call, right before messages and media are returned", async () => {
+  const { token, setTier, chat } = await researcherFixture("Hal History Researcher");
+  await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "hello" } });
+  for (const route of ["messages", "media"]) {
+    const gate = researcher.pauseHistory();
+    const reading = api("GET", `/v1/chats/${chat.id}/${route}`, { token });
+    await gate.entered;
+    await setTier(1);
+    gate.release();
+    const r = await reading;
+    assert.ok([403, 404].includes(r.status), `${route}: ${r.status} ${r.text}`);
+    assert.doesNotMatch(r.text, /hello/);
+    await setTier(4);
+  }
+});
+
+test("a silent durable research run is stopped within 500 ms of revocation and the stop is confirmed; waiting messages are cancelled", async () => {
+  const { token, setTier, chat } = await researcherFixture("Sid Silent Researcher");
+  const gate = researcher.pauseRuns();
+  const runsBefore = new Set(researcher.runs.keys());
+  const first = api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "long silent question", requestId: "silent_1" } });
+  let second, streams, run;
+  try {
+    await gate.entered;
+    run = [...researcher.runs.values()].find(item => !runsBefore.has(item.id));
+    second = api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "waiting follow-up", requestId: "silent_2" } });
+    await until(async () => (await api("GET", `/v1/chats/${chat.id}/turns`, { token })).json.turns.some(t => t.text === "waiting follow-up" && t.status === "queued"));
+    const started = Date.now();
+    await setTier(1);
+    await until(() => run.stops > 0, 1500).catch(() => {});
+    const stopped = Date.now() - started;
+    assert.ok(stopped < 500, `the bridge was told to stop the run ${stopped} ms after revocation`);
+    await Promise.all([first, second]);
+    // The stop was confirmed against the bridge's run status, not assumed.
+    assert.equal(run.status, "cancelled");
+    const order = researcher.calls.map(call => `${call.method} ${call.url}`);
+    assert.ok(order.lastIndexOf(`GET /v1/runs/${run.id}`) > order.indexOf(`POST /v1/runs/${run.id}/stop`), "the run's status was checked after the stop");
+    streams = streamCallCounts();
+  } finally {
+    gate.release();
+    await Promise.allSettled([first, second]);
+  }
+  await sleepMs(300);
+  await setTier(4);
+  await sleepMs(300);
+  assert.deepEqual(streamCallCounts(), streams, "the waiting message never runs, even after access returns");
+  const turns = (await api("GET", `/v1/chats/${chat.id}/turns`, { token })).json.turns;
+  assert.equal(turns.find(t => t.text === "waiting follow-up")?.status, "cancelled");
+  assert.equal(turns.find(t => t.text === "long silent question")?.status, "cancelled");
+  assert.ok(turns.every(t => !t.assistantText), "no partial reply is kept");
+  const messages = (await api("GET", `/v1/chats/${chat.id}/messages`, { token })).json.messages;
+  assert.ok(!messages.some(m => m.role === "assistant" && /long silent question/.test(m.text)), "nothing the agent says later is saved");
+});
+
+test("revocation while a durable run's creation reply is delayed stops it by its run key within 500 ms, without waiting for the reply (audit 3)", async () => {
+  const { token, setTier, chat } = await researcherFixture("Ora Orphan Researcher");
+  const gate = researcher.pauseRunCreation();
+  const runsBefore = new Set(researcher.runs.keys());
+  const sending = api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "start, but slowly", requestId: "orphan_1" } });
+  let run, elapsed;
+  try {
+    await gate.entered;
+    // The bridge has accepted the run; Servant hasn't heard back yet.
+    run = [...researcher.runs.values()].find(item => !runsBefore.has(item.id));
+    assert.equal(run.status, "running");
+    assert.match(run.key, /^servant_/, "the run was started under a run key");
+    const started = Date.now();
+    await setTier(1);
+    await until(() => run.stops > 0, 3000);
+    elapsed = Date.now() - started;
+    // The reply is still being held: the stop didn't wait for it.
+    await sending;
+  } finally { gate.release(); }
+  assert.ok(elapsed < 500, `stopped ${elapsed} ms after revocation`);
+  assert.equal(run.status, "cancelled");
+  const order = researcher.calls.map(call => `${call.method} ${call.url}`);
+  const stopAt = order.indexOf(`POST /v1/runs/servant-key.${run.key}/stop`);
+  assert.ok(stopAt >= 0, "stopped by its key");
+  assert.equal(researcher.runKeys.get(run.key).state, "running");
+  await setTier(4);
+  const turn = (await api("GET", `/v1/chats/${chat.id}/turns`, { token })).json.turns.find(t => t.text === "start, but slowly");
+  assert.equal(turn.status, "cancelled");
+  assert.ok(!(await api("GET", `/v1/chats/${chat.id}/messages`, { token })).json.messages.some(m => m.role === "assistant" && /slowly/.test(m.text)));
+});
+
+test("revocation before the start request reaches the bridge: its run key is refused, so the run never starts (audit 3)", async () => {
+  const { token, setTier, chat } = await researcherFixture("Lia Late Researcher");
+  const gate = researcher.pauseRunArrival();
+  const runsBefore = researcher.runs.size;
+  const sending = api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "a start that arrives late", requestId: "late_start_1" } });
+  let key;
+  try {
+    await gate.entered;
+    await setTier(1);
+    await until(() => [...researcher.runKeys].some(([, entry]) => entry.state === "refused" && entry.runId === null), 3000);
+    key = [...researcher.runKeys].find(([, entry]) => entry.state === "refused")[0];
+    await sending;
+  } finally { gate.release(); }
+  await sleepMs(200);
+  assert.equal(researcher.runs.size, runsBefore, "the late start was refused: no run exists");
+  assert.ok(researcher.calls.some(call => call.url === "/v1/runs" && call.headers["x-servant-run-key"] === key));
+  await setTier(4);
+  const turn = (await api("GET", `/v1/chats/${chat.id}/turns`, { token })).json.turns.find(t => t.text === "a start that arrives late");
+  assert.equal(turn.status, "cancelled");
+});
+
+test("a lost 'run created' reply: the run is found by its key and used, never started twice or left running (audit 3)", async () => {
+  const { token, chat } = await researcherFixture("Lou Lost Reply Researcher");
+  const runsBefore = researcher.runs.size;
+  researcher.dropNextStream();
+  const sent = await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "reply goes missing", requestId: "lost_reply_1" } });
+  assert.equal(sent.status, 200, sent.text);
+  assert.deepEqual(parseSse(sent.text).at(-1), { event: "done", data: { status: "completed" } });
+  assert.equal(researcher.runs.size, runsBefore + 1, "one run, adopted by key");
+  const run = [...researcher.runs.values()].at(-1);
+  assert.ok(researcher.calls.some(call => call.method === "GET" && call.url === `/v1/runs/servant-key.${run.key}`), "looked up by its key");
+  assert.equal(researcher.calls.filter(call => call.method === "POST" && call.url === "/v1/runs" && call.headers["x-servant-run-key"] === run.key).length, 1, "the prompt was sent once");
+  const messages = (await api("GET", `/v1/chats/${chat.id}/messages`, { token })).json.messages;
+  assert.ok(messages.some(m => m.role === "assistant" && /reply goes missing/.test(m.text)), "the reply still arrives");
+});
+
+test("after a worker restart, an interrupted start's run key is stopped; an unreachable agent is retried and the give-up is logged (review)", async () => {
+  const { chat } = await researcherFixture("Ria Restart Researcher");
+  const turn = { id: "turn_restart_check", chat_id: chat.id };
+  assert.equal(await mod.stopInterruptedStart(turn), true);
+  assert.ok(researcher.calls.some(call => call.method === "POST" && call.url === "/v1/runs/servant-key.servant_turn_restart_check/stop"));
+  assert.equal(researcher.runKeys.get("servant_turn_restart_check").state, "refused", "a late start with that key is refused");
+  // An agent that can't be reached: retried, then logged.
+  const file = path.join(dataDir, "config.json"), before = fs.readFileSync(file, "utf8");
+  const errors = [], log = console.error;
+  console.error = (...args) => errors.push(args.join(" "));
+  try {
+    const cfg = JSON.parse(before);
+    fs.writeFileSync(file, JSON.stringify({ ...cfg, upstreams: { ...cfg.upstreams, researcher: { url: "http://127.0.0.1:9", key: "researcher-key" } } }));
+    assert.equal(await mod.stopInterruptedStart({ id: "turn_unreachable", chat_id: chat.id }, undefined, { attempts: 3, delayMs: 10 }), false);
+    assert.equal(await mod.stopInterruptedStart({ id: "turn_gone", chat_id: "cht_missing" }), false);
+  } finally { console.error = log; fs.writeFileSync(file, before); }
+  assert.ok(errors.some(line => /run key servant_turn_unreachable couldn't be confirmed stopped/.test(line)), errors.join("\n"));
+  assert.ok(errors.some(line => /couldn't stop interrupted start servant_turn_gone: its chat or agent is gone/.test(line)));
+});
+
+test("research and prototype chats fail closed on a durable bridge without run keys (audit 3)", async () => {
+  const { token, chat } = await researcherFixture("Kip Keyless Researcher");
+  researcher.setRunKeys(false);
+  try {
+    const runsBefore = researcher.runs.size;
+    const sent = await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "no keys here" } });
+    const events = parseSse(sent.text);
+    assert.match(JSON.stringify(events.filter(event => event.event === "error")), /durable runs and run keys/);
+    assert.deepEqual(events.at(-1), { event: "done", data: { status: "failed" } });
+    assert.equal(researcher.runs.size, runsBefore, "nothing reached the agent");
+  } finally { researcher.setRunKeys(true); }
+});
+
+test("research and prototype chats fail closed on an agent bridge without durable runs; legacy streams are never used for them", async () => {
+  const { token, chat } = await researcherFixture("Lee Legacy Researcher");
+  researcher.setDurable(false);
+  try {
+    const streams = streamCallCounts();
+    const sent = await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "try the old bridge" } });
+    assert.equal(sent.status, 200, sent.text);
+    const events = parseSse(sent.text);
+    assert.match(JSON.stringify(events.filter(event => event.event === "error")), /durable runs/);
+    assert.deepEqual(events.at(-1), { event: "done", data: { status: "failed" } });
+    assert.deepEqual(streamCallCounts(), streams, "nothing reached an agent");
+    assert.ok(!researcher.calls.some(call => call.url.endsWith("/chat/stream") && JSON.stringify(call.body).includes("try the old bridge")));
+  } finally { researcher.setDurable(true); }
+});
+
+test("research pilot hold: channel @agent is paused for Researcher-tier askers and never reaches an agent (audit 4)", async () => {
+  const { token } = await researcherFixture("Pia Paused Channel Researcher");
+  const general = (await api("GET", "/v1/conversations", { token })).json.conversations.find(c => c.name === "general");
+  await withResearchHold(async () => {
+    const streams = streamCallCounts(), calls = researcher.calls.length;
+    const ask = await api("POST", `/v1/conversations/${general.id}/messages`, { token, body: { text: "@agent summarize the paused study" } });
+    assert.ok(ask.status < 300, ask.text);
+    const rootId = ask.json.message.id;
+    let reply;
+    await until(async () => (reply = (await api("GET", `/v1/conversations/${general.id}/threads/${rootId}`, { token })).json.replies.find(m => m.user?.agent && !m.pending && m.text)));
+    assert.equal(reply.text, mod.RESEARCHER_CHANNEL_PAUSED_REPLY);
+    assert.deepEqual(streamCallCounts(), streams, "no agent was asked");
+    assert.ok(!researcher.calls.slice(calls).some(call => JSON.stringify(call.body).includes("paused study")));
+  });
+});
+
+test("channel @agent (legacy stream): a silent answer is abandoned within 500 ms of revocation and nothing more is posted", async () => {
+  const { token, setTier } = await researcherFixture("Cy Channel Researcher");
+  const general = (await api("GET", "/v1/conversations", { token })).json.conversations.find(c => c.name === "general");
+  const gate = researcher.pauseStreams();
+  const abandoned = researcher.abandonedStreamCount();
+  const ask = await api("POST", `/v1/conversations/${general.id}/messages`, { token, body: { text: "@agent summarize the silent study" } });
+  assert.ok(ask.status < 300, ask.text);
+  const rootId = ask.json.message.id;
+  const replies = async () => (await api("GET", `/v1/conversations/${general.id}/threads/${rootId}`, { token })).json.replies.filter(m => m.user?.agent);
+  try {
+    await gate.entered;
+    const started = Date.now();
+    await setTier(1);
+    let answered;
+    for (const end = Date.now() + 1500; Date.now() < end; await sleepMs(10)) {
+      answered = (await replies()).find(m => !m.pending && m.text);
+      if (answered) break;
+    }
+    const stopped = Date.now() - started;
+    assert.equal(answered?.text, "Your access changed, so this question wasn't answered. Ask again.");
+    assert.ok(stopped < 500, `the channel answer stopped after ${stopped} ms`);
+    assert.ok(researcher.abandonedStreamCount() > abandoned, "the agent call was abandoned");
+  } finally { gate.release(); }
+  await sleepMs(300);
+  const after = await replies();
+  assert.equal(after.length, 1);
+  assert.doesNotMatch(JSON.stringify(after), /researcher-agent heard/);
+  await setTier(4);
+});
+
+test("agent reply notifications are dropped once the person loses the chat, queued or retried", async () => {
+  const { createPushService } = await import("./push.mjs");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "servant-agent-push-"));
+  let now = 1000;
+  const state = {
+    users: { r: { id: "r", name: "Rin", role: "member", agentTier: 4 } },
+    devices: { d: { id: "d", userId: "r", push: { token: "fake", platform: "android" } } },
+    chats: { c: { id: "c", userId: "r", role: "researcher", title: "Study plan" } },
+  };
+  const event = { kind: "agent", eventId: "t1", chatId: "c", userId: "r", text: "Here is the plan" };
+  assert.equal(mod.agentNotificationFor(event, state.users.r, state).body, "Here is the plan");
+  const sent = [];
+  const make = send => createPushService({ file: path.join(dir, "push.db"), autoDrain: false, state: () => state, mutate: fn => fn(state),
+    resolve: (e, u) => mod.agentNotificationFor(e, u, state), clock: () => now, log: () => {}, send });
+  // Retried: the first attempt fails, access changes, the retry sends nothing.
+  let p = make(async payload => { sent.push(payload); return { ok: false, retry: true }; });
+  p.enqueue(event); await p.drain();
+  assert.equal(sent.length, 1); assert.equal(p.pending(), 1);
+  state.users.r.agentTier = 1; now += 6000;
+  p.close(); p = make(async payload => { sent.push(payload); return { ok: true }; });
+  await p.drain();
+  assert.equal(sent.length, 1, "no retried preview after revocation"); assert.equal(p.pending(), 0);
+  // Queued: enqueued while allowed, access changes before delivery.
+  state.users.r.agentTier = 4;
+  p.enqueue({ ...event, eventId: "t2" });
+  state.users.r.agentTier = 1;
+  await p.drain();
+  assert.equal(sent.length, 1, "no queued preview after revocation");
+  // Deleted chats, other people's chats and removed people get nothing either.
+  state.users.r.agentTier = 4;
+  assert.equal(mod.agentNotificationFor({ ...event, userId: "x" }, state.users.r, state), null);
+  assert.equal(mod.agentNotificationFor(event, { ...state.users.r, id: "x" }, state), null);
+  state.chats.c.deletedAt = 1;
+  assert.equal(mod.agentNotificationFor(event, state.users.r, state), null);
+  p.close(); fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("research pilot hold is scoped to the Researcher tier; tier 2 and 3 prototype users keep building", async () => {
+  const boss = await pair("owner", "Scope Owner");
+  await withResearchHold(async () => {
+    for (const tier of [2, 3]) {
+      const name = `Tess Tier ${tier} Prototyper`;
+      const token = await pair("member", name);
+      const me = (await api("GET", "/v1/people", { token: boss })).json.people.find(person => person.name === name);
+      assert.equal((await api("PATCH", `/v1/people/${me.id}`, { token: boss, body: { agentTier: tier } })).status, 200);
+      const made = await api("POST", "/v1/chats", { token, body: { mode: "vibe", requiredAgentRole: "prototype" } });
+      assert.equal(made.status, 201, `tier ${tier}: ${made.text}`);
+      const sent = await api("POST", `/v1/chats/${made.json.chat.id}/messages`, { token, body: { text: "make the start page" } });
+      assert.equal(sent.status, 200, `tier ${tier}: ${sent.text}`);
+      assert.doesNotMatch(sent.text, /research_paused/);
+    }
+  });
+});
+
 test("ten wrong codes lock out pairing from that address; good pairings don't count", async () => {
-  // Earlier tests already used one wrong code from this address.
+  // Earlier tests used one wrong code from this address, but it ages out of
+  // the ten-minute window when the suite runs longer than that: the lockout
+  // arrives on the 10th or 11th try here, and stays.
   const statuses = [];
-  for (let i = 0; i < 10; i++) statuses.push((await api("POST", "/v1/pair", { body: { terms: ACCEPT, code: "WRONG-CODE" + i } })).status);
+  for (let i = 0; i < 11; i++) statuses.push((await api("POST", "/v1/pair", { body: { terms: ACCEPT, code: "WRONG-CODE" + i } })).status);
   assert.equal(statuses[0], 403);
-  assert.equal(statuses.at(-1), 429);
+  const locked = statuses.indexOf(429);
+  assert.ok(locked === 9 || locked === 10, `locked out on try ${locked + 1}: ${statuses}`);
+  assert.ok(statuses.slice(locked).every(status => status === 429));
   const code = mod.createInvite({ name: "Late" });
   assert.equal((await api("POST", "/v1/pair", { body: { terms: ACCEPT, code } })).status, 429);
 });
@@ -2750,6 +3592,29 @@ test("prototypes are served by the server itself: sandboxed, public by link, not
   for (const bad of ["/p/proto-abcdef012345678901/link.txt", "/p/proto-abcdef012345678901/../secret.txt", "/p/proto-abcdef012345678901/%2e%2e/secret.txt", "/p/proto-abcdef012345678901/.hidden", "/p/", "/p/proto-nope-nope-nope/", "/p/..%2f/", "/p/UPPER/"]) assert.equal((await get(bad)).status, 404, bad);
   assert.equal((await get("/p/proto-abcdef012345678901/", { method: "POST" })).status, 405);
   assert.equal((await get("/p/proto-abcdef012345678901/", { method: "HEAD" })).status, 200);
+});
+
+test("quick adjustments: a prototype page opened with ?servant-adjust=1 also loads Servant's script; nothing else changes", async () => {
+  const folder = "proto-adjust0123456789ab";
+  fs.mkdirSync(path.join(dataDir, "prototypes", folder), { recursive: true });
+  fs.writeFileSync(path.join(dataDir, "prototypes", folder, "index.html"), "<html><body><h1>Balance</h1></body></html>");
+  fs.writeFileSync(path.join(dataDir, "prototypes", folder, "data.json"), "{\"servant-adjust\":1}");
+  const plain = await fetch(`${base}/p/${folder}/`);
+  assert.equal(await plain.text(), "<html><body><h1>Balance</h1></body></html>", "an ordinary view is untouched");
+  const adjusting = await fetch(`${base}/p/${folder}/?servant-adjust=1&v=2`);
+  assert.equal(await adjusting.text(), '<html><body><h1>Balance</h1><script src="/p/_servant/adjust.js" data-servant-adjust></script></body></html>');
+  assert.equal(adjusting.headers.get("content-security-policy"), plain.headers.get("content-security-policy"), "the same sandbox");
+  assert.match(adjusting.headers.get("content-security-policy"), /^sandbox allow-scripts /);
+  assert.equal(await (await fetch(`${base}/p/${folder}/data.json?servant-adjust=1`)).text(), '{"servant-adjust":1}', "only pages get the script");
+  assert.equal(await (await fetch(`${base}/p/${folder}/?servant-adjust=yes`)).text(), "<html><body><h1>Balance</h1></body></html>");
+  const script = await fetch(`${base}/p/_servant/adjust.js`);
+  assert.equal(script.status, 200);
+  assert.match(script.headers.get("content-type"), /^text\/javascript/);
+  assert.equal(script.headers.get("x-content-type-options"), "nosniff");
+  const code = await script.text();
+  assert.match(code, /window\.parent/);
+  assert.doesNotMatch(code, /fetch\(|XMLHttpRequest|localStorage|document\.cookie|sendBeacon|WebSocket/, "the script only talks to the window that embeds the page");
+  assert.equal((await fetch(`${base}/p/_servant/other.js`)).status, 404);
 });
 
 test("prototype security: no indexing, no framing tricks, rate limit per visitor, files removed with the chat", async () => {

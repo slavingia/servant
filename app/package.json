@@ -63,6 +63,9 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "test": "node --test --experimental-strip-types src/lib/*.test.ts",
+    "test:web": "node --test scripts/web-a11y.test.mjs",
+    "test:web:signed-in": "node --test --test-concurrency=1 scripts/web-signed-in.test.mjs",
+    "sandbox": "node scripts/feedback-sandbox.mjs",
     "lint": "expo lint"
   },
   "private": true

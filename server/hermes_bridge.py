@@ -19,6 +19,7 @@ from pathlib import Path
 from aiohttp import web
 from gateway.platforms.api_server import APIServerAdapter, _resolve_media_to_data_urls
 from gateway.platforms.base import MEDIA_TAG_CLEANUP_RE, validate_media_delivery_path
+from servant_run_keys import HEADER as RUN_KEY_HEADER, PREFIX as RUN_KEY_PREFIX, RunKeys, describe as describe_run_key, valid_key
 
 _run_context = ContextVar("servant_run_context", default=None)
 POLICY = json.loads(Path(__file__).with_name("member-policy.json").read_text())
@@ -244,6 +245,22 @@ class _ObservedRunStreams(dict):
         return super().__setitem__(run_id, stream)
 
 
+class _RunRequest:
+    """The same authenticated request, pointed at another run ID, so Hermes' own
+    status and stop handlers (with their auth and ownership checks) do the work."""
+
+    def __init__(self, request, run_id):
+        self._request = request
+        self.match_info = {"run_id": run_id}
+
+    def __getattr__(self, name):
+        return getattr(self._request, name)
+
+
+def _error(status, code, message, **extra):
+    return web.json_response({"error": {"code": code, "message": message}, **extra}, status=status)
+
+
 class ServantAPIServerAdapter(APIServerAdapter):
     def __init__(self, config, *, restricted_member=False, researcher=False):
         # A researcher is a restricted member that is also allowed the web, search, vision and skills.
@@ -255,6 +272,9 @@ class ServantAPIServerAdapter(APIServerAdapter):
         # run_id -> agent that received a steer, so its unread leftover can be
         # reported after the run ends (Hermes drops the agent reference).
         self._servant_steer_agents = {}
+        # Servant's names for runs, so a run can be stopped even if the reply
+        # with its ID was lost (servant_run_keys.py).
+        self._servant_run_keys = RunKeys()
 
     def _pending_approval(self, run_id):
         from tools import approval
@@ -276,7 +296,46 @@ class ServantAPIServerAdapter(APIServerAdapter):
                 "choices": ["once", "deny"],
             }
 
+    async def _run_key_status(self, request, key):
+        entry = self._servant_run_keys.get(key)
+        if entry is None:
+            return _error(404, "run_key_unknown", "No run has this key")
+        run_status = None
+        if entry.get("run_id"):
+            response = await super()._handle_get_run(_RunRequest(request, entry["run_id"]))
+            if response.status == 200:
+                run_status = json.loads(response.text).get("status")
+            elif response.status == 404:
+                run_status = "gone"
+            else:
+                return response
+        return web.json_response(describe_run_key(key, entry, run_status))
+
+    async def _handle_stop_run(self, request):
+        run_id = request.match_info["run_id"]
+        if not run_id.startswith(RUN_KEY_PREFIX):
+            return await super()._handle_stop_run(request)
+        auth_error = self._check_auth(request)
+        if auth_error is not None:
+            return auth_error
+        key = run_id[len(RUN_KEY_PREFIX):]
+        if not valid_key(key):
+            return _error(400, "invalid_run_key", "Run keys start with servant_")
+        action, target = self._servant_run_keys.cancel(key)
+        if action == "stop":
+            # 404 means Hermes no longer holds it, 409 that it's already ending.
+            await super()._handle_stop_run(_RunRequest(request, target))
+        return await self._run_key_status(request, key)
+
     async def _handle_get_run(self, request):
+        if request.match_info["run_id"].startswith(RUN_KEY_PREFIX):
+            auth_error = self._check_auth(request)
+            if auth_error is not None:
+                return auth_error
+            key = request.match_info["run_id"][len(RUN_KEY_PREFIX):]
+            if not valid_key(key):
+                return _error(400, "invalid_run_key", "Run keys start with servant_")
+            return await self._run_key_status(request, key)
         response = await super()._handle_get_run(request)
         if response.status != 200:
             return response
@@ -367,6 +426,7 @@ class ServantAPIServerAdapter(APIServerAdapter):
         data = json.loads(response.text)
         data.setdefault("features", {})["servant_durable_media_runs"] = True
         data["features"]["servant_exact_approvals"] = True
+        data["features"]["servant_run_keys"] = True
         data["features"]["servant_steer"] = not self.restricted_member
         data["features"]["servant_member_isolation"] = self.restricted_member and not self.researcher
         data["servant"] = {"bridgeVersion": 1}
@@ -401,11 +461,40 @@ class ServantAPIServerAdapter(APIServerAdapter):
             context = (session_id, copy.deepcopy(history))
         # asyncio-created run tasks inherit their own context; concurrent users
         # never share one mutable "current transcript" field on the adapter.
+        key = request.headers.get(RUN_KEY_HEADER)
+        if key is not None and not valid_key(key):
+            return _error(400, "invalid_run_key", "Run keys start with servant_")
+        if key is not None:
+            ok, existing = self._servant_run_keys.begin(key)
+            if not ok:
+                # Stopped before it started, or already started (Servant adopts that run).
+                return _error(409, "run_key_refused" if existing["state"] == "refused" else "run_key_in_use",
+                              "This run key can't start a run", run_id=existing.get("run_id"))
         token = _run_context.set(context)
         try:
-            return await super()._handle_runs(request)
+            response = await super()._handle_runs(request)
+        except BaseException:
+            if key is not None:
+                self._servant_run_keys.failed(key)
+            raise
         finally:
             _run_context.reset(token)
+        if key is None:
+            return response
+        run_id = None
+        if 200 <= response.status < 300:
+            try:
+                run_id = json.loads(response.text).get("run_id")
+            except (ValueError, TypeError, AttributeError):
+                run_id = None
+        if not isinstance(run_id, str) or not run_id:
+            self._servant_run_keys.failed(key)
+            return response
+        if self._servant_run_keys.started(key, run_id):
+            # Servant stopped this key while Hermes was starting it.
+            await super()._handle_stop_run(_RunRequest(request, run_id))
+            return _error(409, "run_key_cancelled", "This run was stopped before it started", run_id=run_id)
+        return response
 
     def _create_agent(self, *args, **kwargs):
         if self.restricted_member:
