@@ -9,8 +9,8 @@ const hiddenIcon = Platform.OS === "web" ? { "aria-hidden": true } as const : { 
 const paths = {
   home: "M3 10 12 3l9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1V10Z",
   code: "m8 7-5 5 5 5 M16 7l5 5-5 5 M14 4l-4 16",
-  // A paintbrush, tip up and to the left: designs and prototypes (Design Studio).
-  brush: "M19 20.5a1.8 1.8 0 0 0 2.5-2.5L14 10.5 11.5 13 19 20.5Z M11.5 13c-2.6 0-4.5-1.6-4.5-4.2 0-1.8-1.4-3.3-3.5-3.8 2.7-1.6 6.4-1.3 8.7.9 1.4 1.4 1.8 3 1.8 4.6",
+  // An upright paintbrush, like the Research lightbulb: designs and prototypes (Design Studio).
+  brush: "M10.45 21.26A1.62 1.62 0 0 0 13.63 21.26L13.63 11.72 10.45 11.72 10.45 21.26ZM10.45 11.72C8.79 10.06 8.6 7.84 10.25 6.18C11.4 5.04 11.46 3.19 10.45 1.54C13.18 2.24 15.35 4.78 15.41 7.65C15.41 9.43 14.65 10.7 13.63 11.72",
   clock: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z M12 7v5l3 2",
   chat: "M5 3h14a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H9l-6 4V5a2 2 0 0 1 2-2Z M7 8h10 M7 12h7",
   sparkles: "m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3Z M20 2v4 M18 4h4",

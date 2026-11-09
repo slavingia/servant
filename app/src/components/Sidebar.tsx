@@ -92,7 +92,7 @@ export function Sidebar() {
 
         <View style={styles.section}>
           <Text accessibilityRole="header" style={[styles.sectionTitle, styles.groupTitle]}>{studioName}</Text>
-          <NavItem icon="brush" label="Designs" selected={pathname === "/designs" || pathname === "/adjust" || (pathname.startsWith("/chat/") && params.studio === "1")} onPress={() => go(pathname, "/designs")} />
+          <NavItem icon="brush" label="Design" selected={pathname === "/designs" || pathname === "/adjust" || (pathname.startsWith("/chat/") && params.studio === "1")} onPress={() => go(pathname, "/designs")} />
           <NavItem icon="research" label="Research" selected={pathname === "/research" || pathname === "/research-new" || pathname === "/readout" || (pathname.startsWith("/chat/") && params.research === "1")} onPress={() => go(pathname, "/research")} />
         </View>
 

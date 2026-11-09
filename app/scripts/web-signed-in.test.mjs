@@ -942,7 +942,7 @@ test("adjust on a phone: the panel stacks under the preview with no sideways scr
   await settle(() => page.url().includes("/adjust"), false);
 });
 
-test("library: search, lists, rename, duplicate and archive; inside a design the sidebar shows Designs", { skip }, async () => {
+test("library: search, lists, rename, duplicate and archive; inside a design the sidebar shows Design", { skip }, async () => {
   await open(accounts.designer, "/designs", WIDE);
   await page.getByText("Kit check").first().waitFor({ timeout: 120000 });
   await page.getByLabel("Search designs").fill("kit");
@@ -959,7 +959,7 @@ test("library: search, lists, rename, duplicate and archive; inside a design the
   await page.waitForURL(/\/chat\/cht_/);
   await page.locator('text="Copy of Kit check two" >> visible=true').first().waitFor({ timeout: 30000 });
   // The sidebar marks where you are with aria-current (selected isn't a button state on the web).
-  const designsNav = () => page.getByRole("button", { name: "Designs", exact: true }).getAttribute("aria-current");
+  const designsNav = () => page.getByRole("button", { name: "Design", exact: true }).getAttribute("aria-current");
   assert.equal(await settle(designsNav, "page"), "page", "a design workspace keeps Designs selected");
   await page.getByTestId("open-preview").waitFor({ timeout: 30000 });
   // Archive the copy: it leaves the main list and shows under Archived.
@@ -975,7 +975,7 @@ test("library: search, lists, rename, duplicate and archive; inside a design the
   await page.goto(`${APP}/chat/cht_sample_kit`, { waitUntil: "domcontentloaded" });
   await page.locator('text="Kit check two" >> visible=true').first().waitFor({ timeout: 60000 });
   assert.equal(await settle(designsNav, "page"), "page");
-  assert.deepEqual(await page.locator('[aria-current="page"]').evaluateAll(els => els.map(el => el.getAttribute("aria-label"))), ["Designs"], "only Designs, not Agent");
+  assert.deepEqual(await page.locator('[aria-current="page"]').evaluateAll(els => els.map(el => el.getAttribute("aria-label"))), ["Design"], "only Design, not Agent");
 });
 
 test("version history: kept after changes, compared side by side, restored by the author with the current page kept", { skip }, async () => {
@@ -1019,7 +1019,7 @@ test("start page: the sidebar works from it, and choosing anywhere else finishes
   await open(fresh, "/", WIDE);
   await page.waitForURL(/\/start$/, { timeout: 120000 });
   await page.getByText("Starting points").waitFor();
-  await page.getByRole("button", { name: "Designs" }).click();
+  await page.getByRole("button", { name: "Design", exact: true }).click();
   await page.waitForURL(/\/designs$/);
   await page.getByText("Design Studio").first().waitFor();
   await sleep(500);

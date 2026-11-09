@@ -187,7 +187,7 @@ the conversation with its agent. A design with a page is **Published**.
   conversation (a duplicate, say) says so and offers Open preview and Adjust
   design instead of starters. The workspace refreshes after each reply, so a
   newly published preview appears without reopening it. However a design is
-  opened, the sidebar keeps **Designs** selected (marked with `aria-current`).
+  opened, the sidebar keeps **Design** selected (marked with `aria-current`).
 - **Onboarding and the start page:** the role step says a role only shapes
   starting points. The last step ("You're all set") shows the person's agent
   access tier ("Design engineer tier"), separate from their role, and **See your

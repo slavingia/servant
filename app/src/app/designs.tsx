@@ -129,7 +129,7 @@ export default function Designs() {
   };
 
   return <View style={styles.root}>
-    <Stack.Screen options={{ title: "Designs" }} />
+    <Stack.Screen options={{ title: "Design" }} />
     <FlatList ref={listRef} data={shown ?? []} keyExtractor={design => design.id}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void refresh(); }} tintColor={colors.blue} colors={[colors.blue]} progressBackgroundColor={colors.surface} />}
       ListHeaderComponent={<View>

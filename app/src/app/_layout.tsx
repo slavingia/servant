@@ -138,7 +138,7 @@ function SessionNavigation() {
         <Stack.Screen name="channel-info" options={{ title: "Details", ...childScreen }} />
         <Stack.Screen name="files" options={{ title: "Files", ...childScreen }} />
         <Stack.Screen name="project" options={{ title: "Project", ...childScreen }} />
-        <Stack.Screen name="designs" options={{ title: "Designs", ...sidebarScreen }} />
+        <Stack.Screen name="designs" options={{ title: "Design", ...sidebarScreen }} />
         <Stack.Screen name="adjust" options={{ title: "Quick adjustments", ...childScreen }} />
         <Stack.Screen name="versions" options={{ title: "Version history", ...childScreen }} />
         <Stack.Screen name="research" options={{ title: "Research", ...sidebarScreen }} />

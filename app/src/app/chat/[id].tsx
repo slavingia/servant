@@ -80,7 +80,7 @@ function SharedChatView() {
     try {
       const [history, info] = await Promise.all([api.messages(account, id), api.chat(account, id)]);
       setMessages(history); setChat(info); setError(null); setLoadedAt(Date.now());
-      // However it was opened (a list, search, Back), a design keeps Designs selected in the sidebar.
+      // However it was opened (a list, search, Back), a design keeps Design selected in the sidebar.
       if (info.mode === "vibe") router.setParams({ studio: "1" });
     } catch (e) {
       const gone = e instanceof ServerError && (e.status === 403 || e.status === 404);
@@ -459,7 +459,7 @@ function ChatConversation() {
       setPreviewUrl(c.mode === "vibe" && c.previewUrl && c.previewReady !== false ? c.previewUrl : null);
       setAdjustable(c.mode === "vibe" && !c.readOnly && c.canSend !== false && c.previewReady !== false);
       setVibe(c.mode === "vibe");
-      // However it was opened (a list, search, Back), a design keeps Designs selected in the sidebar.
+      // However it was opened (a list, search, Back), a design keeps Design selected in the sidebar.
       if (c.mode === "vibe" && studio !== "1") router.setParams({ studio: "1" });
       setDetailsChatId(String(id));
     }).catch(() => {});
