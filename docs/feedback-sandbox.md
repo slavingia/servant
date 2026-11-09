@@ -1,7 +1,7 @@
 # Feedback sandbox
 
-A private copy of Servant on your Mac for feedback sessions on the Servant UX
-features. It has made-up people, a made-up design and stand-in agents that
+A private copy of Servant on your Mac for feedback sessions on the Servant
+Studio features. It has made-up people, a made-up design and stand-in agents that
 never call a model. It runs only on this Mac (127.0.0.1), and everything in it
 is deleted when it stops.
 
@@ -10,24 +10,32 @@ cd app
 npm run sandbox
 ```
 
-It starts the sandbox server (port 8790) and the app (http://localhost:8099),
-then prints a sign-in link. Options: `--port`, `--app-port`, and `--no-app` if
-the app is already running on the app port.
+It starts the sandbox server (port 8790), the app (http://localhost:8099) and a
+start page (http://localhost:8098), which it opens in your browser. The start
+page has a **Sign in as Preview Researcher** button that works every time, a
+link to every feature, the made-up files for study readouts, and the tasks to
+try. Options: `--port`, `--app-port`, `--start-port`, `--no-open` (don't open
+the browser), and `--no-app` if the app is already running on the app port.
 
 ## The preview persona
 
-The link signs in as **Preview Researcher**: a workspace member with the
+The start page (or the link in the terminal) signs in as **Preview Researcher**: a workspace member with the
 Researcher agent tier. The sandbox's server grants that tier to new people (its
 `defaultAgentTier`), the way an owner grants it on a real server. Nothing in the
 app or onboarding grants it. The research pilot hold is on, as in the pilot
 build.
 
-That one persona can reach every Servant UX feature:
+That one persona can reach every Servant Studio feature (grouped under that
+heading in the sidebar and the Agent tab) and the rest of the app:
 
 - Sign-in, the terms, onboarding and the start page.
 - Research Studio: build a study plan, create a prototype from what the
   research found, saved forms ("Continue where you left off"), study activities
   and the working draft for Civic Research Studio.
+- Study readouts: a study's Qualtrics results as charts and a checked readout,
+  saved as a Word document or a PDF, with ratings and the comments coded into
+  themes and reviewed quotes. The sandbox prints where its made-up files are (a study and its two
+  exports, `app/src/lib/fixtures/`).
 - Design Studio: new designs, the preview, Adjust design, versions, rename,
   duplicate, archive and share for review.
 - Reviewing a teammate's design: the "Balance due page" review in #general,
@@ -55,7 +63,9 @@ output.
 
 ## Running sessions
 
-- Each sign-in link works once. Press Enter in the terminal for a new one.
+- Sign in from the start page as often as you like; each time is a new
+  Preview Researcher. The link in the terminal works once; press Enter there
+  for a new one.
 - For the next participant, sign out first (You tab), or use a private window.
   Signing out also clears that person's saved research forms.
 - To give the next participant a fresh workspace, stop the sandbox (Ctrl+C) and
@@ -75,6 +85,11 @@ output.
    chat and send it. Then look at the design's versions.
 6. In #general, open the "Balance due page" review and suggest an adjustment.
 7. Back in the study plan, add a study activity and save the working draft.
+8. In Research Studio, write a study readout from the made-up study and its two
+   exports. Write the summary, then save it as a Word document and as a PDF.
+9. Write another readout from the made-up study and its survey export with
+   Research Studio inside (`qualtrics-embedded-SYNTHETIC.csv`): look at the
+   ratings, give a few comments themes, and quote one.
 
 ## What isn't in the sandbox
 

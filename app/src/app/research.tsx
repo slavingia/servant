@@ -19,6 +19,7 @@ import { api, ServerError, type Chat } from "../lib/server";
 import { useSession } from "../lib/session";
 import { formDraftKey, readFormDraft } from "../lib/form-drafts";
 import { parseResearchFormDraft, researchFormDraftEmpty } from "../lib/research-form-draft";
+import { parseReadoutDraft } from "../lib/readout";
 import { shortTime as when, whenInSentence } from "../lib/time-label";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
 
@@ -44,6 +45,7 @@ export default function ResearchStudio() {
   const [held, setHeld] = useState(false);
   // Forms left part-way, kept on this device (research-new saves them).
   const [drafts, setDrafts] = useState<Partial<Record<ResearchTaskKind, { title: string; savedAt: number }>>>({});
+  const [readoutDraft, setReadoutDraft] = useState<{ title: string; savedAt: number } | null>(null);
 
   const load = useCallback(async () => {
     if (!account) return;
@@ -53,6 +55,9 @@ export default function ResearchStudio() {
       return parsed && !researchFormDraftEmpty(parsed) ? [task.kind, { title: parsed.title.trim(), savedAt: draft!.savedAt }] as const : null;
     }));
     setDrafts(Object.fromEntries(saved.filter(item => item !== null)));
+    const readout = await readFormDraft(formDraftKey(account, "readout")).catch(() => null);
+    const parsedReadout = readout ? parseReadoutDraft(readout.value) : null;
+    setReadoutDraft(readout && parsedReadout ? { title: parsedReadout.readout.title.trim(), savedAt: readout.savedAt } : null);
     const [chats, projects] = await Promise.allSettled([
       api.orgChats(account, setAccount),
       api.projects(account),
@@ -93,6 +98,7 @@ export default function ResearchStudio() {
     try { await load(); } finally { setRefreshing(false); }
   };
   const paused = (kind: ResearchTaskKind) => held && kind !== "study";
+  const readoutDraftText = (draft: { title: string; savedAt: number }) => `Continue where you left off${draft.title ? `: ${draft.title}` : ""} (last saved ${whenInSentence(draft.savedAt)})`;
   const draftText = (kind: ResearchTaskKind) => {
     const draft = drafts[kind];
     return draft ? `Continue where you left off${draft.title ? `: ${draft.title}` : ""} (last saved ${whenInSentence(draft.savedAt)})` : null;
@@ -118,7 +124,7 @@ export default function ResearchStudio() {
               ? "Your workspace controls which agent tools are available."
               : unlocked
                 ? held
-                ? "Research pilot: build a study plan, create a prototype from your research findings, and save a working draft. Researcher Agent chats and Research Hub evidence are paused."
+                ? "Research pilot: build a study plan, create a prototype from your research findings, save a working draft, and write a readout from your results. Researcher Agent chats and Research Hub evidence are paused."
                 : "New work starts as an ordinary private Servant chat, so teammates on the original app can read and continue it when you share."
                 : accessError ?? "Ask a workspace owner to grant the Researcher agent tier. Your onboarding preference does not change access."}</Text>
           </View>
@@ -139,6 +145,21 @@ export default function ResearchStudio() {
               <AppIcon name={open ? "chevronRight" : "lock"} size={16} color={colors.muted} />
             </Pressable>;
           })}
+        </View>
+        <Text accessibilityRole="header" style={styles.sectionTitle}>Report results</Text>
+        <View style={styles.actions}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Write a study readout"
+            accessibilityHint={!unlocked ? "Researcher access is required" : readoutDraft ? readoutDraftText(readoutDraft) : "Turn an A/B study's Qualtrics results into charts and a readout to share"}
+            accessibilityState={{ disabled: !unlocked }} disabled={!unlocked} onPress={() => router.push("/readout")}
+            style={({ pressed }) => [styles.action, !unlocked && styles.actionDisabled, pressed && unlocked && styles.pressed]}>
+            <View style={styles.actionIcon}><AppIcon name="sort" size={20} color={unlocked ? colors.blueDark : colors.muted} /></View>
+            <View style={styles.actionCopy}>
+              <Text style={styles.actionTitle}>Write a study readout</Text>
+              <Text style={styles.actionBody}>Turn an A/B study's Qualtrics results into charts and a readout to share. Files are read on this device.</Text>
+              {unlocked && readoutDraft ? <Text style={styles.actionDraft}>{readoutDraftText(readoutDraft)}</Text> : null}
+            </View>
+            <AppIcon name={unlocked ? "chevronRight" : "lock"} size={16} color={colors.muted} />
+          </Pressable>
         </View>
         {sharedWithMe.length ? <>
           <Text accessibilityRole="header" style={styles.sectionTitle}>Shared with you</Text>
@@ -172,7 +193,7 @@ export default function ResearchStudio() {
           <Text accessibilityRole="alert" style={styles.emptyBody}>{loadError}</Text>
           <Button label="Try again" kind="secondary" onPress={() => { void load(); }} style={styles.emptyAction} />
         </View> : <View style={styles.empty}>
-          <View style={styles.emptyIcon}><AppIcon name="search" size={26} color={colors.blueDark} /></View>
+          <View style={styles.emptyIcon}><AppIcon name="research" size={26} color={colors.blueDark} /></View>
           <Text accessibilityRole="header" style={styles.emptyTitle}>{researchEmptyState({ unlocked, held }).title}</Text>
           <Text style={styles.emptyBody}>{researchEmptyState({ unlocked, held }).body}</Text>
         </View>}

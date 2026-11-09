@@ -143,6 +143,7 @@ function SessionNavigation() {
         <Stack.Screen name="versions" options={{ title: "Version history", ...childScreen }} />
         <Stack.Screen name="research" options={{ title: "Research", ...sidebarScreen }} />
         <Stack.Screen name="research-new" options={{ title: "New research work", ...childScreen }} />
+        <Stack.Screen name="readout" options={{ title: "Study readout", ...childScreen }} />
         <Stack.Screen name="chat/[id]" options={{ title: "", ...childScreen }} />
         <Stack.Screen name="feedback" options={{ title: "Feedback", ...childScreen }} />
         <Stack.Screen name="notifications" options={{ title: "Notifications", ...childScreen }} />

@@ -53,6 +53,8 @@ after(async () => {
 });
 
 async function open(account, route, viewport = { width: 390, height: 844 }) {
+  // One page at a time: an earlier test's page would otherwise keep running beside this one.
+  if (page) await page.context().close().catch(() => {});
   const context = await browser.newContext({ viewport, acceptDownloads: true });
   // Prototype links use the server's public address (https://tsoa.example.test): serve them from the local server.
   await context.route("https://tsoa.example.test/**", async route => {
@@ -339,6 +341,215 @@ test("a study form is kept as a draft on this device: leaving, reloading right a
   assert.equal(await page.getByLabel("Working title").inputValue(), "");
   assert.match(await checkedMode(), /^Choose an existing prototype/);
   assert.match(await text(), /Using Balance lookup prototype as this study's prototype\./);
+});
+
+test("study readout: a study and its Qualtrics exports, read on this device, become charts and a checked Word readout; only totals are kept", { skip }, async () => {
+  setHold(true);
+  const fixtures = new URL("../src/lib/fixtures/", import.meta.url).pathname;
+  const pick = async (button, file) => {
+    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: button }).first().click()]);
+    await chooser.setFiles(path.join(fixtures, file));
+    await sleep(500);
+  };
+  await open(accounts.researcher, "/research", WIDE);
+  await page.getByRole("button", { name: "Write a study readout" }).first().click({ timeout: 120000 });
+  await page.getByText("1. The study").first().waitFor({ timeout: 30000 });
+  assert.equal(await page.getByRole("button", { name: "Show results" }).getAttribute("aria-disabled"), "true", "nothing to show yet");
+  // The wrong file is explained.
+  await pick("Choose the study file", "qualtrics-survey2-SYNTHETIC.csv");
+  assert.match(await text(), /This isn't a study file/);
+  await pick("Choose the study file", "research-studio-demo-ab.json");
+  assert.match(await text(), /Interactive design comparison: CivicPortal/);
+  await pick("Choose file", "qualtrics-survey1-SYNTHETIC.csv");
+  await page.getByRole("button", { name: "Show results" }).click();
+  await page.getByText(/That's the intake survey \(Survey 1\)/).first().waitFor({ timeout: 10000 });
+  await pick("Change", "qualtrics-survey2-SYNTHETIC.csv");
+  await pick("Choose file", "qualtrics-survey1-SYNTHETIC.csv");
+  await page.getByRole("button", { name: "Show results" }).click();
+  await page.getByText("3. Results").first().waitFor({ timeout: 30000 });
+  const shown = await text();
+  assert.match(shown, /59 responses, and 11 people assigned who didn't finish/);
+  assert.match(shown, /16 of 35 assigned · 95% range 30% to 62%/);
+  assert.match(shown, /22 of 35 assigned · 95% range 46% to 77%/);
+  assert.match(shown, /95% range −6 to \+38 points · the range includes zero/);
+  assert.match(shown, /Group sizes: 35 vs 35/);
+  // The drafted readout needs a summary before it can be shared.
+  assert.match(await bodyText(), /Write the summary\./);
+  assert.equal(await page.getByRole("button", { name: "Save as Word document" }).getAttribute("aria-disabled"), "true");
+  await page.getByLabel("Summary, required").fill("Design B was the winner.");
+  assert.match(await bodyText(), /Reword “winner”/);
+  await page.getByLabel("Summary, required").fill("Both layouts helped people find their most recent request; the results can't tell them apart.");
+  const [download] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), page.getByRole("button", { name: "Save as Word document" }).click()]);
+  assert.equal(download.suggestedFilename(), "readout-interactive-design-comparison-civicportal.docx");
+  const bytes = fs.readFileSync(await download.path());
+  assert.equal(bytes.subarray(0, 2).toString(), "PK");
+  assert.match(bytes.toString("latin1"), /Both layouts helped people find their most recent request/);
+  // The PDF: a printable page in a hidden frame, printed so the person can choose Save as PDF.
+  assert.match(shown, /Median active time, people who finished \(secondary\)/);
+  await page.context().addInitScript(() => { if (window !== window.top) window.print = () => { window.top.__printed = (window.top.__printed || 0) + 1; }; });
+  await page.getByRole("button", { name: "Print or save as PDF" }).click();
+  await page.waitForFunction(() => window.__printed === 1, null, { timeout: 15000 });
+  const printed = await page.frameLocator("iframe[data-readout-print]").locator("main").innerText();
+  assert.match(printed, /^Readout: Interactive design comparison: CivicPortal/);
+  assert.match(printed, /Both layouts helped people find their most recent request/);
+  assert.match(printed, /Median active time/);
+  assert.match(await bodyText(), /choose Save as PDF/);
+  // Details about a person hold back both ways of sharing.
+  await page.getByLabel("Next steps, optional").fill("Follow up with pat@example.gov.");
+  assert.match(await bodyText(), /Remove what looks like an email address from the next steps/);
+  assert.equal(await page.getByRole("button", { name: "Print or save as PDF" }).getAttribute("aria-disabled"), "true");
+  await page.getByLabel("Next steps, optional").fill("");
+  // Kept on this device: totals and text, never the exports' rows or IDs.
+  await sleep(1000);
+  const saved = await page.evaluate(() => localStorage.getItem("servant.formDrafts") ?? "");
+  assert.match(saved, /Both layouts helped people/);
+  assert.doesNotMatch(saved, /R_TEST|RRESP|sess-\d|"times"/);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByText(/^Picked up where you left off/).first().waitFor({ timeout: 60000 });
+  assert.match(await text(), /16 of 35 assigned/);
+  assert.match(await text(), /choose it again to update the results/);
+  await page.goto(`${APP}/research`, { waitUntil: "domcontentloaded" });
+  await page.getByText(/^Continue where you left off: Readout: Interactive design comparison: CivicPortal/).first().waitFor({ timeout: 60000 });
+});
+
+test("study readout: an export of Qualtrics previews is explained, and can be read as a marked practice run", { skip }, async () => {
+  const fixtures = new URL("../src/lib/fixtures/", import.meta.url).pathname;
+  const preview = fs.readFileSync(path.join(fixtures, "qualtrics-survey2-SYNTHETIC.csv"), "utf8")
+    .replace('"StartDate","Finished"', '"StartDate","Status","DistributionChannel","Finished"')
+    .replace('"Start Date","Finished"', '"Start Date","Response Type","Distribution Channel","Finished"')
+    .replace(/^("2026-[^"]*"),/gm, '$1,"Survey Preview","preview",');
+  const pick = async (button, file) => {
+    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: button }).first().click()]);
+    await chooser.setFiles(file);
+    await sleep(500);
+  };
+  await open(accounts.researcher, "/readout", WIDE);
+  await page.getByText("1. The study").first().waitFor({ timeout: 120000 });
+  await pick("Choose the study file", path.join(fixtures, "research-studio-demo-ab.json"));
+  await pick("Choose file", { name: "preview-export.csv", mimeType: "text/csv", buffer: Buffer.from(preview) });
+  await page.getByRole("button", { name: "Show results" }).click();
+  await page.getByText(/^Every response in this export is a Qualtrics preview or test response/).first().waitFor({ timeout: 30000 });
+  const box = page.getByRole("checkbox", { name: "Include Qualtrics preview and test responses (a practice run)" });
+  assert.equal(await box.getAttribute("aria-checked"), "false");
+  await page.getByRole("button", { name: "Include them and show a practice run" }).click();
+  assert.equal(await box.getAttribute("aria-checked"), "true");
+  await page.getByRole("button", { name: "Show results" }).click();
+  await page.getByText("3. Results").first().waitFor({ timeout: 30000 });
+  const shown = await bodyText();
+  assert.match(shown, /Practice run: these come from Qualtrics preview and test responses/);
+  assert.match(shown, /16 of 30 assigned/, "without Survey 1, everyone who finished");
+  assert.equal(await page.getByLabel("Title, required").inputValue(), "Practice readout: Interactive design comparison: CivicPortal");
+  assert.match(await page.getByLabel("Limits of these results, required").inputValue(), /^- Practice run: made from Qualtrics preview and test responses/);
+});
+
+test("study readout: ratings per design, and comments coded into themes and reviewed quotes that alone reach what's shared", { skip }, async () => {
+  const fixtures = new URL("../src/lib/fixtures/", import.meta.url).pathname;
+  const pick = async (button, file) => {
+    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: button }).first().click()]);
+    await chooser.setFiles(path.join(fixtures, file));
+    await sleep(500);
+  };
+  await open(accounts.researcher, "/readout", WIDE);
+  await page.getByText("1. The study").first().waitFor({ timeout: 120000 });
+  await pick("Choose the study file", "research-studio-demo-ab.json");
+  await pick("Choose file", "qualtrics-embedded-SYNTHETIC.csv");
+  await page.getByRole("button", { name: "Show results" }).click();
+  await page.getByText("4. What people said").first().waitFor({ timeout: 30000 });
+  const shown = await bodyText();
+  assert.match(shown, /How easy or difficult was it to find the service request\?\n1 = Very difficult, 7 = Very easy/);
+  assert.match(shown, /12 people · 1: \d+ · 2: \d+/);
+  assert.match(shown, /Before and after the tasks\nHow clear was the account navigation overall\?/);
+  assert.match(shown, /Design A · Sidebar navigation \(5 comments\)/);
+  // A theme for one comment, then the same theme for another.
+  const card = text => page.locator("div").filter({ has: page.getByText(text, { exact: true }) }).filter({ has: page.getByRole("button", { name: "Quote this" }) }).last();
+  await card("I didn't see requests in the sidebar at first.").getByRole("button", { name: "New theme" }).click();
+  await page.getByLabel("New theme name").fill("Hard to find requests");
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  // After adding a theme, focus is on its chip, not lost.
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "Theme: Hard to find requests");
+  await card("The sidebar had too many links.").getByRole("checkbox", { name: "Theme: Hard to find requests" }).click();
+  assert.equal(await card("The sidebar had too many links.").getByRole("checkbox", { name: "Theme: Hard to find requests" }).getAttribute("aria-checked"), "true");
+  assert.match(await bodyText(), /Hard to find requests\n2 comments/);
+  // With many comments, show only those still to code.
+  const only = page.getByRole("checkbox", { name: /^Show only comments without a theme/ });
+  await only.click();
+  assert.equal(await page.getByText("The sidebar had too many links.", { exact: true }).count(), 0, "coded comments are hidden");
+  assert.ok(await page.getByText("Took a while to find the requests page.", { exact: true }).first().isVisible());
+  await only.click();
+  // Crossing to the phone layout and back redraws the page; the loaded comments and codes stay.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByText("The sidebar had too many links.", { exact: true }).first().waitFor({ timeout: 30000 });
+  await page.setViewportSize(WIDE);
+  await page.getByText("The sidebar had too many links.", { exact: true }).first().waitFor({ timeout: 30000 });
+  assert.equal(await card("The sidebar had too many links.").getByRole("checkbox", { name: "Theme: Hard to find requests" }).getAttribute("aria-checked"), "true");
+  assert.doesNotMatch(await bodyText(), /Choose the follow-up survey export again/);
+  // A quote with a phone number can't be added; a checked one can.
+  await card("Call me at 555-123-4567 if you want more feedback.").getByRole("button", { name: "Quote this" }).click();
+  assert.match(await bodyText(), /This looks like it has a phone number/);
+  await page.getByRole("button", { name: "Cancel" }).last().click();
+  await card("The sidebar had too many links.").getByRole("button", { name: "Quote this" }).click();
+  const add = page.getByRole("button", { name: "Add to the readout" });
+  assert.equal(await add.getAttribute("aria-disabled"), "true", "not until it's been checked");
+  await page.getByRole("checkbox", { name: "I've checked this quote for names, numbers and other details that could identify someone" }).click();
+  await add.click();
+  await page.getByText("In the readout as a quote: “The sidebar had too many links.”").first().waitFor({ timeout: 10000 });
+  // The Word document has the themes and the quote, and no other comment.
+  await page.getByLabel("Summary, required").fill("Both layouts helped people find a request.");
+  const [download] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), page.getByRole("button", { name: "Save as Word document" }).click()]);
+  const word = fs.readFileSync(await download.path()).toString("latin1");
+  assert.match(word, /What people said/);
+  assert.match(word, /Hard to find requests/);
+  assert.match(word, /The sidebar had too many links\./);
+  assert.doesNotMatch(word, /didn.t see requests in the sidebar|555-123-4567|Took a while to find/);
+  // Saved on this device: the coding and the quote, never the other comments.
+  await sleep(1000);
+  const saved = await page.evaluate(() => localStorage.getItem("servant.formDrafts") ?? "");
+  assert.match(saved, /Hard to find requests/);
+  assert.doesNotMatch(saved, /didn.t see requests in the sidebar|555-123-4567|Took a while to find|Recent activity/);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByText(/^Picked up where you left off/).first().waitFor({ timeout: 60000 });
+  assert.match(await bodyText(), /Choose the follow-up survey export again and show the results to read and code them/);
+  assert.match(await bodyText(), /Hard to find requests\n2 comments/);
+  // Choosing the export again brings the comments back with their codes.
+  await pick("Choose file", "qualtrics-embedded-SYNTHETIC.csv");
+  await page.getByRole("button", { name: "Update the results" }).click();
+  await page.getByText("The sidebar had too many links.", { exact: true }).first().waitFor({ timeout: 30000 });
+  assert.equal(await card("I didn't see requests in the sidebar at first.").getByRole("checkbox", { name: "Theme: Hard to find requests" }).getAttribute("aria-checked"), "true");
+});
+
+test("study readout: new results update drafted numbers; edited sections are flagged until redrafted or checked", { skip }, async () => {
+  const fixtures = new URL("../src/lib/fixtures/", import.meta.url).pathname;
+  const pick = async (button, file) => {
+    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: button }).first().click()]);
+    await chooser.setFiles(path.join(fixtures, file));
+    await sleep(500);
+  };
+  await open(accounts.researcher, "/readout", WIDE);
+  await page.getByText("1. The study").first().waitFor({ timeout: 120000 });
+  await pick("Choose the study file", "research-studio-demo-ab.json");
+  await pick("Choose file", "qualtrics-survey2-SYNTHETIC.csv");
+  await page.getByRole("button", { name: "Show results" }).click();
+  await page.getByText("3. Results").first().waitFor({ timeout: 30000 });
+  const findings = page.getByLabel("Findings, required");
+  assert.match(await findings.inputValue(), /16 of 30 assigned/);
+  await page.getByLabel("Summary, required").fill("Both layouts helped people find a request.");
+  // Survey 1 added: unedited findings follow the new numbers; the summary stays.
+  await pick("Choose file", "qualtrics-survey1-SYNTHETIC.csv");
+  await page.getByRole("button", { name: "Update the results" }).click();
+  await page.getByText("59 responses, and 11 people assigned who didn't finish.").first().waitFor({ timeout: 30000 });
+  assert.match(await findings.inputValue(), /16 of 35 assigned/);
+  assert.equal(await page.getByLabel("Summary, required").inputValue(), "Both layouts helped people find a request.");
+  // Edited findings are kept, and flagged when the results change again.
+  await findings.fill(`${await findings.inputValue()}\nMy own note.`);
+  await page.getByRole("button", { name: "Remove" }).first().click();
+  await page.getByRole("button", { name: "Update the results" }).click();
+  await page.getByText(/The results changed after you edited some sections/).first().waitFor({ timeout: 30000 });
+  assert.match(await findings.inputValue(), /My own note\./);
+  assert.match(await bodyText(), /The results changed after you edited the findings\./);
+  assert.equal(await page.getByRole("button", { name: "Save as Word document" }).getAttribute("aria-disabled"), "true");
+  await page.getByRole("button", { name: "Numbers checked" }).click();
+  assert.doesNotMatch(await bodyText(), /The results changed after you edited/);
+  assert.notEqual(await page.getByRole("button", { name: "Save as Word document" }).getAttribute("aria-disabled"), "true");
 });
 
 test("onboarding (signed in): role radios render with one Tab stop and work from the keyboard", { skip }, async () => {
@@ -669,6 +880,9 @@ test("adjust: tidy values, design-kit tokens, contrast, the accessibility check,
   await page.getByRole("heading", { name: /^Paragraph "Fine print/ }).waitFor();
   assert.equal(await page.getByText("Style changes to this element apply to phone sizes only.").count(), 0, "a new element starts at all sizes");
   await page.getByRole("radio", { name: "Phone only" }).click();
+  await page.getByText("Style changes to this element apply to phone sizes only.").waitFor();
+  // Wait for the panel to show this element's size, so typing isn't overwritten as it loads.
+  await settle(() => field("Font size").inputValue(), "13.3333px");
   await field("Font size").fill("18px");
   await field("Font size").press("Enter");
   assert.equal(await settle(() => fontSize(preview().locator("p")), "18px"), "18px");

@@ -20,7 +20,7 @@ function forFlavor(flavor: "ux" | "core") {
 
 test("the UX flavor is separately installable and carries no upstream push configuration", () => {
   const config = forFlavor("ux");
-  assert.equal(config.name, "Servant UX");
+  assert.equal(config.name, "Servant");
   assert.equal(config.slug, "servant-ux");
   assert.equal(config.scheme, "servant-ux");
   assert.equal(config.ios.bundleIdentifier, "gov.irs.servant.ux");

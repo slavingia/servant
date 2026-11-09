@@ -169,12 +169,12 @@ export default function Designs() {
           <Button label="Try again" kind="secondary" onPress={() => { void load(); }} style={styles.emptyAction} />
         </View>
         : access?.canCreate ? <View style={styles.empty}>
-          <View style={styles.emptyIcon}><AppIcon name="code" size={28} color={colors.blueDark} /></View>
+          <View style={styles.emptyIcon}><AppIcon name="brush" size={28} color={colors.blueDark} /></View>
           <Text accessibilityRole="header" style={styles.emptyTitle}>Create your first design</Text>
           <Text style={styles.emptyBody}>Describe a page or tool. The agent builds it and gives you a live preview to refine and share.</Text>
           <Button label="New design" onPress={() => { void start(); }} busy={starting} style={styles.emptyAction} />
         </View> : <View style={styles.empty}>
-          <View style={styles.emptyIcon}><AppIcon name="code" size={28} color={colors.blueDark} /></View>
+          <View style={styles.emptyIcon}><AppIcon name="brush" size={28} color={colors.blueDark} /></View>
           <Text accessibilityRole="header" style={styles.emptyTitle}>No designs to review yet</Text>
           <Text style={styles.emptyBody}>{access?.explanation ?? "Shared team designs will appear here."}</Text>
         </View>}

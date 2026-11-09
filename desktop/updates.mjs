@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import updater from 'electron-updater';
-import { APP_NAME, DOWNLOAD_PAGE, teamIdentifier, updateMode } from './policy.mjs';
+import { DISPLAY_NAME, DOWNLOAD_PAGE, teamIdentifier, updateMode } from './policy.mjs';
 
 const { autoUpdater } = updater;
 const run = promisify(execFile);
@@ -34,7 +34,7 @@ export function createUpdates({ getWindow, openExternal, enabled = true }) {
     check: async ({ manual = false } = {}) => {
       if (manual) await show({
         type: 'info',
-        message: `${APP_NAME} updates are not configured yet`,
+        message: `${DISPLAY_NAME} updates are not configured yet`,
         detail: 'Install a new UX-team build manually until a dedicated signed release feed is available.',
       });
     },
@@ -56,18 +56,18 @@ export function createUpdates({ getWindow, openExternal, enabled = true }) {
     downloading = false;
     const { response } = await show({
       type: 'info', buttons: ['Restart Now', 'Later'], defaultId: 0, cancelId: 1,
-      message: `${APP_NAME} ${info.version} is ready`, detail: 'Restart to finish updating. Otherwise it installs the next time you quit.',
+      message: `${DISPLAY_NAME} ${info.version} is ready`, detail: 'Restart to finish updating. Otherwise it installs the next time you quit.',
     });
     if (response === 0) autoUpdater.quitAndInstall();
   });
 
   const check = async ({ manual = false } = {}) => {
     if (!app.isPackaged) {
-      if (manual) await show({ type: 'info', message: 'Updates are checked in the installed app', detail: `This copy of ${APP_NAME} is running from source.` });
+      if (manual) await show({ type: 'info', message: 'Updates are checked in the installed app', detail: `This copy of ${DISPLAY_NAME} is running from source.` });
       return;
     }
     if (downloading) {
-      if (manual) await show({ type: 'info', message: 'An update is downloading', detail: `${APP_NAME} will tell you when it is ready.` });
+      if (manual) await show({ type: 'info', message: 'An update is downloading', detail: `${DISPLAY_NAME} will tell you when it is ready.` });
       return;
     }
     let result;
@@ -77,13 +77,13 @@ export function createUpdates({ getWindow, openExternal, enabled = true }) {
       if (!manual) { console.warn('Update check failed', error?.message); return; }
       const { response } = await show({
         type: 'warning', buttons: ['Open Download Page', 'OK'], defaultId: 1, cancelId: 1,
-        message: "Couldn't check for updates", detail: `Check your connection, or download the latest ${APP_NAME} from the website.`,
+        message: "Couldn't check for updates", detail: `Check your connection, or download the latest ${DISPLAY_NAME} from the website.`,
       });
       if (response === 0) openExternal(DOWNLOAD_PAGE);
       return;
     }
     if (!result?.isUpdateAvailable) {
-      if (manual) await show({ type: 'info', message: "You're up to date", detail: `${APP_NAME} ${app.getVersion()} is the latest version.` });
+      if (manual) await show({ type: 'info', message: "You're up to date", detail: `${DISPLAY_NAME} ${app.getVersion()} is the latest version.` });
       return;
     }
     const version = result.updateInfo.version;
@@ -97,12 +97,12 @@ export function createUpdates({ getWindow, openExternal, enabled = true }) {
         console.warn('Update download failed', error?.message);
         if (manual) void show({ type: 'warning', message: "Couldn't download the update", detail: error?.message ?? 'Try again later.' });
       });
-      if (manual) await show({ type: 'info', message: `Downloading ${APP_NAME} ${version}`, detail: `${APP_NAME} will tell you when it is ready to install.` });
+      if (manual) await show({ type: 'info', message: `Downloading ${DISPLAY_NAME} ${version}`, detail: `${DISPLAY_NAME} will tell you when it is ready to install.` });
       return;
     }
     const { response } = await show({
       type: 'info', buttons: ['Download', 'Later'], defaultId: 0, cancelId: 1,
-      message: `${APP_NAME} ${version} is available`, detail: `You have ${app.getVersion()}. Download the new version and replace ${APP_NAME} in Applications.`,
+      message: `${DISPLAY_NAME} ${version} is available`, detail: `You have ${app.getVersion()}. Download the new version and replace the old one in Applications.`,
     });
     if (response === 0) openExternal(DOWNLOAD_PAGE);
   };

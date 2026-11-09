@@ -313,7 +313,7 @@ export default function ResearchPreview() {
 
         {preview.handoffOpen ? <View style={styles.agentPanel}>
           <View style={styles.agentHeader}>
-            <View style={styles.agentIcon}><AppIcon name="code" size={20} color={colors.blueDark} /></View>
+            <View style={styles.agentIcon}><AppIcon name="brush" size={20} color={colors.blueDark} /></View>
             <View style={styles.agentHeaderCopy}>
               <Text accessibilityRole="header" style={styles.agentTitle}>Prototype Agent response preview</Text>
               <Text style={styles.agentMeta}>Choose a direction before anything is built</Text>

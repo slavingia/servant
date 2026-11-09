@@ -9,6 +9,7 @@ import { refreshMeetings, useMeetings } from "../lib/meetings-store";
 import { sortChannels, withPositions } from "../lib/channel-sort";
 import { useChannelSort } from "../lib/channel-sort-store";
 import { useSession } from "../lib/session";
+import { studioName } from "../lib/app-identity";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 import { AppIcon, type AppIconName } from "./AppIcon";
 import { Avatar, dmPeer } from "./Messaging";
@@ -85,11 +86,15 @@ export function Sidebar() {
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         <NavItem icon="home" label="Home" count={unread.channels} selected={pathname === "/channels" || pathname === "/"} onPress={() => go(pathname, "/channels")} />
         <NavItem icon="sparkles" label="Agent" count={unread.agent} selected={pathname === "/agent" || (pathname.startsWith("/chat/") && params.studio !== "1" && params.research !== "1") || (pathname === "/files" && params.kind === "chat")} onPress={() => go(pathname, "/agent")} />
-        <NavItem icon="code" label="Designs" selected={pathname === "/designs" || pathname === "/adjust" || (pathname.startsWith("/chat/") && params.studio === "1")} onPress={() => go(pathname, "/designs")} />
-        <NavItem icon="search" label="Research" selected={pathname === "/research" || pathname === "/research-new" || (pathname.startsWith("/chat/") && params.research === "1")} onPress={() => go(pathname, "/research")} />
         <NavItem icon="chat" label="Direct messages" count={unread.messages} selected={pathname === "/messages"} onPress={() => go(pathname, "/messages")} />
         <NavItem icon="people" label="People" selected={pathname === "/members" || pathname === "/invite"} onPress={() => go(pathname, "/members")} />
         <NavItem icon="meetings" label="Meetings" count={liveMeetings} selected={pathname === "/meetings" || pathname.startsWith("/meetings/")} onPress={() => go(pathname, "/meetings")} />
+
+        <View style={styles.section}>
+          <Text accessibilityRole="header" style={[styles.sectionTitle, styles.groupTitle]}>{studioName}</Text>
+          <NavItem icon="brush" label="Designs" selected={pathname === "/designs" || pathname === "/adjust" || (pathname.startsWith("/chat/") && params.studio === "1")} onPress={() => go(pathname, "/designs")} />
+          <NavItem icon="research" label="Research" selected={pathname === "/research" || pathname === "/research-new" || pathname === "/readout" || (pathname.startsWith("/chat/") && params.research === "1")} onPress={() => go(pathname, "/research")} />
+        </View>
 
         <Section title="Projects" open={projectsOpen} onToggle={() => setProjectsOpen(v => !v)} addLabel="New project" onAdd={() => setNaming(true)}>
           {(projects?.list ?? []).map(p => <NavItem key={p.id} icon="project" label={p.name} selected={pathname === "/project" && params.id === p.id} onPress={() => go(pathname, { pathname: "/project", params: { id: p.id } })} />)}
@@ -205,6 +210,7 @@ const useStyles = createThemedStyles(({ colors: theme }) => { const colors = { .
   sectionHeader: { flexDirection: "row", alignItems: "center", marginBottom: 2 },
   sectionToggle: { flex: 1, minHeight: 26, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: space.xs, borderRadius: radius.sm },
   sectionTitle: { ...typography.meta, fontWeight: "600", color: colors.muted },
+  groupTitle: { minHeight: 26, paddingHorizontal: space.xs, paddingTop: 4, marginBottom: 2 },
   sectionAdd: { width: 26, height: 26, borderRadius: radius.sm, alignItems: "center", justifyContent: "center" },
   footer: { flexDirection: "row", alignItems: "center", gap: space.sm, margin: space.xs, padding: space.xs, borderRadius: radius.md },
   status: { position: "absolute", right: -1, bottom: -1, width: 10, height: 10, borderRadius: 5, borderWidth: 2, borderColor: sidebarBackground },

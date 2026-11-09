@@ -1,7 +1,9 @@
 # Servant UX for Mac
 
-This checkout builds a separately installable UX client: product name
-`Servant UX`, app ID `gov.irs.servant.ux.desktop`, URL scheme `servant-ux`, and
+This checkout builds a separately installable UX client. People see it as
+`Servant` (`DISPLAY_NAME`); its product and internal name stay `Servant UX`
+so it installs beside upstream Servant and keeps its Keychain sign-in. Its
+app ID is `gov.irs.servant.ux.desktop`, URL scheme `servant-ux`, and
 storage under `~/Library/Application Support/Servant UX/`. It accepts both
 `servant-ux://pair` and ordinary `servant://pair` invites when they are pasted.
 Because the operating-system handler is intentionally distinct, opening an

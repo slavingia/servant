@@ -18,7 +18,7 @@ export function DesignThumbnail({ url, origin, width = 72, height = 48 }: { url?
   const styles = useStyles();
   const { colors } = useTheme();
   const page = Platform.OS === "web" ? prototypePageUrl(url, origin) : null;
-  if (!page) return <View style={[styles.box, styles.icon, { width, height }]}><AppIcon name="code" size={19} color={colors.blueDark} /></View>;
+  if (!page) return <View style={[styles.box, styles.icon, { width, height }]}><AppIcon name="brush" size={19} color={colors.blueDark} /></View>;
   const scale = width / PAGE_WIDTH;
   return <View style={[styles.box, { width, height }]} aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
     <Frame src={page} title="" tabIndex={-1} loading="lazy" sandbox="allow-scripts" aria-hidden="true"

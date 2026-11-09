@@ -2,8 +2,8 @@
   "name": "servant-ux-desktop",
   "productName": "Servant UX",
   "version": "1.0.8",
-  "description": "Servant UX for Mac — UX research, design, and collaboration",
-  "author": "Servant UX",
+  "description": "Servant for Mac, with Servant Studio for UX research and design",
+  "author": "Servant",
   "license": "CC0-1.0",
   "private": true,
   "type": "module",
@@ -47,7 +47,7 @@
       "hardenedRuntime": true,
       "protocols": [
         {
-          "name": "Servant UX invite",
+          "name": "Servant invite",
           "schemes": [
             "servant-ux"
           ]
@@ -56,13 +56,13 @@
       "entitlements": "entitlements.mac.plist",
       "entitlementsInherit": "entitlements.mac.plist",
       "extendInfo": {
-        "NSCameraUsageDescription": "Servant UX uses the camera for meeting video.",
-        "NSMicrophoneUsageDescription": "Servant UX uses the microphone for meetings.",
-        "NSAudioCaptureUsageDescription": "Servant UX records the audio of a meeting on your computer, such as Zoom or Meet, when you choose to include it."
+        "NSCameraUsageDescription": "Servant uses the camera for meeting video.",
+        "NSMicrophoneUsageDescription": "Servant uses the microphone for meetings.",
+        "NSAudioCaptureUsageDescription": "Servant records the audio of a meeting on your computer, such as Zoom or Meet, when you choose to include it."
       }
     },
     "dmg": {
-      "title": "Servant UX",
+      "title": "Servant",
       "contents": [
         {
           "x": 140,

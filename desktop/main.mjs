@@ -2,7 +2,7 @@ import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, Menu, nativeTheme
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { APP_NAME, APP_URL, DOWNLOAD_PAGE, INTERNAL_SCHEME, INVITE_SCHEME, USER_DATA_NAME, allowedPermission, assetPath, externalUrl, inviteLink, isAppUrl, workspaceConfig } from './policy.mjs';
+import { APP_NAME, APP_URL, DISPLAY_NAME, DOWNLOAD_PAGE, INTERNAL_SCHEME, INVITE_SCHEME, USER_DATA_NAME, allowedPermission, assetPath, externalUrl, inviteLink, isAppUrl, workspaceConfig } from './policy.mjs';
 import { createUpdates } from './updates.mjs';
 import { createWebUpdates } from './ota.mjs';
 
@@ -109,7 +109,7 @@ else {
         const file = path.join(app.getPath('userData'), 'account.enc');
         if (operation === 'remove') { fs.rmSync(file, { force: true }); return; }
         if (operation === 'get' && !fs.existsSync(file)) return null;
-        if (!await safeStorage.isAsyncEncryptionAvailable()) throw new Error(`Unlock your Mac Keychain to use ${APP_NAME}`);
+        if (!await safeStorage.isAsyncEncryptionAvailable()) throw new Error(`Unlock your Mac Keychain to use ${DISPLAY_NAME}`);
         if (operation === 'get') return (await safeStorage.decryptStringAsync(fs.readFileSync(file))).result;
         fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
         fs.writeFileSync(file + '.tmp', await safeStorage.encryptStringAsync(value), { mode: 0o600 });
@@ -127,7 +127,7 @@ else {
       { role: 'editMenu' },
       { label: 'View', submenu: [{ role: 'reload' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'togglefullscreen' }] },
       { role: 'windowMenu' },
-      ...(DOWNLOAD_PAGE ? [{ role: 'help', submenu: [{ label: `Download the latest ${APP_NAME}`, click: () => openExternal(DOWNLOAD_PAGE) }] }] : []),
+      ...(DOWNLOAD_PAGE ? [{ role: 'help', submenu: [{ label: `Download the latest ${DISPLAY_NAME}`, click: () => openExternal(DOWNLOAD_PAGE) }] }] : []),
     ]));
     if (webUpdatesEnabled) {
       webUpdates = createWebUpdates({
@@ -143,12 +143,12 @@ else {
     updates.start();
     startWebUpdates();
     app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); else window?.show(); });
-  }).catch(error => { dialog.showErrorBox(`${APP_NAME} could not start`, error.message); app.quit(); });
+  }).catch(error => { dialog.showErrorBox(`${DISPLAY_NAME} could not start`, error.message); app.quit(); });
 }
 
 function createWindow() {
   window = new BrowserWindow({
-    width: 1200, height: 820, minWidth: 760, minHeight: 560, title: APP_NAME, show: false,
+    width: 1200, height: 820, minWidth: 760, minHeight: 560, title: DISPLAY_NAME, show: false,
     // The sidebar draws under the inset traffic lights, like Slack and ChatGPT.
     titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 13 },
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#12161C' : '#FFFFFF',
@@ -177,7 +177,7 @@ function signedInServer() {
 
 const askRestart = async () => {
   if (process.env.SERVANT_DESKTOP_TEST_PROFILE) return; // test profiles apply it on the next launch
-  const options = { type: 'info', buttons: ['Restart Now', 'Later'], defaultId: 0, cancelId: 1, message: `A ${APP_NAME} update is ready`, detail: `Restart to use it. Otherwise it starts the next time you open ${APP_NAME}.` };
+  const options = { type: 'info', buttons: ['Restart Now', 'Later'], defaultId: 0, cancelId: 1, message: `A ${DISPLAY_NAME} update is ready`, detail: `Restart to use it. Otherwise it starts the next time you open ${DISPLAY_NAME}.` };
   const { response } = window ? await dialog.showMessageBox(window, options) : await dialog.showMessageBox(options);
   if (response === 0) { app.relaunch(); app.quit(); }
 };

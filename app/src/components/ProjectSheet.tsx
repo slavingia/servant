@@ -24,7 +24,7 @@ export function ProjectSheet({ visible, projects, vibe = true, selected = null, 
         {options.map(option => <Pressable key={option.id ?? "none"} testID={`project-${option.id ?? "none"}`} accessibilityRole="button" accessibilityState={{ selected: option.id === selected }}
           accessibilityLabel={option.description ? `${option.name}. ${option.description}` : option.name}
           onPress={() => onPick(option.id)} style={({ pressed }) => [styles.option, pressed && styles.pressed]}>
-          <View style={styles.icon}><AppIcon name={option.id === VIBE_CHOICE ? "code" : option.id ? "project" : "sparkles"} size={17} color={colors.blueDark} /></View>
+          <View style={styles.icon}><AppIcon name={option.id === VIBE_CHOICE ? "brush" : option.id ? "project" : "sparkles"} size={17} color={colors.blueDark} /></View>
           <View style={styles.copy}>
             <Text style={styles.label}>{option.name}</Text>
             {option.description ? <Text style={styles.description} numberOfLines={2}>{option.description}</Text> : null}

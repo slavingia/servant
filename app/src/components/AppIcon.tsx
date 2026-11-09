@@ -9,6 +9,8 @@ const hiddenIcon = Platform.OS === "web" ? { "aria-hidden": true } as const : { 
 const paths = {
   home: "M3 10 12 3l9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1V10Z",
   code: "m8 7-5 5 5 5 M16 7l5 5-5 5 M14 4l-4 16",
+  // A paintbrush, tip up and to the left: designs and prototypes (Design Studio).
+  brush: "M19 20.5a1.8 1.8 0 0 0 2.5-2.5L14 10.5 11.5 13 19 20.5Z M11.5 13c-2.6 0-4.5-1.6-4.5-4.2 0-1.8-1.4-3.3-3.5-3.8 2.7-1.6 6.4-1.3 8.7.9 1.4 1.4 1.8 3 1.8 4.6",
   clock: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z M12 7v5l3 2",
   chat: "M5 3h14a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H9l-6 4V5a2 2 0 0 1 2-2Z M7 8h10 M7 12h7",
   sparkles: "m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3Z M20 2v4 M18 4h4",
@@ -21,6 +23,8 @@ const paths = {
   grip: "M4 9h16 M4 15h16",
   chevronDown: "m6 9 6 6 6-6",
   chevronRight: "m9 5 7 7-7 7",
+  // A lightbulb, for insight: Research Studio. Search keeps the magnifier.
+  research: "M9 18h6 M10 21h4 M12 3a6 6 0 0 0-3.6 10.8c.8.6 1.3 1.4 1.4 2.2h4.4c.1-.8.6-1.6 1.4-2.2A6 6 0 0 0 12 3Z",
   search: "M10.5 3a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15Z m5.5 13 5 5",
   hash: "M5 8h15 M4 16h15 M10 3 6 21 M18 3l-4 18",
   folder: "M3 6a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6Z",

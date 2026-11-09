@@ -8,19 +8,33 @@ join an ordinary Servant server without a server migration.
 
 | Surface | Servant UX identity | Upstream core identity |
 | --- | --- | --- |
-| Expo display name | `Servant UX` | `Servant` |
+| Expo display name | `Servant` | `Servant` |
 | Expo slug | `servant-ux` | `servant` |
 | iOS bundle ID | `gov.irs.servant.ux` | `gov.irs.servant` |
 | Android package | `gov.irs.servant.ux` | `gov.irs.servant` |
 | Mobile URL scheme | `servant-ux` | `servant` |
-| Electron product | `Servant UX` | `Servant` |
+| Electron display name (windows, dialogs, prompts) | `Servant` | `Servant` |
+| Electron product (app bundle, Keychain name) | `Servant UX` | `Servant` |
 | Electron app ID | `gov.irs.servant.ux.desktop` | `gov.irs.servant.desktop` |
 | Electron URL scheme | `servant-ux` | `servant` |
 | Electron storage | `~/Library/Application Support/Servant UX/` | `~/Library/Application Support/Servant/` |
 
 The distinct native identifiers, URL handlers, storage path, and OTA runtime
 versions allow both clients to be installed at the same time without sharing an
-account file or claiming each other's direct links.
+account file or claiming each other's direct links. Both show the name Servant;
+only the internal identifiers differ. The Mac app bundle stays `Servant UX.app`
+so it doesn't replace `/Applications/Servant.app`, and its internal name stays
+`Servant UX` because macOS keeps the encrypted sign-in in the Keychain under it.
+
+### Servant Studio
+
+Servant Studio is the name of the app's UX research and design features: Design
+Studio, Research Studio and study readouts. They're part of the app, not a
+separate product, and the app itself is just called Servant; the Mac sidebar and the Agent tab
+group these features under a Servant Studio heading (`studioName` in
+`app/src/lib/app-identity.ts`). The planned web address for them is
+`studio.servant.com`. Pointing it at a server (DNS and the server's public URL)
+is a deployment step and isn't part of this checkout.
 
 The server still generates ordinary `servant://pair` invites. Servant UX accepts
 those through **Paste an invite link** and its QR scanner. A link intended to
@@ -534,6 +548,113 @@ leaving part-way (another screen, a closed tab, a restart) doesn't lose them.
   until one is chosen. If the plan already uses that prototype, nothing is
   asked.
 - The loopback `/research-preview` keeps nothing.
+
+## Study readouts
+
+Research Studio's **Write a study readout** (`app/src/app/readout.tsx`) turns a
+Civic Research Studio A/B study's Qualtrics results into charts and a readout
+the researcher checks and saves as a Word document or a PDF. It's the first
+slice of the report builder and data visualizer plan, built on its
+recommendations: in Research Studio, starting with an A/B readout, with Word
+and PDF export.
+
+- **In:** the study's JSON (a Research Studio working copy or published study,
+  or a working draft saved here) and the Qualtrics CSV exports: Survey 2 (with
+  the `rs_` fields) and, optionally, Survey 1 for drop-out. Files are read on
+  the device and never sent anywhere. Browser and Mac app only for now.
+- **Numbers:** computed by Civic Research Studio 0.3.24's own code, copied
+  unchanged into `app/src/lib/research-studio-vendor/` (CC0; see its README):
+  the Qualtrics import, event flattening and A/B analysis. So a readout shows
+  what Research Studio's results dashboard shows for the same files: each
+  design's main measure counts everyone assigned, ranges are 95% (Wilson for
+  rates, Newcombe for differences, wider with 3+ designs), comparisons need 10
+  people per design, the data checks and planned hypotheses are Research
+  Studio's, and no winner is declared. The study plan is used only when it's
+  locked or edited, as in Research Studio.
+- **Previews and tests:** like Research Studio, results leave out Qualtrics
+  survey previews and test responses. An export that has only those says so
+  (rather than "no usable rows") and offers **Include Qualtrics preview and
+  test responses (a practice run)**. They're then read as live, in memory only,
+  and the readout is marked throughout: a practice banner over the results, a
+  "Practice readout:" title, the first limit, and a note at the top of the Word
+  and PDF files saying they aren't study results.
+- **Kept:** only totals, rates, ranges, check text and the readout's text, saved
+  on the device as the form drafts are (`servant.formDrafts`, key `readout`):
+  never the exports, response IDs, sessions, per-person times or answers
+  (`readoutResults` in `app/src/lib/readout.ts` drops them). Coming back picks
+  up where the researcher left off; updating the results needs the exports
+  chosen again. Start over clears it; signing out does too.
+- **Charts:** per design, the main measure with its range (a dot and a range,
+  `ReadoutCharts.tsx`), then each design compared with A in percentage points
+  with a dashed no-difference line, then each design's median active time for
+  people who finished (a secondary measure). Every number is also ordinary text
+  beside the mark, read by screen readers; the drawn marks are hidden from
+  them.
+- **Ratings and choices:** the study's own questions, read from the session
+  data a survey with Civic Research Studio inside saves (`rs_data_*`): each
+  1-to-5 or 1-to-7 rating per design as a median and how many gave each
+  rating, and single or multiple choices as counts per option
+  (`summarizeAnswers` in `app/src/lib/readout-answers.ts`). Questions asked
+  after an activity are grouped by that activity's design; those before or
+  after all of them, by the one design each person saw (someone who saw more
+  than one isn't counted under either). Drafted findings get one line per
+  rating question, and both exports get a table per question.
+- **What people said:** written answers are read on the device and shown only
+  while the export is loaded; they're never saved or exported. The researcher
+  gives each comment one or more themes of their own (`CommentCoding.tsx`);
+  the same words for the same question and design show once, with how many
+  wrote them; **Show only comments without a theme** narrows a long list to
+  what's left to code. The loaded files and comments are held in memory for
+  the app session (`readout-session.ts`), so a redraw of the page, such as the
+  window crossing between the phone and desktop layouts, keeps them; a reload,
+  Start over or signing out clears them. Kept with the readout: theme names, each coded comment's themes
+  keyed by a fingerprint (the first 24 hex characters of a SHA-256 of the
+  question, design and words, not the words), the theme counts, and quotes. A
+  quote is added only after the researcher edits out identifying details and
+  ticks that they've checked it, and not while it looks like it has a
+  Social Security, taxpayer or employer ID number, an email address, a phone
+  number or a response ID. Choosing the export again brings the codes back.
+  The exports add a "What people said" section: a theme table per question
+  with counts per design (under `SMALL_THEME_MIN`, 3, they show as "Fewer than
+  3"; a placeholder until the disclosure review team sets it) and the quotes.
+  Hidden designs' counts and quotes aren't shared.
+- **Small groups:** a design with fewer than `SMALL_GROUP_MIN` people (10,
+  Research Studio's minimum for comparing designs, until the disclosure review
+  team sets the threshold; it and `SMALL_THEME_MIN` live in
+  `app/src/lib/disclosure-rules.ts`) is shown to the researcher but hidden in what's
+  shared: the Word and PDF tables say "Not shown: fewer than 10 people", its
+  drafted finding says so, and the PDF chart leaves it out.
+- **Readout:** title, summary (required), what we tested and why (drafted from
+  the plan), findings and limits (drafted from the results and checks, without
+  Research Studio's own tool instructions), next steps. "Redraft findings and
+  limits from the results" replaces only those two after a confirmation.
+  When the results are shown again (Survey 1 added, a new export), the drafted
+  sections the researcher hasn't edited follow the new numbers; the summary and
+  next steps are always kept. Edited sections are kept too, but if the numbers
+  changed they're flagged and sharing waits until they're redrafted or the
+  researcher chooses **Numbers checked** (`updateReadout`).
+- **Checks before sharing:** title, summary, findings and limits written; no
+  "validated", "proven", "approved", "winner", "significant",
+  "outperformed", "superior" and the like; no quotation marks (participants' words wait for quote review); and
+  early comparisons said to be too early; participants' words only as reviewed
+  quotes (no quotation marks in the summary or findings), with theme names and
+  quotes checked too; and nothing that looks like a detail
+  about a person (a Social Security, taxpayer or employer ID number, an email
+  address, a phone number or a Qualtrics response ID) in any section.
+- **Sharing:** the Word document carries the text and each activity's results
+  as tables (`readoutDocx`, written by `app/src/lib/word-document.ts`, which
+  follows Research Studio's Word writer and reuses its ZIP packaging but writes
+  bullet points as real Word list items and sets the language). **Print or
+  save as PDF** prints the same content from a hidden frame, as a standalone
+  page (`readoutHtml`): language set, headings in order, a chart per activity
+  with a text description, and captioned tables with header cells. The person
+  chooses Save as PDF in the print window; if no print window can open, the
+  page is saved as an `.html` file to print. Both are held back by the same
+  checks.
+- **Not yet:** theme dashboards, other methods than A/B, sharing inside Servant
+  (needs a server-side store), turning findings into "What the research found"
+  for a new prototype, decision logging. The PDF path hasn't been tried in the
+  Mac app yet.
 
 ## Research plan collaborators
 

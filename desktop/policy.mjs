@@ -1,5 +1,10 @@
 import path from 'node:path';
 
+// The name people see in windows, dialogs and permission prompts.
+export const DISPLAY_NAME = 'Servant';
+// The internal name stays Servant UX: macOS keeps the encrypted sign-in in the
+// Keychain under it, and it keeps this client's Keychain item and storage apart
+// from upstream Servant's. Renaming it would sign everyone out.
 export const APP_NAME = 'Servant UX';
 export const USER_DATA_NAME = 'Servant UX';
 export const INTERNAL_SCHEME = 'servant-ux-app';

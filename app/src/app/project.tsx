@@ -101,7 +101,7 @@ function ProjectChats({ chats, teamChats, starting, onNew }: { chats: Chat[]; te
       renderItem={({ item }) => <Pressable accessibilityRole="button" accessibilityLabel={title(item)}
         onPress={() => router.push({ pathname: "/chat/[id]", params: { id: item.id, title: item.title } })}
         style={({ pressed }) => [styles.chatRow, pressed && { backgroundColor: colors.surface }]}>
-        <View style={styles.chatIcon}><AppIcon name={item.mode === "vibe" ? "code" : "sparkles"} size={18} color={colors.blueDark} /></View>
+        <View style={styles.chatIcon}><AppIcon name={item.mode === "vibe" ? "brush" : "sparkles"} size={18} color={colors.blueDark} /></View>
         <Text style={styles.chatTitle} numberOfLines={1}>{title(item)}</Text>
         <Text style={styles.when}>{when(item.updatedAt)}</Text>
       </Pressable>}

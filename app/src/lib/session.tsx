@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { clearAccount, loadAccount, saveAccount, api, type Account } from "./server";
 import { clearFormDraftsFor } from "./form-drafts";
+import { clearReadoutSession } from "./readout-session";
 
 type Session = {
   ready: boolean;
@@ -52,6 +53,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (account) await api.signOut(account);
     // Research form drafts on this device go with the person who typed them.
     if (account) await clearFormDraftsFor(account).catch(() => {});
+    // A study readout's files and comments, held in memory, go too.
+    clearReadoutSession();
     await clearAccount();
     setAccount(null);
   }, [account]);

@@ -1,22 +1,25 @@
-// A private Servant on this Mac for feedback sessions on the Servant UX
+// A private Servant on this Mac for feedback sessions on the Servant Studio
 // features: made-up people, a made-up design and stand-in agents that never
 // call a model. Everything runs on 127.0.0.1 and is deleted when it stops.
 //
 //   cd app && npm run sandbox
-//   npm run sandbox -- --port 8790 --app-port 8099 --no-app
+//   npm run sandbox -- --port 8790 --app-port 8099 --start-port 8098 --no-app --no-open
 //
-// It prints a sign-in link for the preview persona, "Preview Researcher": a
+// It opens the sandbox's start page (http://localhost:8098), which signs in as
+// the preview persona, links to every feature and has the made-up files to try
+// them with. The preview persona, "Preview Researcher", is a
 // workspace member with the Researcher agent tier, granted by this sandbox's
 // server (its default tier for new people), as a real owner would grant it.
-// That persona can reach every Servant UX feature in the pilot build: the
+// That persona can reach every Servant Studio feature in the pilot build: the
 // start page and onboarding, Research Studio (study plans, prototypes from
 // research findings, saved forms, working drafts), Design Studio (new designs,
 // previews, Adjust design, versions, duplicate, share for review), and
 // reviewing a teammate's design from its thread. The research pilot hold is on,
 // as in the pilot build.
 //
-// Press Enter for a new sign-in link (for the next participant: sign out first,
-// or use a private window). Ctrl+C stops it and deletes everything.
+// "Sign in as Preview Researcher" on the start page works any number of times
+// (each time as a new Preview Researcher); in the terminal, Enter prints a new
+// sign-in link. Ctrl+C stops it and deletes everything.
 import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
@@ -30,14 +33,16 @@ const args = process.argv.slice(2);
 const option = (name, fallback) => { const at = args.indexOf(`--${name}`); return at >= 0 && args[at + 1] ? args[at + 1] : fallback; };
 const port = Number(option("port", 8790));
 const appPort = Number(option("app-port", 8099));
+const startPort = Number(option("start-port", 8098));
 const withApp = !args.includes("--no-app");
+const openStart = !args.includes("--no-open");
 const base = `http://127.0.0.1:${port}`;
 const appUrl = `http://localhost:${appPort}`;
 
 // Both ports must be free before anything starts.
-for (const [what, number] of [["sandbox server", port], ...(withApp ? [["app", appPort]] : [])]) {
+for (const [what, number] of [["sandbox server", port], ["start page", startPort], ...(withApp ? [["app", appPort]] : [])]) {
   const free = await new Promise(resolve => { const probe = net.createServer().once("error", () => resolve(false)).listen(number, "127.0.0.1", () => probe.close(() => resolve(true))); });
-  if (!free) { console.error(`Port ${number} for the ${what} is in use. Stop whatever is using it, or choose another with --${what === "app" ? "app-port" : "port"}.`); process.exit(1); }
+  if (!free) { console.error(`Port ${number} for the ${what} is in use. If an earlier sandbox is still running, stop it with Ctrl+C in its window. Or choose another port with --${what === "app" ? "app-port" : what === "start page" ? "start-port" : "port"}.`); process.exit(1); }
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -317,7 +322,8 @@ const signInLink = () => {
 
 let app = null;
 if (withApp) {
-  app = spawn("npx", ["expo", "start", "--web", "--port", String(appPort)], { cwd: appDir, env: { ...process.env, BROWSER: "none" }, stdio: "ignore", detached: true });
+  // --clear: the app name and other settings from app.config.js are baked into the bundle cache.
+  app = spawn("npx", ["expo", "start", "--web", "--clear", "--port", String(appPort)], { cwd: appDir, env: { ...process.env, BROWSER: "none" }, stdio: "ignore", detached: true });
   process.stdout.write(`Starting the app at ${appUrl}…`);
   for (let i = 0; i < 180; i++) {
     try { if ((await fetch(appUrl)).ok) break; } catch { /* starting */ }
@@ -326,19 +332,99 @@ if (withApp) {
   process.stdout.write(" ready.\n");
 }
 
+// ---------- The start page: sign in, every feature, the made-up files ----------
+
+const startUrl = `http://localhost:${startPort}`;
+const fixturesDir = path.join(appDir, "src", "lib", "fixtures");
+// Only the made-up files in fixtures/ are offered, by name.
+const SAMPLE_FILES = [
+  ["research-studio-demo-ab.json", "The study (Civic Research Studio JSON)", "application/json"],
+  ["qualtrics-survey2-SYNTHETIC.csv", "Follow-up survey export (Survey 2)", "text/csv"],
+  ["qualtrics-survey1-SYNTHETIC.csv", "Intake survey export (Survey 1)", "text/csv"],
+  ["qualtrics-embedded-SYNTHETIC.csv", "Follow-up survey with Research Studio inside: ratings and comments", "text/csv"],
+];
+const FEATURES = [
+  { title: "Start page and onboarding", where: "/start", what: "Signing in shows the terms, then onboarding (role and goals), then starting points." },
+  { title: "Research Studio", where: "/research", what: "Study plans, saved forms (Continue where you left off) and study readouts." },
+  { title: "Build a study plan", where: "/research-new?kind=study", what: "Add what the research found, create a prototype from it, add study activities and save a working draft for Civic Research Studio." },
+  { title: "Write a study readout", where: "/readout", what: "Choose the study and an export from the made-up files below: charts, ratings, comments coded into themes and reviewed quotes, then a Word document or PDF." },
+  { title: "Design Studio", where: "/designs", what: "New designs, the preview, Adjust design, versions, rename, duplicate, archive and share for review." },
+  { title: "Review a teammate's design", where: general ? `/c/${general.id}` : "/channels", what: "The Balance due page review in #general: open the preview and suggest adjustments." },
+  { title: "Agent", where: "/agent", what: "Chats with the stand-in agents, and the Servant Studio shortcuts." },
+  { title: "Research preview", where: "/research-preview", what: "The local, no-data preview of the research and prototype interactions." },
+];
+const TASKS = [
+  "Sign in, then choose a role and goals during onboarding.",
+  "In Research Studio, start a study plan. Add what the research found (try a number, a quote or \"Form 1040\"), then create a prototype workspace and send the prompt.",
+  "Pick one or two directions for the agent to build, and open the preview.",
+  "Leave the study plan part-way, then find your way back to it.",
+  "Adjust the design (change the heading's text), add the request to the design chat and send it. Then look at the design's versions.",
+  "In #general, open the Balance due page review and suggest an adjustment.",
+  "Back in the study plan, add a study activity and save the working draft.",
+  "Write a study readout from the study and its two exports. Write the summary, then save it as a Word document and as a PDF.",
+  "Write another readout from the study and the export with Research Studio inside: look at the ratings, give a few comments themes, and quote one.",
+];
+const startPage = () => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Servant feedback sandbox</title>
+<style>
+:root{color-scheme:light dark;--ink:#1b1b1b;--muted:#5c6670;--line:#d6dbe0;--surface:#f4f6f8;--blue:#0b5cad;--bg:#fff}
+@media (prefers-color-scheme:dark){:root{--ink:#eef1f4;--muted:#a3adb7;--line:#3a424a;--surface:#1e2328;--blue:#6fb0ff;--bg:#121619}}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:760px;margin:0 auto;padding:24px 16px 48px}h1{font-size:26px;margin:0 0 4px}h2{font-size:19px;margin:32px 0 8px}p{margin:6px 0}
+.muted{color:var(--muted);font-size:14px}.card{background:var(--surface);border-radius:12px;padding:16px;margin:12px 0}
+.button{display:inline-block;background:var(--blue);color:#fff;text-decoration:none;font-weight:600;padding:12px 18px;border-radius:10px;margin:8px 0}
+@media (prefers-color-scheme:dark){.button{color:#0b1622}}
+ul.features{list-style:none;padding:0;margin:0}ul.features li{border-top:1px solid var(--line);padding:12px 0}ul.features a{font-weight:600;color:var(--blue)}
+ol li{margin:6px 0}a{color:var(--blue)}a:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+</style></head><body><main>
+<h1>Servant feedback sandbox</h1>
+<p class="muted">Made-up people, data and designs, with stand-in agents that never call a model. It runs only on this Mac and is deleted when the sandbox stops.</p>
+<div class="card">
+<h2 style="margin-top:0">1. Sign in as the master test persona</h2>
+<p><strong>Preview Researcher</strong> has the Researcher agent tier, which reaches every Servant Studio feature. The sandbox's server grants it, as a workspace owner would.</p>
+<a class="button" href="/sign-in">Sign in as Preview Researcher</a>
+<p class="muted">Works every time; each sign-in is a fresh Preview Researcher. Agree to the terms, then go through onboarding. Already signed in? Use the links below. For a clean start, sign out (You, then Sign out) or use a private window.</p>
+</div>
+<h2>2. Open a feature</h2>
+<p class="muted">After signing in, these open in the same browser.</p>
+<ul class="features">${FEATURES.map(f => `<li><a href="${escape(appUrl + f.where)}">${escape(f.title)}</a><p>${escape(f.what)}</p></li>`).join("")}</ul>
+<h2>3. Made-up files for study readouts</h2>
+<p class="muted">Download these, then choose them in Write a study readout. Nobody took part in these studies.</p>
+<ul>${SAMPLE_FILES.map(([name, label]) => `<li><a href="/files/${escape(name)}" download>${escape(label)}</a> <span class="muted">${escape(name)}</span></li>`).join("")}</ul>
+<h2>4. Tasks to try</h2>
+<ol>${TASKS.map(t => `<li>${escape(t)}</li>`).join("")}</ol>
+<p class="muted">The teammates (Olive Owner, Dev Designer, Rhea Researcher) are made up. Research Hub and the Researcher Agent's design guidance are on hold, as in the pilot build.</p>
+</main></body></html>`;
+const start = http.createServer((req, res) => {
+  const url = new URL(req.url || "/", startUrl);
+  if (req.method !== "GET") { res.writeHead(405).end(); return; }
+  if (url.pathname === "/") { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }).end(startPage()); return; }
+  if (url.pathname === "/sign-in") { res.writeHead(302, { Location: signInLink(), "Cache-Control": "no-store" }).end(); return; }
+  const file = SAMPLE_FILES.find(([name]) => url.pathname === `/files/${name}`);
+  if (file) {
+    res.writeHead(200, { "Content-Type": `${file[2]}; charset=utf-8`, "Content-Disposition": `attachment; filename="${file[0]}"` });
+    fs.createReadStream(path.join(fixturesDir, file[0])).pipe(res);
+    return;
+  }
+  res.writeHead(404, { "Content-Type": "text/plain" }).end("Not found");
+});
+await new Promise(resolve => start.listen(startPort, "127.0.0.1", resolve));
+
 const show = () => {
   console.log(`
 Feedback sandbox is running (made-up data, stand-in agents, this Mac only).
 
-Sign in as the preview persona, Preview Researcher (Researcher access):
+Start here (sign in as the test persona, open every feature, get the made-up files):
+  ${startUrl}
+
+Or sign in straight away as Preview Researcher (this link works once; press Enter for another):
   ${signInLink()}
 
-Each link works once. Press Enter for a new one (for the next participant,
-sign out first or use a private window). Ctrl+C stops the sandbox and deletes
-everything in it.
+Ctrl+C stops the sandbox and deletes everything in it.
 `);
 };
 show();
+// Open the start page in the default browser on a Mac.
+if (openStart && process.platform === "darwin") spawn("open", [startUrl], { stdio: "ignore", detached: true }).unref();
 
 let stopping = false;
 const stop = () => {

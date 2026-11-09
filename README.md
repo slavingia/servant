@@ -8,7 +8,8 @@ Status: open source under CC0. Early software: expect rough edges, and read [SEC
 
 ## UX client flavor
 
-This checkout defaults to a separately installable **Servant UX** client while
+This checkout defaults to a separately installable **Servant UX** client (people
+see it as Servant; its UX features are grouped as Servant Studio) while
 keeping the encrypted Servant server protocol unchanged. It can pair with an
 existing Servant server, and the mobile and Mac clients can paste ordinary
 `servant://pair` invites; the mobile client can scan their QR codes too. Its own

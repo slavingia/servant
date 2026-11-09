@@ -13,6 +13,7 @@ import { refreshProjects, useProjects } from "../../lib/projects-store";
 import { api, ServerError, type Chat } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { useLive } from "../../lib/live";
+import { studioName } from "../../lib/app-identity";
 import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 import { activeAgentTurn, agentTurnLabel, liveAgentLine } from '../../lib/agent-turns';
 import { LiveStatus } from "../../components/LiveStatus";
@@ -182,9 +183,10 @@ export default function Chats() {
             </View>
             {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
             {actionError && !deleting ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
+            <Text accessibilityRole="header" style={styles.studioLabel}>{studioName}</Text>
             <Pressable accessibilityRole="button" accessibilityLabel="Open Design Studio" accessibilityHint={designStudioDescription} onPress={() => router.push("/designs")}
               style={({ pressed }) => [styles.designStudio, pressed && { opacity: 0.75 }]}>
-              <View style={styles.designStudioIcon}><AppIcon name="code" size={20} color={colors.blueDark} /></View>
+              <View style={styles.designStudioIcon}><AppIcon name="brush" size={20} color={colors.blueDark} /></View>
               <View style={styles.designStudioCopy}>
                 <Text style={styles.designStudioTitle}>Design Studio</Text>
                 <Text style={styles.designStudioBody}>{designStudioDescription}</Text>
@@ -193,7 +195,7 @@ export default function Chats() {
             </Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel="Open Research Studio" accessibilityHint={researchStudioDescription} onPress={() => router.push("/research")}
               style={({ pressed }) => [styles.designStudio, pressed && { opacity: 0.75 }]}>
-              <View style={styles.designStudioIcon}><AppIcon name="search" size={20} color={colors.blueDark} /></View>
+              <View style={styles.designStudioIcon}><AppIcon name="research" size={20} color={colors.blueDark} /></View>
               <View style={styles.designStudioCopy}>
                 <Text style={styles.designStudioTitle}>Research Studio</Text>
                 <Text style={styles.designStudioBody}>{researchStudioDescription}</Text>
@@ -251,7 +253,7 @@ export default function Chats() {
                   onAccessibilityAction={bind.onAccessibilityAction}
                   style={({ pressed }) => [styles.row, bind.trailing ? styles.rowWithTrailing : null, pressed && { backgroundColor: colors.surface }]}
                 >
-                  <View style={styles.agentIcon}><AppIcon name={item.mode === "vibe" ? "code" : "sparkles"} size={19} color={colors.blueDark} /></View>
+                  <View style={styles.agentIcon}><AppIcon name={item.mode === "vibe" ? "brush" : "sparkles"} size={19} color={colors.blueDark} /></View>
                   <View style={styles.rowCopy}>
                     <View style={styles.rowTop}>
                       <Text style={[styles.rowTitle, styles.readTitle, unread > 0 && styles.unreadTitle]} numberOfLines={1}>{title}</Text>
@@ -317,6 +319,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   header: { minHeight: 60, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.xs },
   title: { ...typography.title, color: colors.ink, flexShrink: 1 },
   compose: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
+  studioLabel: { ...typography.label, color: colors.muted, marginHorizontal: space.side, marginBottom: space.xs },
   designStudio: { marginHorizontal: space.side, marginBottom: space.sm, minHeight: 64, padding: space.sm, flexDirection: "row", alignItems: "center", gap: space.sm, borderRadius: radius.lg, backgroundColor: colors.blueSoft },
   designStudioIcon: { width: 38, height: 38, borderRadius: radius.md, alignItems: "center", justifyContent: "center", backgroundColor: colors.background },
   designStudioCopy: { flex: 1, minWidth: 0 },

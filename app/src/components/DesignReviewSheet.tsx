@@ -93,7 +93,7 @@ export function DesignReviewSheet({ design, onClose }: { design: Chat; onClose: 
 
           <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer} keyboardShouldPersistTaps="handled">
             <View style={styles.summary}>
-              <View style={styles.designIcon}><AppIcon name="code" size={18} color={colors.blueDark} /></View>
+              <View style={styles.designIcon}><AppIcon name="brush" size={18} color={colors.blueDark} /></View>
               <View style={styles.summaryCopy}>
                 <Text style={styles.designTitle} numberOfLines={1}>{designTitle(design)}</Text>
                 <Text style={styles.meta}>{designStatus(design)} · {designPreviewPublished(design) ? "Preview link included" : "Not published yet"}</Text>

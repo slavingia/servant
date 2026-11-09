@@ -238,7 +238,7 @@ print(value)
   assert.ok(restored.token === linked.token, 'Restart must restore the existing Mac device');
   await desktop.page.goto('servant-ux-app://app/you');
   await desktop.page.getByRole('button', { name: 'Sign out', exact: true }).click();
-  await desktop.page.getByText('Sign out of Servant UX?', { exact: true }).waitFor();
+  await desktop.page.getByText('Sign out of Servant?', { exact: true }).waitFor();
   await desktop.page.getByRole('button', { name: 'Sign out', exact: true }).last().click();
   await desktop.page.waitForURL('**/welcome');
   assert.equal(await desktop.page.evaluate(() => window.servantDesktop.storage.getItem('servant.account')), null);

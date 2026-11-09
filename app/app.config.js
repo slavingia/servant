@@ -12,7 +12,10 @@ const FLAVORS = {
     nativePushConfigured: true,
   },
   ux: {
-    name: "Servant UX",
+    // People see the app as Servant. The slug, scheme and bundle IDs stay
+    // servant-ux so this client installs beside upstream Servant, and installed
+    // copies update in place and keep their sign-ins.
+    name: "Servant",
     slug: "servant-ux",
     scheme: "servant-ux",
     iosBundleIdentifier: "gov.irs.servant.ux",

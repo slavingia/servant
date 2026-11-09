@@ -265,7 +265,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   sidebarTrigger: { minHeight: 34, paddingLeft: space.sm, paddingRight: 6, flexDirection: "row", alignItems: "center", gap: space.xs, borderRadius: radius.pill, backgroundColor: "rgba(255,255,255,0.18)" },
   sidebarTriggerHovered: { backgroundColor: "rgba(255,255,255,0.26)" },
   sidebarPlaceholder: { ...typography.caption, color: colors.onBrand, flex: 1 },
-  sidebarShortcut: { ...typography.meta, color: colors.onBrand, paddingHorizontal: 7, paddingVertical: 1, borderRadius: radius.pill, backgroundColor: "rgba(255,255,255,0.24)", overflow: "hidden" },
+  // A darker pill: white text on a lighter one fell short of 4.5:1 contrast.
+  sidebarShortcut: { ...typography.meta, color: colors.onBrand, paddingHorizontal: 7, paddingVertical: 1, borderRadius: radius.pill, backgroundColor: "rgba(0,0,0,0.25)", overflow: "hidden" },
   modalRoot: { flex: 1 },
   overlay: { flex: 1, paddingHorizontal: space.sm, alignItems: "center", backgroundColor: "rgba(20,30,45,0.45)" },
   mobileOverlay: { paddingHorizontal: 0, backgroundColor: colors.background },

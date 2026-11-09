@@ -847,7 +847,7 @@ export default function NewResearchWork() {
         {prototypeMode === "new" ? <View style={styles.prototypeDetail}>
           {createdPrototype ? <>
             <View style={styles.selectedPrototype}>
-              <View style={styles.selectedPrototypeIcon}><AppIcon name="code" size={19} color={colors.blueDark} /></View>
+              <View style={styles.selectedPrototypeIcon}><AppIcon name="brush" size={19} color={colors.blueDark} /></View>
               <View style={styles.selectedPrototypeCopy}>
                 <Text style={styles.selectedPrototypeTitle} numberOfLines={2}>{designTitle(createdPrototype)}</Text>
                 <Text style={styles.selectedPrototypeMeta} numberOfLines={1}>{designStatus(createdPrototype)} · Prototype agent</Text>
@@ -901,7 +901,7 @@ export default function NewResearchWork() {
           </>}
         </View> : prototypeMode === "existing" ? <View style={styles.prototypeDetail}>
           {selectedPrototype ? <View style={styles.selectedPrototype}>
-            <View style={styles.selectedPrototypeIcon}><AppIcon name="code" size={19} color={colors.blueDark} /></View>
+            <View style={styles.selectedPrototypeIcon}><AppIcon name="brush" size={19} color={colors.blueDark} /></View>
             <View style={styles.selectedPrototypeCopy}>
               <Text style={styles.selectedPrototypeTitle} numberOfLines={2}>{designTitle(selectedPrototype)}</Text>
               <Text style={styles.selectedPrototypeMeta} numberOfLines={1}>{designStatus(selectedPrototype)} · {selectedPrototype.author?.name || "Your prototype"}</Text>
@@ -1124,7 +1124,7 @@ function ExistingPrototypePicker({ selected, onUnavailable, onApply, onClose }: 
               <Text accessibilityRole="alert" style={styles.pickerError}>{loadError}</Text>
               <Button label="Try again" kind="secondary" compact onPress={() => setLoadAttempt(value => value + 1)} style={styles.pickerRetry} />
             </View> : !designs?.length ? <View style={styles.pickerEmpty}>
-              <View style={styles.prototypeEmptyIcon}><AppIcon name="code" size={24} color={colors.blueDark} /></View>
+              <View style={styles.prototypeEmptyIcon}><AppIcon name="brush" size={24} color={colors.blueDark} /></View>
               <Text style={styles.pickerEmptyText}>No published prototypes are available. Choose “Create a new prototype” to open a prototype-agent workspace for this study.</Text>
             </View> : <View {...pickerRadios.group}>
               {designs.map((design, index) => {
@@ -1133,7 +1133,7 @@ function ExistingPrototypePicker({ selected, onUnavailable, onApply, onClose }: 
               return <Pressable key={design.id} {...pickerRadios.radio(design.id, index)}
                 accessibilityLabel={`${designTitle(design)}. Published${author}. Live preview available.`}
                 style={({ pressed }) => [styles.prototypePickerRow, checked && styles.pickerRowSelected, pressed && styles.pickerRowPressed]}>
-                <View style={styles.selectedPrototypeIcon}><AppIcon name="code" size={19} color={colors.blueDark} /></View>
+                <View style={styles.selectedPrototypeIcon}><AppIcon name="brush" size={19} color={colors.blueDark} /></View>
                 <View style={styles.pickerRowCopy}>
                   <Text style={styles.pickerRowTitle}>{designTitle(design)}</Text>
                   <Text style={styles.pickerRowMeta}>Published{author}</Text>

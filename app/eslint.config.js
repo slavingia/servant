@@ -5,7 +5,8 @@ const expoConfig = require('eslint-config-expo/flat');
 module.exports = defineConfig([
   expoConfig,
   {
-    ignores: ['dist/*'],
+    // Copied unchanged from Civic Research Studio (see its README).
+    ignores: ['dist/*', 'src/lib/research-studio-vendor/*'],
   },
   {
     rules: {
