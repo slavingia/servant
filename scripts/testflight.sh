@@ -76,6 +76,9 @@ case "$(command -v pod)" in /opt/homebrew/*) CLEAN=(env -u GEM_HOME -u GEM_PATH)
 # CURRENT_PROJECT_VERSION and must match the app's. Manual: both profiles need the App Groups
 # capability. Automatic: Xcode registers both App IDs and the group through the API key.
 if [ -n "${SERVANT_RUBY:-}" ]; then RUBY=$SERVANT_RUBY; RUBY_GEM_HOME=${GEM_HOME:-}
+# Homebrew's ruby with xcodeproj installed in its own gems: run it with no GEM_* at all.
+# Pointing GEM_PATH at cocoapods' libexec hides ruby's bundled rexml and xcodeproj fails to load.
+elif [ -x /opt/homebrew/opt/ruby/bin/ruby ] && env -u GEM_HOME -u GEM_PATH /opt/homebrew/opt/ruby/bin/ruby -rxcodeproj -e 1 2>/dev/null; then RUBY=/opt/homebrew/opt/ruby/bin/ruby; RUBY_GEM_HOME=; CLEAN=(env -u GEM_HOME -u GEM_PATH)
 elif [ -x /opt/homebrew/opt/ruby/bin/ruby ] && [ -d /opt/homebrew/opt/cocoapods/libexec ]; then RUBY=/opt/homebrew/opt/ruby/bin/ruby; RUBY_GEM_HOME=/opt/homebrew/opt/cocoapods/libexec
 else RUBY=ruby; RUBY_GEM_HOME=${GEM_HOME:-}; fi
 "${CLEAN[@]}" ${RUBY_GEM_HOME:+GEM_HOME=$RUBY_GEM_HOME} ${RUBY_GEM_HOME:+GEM_PATH=$RUBY_GEM_HOME} SIGNING="$SIGNING" TEAM_ID="$TEAM_ID" APP_PROFILE="$APP_PROFILE" SHARE_PROFILE="$SHARE_PROFILE" BUILD="$BUILD" "$RUBY" -rxcodeproj -e 'p=Xcodeproj::Project.open("ios/Servant.xcodeproj"); sign=lambda{|name,profile,extra| t=p.targets.find{|x|x.name==name} or abort("no target #{name}"); t.build_configurations.each{|c| c.build_settings.merge!((ENV["SIGNING"]=="automatic" ? {"CODE_SIGN_STYLE"=>"Automatic","DEVELOPMENT_TEAM"=>ENV["TEAM_ID"],"PROVISIONING_PROFILE_SPECIFIER"=>""} : {"CODE_SIGN_STYLE"=>"Manual","DEVELOPMENT_TEAM"=>ENV["TEAM_ID"],"PROVISIONING_PROFILE_SPECIFIER"=>profile,"CODE_SIGN_IDENTITY"=>"Apple Distribution"}).merge(extra))}}; sign.("Servant",ENV["APP_PROFILE"],{}); sign.("expo-sharing-extension",ENV["SHARE_PROFILE"],{"CURRENT_PROJECT_VERSION"=>ENV["BUILD"]}); p.save'
