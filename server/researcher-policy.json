@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "allowedToolsets": [
+    "servant_researcher"
+  ],
+  "deniedToolCategories": [
+    "terminal, process and shell (so no gh, no git, no GitHub CLI or API)",
+    "local file reads, writes, searches and patches",
+    "browser and computer control",
+    "code execution, delegation and MCP",
+    "built-in and external persistent memory",
+    "search of other sessions",
+    "scheduled jobs and background review",
+    "outbound messages and connected-service actions",
+    "local media file resolution"
+  ],
+  "blockedWebDomains": [
+    "github.com",
+    "*.github.com",
+    "githubusercontent.com",
+    "*.githubusercontent.com",
+    "github.io",
+    "*.github.io",
+    "githubassets.com",
+    "*.githubassets.com",
+    "ghcr.io",
+    "gist.github.com",
+    "*.github.example.gov",
+    "github.example.gov"
+  ],
+  "toolset": "servant_researcher",
+  "allowedTools": [
+    "web_search",
+    "web_extract",
+    "vision_analyze",
+    "skills_list",
+    "skill_view",
+    "todo",
+    "clarify"
+  ]
+}

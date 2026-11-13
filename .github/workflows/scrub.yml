@@ -1,0 +1,19 @@
+name: Scrub check
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scrub:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: No organization names, people, internal links or personal paths
+        run: bash scripts/scrub-check.sh

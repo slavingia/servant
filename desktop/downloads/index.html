@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Download Servant for Mac.">
+  <meta name="theme-color" content="#112e51">
+  <title>Servant for Mac</title>
+  <style>
+    :root { color-scheme: light; --navy: #112e51; --blue: #0071bc; --ink: #192b3e; --muted: #526477; --line: #d9e2eb; --paper: #f4f7fa; }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--ink); background: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: var(--blue); text-underline-offset: .2em; }
+    a:focus-visible { outline: 3px solid #eba64a; outline-offset: 5px; }
+    .wrap { max-width: 840px; margin: auto; padding: 0 32px; }
+    header { border-top: 5px solid var(--blue); border-bottom: 1px solid var(--line); }
+    .top { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+    .brand { color: var(--navy); display: flex; align-items: center; gap: 12px; font-weight: 750; font-size: 23px; letter-spacing: -.7px; }
+    .brandmark { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; background: var(--navy); color: white; font-size: 23px; font-weight: 650; }
+    main.wrap { padding-top: 48px; }
+    h1 { margin: 0; color: var(--navy); font-size: clamp(38px, 5.2vw, 60px); font-weight: 750; letter-spacing: -2.8px; line-height: 1.06; }
+    .downloads { display: grid; gap: 10px; margin-top: 28px; }
+    .download { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 63px; padding: 14px 18px; border: 1px solid var(--navy); border-radius: 10px; background: var(--navy); color: white; text-decoration: none; font-size: 15px; font-weight: 650; transition: background .15s; }
+    .download:hover { background: #1b426e; }
+    .download.secondary { background: white; border-color: var(--line); color: var(--navy); }
+    .download.secondary:hover { background: var(--paper); }
+    .download small { display: block; margin-top: 4px; opacity: .8; font-size: 12px; font-weight: 400; }
+    .arrow { font-size: 23px; line-height: 1; }
+    .system { color: var(--muted); margin: 15px 0 0; font-size: 12px; line-height: 1.7; }
+    .notice { margin: 40px 0 0; padding: 18px 20px; border: 1px solid #e5d1a8; border-radius: 10px; background: #fffaf0; color: #70521e; font-size: 14px; line-height: 1.65; }
+    .notice strong { display: block; margin-bottom: 2px; }
+    .setup { margin-top: 68px; padding-top: 38px; border-top: 1px solid var(--line); }
+    h2 { margin: 0; color: var(--navy); font-size: 28px; letter-spacing: -.7px; }
+    .steps { list-style: none; padding: 0; margin: 27px 0 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; }
+    .step-number { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: #e9f2f9; color: var(--blue); font-size: 13px; font-weight: 750; }
+    h3 { margin: 16px 0 8px; font-size: 16px; color: var(--navy); }
+    .steps p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.75; }
+    .help { margin: 34px 0 0; padding: 18px 20px; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); background: var(--paper); font-size: 13px; line-height: 1.7; }
+    .help strong { color: var(--ink); }
+    footer { margin-top: 64px; padding: 25px 0 30px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.8; }
+    .footer-row { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px 28px; }
+    footer p { margin: 9px 0 0; }
+    @media (max-width: 680px) { .wrap { padding: 0 24px; } main.wrap { padding-top: 32px; } .steps { grid-template-columns: 1fr; gap: 26px; } .steps li { display: grid; grid-template-columns: 32px 1fr; column-gap: 15px; } .steps h3 { margin: 5px 0 8px; } .steps p { grid-column: 2; } .setup { margin-top: 42px; padding-top: 28px; } .notice { margin-top: 27px; } h1 { font-size: 42px; letter-spacing: -1.5px; } footer { margin-top: 44px; } }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap top">
+      <div class="brand"><span class="brandmark" aria-hidden="true">S</span>Servant</div>
+    </div>
+  </header>
+  <main class="wrap">
+    <section class="hero" aria-labelledby="title">
+      <div>
+        <h1 id="title">Download for Mac</h1>
+        <div class="downloads">
+          <a class="download" href="https://github.com/slavingia/servant-desktop-releases/releases/download/v1.0.8-preview.1/Servant-1.0.8-arm64.dmg" download><span>Download for Apple silicon<small>Macs with an M-series chip</small></span><span class="arrow" aria-hidden="true">↓</span></a>
+          <a class="download secondary" href="https://github.com/slavingia/servant-desktop-releases/releases/download/v1.0.8-preview.1/Servant-1.0.8-x64.dmg" download><span>Download for Intel<small>Macs with an Intel processor</small></span><span class="arrow" aria-hidden="true">↓</span></a>
+        </div>
+        <p class="system">Version 1.0.8 · macOS 13 Ventura or later<br>Not sure which Mac you have? Choose Apple menu → About This Mac.</p>
+      </div>
+    </section>
+
+    <!-- Release owner: update only after verifying the final downloaded artifacts. -->
+    <aside class="notice" aria-label="Preview release status">
+      <strong>Preview release — not signed or notarized by Apple.</strong>
+      macOS may prevent this preview from opening.
+      See <a href="https://support.apple.com/en-us/102445">Apple’s instructions for opening an app from an unidentified developer</a>. Managed Macs may require your IT administrator.
+    </aside>
+
+    <aside class="notice" style="margin-top: 12px" aria-label="Updating from an earlier version">
+      <strong>Updating from 1.0.0 or 1.0.1</strong>
+      Replace Servant in Applications. Automatic updates are available from version 1.0.2.
+    </aside>
+
+    <section class="setup" aria-labelledby="setup-title">
+      <h2 id="setup-title">Install and sign in</h2>
+      <ol class="steps">
+        <li><span class="step-number" aria-hidden="true">1</span><h3>Install Servant on your Mac</h3><p>Download the version for your Mac, open the disk image, and drag Servant to Applications. Open Servant to see your sign-in code.</p></li>
+        <li><span class="step-number" aria-hidden="true">2</span><h3>Update your phone app</h3><p>Install Servant build 25 or later through your existing TestFlight, Firebase App Distribution, or Google Play testing access. Sign in on your phone first.</p></li>
+        <li><span class="step-number" aria-hidden="true">3</span><h3>Scan and confirm</h3><p>On your phone, open <strong>You → Link a computer</strong>. Scan the QR code on your Mac, check that the numbers match, and approve sign-in.</p></li>
+      </ol>
+      <p class="help"><strong>Only approve a Mac you’re signing in to.</strong> If the code expires, generate a new one in the Mac app. If “Link a computer” is missing, check your phone’s build number and update the app.</p>
+    </section>
+  </main>
+  <footer>
+    <div class="wrap">
+      <div class="footer-row"><span>Servant for Mac · Version 1.0.8</span><a href="SHA256SUMS">Download checksums</a></div>
+      <p>For non-sensitive work only. Don’t share sensitive or personal information until your organization approves Servant for it.</p>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,86 @@
+{
+  "before": {
+    "side": "before",
+    "commit": "0896b83cba7aa6598ae329983228221b96b90fdd",
+    "captures": [
+      {
+        "file": "before/send-desktop.png",
+        "commit": "0896b83cba7aa6598ae329983228221b96b90fdd",
+        "route": "/c/[id]",
+        "viewport": "desktop",
+        "meaning": "Pressing Send stops at a question; the message has not gone",
+        "sha256": "0dc7aa5afb53322eb293c576cb227c84b7571ed13f9b4e9147573914c2c8d46c"
+      },
+      {
+        "file": "before/send-phone.png",
+        "commit": "0896b83cba7aa6598ae329983228221b96b90fdd",
+        "route": "/c/[id]",
+        "viewport": "phone",
+        "meaning": "Pressing Send stops at a question; the message has not gone",
+        "sha256": "d1cdab274eed3e00807401894964201a944d685a6341d32ff7c740984c2acc03"
+      }
+    ]
+  },
+  "after": {
+    "side": "after",
+    "commit": "defb31c055627b16a4e60c135eb7463133af6634",
+    "captures": [
+      {
+        "file": "after/send-desktop.png",
+        "commit": "defb31c055627b16a4e60c135eb7463133af6634",
+        "route": "/c/[id]",
+        "viewport": "desktop",
+        "meaning": "Pressing Send sends: the message is in the channel as written, with no question",
+        "sha256": "200d588a70df53caa97a1ec2fcb7366ea2c9c32042e8937493e2cd0b16127fb9"
+      },
+      {
+        "file": "after/guess-desktop.png",
+        "commit": "defb31c055627b16a4e60c135eb7463133af6634",
+        "route": "/wiki?page=abbreviations",
+        "viewport": "desktop",
+        "meaning": "Abbreviations: Agent's guess, marked as one, with Keep, Edit and Delete",
+        "sha256": "96922be72b1b9b913f621ee4ad9a4944679b7085090680c7a2874a1ba441677f"
+      },
+      {
+        "file": "after/todo-desktop.png",
+        "commit": "defb31c055627b16a4e60c135eb7463133af6634",
+        "route": "/todos",
+        "viewport": "desktop",
+        "meaning": "To-dos: the sender's to-do to check the guess",
+        "sha256": "f3255fb6065f1783f2aafe0b953a656c225abdb3e49dbc7bf24f873b1465c63b"
+      },
+      {
+        "file": "after/kept-desktop.png",
+        "commit": "defb31c055627b16a4e60c135eb7463133af6634",
+        "route": "/wiki?page=abbreviations",
+        "viewport": "desktop",
+        "meaning": "After Keep: an entry like any other",
+        "sha256": "b130e08f05c974a7807b4b94cf75f4ed81cc5f676e27cd055a2ed84a8fe5db33"
+      },
+      {
+        "file": "after/send-phone.png",
+        "commit": "defb31c055627b16a4e60c135eb7463133af6634",
+        "route": "/c/[id]",
+        "viewport": "phone",
+        "meaning": "Pressing Send sends: the message is in the channel as written, with no question",
+        "sha256": "2fa15d9967f67c8ac7c4471125e49d1ec80c23777da955d287adede1451d2a0d"
+      },
+      {
+        "file": "after/guess-phone.png",
+        "commit": "defb31c055627b16a4e60c135eb7463133af6634",
+        "route": "/wiki?page=abbreviations",
+        "viewport": "phone",
+        "meaning": "Abbreviations: Agent's guess, marked as one, with Keep, Edit and Delete",
+        "sha256": "c2d4d5cae9bcdada574be527dfcd014eccdeb9d83e21fe8dc9b53a6f0a458550"
+      },
+      {
+        "file": "after/todo-phone.png",
+        "commit": "defb31c055627b16a4e60c135eb7463133af6634",
+        "route": "/todos",
+        "viewport": "phone",
+        "meaning": "To-dos: the sender's to-do to check the guess",
+        "sha256": "29c94abc2cbe79f521361077b6c579c87e48feb09ea041e4aed13e8b541f4c5a"
+      }
+    ]
+  }
+}

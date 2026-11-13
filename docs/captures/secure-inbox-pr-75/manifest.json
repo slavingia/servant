@@ -1,0 +1,175 @@
+{
+  "purpose": "Actual PR base versus PR head; no mockups or image edits.",
+  "fixture": "Fresh isolated servers with synthetic Pat Tester, Jo Park and Ana Ruiz; visitor@example.gov; synthetic message and file content.",
+  "locale": "en-US",
+  "timezone": "America/New_York",
+  "colorScheme": "light",
+  "deviceScaleFactor": 1,
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 900
+    },
+    "phone": {
+      "width": 390,
+      "height": 844
+    }
+  },
+  "versions": {
+    "before": {
+      "commit": "1ff5f04f1748eb7e09a51f077b9e6b5ea58ddb85",
+      "expo": "~58.0.21"
+    },
+    "after": {
+      "commit": "6c8d6be3efef46595e488378bc1fba8b62ac0394",
+      "expo": "~58.0.21"
+    }
+  },
+  "captures": [
+    {
+      "file": "before/team-workspace-desktop.png",
+      "commit": "1ff5f04f1748eb7e09a51f077b9e6b5ea58ddb85",
+      "route": "/messages",
+      "viewport": "desktop",
+      "httpStatus": 200,
+      "meaning": "Existing internal Direct messages workspace; the Cases feature does not exist at the PR base.",
+      "capturedAt": "2026-11-12T04:14:53.742Z",
+      "sha256": "05845650e1ac2ae4de90951c3758de1d6061fcd760b2dce3094dc05f0129662c"
+    },
+    {
+      "file": "before/public-entry-desktop.png",
+      "commit": "1ff5f04f1748eb7e09a51f077b9e6b5ea58ddb85",
+      "route": "/contact",
+      "viewport": "desktop",
+      "httpStatus": 404,
+      "meaning": "Actual server HTTP404: no public conversation entry exists at the PR base.",
+      "capturedAt": "2026-11-12T04:14:54.016Z",
+      "sha256": "09c222dd4afe06b859fd72a1ee5fb4a4616ad1e7877fe3fdd2bbd6ea22023258"
+    },
+    {
+      "file": "before/team-workspace-phone.png",
+      "commit": "1ff5f04f1748eb7e09a51f077b9e6b5ea58ddb85",
+      "route": "/messages",
+      "viewport": "phone",
+      "httpStatus": 200,
+      "meaning": "Existing internal Direct messages workspace; the Cases feature does not exist at the PR base.",
+      "capturedAt": "2026-11-12T04:14:55.116Z",
+      "sha256": "01260663beb41fd4b410a7d924b7da740228e61834befe288b733503d733960f"
+    },
+    {
+      "file": "before/public-entry-phone.png",
+      "commit": "1ff5f04f1748eb7e09a51f077b9e6b5ea58ddb85",
+      "route": "/contact",
+      "viewport": "phone",
+      "httpStatus": 404,
+      "meaning": "Actual server HTTP404: no public conversation entry exists at the PR base.",
+      "capturedAt": "2026-11-12T04:14:55.366Z",
+      "sha256": "539a66c4a40ec7ea1ddf071da8acaf4a3f7c79fe6051d9c83c5af34b11845fa2"
+    },
+    {
+      "file": "after/team-workspace-desktop.png",
+      "commit": "6c8d6be3efef46595e488378bc1fba8b62ac0394",
+      "route": "/inbox",
+      "viewport": "desktop",
+      "httpStatus": 200,
+      "meaning": "New Cases queue with private references, ownership, follow-up counts and next actions.",
+      "capturedAt": "2026-11-12T04:15:02.620Z",
+      "sha256": "b7e5e6d4d5bfe047b680bef4d58352722294c197fbe4d73c73a09d57a4bd1e3e"
+    },
+    {
+      "file": "after/conversation-desktop.png",
+      "commit": "6c8d6be3efef46595e488378bc1fba8b62ac0394",
+      "route": "/inbox/:id",
+      "viewport": "desktop",
+      "httpStatus": 200,
+      "meaning": "New two-way visitor conversation with exchanged files.",
+      "capturedAt": "2026-11-12T04:15:03.715Z",
+      "sha256": "17cd8215837b27490e55e0caacd460ea913ff62e3a0f7a3ea456a84153e455b1"
+    },
+    {
+      "file": "after/team-notes-desktop.png",
+      "commit": "6c8d6be3efef46595e488378bc1fba8b62ac0394",
+      "route": "/inbox/:id (Team tab)",
+      "viewport": "desktop",
+      "httpStatus": 200,
+      "meaning": "Private notes and working files shared by two staff members.",
+      "capturedAt": "2026-11-12T04:15:04.026Z",
+      "sha256": "7e69f7e1e3064b3e773f140b0014ee7a342989ac8d105df9cc3bbbc7e141420d"
+    },
+    {
+      "file": "after/case-tasks-desktop.png",
+      "commit": "6c8d6be3efef46595e488378bc1fba8b62ac0394",
+      "route": "/inbox/:id (Follow-ups tab)",
+      "viewport": "desktop",
+      "httpStatus": 200,
+      "meaning": "Owned follow-up with due date and completion controls.",
+      "capturedAt": "2026-11-12T04:15:04.409Z",
+      "sha256": "fdf16edefe8bf7c7185c76481bec375b4491f977be5d5981d9cf2632257056d1"
+    },
+    {
+      "file": "after/public-entry-desktop.png",
+      "commit": "6c8d6be3efef46595e488378bc1fba8b62ac0394",
+      "route": "/contact",
+      "viewport": "desktop",
+      "httpStatus": 200,
+      "meaning": "New public conversation entry form; no team account is required.",
+      "capturedAt": "2026-11-12T04:15:04.701Z",
+      "sha256": "6383ec81d8bbfda764b0ce8628b6af139e3b40e78e0ffac771ab783173d7e38d"
+    },
+    {
+      "file": "after/team-workspace-phone.png",
+      "commit": "6c8d6be3efef46595e488378bc1fba8b62ac0394",
+      "route": "/inbox",
+      "viewport": "phone",
+      "httpStatus": 200,
+      "meaning": "New Cases queue with private references, ownership, follow-up counts and next actions.",
+      "capturedAt": "2026-11-12T04:15:05.747Z",
+      "sha256": "8c72f7118eecb631ac3be061ba397329c0347b04ab11c9039dcd7ad80711b845"
+    },
+    {
+      "file": "after/conversation-phone.png",
+      "commit": "6c8d6be3efef46595e488378bc1fba8b62ac0394",
+      "route": "/inbox/:id",
+      "viewport": "phone",
+      "httpStatus": 200,
+      "meaning": "New two-way visitor conversation with exchanged files.",
+      "capturedAt": "2026-11-12T04:15:06.585Z",
+      "sha256": "7dada9f244c74b9aafb30bf1ac17c9f581ea8dd55bde28fc5febc215f2a12dfe"
+    },
+    {
+      "file": "after/team-notes-phone.png",
+      "commit": "6c8d6be3efef46595e488378bc1fba8b62ac0394",
+      "route": "/inbox/:id (Team tab)",
+      "viewport": "phone",
+      "httpStatus": 200,
+      "meaning": "Private notes and working files shared by two staff members.",
+      "capturedAt": "2026-11-12T04:15:06.870Z",
+      "sha256": "a8bcdd41390c7de37a3efb100e3959fb0adeb808c7331283a35be61df07613ba"
+    },
+    {
+      "file": "after/case-tasks-phone.png",
+      "commit": "6c8d6be3efef46595e488378bc1fba8b62ac0394",
+      "route": "/inbox/:id (Follow-ups tab)",
+      "viewport": "phone",
+      "httpStatus": 200,
+      "meaning": "Owned follow-up with due date and completion controls.",
+      "capturedAt": "2026-11-12T04:15:07.165Z",
+      "sha256": "dedca8ffb6e4c4ab566f5eae87a0967431685952120bccd3283966721817c7e9"
+    },
+    {
+      "file": "after/public-entry-phone.png",
+      "commit": "6c8d6be3efef46595e488378bc1fba8b62ac0394",
+      "route": "/contact",
+      "viewport": "phone",
+      "httpStatus": 200,
+      "meaning": "New public conversation entry form; no team account is required.",
+      "capturedAt": "2026-11-12T04:15:07.434Z",
+      "sha256": "30c8779ca6230d56321f0e95a9d8e5bfe1cf5a866ed1b1c5987cbb506adff17c"
+    }
+  ],
+  "browser": {
+    "engine": "Chromium",
+    "channel": "bundled",
+    "version": "153.0.8010.12"
+  }
+}

@@ -1,0 +1,489 @@
+{
+  "before": {
+    "side": "before",
+    "commit": "d45805bf287312aad643fbd67543f5813762083a",
+    "uncommittedSource": [],
+    "browser": "Chrome 157.0.8103.78",
+    "viewports": {
+      "phone": {
+        "width": 393,
+        "height": 852
+      },
+      "desktop": {
+        "width": 1280,
+        "height": 800
+      }
+    },
+    "deviceScale": 1,
+    "captures": [
+      {
+        "file": "before/light-working.png",
+        "commit": "d45805bf287312aad643fbd67543f5813762083a",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "The agent is working: the live line with a step count and stopwatch, and a red Stop button beside it (light)",
+        "capturedAt": "2026-11-12T20:53:49.000Z",
+        "sha256": "4fd2c3147a9165996ce40af0a68ee35f19620c5c3e1e2af9b3aa72a23122cba7"
+      },
+      {
+        "file": "before/light-steps.png",
+        "commit": "d45805bf287312aad643fbd67543f5813762083a",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "The steps opened: a boxed list with a dot and a time for each (light)",
+        "capturedAt": "2026-11-12T20:53:50.000Z",
+        "sha256": "7858878d56036137ae78b6ab45147c824a7a2a06fcd2f6e2f7bf2d81d61afea1"
+      },
+      {
+        "file": "before/light-queued.png",
+        "commit": "d45805bf287312aad643fbd67543f5813762083a",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "Two messages sent while the agent worked: each waits, with a Steer pill and a close (light)",
+        "capturedAt": "2026-11-12T20:53:57.000Z",
+        "sha256": "33b266aa3f4ca51bd4d77d772b21b91c04c601568026d3194894363964abe013"
+      },
+      {
+        "file": "before/light-finished.png",
+        "commit": "d45805bf287312aad643fbd67543f5813762083a",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "All replies finished: nothing says how long the agent worked (light)",
+        "capturedAt": "2026-11-12T20:54:13.000Z",
+        "sha256": "d31402678d69c0eb9e56d5847e26acc86d96f0129de128eef22ce1dec82b4f90"
+      },
+      {
+        "file": "before/dark-working.png",
+        "commit": "d45805bf287312aad643fbd67543f5813762083a",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "The agent is working: the live line with a step count and stopwatch, and a red Stop button beside it (dark)",
+        "capturedAt": "2026-11-12T20:54:21.000Z",
+        "sha256": "67a3c8662d8bebfaea957069e3966b3c0b3b01f9a8f0c7a28fbbc56d8dd2c28a"
+      },
+      {
+        "file": "before/dark-steps.png",
+        "commit": "d45805bf287312aad643fbd67543f5813762083a",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "The steps opened: a boxed list with a dot and a time for each (dark)",
+        "capturedAt": "2026-11-12T20:54:22.000Z",
+        "sha256": "b846a9048e3472927ab3ff7eca0f1abd43185b76757b4faab689b1aa820b02b4"
+      },
+      {
+        "file": "before/dark-queued.png",
+        "commit": "d45805bf287312aad643fbd67543f5813762083a",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "Two messages sent while the agent worked: each waits, with a Steer pill and a close (dark)",
+        "capturedAt": "2026-11-12T20:54:30.000Z",
+        "sha256": "9f6ccd3c68493bf76da00406930b57d87032438588a1c497b34e4b06178879c8"
+      },
+      {
+        "file": "before/dark-finished.png",
+        "commit": "d45805bf287312aad643fbd67543f5813762083a",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "All replies finished: nothing says how long the agent worked (dark)",
+        "capturedAt": "2026-11-12T20:54:45.000Z",
+        "sha256": "8e6cc5401d564691a6f6ed76b3e130c6fabaebc14d52f66674caf7ba51dedc57"
+      },
+      {
+        "file": "before/wide-light-working.png",
+        "commit": "d45805bf287312aad643fbd67543f5813762083a",
+        "route": "/chat/[id]",
+        "viewport": "desktop",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "The wide layout: the live line with its counter and the red Stop button (light)",
+        "capturedAt": "2026-11-12T20:54:53.000Z",
+        "sha256": "f5029ed1ee787d161a2131c49e5396811dcfa823f4774a4e7d526ff85e169ba3"
+      },
+      {
+        "file": "before/wide-light-queued.png",
+        "commit": "d45805bf287312aad643fbd67543f5813762083a",
+        "route": "/chat/[id]",
+        "viewport": "desktop",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "The wide layout: two waiting messages, each with a Steer pill (light)",
+        "capturedAt": "2026-11-12T20:55:02.000Z",
+        "sha256": "cdb7af17b7c772ed7ec0a53452c4a1c59b0c906ba04b3a5d14bc8cb55ee3b24e"
+      },
+      {
+        "file": "before/wide-light-finished.png",
+        "commit": "d45805bf287312aad643fbd67543f5813762083a",
+        "route": "/chat/[id]",
+        "viewport": "desktop",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "The wide layout: finished replies with no summary (light)",
+        "capturedAt": "2026-11-12T20:55:17.000Z",
+        "sha256": "473176ecd9d0c2124f4b0dc74241b932b05dc5f0959471e2a39abcb64cf3ddf1"
+      }
+    ]
+  },
+  "main": {
+    "side": "main",
+    "commit": "49d4d2ac3f2c0db8fcd65b5bb18978b263e4e305",
+    "uncommittedSource": [],
+    "browser": "Chrome 157.0.8103.78",
+    "viewports": {
+      "phone": {
+        "width": 393,
+        "height": 852
+      },
+      "desktop": {
+        "width": 1280,
+        "height": 800
+      }
+    },
+    "deviceScale": 1,
+    "captures": [
+      {
+        "file": "main/light-working.png",
+        "commit": "49d4d2ac3f2c0db8fcd65b5bb18978b263e4e305",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "The agent is working: the line counts seconds; Send is Stop, drawn as an outlined square (light)",
+        "capturedAt": "2026-11-12T20:53:48.000Z",
+        "sha256": "056b5e930227fd6ac6ee8c6c591516276eb63c00afae303aef9b0b2c9df59663"
+      },
+      {
+        "file": "main/light-steps.png",
+        "commit": "49d4d2ac3f2c0db8fcd65b5bb18978b263e4e305",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "The steps opened: the boxed list with a dot and a time for each (light)",
+        "capturedAt": "2026-11-12T20:53:49.000Z",
+        "sha256": "0ec485779b2515861b6801cad6254efeb0d81ea4ff40567c272f7e70074d152e"
+      },
+      {
+        "file": "main/light-joining.png",
+        "commit": "49d4d2ac3f2c0db8fcd65b5bb18978b263e4e305",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "A message sent mid-reply sits below the working line while it is added to the reply (light)",
+        "capturedAt": "2026-11-12T20:53:51.000Z",
+        "sha256": "3c9d1661dc380eb1433e363fcc980f13f3f85ed0728481b0f55ffb8e0bc8a419"
+      },
+      {
+        "file": "main/light-queued.png",
+        "commit": "49d4d2ac3f2c0db8fcd65b5bb18978b263e4e305",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "A few seconds later on the sending phone: the message that joined the reply is no longer in the list; the held one waits (light)",
+        "capturedAt": "2026-11-12T20:53:57.000Z",
+        "sha256": "6223fdfef186f2d165279b1ae2803b9d19bd5e4ea69090b9834e06178e6dcfeb"
+      },
+      {
+        "file": "main/light-finished.png",
+        "commit": "49d4d2ac3f2c0db8fcd65b5bb18978b263e4e305",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "All replies finished: nothing says how long the agent worked (light)",
+        "capturedAt": "2026-11-12T20:54:11.000Z",
+        "sha256": "95a281b825e2057082faff2ab2bc2a94619e2235112610bb692726475eb0513f"
+      },
+      {
+        "file": "main/dark-working.png",
+        "commit": "49d4d2ac3f2c0db8fcd65b5bb18978b263e4e305",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "The agent is working: the line counts seconds; Send is Stop, drawn as an outlined square (dark)",
+        "capturedAt": "2026-11-12T20:54:19.000Z",
+        "sha256": "462c49ef206a2c3a2b55475c6b9d16cc356fd1734548b964cae18ed92e4d598e"
+      },
+      {
+        "file": "main/dark-steps.png",
+        "commit": "49d4d2ac3f2c0db8fcd65b5bb18978b263e4e305",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "The steps opened: the boxed list with a dot and a time for each (dark)",
+        "capturedAt": "2026-11-12T20:54:20.000Z",
+        "sha256": "22d99de71ce83a2374e324c2470a6d2a8a0aff5076494d042d1315e050ad068e"
+      },
+      {
+        "file": "main/dark-joining.png",
+        "commit": "49d4d2ac3f2c0db8fcd65b5bb18978b263e4e305",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "A message sent mid-reply sits below the working line while it is added to the reply (dark)",
+        "capturedAt": "2026-11-12T20:54:21.000Z",
+        "sha256": "09a874dac28aee7890361da4acea33cb348a5c7935f2a73907da965bb35200a8"
+      },
+      {
+        "file": "main/dark-queued.png",
+        "commit": "49d4d2ac3f2c0db8fcd65b5bb18978b263e4e305",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "A few seconds later on the sending phone: the message that joined the reply is no longer in the list; the held one waits (dark)",
+        "capturedAt": "2026-11-12T20:54:28.000Z",
+        "sha256": "0c8e735154fa2d49bb823ec6feda6150d2f1393eeaf6b6518299e2343f600277"
+      },
+      {
+        "file": "main/dark-finished.png",
+        "commit": "49d4d2ac3f2c0db8fcd65b5bb18978b263e4e305",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "All replies finished: nothing says how long the agent worked (dark)",
+        "capturedAt": "2026-11-12T20:54:41.000Z",
+        "sha256": "26335b0aaa680be836c858e214403a387d4f8de7465a09ca0f41129f2a7a4f5b"
+      }
+    ]
+  },
+  "after": {
+    "side": "after",
+    "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+    "uncommittedSource": [],
+    "browser": "Chrome 157.0.8103.78",
+    "viewports": {
+      "phone": {
+        "width": 393,
+        "height": 852
+      },
+      "desktop": {
+        "width": 1280,
+        "height": 800
+      }
+    },
+    "deviceScale": 1,
+    "captures": [
+      {
+        "file": "after/light-working.png",
+        "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "The agent is working: one plain line with a soft light passing over it; Send is Stop while nothing is typed (light)",
+        "capturedAt": "2026-11-12T20:53:49.000Z",
+        "sha256": "4c6b4a5d48a0939cc5899f5631bf3b090d332979786669a5bb7beb3e81544e1d"
+      },
+      {
+        "file": "after/light-steps.png",
+        "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "The steps opened: plain lines, with what each worked on underneath (light)",
+        "capturedAt": "2026-11-12T20:53:49.000Z",
+        "sha256": "5d7f8cf0a6ebbeae5c9e420866eb6da71c613ba467da4416639a885f47db2019"
+      },
+      {
+        "file": "after/light-hold-hint.png",
+        "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "Typing while the agent works: Send is back, with Hold to queue beside it (light)",
+        "capturedAt": "2026-11-12T20:53:50.000Z",
+        "sha256": "16aa0173623144c501306e7dfc9a492f28ef6601fb9a76bc177337189c3515e1"
+      },
+      {
+        "file": "after/light-joining.png",
+        "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "A message sent mid-reply sits above the working line while it is added to the reply (light)",
+        "capturedAt": "2026-11-12T20:53:51.000Z",
+        "sha256": "735f3e8b23c9fde444ae56345ddea27fb222b53c4b523a868a60c20bb62cb2d1"
+      },
+      {
+        "file": "after/light-queued.png",
+        "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "The first message has joined the conversation; a second, sent by holding Send, waits with a small close (light)",
+        "capturedAt": "2026-11-12T20:53:57.000Z",
+        "sha256": "81c0b233fe933f3cc187582d77d2e8880b5e99f7c85a99f671649101f13a8a9a"
+      },
+      {
+        "file": "after/light-finished.png",
+        "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "All replies finished: each says how long the agent worked (light)",
+        "capturedAt": "2026-11-12T20:54:11.000Z",
+        "sha256": "bf1598188df7890009a4806a7228256e1e5ce03a018d2e5996322d106c587589"
+      },
+      {
+        "file": "after/light-summary-open.png",
+        "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "The summary of a finished reply opened to its steps (light)",
+        "capturedAt": "2026-11-12T20:54:13.000Z",
+        "sha256": "54982a1a59d89f40c4ef015dceced952bf9457bebb03f4c2bdaf422f7db5f330"
+      },
+      {
+        "file": "after/dark-working.png",
+        "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "The agent is working: one plain line with a soft light passing over it; Send is Stop while nothing is typed (dark)",
+        "capturedAt": "2026-11-12T20:54:21.000Z",
+        "sha256": "8fa47f68315290a84c8926a275beffc531abc6cc7dbe60537f02510d42a4ff91"
+      },
+      {
+        "file": "after/dark-steps.png",
+        "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "The steps opened: plain lines, with what each worked on underneath (dark)",
+        "capturedAt": "2026-11-12T20:54:22.000Z",
+        "sha256": "68c42e33b0018b7de46f1dbefb2627862bc2079f60aa6dca5592ec6d1d71e147"
+      },
+      {
+        "file": "after/dark-hold-hint.png",
+        "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "Typing while the agent works: Send is back, with Hold to queue beside it (dark)",
+        "capturedAt": "2026-11-12T20:54:23.000Z",
+        "sha256": "1bd5df8c28a1b50b73ffa3143df2e35ade3ff477d7b0a5ec6e725c27676e15e2"
+      },
+      {
+        "file": "after/dark-joining.png",
+        "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "A message sent mid-reply sits above the working line while it is added to the reply (dark)",
+        "capturedAt": "2026-11-12T20:54:24.000Z",
+        "sha256": "e467fab461e3bc1e58dd5115d780c1f21a8a75855cbed47ba283be094621924c"
+      },
+      {
+        "file": "after/dark-queued.png",
+        "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "The first message has joined the conversation; a second, sent by holding Send, waits with a small close (dark)",
+        "capturedAt": "2026-11-12T20:54:30.000Z",
+        "sha256": "aa058b09e60d098c32fdc22a3099dff657165ea278a9c540936acaa7e539d2ea"
+      },
+      {
+        "file": "after/dark-finished.png",
+        "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "All replies finished: each says how long the agent worked (dark)",
+        "capturedAt": "2026-11-12T20:54:43.000Z",
+        "sha256": "936aa8c9107f15caac7297347029eca882a920170ad55ee744081e735afff7d3"
+      },
+      {
+        "file": "after/dark-summary-open.png",
+        "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "The summary of a finished reply opened to its steps (dark)",
+        "capturedAt": "2026-11-12T20:54:45.000Z",
+        "sha256": "65155f5d69ff57951189fb37ce92ec114b51ffb7a1143e4c29bf3739b13abc5c"
+      },
+      {
+        "file": "after/wide-light-working.png",
+        "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+        "route": "/chat/[id]",
+        "viewport": "desktop",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "The wide layout: one plain line; Send is Stop (light)",
+        "capturedAt": "2026-11-12T20:56:22.000Z",
+        "sha256": "c5d8139a89afeb5eddd30e288983e09d9b3f1e93085a120e848dd39e2a35972c"
+      },
+      {
+        "file": "after/wide-light-queued.png",
+        "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+        "route": "/chat/[id]",
+        "viewport": "desktop",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "The wide layout: one message joined the reply, one waits (light)",
+        "capturedAt": "2026-11-12T20:56:31.000Z",
+        "sha256": "06821264efae801cc7e1875d8eb7db04f81899cb21dce067081b673e522c9765"
+      },
+      {
+        "file": "after/wide-light-finished.png",
+        "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+        "route": "/chat/[id]",
+        "viewport": "desktop",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "The wide layout: each reply says how long the agent worked (light)",
+        "capturedAt": "2026-11-12T20:56:44.000Z",
+        "sha256": "9ebf858b7a36c90d24a186c4f5b84934b812ae545b54503004f9fbbe46150509"
+      },
+      {
+        "file": "after/light-member-working.png",
+        "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Jo Park, member, restricted agent",
+        "meaning": "A member on the restricted agent: the line says Working on it and never names a tool (light)",
+        "capturedAt": "2026-11-12T20:54:54.000Z",
+        "sha256": "ccf8e07f20841311a4fcdfc0ef403852cb2b3c60fd25fe3223e20e3ad2cbfeb6"
+      },
+      {
+        "file": "after/light-member-steps.png",
+        "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Jo Park, member, restricted agent",
+        "meaning": "A member's steps opened: bare lines, each said once (light)",
+        "capturedAt": "2026-11-12T20:54:55.000Z",
+        "sha256": "1f890a125d5afb7eaa30ef5b366e57fadf621f7c35b75f4ef3ab509084825582"
+      },
+      {
+        "file": "after/light-member-queued.png",
+        "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Jo Park, member, restricted agent",
+        "meaning": "A member's agent cannot take a message mid-reply, so both messages wait (light)",
+        "capturedAt": "2026-11-12T20:55:03.000Z",
+        "sha256": "64571f95bdbe5f95f9134253b1235b0723a6343fb74cf62815b7deb9d315020e"
+      },
+      {
+        "file": "after/light-two-minutes.png",
+        "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "Past a minute the line says how long it has been, in words (light)",
+        "capturedAt": "2026-11-12T20:55:44.000Z",
+        "sha256": "046b609716d7451d1b8091b6d6ed624ac610b9713a28f0f1bb1b396f4dea8012"
+      },
+      {
+        "file": "after/dark-two-minutes.png",
+        "commit": "2b2d7a341955cd4801d2a34fef6377a9d6d0f0fd",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "signedInAs": "Ana Ruiz, owner, full agent",
+        "meaning": "Past a minute the line says how long it has been, in words (dark)",
+        "capturedAt": "2026-11-12T20:56:09.000Z",
+        "sha256": "ece2f35ade06be6999450e0298b4985ee864c909e43c3e0cd5d0209e45bebd55"
+      }
+    ]
+  }
+}

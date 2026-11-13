@@ -1,0 +1,30 @@
+# Shake-to-report feedback queue. Same as launchd com.example.servant.feedback.
+# Runs from the worker's pinned release.
+[Unit]
+Description=Servant feedback worker
+After=servant-supervisor.service
+
+[Service]
+User=servant
+Group=servant
+EnvironmentFile=/etc/servant/servant.env
+EnvironmentFile=/etc/servant/worker.env
+ExecStart=/bin/sh -c 'exec "$NODE" "$SERVANT_RUNTIME_DIR/releases/$SERVANT_WORKER_RELEASE/feedback-worker.mjs"'
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/lib/servant/runtime/logs/feedback.log
+StandardError=append:/var/lib/servant/runtime/logs/feedback.log
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/servant
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

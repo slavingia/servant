@@ -1,0 +1,217 @@
+{
+  "people": {
+    "pat-example": "Pat Tester",
+    "jo-park": "Jo Park",
+    "ana-ruiz": "Ana Ruiz"
+  },
+  "projects": [
+    {
+      "id": "servant",
+      "name": "Servant",
+      "description": "The team chat app: phone app, server, agent bridge and Mac app",
+      "repo": "slavingia/servant",
+      "visibility": "private",
+      "path": "~/servant",
+      "workflow": "main",
+      "rules": [
+        "Iterate on main with small follow-up commits. Never rewrite pushed history.",
+        "Run the server tests and the app's tsc and npm test before pushing.",
+        "Deploy the API with server/deploy.mjs and the worker with worker-swap.sh."
+      ],
+      "owners": [
+        "pat-example"
+      ],
+      "access": {
+        "merge": [
+          "pat-example"
+        ],
+        "write": [
+          "jo-park"
+        ],
+        "read": []
+      }
+    },
+    {
+      "id": "prototypes",
+      "name": "Prototypes",
+      "description": "Clickable prototypes of the org's screens, published on GitHub Pages",
+      "repo": "example-org/prototypes",
+      "visibility": "private",
+      "path": "~/prototypes",
+      "pages": "https://example-org.github.io/prototypes/",
+      "workflow": "main",
+      "rules": [
+        "Work directly on main, each prototype in a clearly named folder. No branches or pull requests unless asked.",
+        "Public information and made-up sample data only.",
+        "Run the repo's checks before pushing.",
+        "Prototyping chats work only inside their own folder."
+      ],
+      "owners": [
+        "pat-example"
+      ],
+      "access": {
+        "merge": [
+          "pat-example",
+          "jo-park"
+        ],
+        "write": [
+          "ana-ruiz"
+        ],
+        "read": [
+          "qa-bot",
+          "docs-reader"
+        ]
+      }
+    },
+    {
+      "id": "example-app",
+      "name": "The example app",
+      "description": "The org's app for iPhone and Android",
+      "repo": "example-org/example-app",
+      "visibility": "internal",
+      "path": "~/example-app",
+      "workflow": "pr",
+      "rules": [
+        "Every change goes through a pull request. Merge with `gh pr merge --squash --admin` once the checks pass, then report the PR link and the merge commit.",
+        "Say \"the example app\", never its old code name.",
+        "Store and production rollouts happen only on the owner's go.",
+        "Never enable a feature flag just because the fixture tests pass.",
+        "Follow AGENTS.md in the repo."
+      ],
+      "stages": [
+        "Build",
+        "Design",
+        "QA",
+        "Accessibility",
+        "Content"
+      ],
+      "releases": [
+        {
+          "id": "rel_november-17",
+          "name": "November 17",
+          "date": "2026-11-17",
+          "items": [
+            {
+              "id": "itm_guest-mode",
+              "title": "Guest mode",
+              "stages": {
+                "Build": {
+                  "status": "todo",
+                  "owner": null
+                },
+                "Design": {
+                  "status": "todo",
+                  "owner": null
+                },
+                "QA": {
+                  "status": "todo",
+                  "owner": null
+                },
+                "Accessibility": {
+                  "status": "todo",
+                  "owner": null
+                },
+                "Content": {
+                  "status": "todo",
+                  "owner": null
+                }
+              }
+            },
+            {
+              "id": "itm_dark-mode",
+              "title": "Dark mode",
+              "stages": {
+                "Build": {
+                  "status": "todo",
+                  "owner": null
+                },
+                "Design": {
+                  "status": "todo",
+                  "owner": null
+                },
+                "QA": {
+                  "status": "todo",
+                  "owner": null
+                },
+                "Accessibility": {
+                  "status": "todo",
+                  "owner": null
+                },
+                "Content": {
+                  "status": "todo",
+                  "owner": null
+                }
+              }
+            },
+            {
+              "id": "itm_payments-v2",
+              "title": "Payments v2",
+              "stages": {
+                "Build": {
+                  "status": "todo",
+                  "owner": null
+                },
+                "Design": {
+                  "status": "todo",
+                  "owner": null
+                },
+                "QA": {
+                  "status": "todo",
+                  "owner": null
+                },
+                "Accessibility": {
+                  "status": "todo",
+                  "owner": null
+                },
+                "Content": {
+                  "status": "todo",
+                  "owner": null
+                }
+              }
+            },
+            {
+              "id": "itm_accessibility-pass",
+              "title": "Accessibility pass",
+              "stages": {
+                "Build": {
+                  "status": "todo",
+                  "owner": null
+                },
+                "Design": {
+                  "status": "todo",
+                  "owner": null
+                },
+                "QA": {
+                  "status": "todo",
+                  "owner": null
+                },
+                "Accessibility": {
+                  "status": "todo",
+                  "owner": null
+                },
+                "Content": {
+                  "status": "todo",
+                  "owner": null
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "owners": [
+        "pat-example"
+      ],
+      "access": {
+        "merge": [
+          "pat-example",
+          "jo-park"
+        ],
+        "write": [],
+        "read": [
+          "qa-bot",
+          "docs-reader"
+        ]
+      }
+    }
+  ]
+}

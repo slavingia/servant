@@ -1,0 +1,86 @@
+{
+  "before": {
+    "side": "before",
+    "commit": "88b4108d6ef7bf3e30bc72117cecc7de58e62006",
+    "captures": [
+      {
+        "file": "before/chat-dark.png",
+        "commit": "88b4108d6ef7bf3e30bc72117cecc7de58e62006",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "scheme": "dark",
+        "meaning": "An agent chat at phone size in a browser",
+        "sha256": "ef7874a3e0341004af588e9216cbe17c19a68d4d4772be7604222a76996daa41"
+      },
+      {
+        "file": "before/options-dark.png",
+        "commit": "88b4108d6ef7bf3e30bc72117cecc7de58e62006",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "scheme": "dark",
+        "meaning": "The chat's options",
+        "sha256": "3fb5e1b2d5c362b20cad6448bc887550b033e54cf31ace5205d599fec92b2e30"
+      },
+      {
+        "file": "before/chat-light.png",
+        "commit": "88b4108d6ef7bf3e30bc72117cecc7de58e62006",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "scheme": "light",
+        "meaning": "An agent chat at phone size in a browser",
+        "sha256": "eb34dcc3d3e7fb20d65bcf0769fcbe84df72cc0cd1959fe4de009f4f1247c621"
+      },
+      {
+        "file": "before/options-light.png",
+        "commit": "88b4108d6ef7bf3e30bc72117cecc7de58e62006",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "scheme": "light",
+        "meaning": "The chat's options",
+        "sha256": "d4d2321ffd98a7a38c0a2eece2c06bf12bd73a34d5ad781da4327a441fa5c7cd"
+      }
+    ]
+  },
+  "after": {
+    "side": "after",
+    "commit": "024ee459936bc075d4fb20172f97d9d4ac0e34ae",
+    "captures": [
+      {
+        "file": "after/chat-dark.png",
+        "commit": "024ee459936bc075d4fb20172f97d9d4ac0e34ae",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "scheme": "dark",
+        "meaning": "An agent chat at phone size in a browser",
+        "sha256": "ef7874a3e0341004af588e9216cbe17c19a68d4d4772be7604222a76996daa41"
+      },
+      {
+        "file": "after/options-dark.png",
+        "commit": "024ee459936bc075d4fb20172f97d9d4ac0e34ae",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "scheme": "dark",
+        "meaning": "The chat's options",
+        "sha256": "28d81d71ba84e7a397fe1dd19c358b4c313d0228dd0ed81e227bd1d5d46e64cb"
+      },
+      {
+        "file": "after/chat-light.png",
+        "commit": "024ee459936bc075d4fb20172f97d9d4ac0e34ae",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "scheme": "light",
+        "meaning": "An agent chat at phone size in a browser",
+        "sha256": "eb34dcc3d3e7fb20d65bcf0769fcbe84df72cc0cd1959fe4de009f4f1247c621"
+      },
+      {
+        "file": "after/options-light.png",
+        "commit": "024ee459936bc075d4fb20172f97d9d4ac0e34ae",
+        "route": "/chat/[id]",
+        "viewport": "phone",
+        "scheme": "light",
+        "meaning": "The chat's options",
+        "sha256": "a9a34a16ced18a64039d93e572e542cc0e9d42c18bac31bb50490ef6bb88dcb4"
+      }
+    ]
+  }
+}

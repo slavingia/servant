@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Get started with Servant</title>
+<meta name="description" content="What Servant does, how to use it, and a deep dive for your role">
+<style>
+  :root {
+    --navy: #0A2240; --blue: #0071BC; --blue-dark: #005EA2; --ink: #1B1B1B; --muted: #5C6670;
+    --line: #DFE1E2; --surface: #F4F6F8; --white: #fff; --code: #0F1B2D; --gold: #FFBE2E;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body { margin: 0; font: 17px/1.55 var(--font); color: var(--ink); background: var(--white); text-wrap: pretty; }
+  a { color: var(--blue-dark); }
+  a:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; border-radius: 6px; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+  .skip { position: absolute; left: -999px; top: 8px; background: var(--white); padding: 8px 12px; z-index: 9; }
+  .skip:focus { left: 8px; }
+
+  .band { background: var(--navy); color: var(--white); position: sticky; top: 0; z-index: 5; }
+  .band .wrap { display: flex; align-items: center; justify-content: space-between; height: 56px; gap: 16px; }
+  .mark { font-weight: 700; font-size: 18px; color: var(--white); text-decoration: none; white-space: nowrap; }
+  .band nav { display: flex; gap: 20px; overflow-x: auto; scrollbar-width: none; }
+  .band nav a { color: var(--white); text-decoration: none; font-weight: 600; font-size: 15px; white-space: nowrap; }
+  .band nav a:hover { text-decoration: underline; }
+
+  header.intro { background: var(--navy); color: var(--white); padding: 48px 0 56px; }
+  header.intro h1 { font-size: clamp(34px, 5vw, 52px); line-height: 1.08; margin: 0 0 16px; letter-spacing: -.5px; max-width: 16em; }
+  header.intro p { font-size: 20px; color: #D9E1EA; margin: 0 0 28px; max-width: 36em; }
+  .roles { display: flex; flex-wrap: wrap; gap: 12px; }
+  .roles a { display: inline-flex; align-items: center; min-height: 48px; padding: 0 20px; border-radius: 8px; background: var(--blue); color: var(--white); font-weight: 600; text-decoration: none; }
+  .roles a:hover { background: #1A85CC; }
+  header.intro .note { margin: 24px 0 0; font-size: 15px; color: #B8C4D2; }
+
+  [id] { scroll-margin-top: 72px; }
+  section { padding: 64px 0; border-top: 1px solid var(--line); }
+  section.alt { background: var(--surface); }
+  h2 { font-size: 32px; line-height: 1.15; margin: 0 0 12px; letter-spacing: -.3px; }
+  h3 { font-size: 22px; line-height: 1.25; margin: 40px 0 10px; }
+  h4 { font-size: 18px; margin: 28px 0 8px; }
+  .lede { color: var(--muted); font-size: 19px; max-width: 40em; margin: 0 0 32px; }
+  p, li { max-width: 46em; }
+  ol.steps, ul.plain { padding-left: 22px; }
+  ol.steps li, ul.plain li { margin: 6px 0; }
+
+  .phone { margin: 0; border-radius: 34px; padding: 7px; background: #111; box-shadow: 0 18px 36px rgba(10,34,64,.22); }
+  .phone img { display: block; width: 100%; height: auto; border-radius: 28px; background: var(--surface); }
+  .shots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; align-items: start; margin-top: 8px; }
+  .shots.four { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; }
+  figure { margin: 0; }
+  figcaption { margin-top: 12px; font-size: 15px; color: #3D4551; }
+  figcaption strong { display: block; color: var(--ink); font-size: 16px; }
+  .browser { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--white); box-shadow: 0 10px 28px rgba(10,34,64,.12); }
+  .browser img { display: block; width: 100%; height: auto; }
+  .wide { margin: 20px 0 8px; }
+  .pair > * { min-width: 0; }
+  .pair { display: grid; grid-template-columns: 1.6fr 1fr; gap: 32px; align-items: start; }
+  .pair.even { grid-template-columns: 1fr 1fr; }
+
+  pre { background: var(--code); color: #E6EDF6; border-radius: 10px; padding: 16px 18px; overflow-x: auto; font: 14px/1.6 var(--mono); margin: 12px 0 4px; position: relative; max-width: 100%; }
+  pre.draft { white-space: pre-wrap; padding-top: 48px; }
+  pre .c { color: #8FA3BC; }
+  pre .o { color: #B7E4C7; }
+  code { font-family: var(--mono); font-size: .9em; overflow-wrap: anywhere; background: #EEF1F4; padding: 1px 5px; border-radius: 4px; }
+  pre code { background: none; padding: 0; font-size: inherit; overflow-wrap: normal; }
+  .copy { position: absolute; top: 8px; right: 8px; background: #22324A; color: #E6EDF6; border: 0; border-radius: 6px; font: 600 13px var(--font); padding: 6px 10px; cursor: pointer; min-height: 32px; }
+  .copy:hover { background: #2D4262; }
+  .ask { background: var(--white); border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; margin: 12px 0; max-width: 46em; }
+  .ask b { display: block; font-size: 13px; color: var(--muted); font-weight: 600; margin-bottom: 4px; }
+  .caution { background: #FFF5D6; border-radius: 10px; padding: 14px 18px; margin: 16px 0; max-width: 46em; font-size: 16px; }
+
+  /* Role picker */
+  .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 32px; border-bottom: 1px solid var(--line); }
+  .tabs button { all: unset; cursor: pointer; padding: 12px 16px; min-height: 24px; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px; }
+  .tabs button[aria-selected="true"] { color: var(--navy); border-bottom-color: var(--blue); }
+  .tabs button:hover { color: var(--navy); }
+  .tabs button:focus-visible { outline: 3px solid var(--gold); outline-offset: -3px; border-radius: 6px; }
+  [role="tabpanel"][hidden] { display: none; }
+  .toc { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 0 0 8px; padding: 0; list-style: none; max-width: none; }
+  .toc li { max-width: none; margin: 0; }
+  .toc a { display: block; height: 100%; padding: 14px 16px; background: var(--white); border: 1px solid var(--line); border-radius: 10px; text-decoration: none; color: var(--ink); font-weight: 600; }
+  .toc a span { display: block; color: var(--muted); font-weight: 400; font-size: 15px; margin-top: 2px; }
+  .toc a:hover { border-color: var(--blue); }
+  .deep { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 40px; }
+  .num { display: inline-block; color: var(--blue-dark); font-weight: 700; margin-right: 6px; }
+
+  footer { padding: 32px 0 48px; color: #3D4551; font-size: 15px; border-top: 1px solid var(--line); }
+
+  @media (max-width: 880px) {
+    .shots, .shots.four { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 16px; padding-bottom: 8px; }
+    .shots > figure { flex: 0 0 62%; scroll-snap-align: start; }
+    .pair, .pair.even { grid-template-columns: 1fr; }
+    .band nav { display: none; }
+    section { padding: 48px 0; }
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="band"><div class="wrap">
+  <a class="mark" href="#top">Servant</a>
+  <nav aria-label="Sections">
+    <a href="#tour">What it does</a>
+    <a href="#first">First ten minutes</a>
+    <a href="#issues">Filing issues</a>
+    <a href="#roles">Your role</a>
+  </nav>
+</div></div>
+
+<header class="intro" id="top"><div class="wrap">
+  <h1>Get started with Servant</h1>
+  <p>Servant is where the team talks, shares work and asks the agent for help. This guide shows what it does, then goes deeper for your role.</p>
+  <div class="roles" aria-label="Jump to your role">
+    <a href="#role-developer" data-role="developer">Developer</a>
+    <a href="#role-tester" data-role="tester">Functional tester</a>
+    <a href="#role-designer" data-role="designer">UX designer</a>
+    <a href="#role-content" data-role="content">UX content strategist</a>
+    <a href="#role-researcher" data-role="researcher">UX researcher</a>
+  </div>
+  <p class="note">Every screen here is a real capture from a separate test server with made-up people and messages</p>
+</div></header>
+
+<main id="main">
+
+<section class="alt" id="tour"><div class="wrap">
+  <h2>What Servant does</h2>
+  <p class="lede">Five tabs cover everything: Home for channels, DMs for direct messages, Agent for your private chats with the agent, People, and You.</p>
+
+  <div class="shots">
+    <figure><div class="phone"><img src="shots/home.jpg" alt="Home tab listing channels: general, ux-research, design-reviews and testing, each with its latest message" loading="lazy"></div>
+      <figcaption><strong>Channels</strong>Shared rooms for a team or topic. Unread channels are bold. Search sits at the top of every tab.</figcaption></figure>
+    <figure><div class="phone"><img src="shots/agent.jpg" alt="Agent tab with a button to start a new chat" loading="lazy"></div>
+      <figcaption><strong>Agent</strong>Private chats with the agent. It can read repositories, run checks and draft work. You can stop it, and it asks before risky steps.</figcaption></figure>
+    <figure><div class="phone"><img src="shots/feedback.jpg" alt="Feedback screen for reporting a problem with an optional screenshot" loading="lazy"></div>
+      <figcaption><strong>Report a problem</strong>Tell us what's wrong and your report goes straight to the agent.</figcaption></figure>
+  </div>
+
+  <div class="shots" style="margin-top:40px">
+    <figure><div class="phone"><img src="shots/invite.jpg" alt="Invite screen with a hidden QR code, a Copy invite link button and who can join" loading="lazy"></div>
+      <figcaption><strong>Invite someone</strong>Share one link or QR code. It works for a week. The QR code is hidden in this capture.</figcaption></figure>
+    <figure><div class="phone"><img src="shots/home-dark.jpg" alt="Home tab in dark appearance" loading="lazy"></div>
+      <figcaption><strong>Light and dark</strong>Servant follows your phone's appearance setting.</figcaption></figure>
+  </div>
+</div></section>
+
+<section id="first"><div class="wrap">
+  <h2>Your first ten minutes</h2>
+  <p class="lede">Everyone does these, whatever your role.</p>
+  <div>
+    <div>
+      <ol class="steps">
+        <li><strong>Install Servant.</strong> Use the iPhone or Android download link your team provides. While store review is pending, your team may send a TestFlight or Firebase App Distribution invitation.</li>
+        <li><strong>Join your team's server.</strong> Open the invite link or scan the QR code you were sent. To paste a link, tap I'm new here on Welcome, paste it and tap Continue. Read the terms, check the three boxes, tap Agree and join, then enter your name. If it is already taken, add an initial.</li>
+        <li><strong>Join your channels.</strong> On Home, tap Add channels and join #general plus the channels for your work, such as #ux-research, #design-reviews or #testing.</li>
+        <li><strong>Say hello in #general.</strong> It's the quickest way to check everything works.</li>
+        <li><strong>Ask the agent something.</strong> Open the Agent tab, tap New chat and try one of the prompts below.</li>
+      </ol>
+      <div class="ask"><b>Try asking the agent</b>What can you help a new UX researcher with?</div>
+      <div class="ask"><b>In a channel thread</b>@s summarise this thread in three bullets</div>
+      <div class="caution">Check what your organization allows before you share anything in Servant. Don't share customer data, personal information or anything sensitive unless your team has approved it.</div>
+    </div>
+  </div>
+</div></section>
+
+<section id="issues"><div class="wrap">
+  <h2>Filing issues</h2>
+  <p class="lede">Ask the agent to file it. It writes a GitHub issue in the right repository, with steps, the build and the labels your team uses.</p>
+  <div class="pair">
+    <div>
+      <ol class="steps">
+        <li><strong>Ask the agent.</strong> Describe the problem in an Agent chat, or type @s in the thread where it came up. Attach a screenshot if you have one.</li>
+        <li><strong>It writes the GitHub issue.</strong> A clear title, steps to reproduce, expected and actual result, build number and device, and a label such as <code>bug</code> or <code>enhancement</code>.</li>
+        <li><strong>It links back.</strong> The agent replies with the issue link, so the thread and the issue point at each other.</li>
+        <li><strong>QA gets it back.</strong> When the pull request that fixes the issue is merged, the issue closes and whoever reported it can check the next build.</li>
+      </ol>
+      <p>If your team tracks work in another tool, connect it to GitHub issues the way you already do. Servant only writes the GitHub side.</p>
+      <div class="ask"><b>Ask the agent</b>File a bug from this thread: steps to reproduce, expected and actual result, build number and device</div>
+      <div class="ask"><b>Or for a feature</b>File the wording notes in this thread as an enhancement with acceptance criteria</div>
+    </div>
+    <div>
+      <p>An issue the agent writes looks like this:</p>
+<pre class="draft"><code>Title: Notices tab shows English date in Spanish
+
+Steps to reproduce
+1. Set the phone language to Spanish
+2. Open the example app and sign in
+3. Open Notices
+
+Expected: dates read "3 de noviembre de 2026"
+Actual: dates read "November 3, 2026"
+
+Build: 2026110207 · iPhone 15, iOS 26.1
+Labels: bug</code></pre>
+      <div class="caution">Don't put customer data, account details or real names from a support case into an issue. Check what your organization allows before sharing anything sensitive.</div>
+    </div>
+  </div>
+</div></section>
+
+<section class="alt" id="roles"><div class="wrap">
+  <h2>Go deeper for your role</h2>
+  <p class="lede">Pick your role. Servant remembers your choice on this device.</p>
+
+  <div class="tabs" role="tablist" aria-label="Roles">
+    <button role="tab" id="tab-developer" aria-controls="role-developer" aria-selected="false" tabindex="-1">Developer</button>
+    <button role="tab" id="tab-tester" aria-controls="role-tester" aria-selected="false" tabindex="-1">Functional tester</button>
+    <button role="tab" id="tab-designer" aria-controls="role-designer" aria-selected="false" tabindex="-1">UX designer</button>
+    <button role="tab" id="tab-content" aria-controls="role-content" aria-selected="false" tabindex="-1">UX content strategist</button>
+    <button role="tab" id="tab-researcher" aria-controls="role-researcher" aria-selected="true" tabindex="0">UX researcher</button>
+  </div>
+
+  <!-- DEVELOPER -->
+  <div role="tabpanel" id="role-developer" aria-labelledby="tab-developer" tabindex="0" hidden>
+    <h3>Developers</h3>
+    <p>Servant has three parts: an Expo app, a small Node server on the owner's Mac, and the Hermes agent behind it. The phone talks to the server through an encrypted relay.</p>
+<pre><code>Phone (Servant app)
+  │  app-to-Mac encryption inside HTTPS
+  ▼
+Relay or tunnel  ──▶  Server (server/, on the Mac)  ──▶  Agent (Hermes, localhost only)</code></pre>
+    <h4>Get the code running</h4>
+<pre><code>git clone https://github.com/slavingia/servant.git
+cd servant
+node --test server/                 <span class="c"># server tests, temporary databases and a fake agent</span>
+cd app &amp;&amp; npm ci
+npm test &amp;&amp; npm run typecheck &amp;&amp; npm run lint</code></pre>
+    <h4>Test on your own server, never the real one</h4>
+    <p>All manual testing happens on an isolated test server with its own data, keys and port. A different account on the real server still changes real data.</p>
+<pre><code>node scripts/test-instance.mjs init
+node scripts/test-instance.mjs start                       <span class="c"># http://127.0.0.1:8788</span>
+node scripts/test-instance.mjs invite --name 'QA Owner' --role owner
+node scripts/test-instance.mjs invite --user &lt;existing-id&gt;  <span class="c"># second device, same person</span></code></pre>
+    <h4>Read next</h4>
+    <ul class="plain">
+      <li><code>docs/testing.md</code> for the test server and what it can't do (no agent, no push)</li>
+      <li><code>docs/deployment.md</code> for staged releases, the worker and rollback</li>
+      <li><code>docs/agent-turns.md</code> for Stop, approvals and how replies survive a locked phone</li>
+      <li><code>docs/encryption.md</code> and <code>docs/ato-data-flows.md</code> for the security boundary</li>
+    </ul>
+    <div class="ask"><b>Ask the agent</b>Which files handle read receipts, and which tests cover them?</div>
+  </div>
+
+  <!-- TESTER -->
+  <div role="tabpanel" id="role-tester" aria-labelledby="tab-tester" tabindex="0" hidden>
+    <h3>Functional testers</h3>
+    <div class="pair">
+      <div>
+        <p>Update through the store or testing service you used to install Servant. Test builds use TestFlight on iPhone and Firebase App Distribution on Android. Both platforms ship with the same build number, so say which number you're on when you report something.</p>
+        <h4>What to check on each new build</h4>
+        <ol class="steps">
+          <li>Join with an invite link and with a QR code</li>
+          <li>Post in a channel, reply in a thread and react to a message</li>
+          <li>Send a DM and watch Sent change to Read</li>
+          <li>Attach a photo, a video and a file. Up to four files at once</li>
+          <li>Ask @s in a thread, then lock your phone and reopen. The reply should still arrive</li>
+          <li>Start an agent chat and tap Stop partway through</li>
+          <li>Swipe left on a DM to archive it, then find it under Archived</li>
+          <li>Turn on airplane mode, send a message, turn it off. The draft should not be lost</li>
+          <li>Repeat a few screens in dark appearance and at a large text size</li>
+        </ol>
+        <h4>Reporting a bug</h4>
+        <p>Report it from the screen that's wrong. Say what you did, what you expected and what happened. The screenshot and your build number go with the report. For your team's own apps, ask the agent to file a GitHub issue. See <a href="#issues">Filing issues</a>.</p>
+        <div class="caution">Test with made-up content. When you need a clean account, ask for an invite to the test server rather than creating extra people on the real one.</div>
+      </div>
+      <figure><div class="phone"><img src="shots/feedback.jpg" alt="Feedback screen" loading="lazy"></div>
+        <figcaption><strong>Feedback</strong>Reports land with the agent, which reproduces and fixes what it can</figcaption></figure>
+    </div>
+  </div>
+
+  <!-- DESIGNER -->
+  <div role="tabpanel" id="role-designer" aria-labelledby="tab-designer" tabindex="0" hidden>
+    <h3>UX designers</h3>
+    <div class="pair even">
+      <div>
+        <p>Servant's visual rules live in <code>docs/design-system.md</code>. The essentials:</p>
+        <ul class="plain">
+          <li>A navy band (<code>#0A2240</code>) at the top with a white status bar</li>
+          <li>Buttons in brand blue (<code>#0071BC</code>) with white labels, never white or light blue on navy</li>
+          <li>Tab titles left-aligned, 20pt in from the edge, with no Back button</li>
+          <li>Pushed screens have a centred title and Back at 20pt</li>
+          <li>Buttons say what they do in plain words. No icon when the word is obvious</li>
+          <li>Destructive actions are a red link (<code>#D11242</code>)</li>
+        </ul>
+        <h4>Proposing a change</h4>
+        <ol class="steps">
+          <li>Post the idea in #design-reviews with a capture of the screen as it is today</li>
+          <li>For a web prototype, start a Prototyping chat in the Agent tab, or work in your team's prototypes repository</li>
+          <li>Show real captures in light and dark, at the same screen size, before and after</li>
+          <li>Tag content and research in the thread for wording and evidence</li>
+        </ol>
+        <div class="ask"><b>Ask the agent</b>Capture the People tab in light and dark at 393 by 852 and post them in this thread</div>
+      </div>
+      <div class="shots" style="grid-template-columns:1fr 1fr;gap:20px">
+        <figure><div class="phone"><img src="shots/home.jpg" alt="Home tab in light appearance" loading="lazy"></div><figcaption>Light</figcaption></figure>
+        <figure><div class="phone"><img src="shots/home-dark.jpg" alt="Home tab in dark appearance" loading="lazy"></div><figcaption>Dark</figcaption></figure>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONTENT -->
+  <div role="tabpanel" id="role-content" aria-labelledby="tab-content" tabindex="0" hidden>
+    <h3>UX content strategists</h3>
+    <div class="pair">
+      <div>
+        <p>Every word in Servant is in the screen files under <code>app/src/app/</code>, for example <code>invite.tsx</code> or <code>welcome.tsx</code>. Ask the agent to find a string and it will show you the file and line.</p>
+        <h4>House style</h4>
+        <ul class="plain">
+          <li>Plain and letter-like. Spell out one to nine</li>
+          <li>Sentence case for headings and buttons</li>
+          <li>No full stop at the end of a one-sentence line</li>
+          <li>Say "server", never "hub"</li>
+          <li>Settings rows: the label is the thing you turn on, with a one-line subtitle that fits a 375pt screen in English and Spanish</li>
+          <li>Call each product by its current name, never an old code name</li>
+        </ul>
+        <h4>How content reviews reach you</h4>
+        <p>When an automated research review finds a wording problem in a prototype, it can tag you on GitHub with the finding, its priority and a link to the evidence. Reply on the issue or in #design-reviews.</p>
+        <div class="ask"><b>Ask the agent</b>List every error message in the app with its file, and flag any that don't say what to do next</div>
+      </div>
+      <figure><div class="phone"><img src="shots/new-channel.jpg" alt="New channel screen with name and topic fields" loading="lazy"></div>
+        <figcaption><strong>New channel</strong>Labels, hints and buttons are all reviewable copy</figcaption></figure>
+    </div>
+  </div>
+
+  <!-- RESEARCHER -->
+  <div role="tabpanel" id="role-researcher" aria-labelledby="tab-researcher" tabindex="0">
+    <h3>UX researchers</h3>
+    <p>You'll mostly use two repositories, and Servant ties them together. The names here are examples: use your team's own.</p>
+    <ul class="plain">
+      <li><code>example-org/research</code>: past study reports and the published survey aggregates</li>
+      <li><code>example-org/prototypes</code>: clickable prototypes, published reviews and dashboards, on GitHub Pages</li>
+    </ul>
+
+    <ol class="toc" aria-label="Researcher topics">
+      <li><a href="#rx-query"><span class="num">1</span>Query the research repository<span>Find studies and survey evidence</span></a></li>
+      <li><a href="#rx-study"><span class="num">2</span>Draft a study<span>Ask the agent, then review it</span></a></li>
+      <li><a href="#rx-data"><span class="num">3</span>Build a dashboard<span>From published aggregates only</span></a></li>
+      <li><a href="#rx-review"><span class="num">4</span>Automate reviews<span>And tag people for feedback</span></a></li>
+    </ol>
+
+    <!-- 1 -->
+    <div class="deep" id="rx-query">
+      <h3><span class="num">1</span>Query the research repository on GitHub</h3>
+      <p>Keep past study reports in one folder per study (for example under <code>research/</code>) and approved survey aggregates in a folder of their own. Then the GitHub CLI and the agent can both find them.</p>
+
+      <h4>Find studies and files with the GitHub CLI</h4>
+<pre><code><span class="c"># Browse the study folders</span>
+gh api repos/example-org/research/contents/research --jq '.[].name'
+
+<span class="c"># Search the whole repository for a phrase</span>
+gh search code "payment plan" --repo example-org/research
+
+<span class="c"># See what's being added or discussed</span>
+gh pr list -R example-org/research</code></pre>
+
+      <h4>Or ask the agent</h4>
+      <p>When the research repository is a project in Servant, the agent can read it in any chat in that project. Ask a question and it searches the reports and aggregates, then answers with the files it used.</p>
+      <div class="ask"><b>Ask in #ux-research</b>@s what did our last three studies find about the sign-in screen? Link each report and give its date</div>
+      <div class="caution"><strong>Rules that keep findings honest.</strong> Use published aggregates before comment text. Say the exact dates and data release you used. A missing value means unavailable, never zero. Label anything drawn from comment text as automated or exploratory. Write your team's rules in the repository's <code>AGENTS.md</code> so the agent follows them too.</div>
+    </div>
+
+    <!-- 2 -->
+    <div class="deep" id="rx-study">
+      <h3><span class="num">2</span>Ask the agent for a study draft</h3>
+      <p>The agent can draft a research plan, a screener, a discussion guide, a survey or the structure of a card sort or tree test, grounded in what your repository already says. You review and own the result.</p>
+      <ol class="steps">
+        <li>Start an Agent chat in the research project, or type @s in a #ux-research thread.</li>
+        <li>Say the question you need answered, who the participants are, the method and how long sessions run.</li>
+        <li>Ask it to cite the past studies it drew on, so you can check them.</li>
+        <li>Ask it to save the draft as a file in a new folder under <code>research/</code> and open a pull request, then edit it there with your team.</li>
+      </ol>
+      <div class="ask"><b>Ask the agent</b>Draft a 30-minute moderated usability study of the example app's Records tab: research questions, a screener, tasks and a discussion guide. Cite past studies that informed it</div>
+      <p>A tree test's menu is easiest to review written one item per line, indented two spaces per level:</p>
+<pre><code>payments | Payments
+  make-payment | Make a payment
+  payment-history | Payment history
+records | Records
+  documents | Documents</code></pre>
+      <div class="caution">Use made-up data in drafts and prototypes. Don't put participant names, contact details or anything sensitive into a chat, a draft or a repository.</div>
+    </div>
+
+    <!-- 3 -->
+    <div class="deep" id="rx-data">
+      <h3><span class="num">3</span>Build a dashboard from published aggregates</h3>
+      <p>If your prototypes repository publishes to a <strong>public</strong> website, only published aggregates can go on a dashboard there: no comment text, excerpts or respondent data. Get the owner's approval before publishing a new one.</p>
+      <ol class="steps">
+        <li>Make a folder in the prototypes repository, for example <code>research-dashboard/</code>.</li>
+        <li>Write a small script that copies an explicit list of aggregate fields from the research repository into <code>data.json</code>.</li>
+        <li>Have the page read <code>data.json</code>. Show missing values as unavailable and keep each value's source and sample size.</li>
+        <li>Add a README with the purpose, data boundary and how to refresh, then commit and push.</li>
+      </ol>
+      <p>To refresh it later, re-run the script, check the page, and push. Never edit the data by hand.</p>
+      <div class="ask"><b>Or ask the agent</b>Make a dashboard in the prototypes repository of monthly ease ratings from example-org/research, aggregates only, with a README that says how to refresh it</div>
+    </div>
+
+    <!-- 4 -->
+    <div class="deep" id="rx-review">
+      <h3><span class="num">4</span>Automate research reviews and tag people for feedback</h3>
+      <p>The agent can review a prototype against your research evidence and write up findings, each with its priority, evidence and limits. Mark every such review as an automated first pass, not an expert sign-off.</p>
+      <h4>Publish a review and tag owners</h4>
+      <ol class="steps">
+        <li>Ask the agent to publish it, for example as a page in the prototype's <code>design-review/</code> folder.</li>
+        <li>Have it tag the design owner for design changes and the content owner for content changes, on the prototype's feedback issue.</li>
+        <li>Agree on quiet hours as a team, and ask the agent to hold tags written overnight until the morning.</li>
+      </ol>
+      <div class="ask"><b>Ask in #ux-research</b>@s review the sign-in prototype against our research and tag Jo for design and Ana for content</div>
+      <h4>Doing it yourself on GitHub</h4>
+<pre><code><span class="c"># Comment on a feedback issue and tag owners</span>
+cat &gt; tag.md &lt;&lt;'EOF'
+@jo-park, this needs a design change:
+- review-01 (High): show what is still to do before the form can be sent
+
+@ana-ruiz, this needs a content change:
+- review-02 (Medium): spell out every abbreviation the first time it appears
+
+Review: https://example-org.github.io/prototypes/sign-in/design-review/
+EOF
+gh issue comment &lt;issue-number&gt; -R example-org/prototypes --body-file tag.md
+
+<span class="c"># Ask for review on a pull request</span>
+gh pr edit &lt;pr-number&gt; -R example-org/research --add-reviewer &lt;github-login&gt;
+
+<span class="c"># Find what's waiting on you</span>
+gh search issues --mentions @me --state open</code></pre>
+      <p>Write each finding as one line: its ID, priority, and the change. Link the review so people can see the evidence.</p>
+    </div>
+  </div>
+</div></section>
+</main>
+
+<footer><div class="wrap">
+  <p>Captures: Servant on web from a test server with made-up people and messages.</p>
+  <p>Questions or something wrong here? Post in #general.</p>
+</div></footer>
+
+<script>
+(function () {
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+  function select(role, focus) {
+    tabs.forEach(function (t) {
+      var on = t.id === 'tab-' + role;
+      t.setAttribute('aria-selected', on); t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      if (on && focus) t.focus();
+    });
+    try { localStorage.setItem('servant.onboarding.role', role); } catch (e) {}
+    if (/^#role-/.test(location.hash)) history.replaceState(null, '', '#role-' + role);
+  }
+  tabs.forEach(function (t, i) {
+    t.addEventListener('click', function () { select(t.id.slice(4)); history.replaceState(null, '', '#role-' + t.id.slice(4)); });
+    t.addEventListener('keydown', function (e) {
+      var d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      if (e.key === 'Home') d = -i; if (e.key === 'End') d = tabs.length - 1 - i;
+      if (d) { e.preventDefault(); select(tabs[(i + d + tabs.length) % tabs.length].id.slice(4), true); }
+    });
+  });
+  function fromHash() {
+    var h = location.hash.slice(1), m = h.match(/^role-(\w+)$/);
+    if (m && document.getElementById('tab-' + m[1])) { select(m[1]); document.getElementById('roles').scrollIntoView(); return true; }
+    if (/^rx-/.test(h)) { select('researcher'); var el = document.getElementById(h); if (el) el.scrollIntoView(); return true; }
+    return false;
+  }
+  if (!fromHash()) { var saved = null; try { saved = localStorage.getItem('servant.onboarding.role'); } catch (e) {} if (saved && document.getElementById('tab-' + saved)) select(saved); }
+  window.addEventListener('hashchange', fromHash);
+  document.querySelectorAll('pre').forEach(function (pre) {
+    var b = document.createElement('button'); b.className = 'copy'; b.type = 'button'; b.textContent = 'Copy';
+    b.setAttribute('aria-label', 'Copy code');
+    b.addEventListener('click', function () {
+      var text = Array.prototype.filter.call(pre.querySelector('code').childNodes, function (n) { return !(n.classList && n.classList.contains('o')); })
+        .map(function (n) { return n.textContent; }).join('').replace(/\n{2,}/g, '\n\n').trim();
+      (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function () { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1500); }, function () { b.textContent = 'Select and copy'; });
+    });
+    pre.appendChild(b);
+  });
+})();
+</script>
+</body>
+</html>

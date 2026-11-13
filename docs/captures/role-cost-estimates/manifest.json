@@ -1,0 +1,137 @@
+{
+  "before": {
+    "side": "before",
+    "commit": "c64d2ba471476c549d2017731d40a917f6ac97be",
+    "uncommittedSource": [],
+    "browser": "Chromium 153.0.8010.12",
+    "viewports": {
+      "phone": {
+        "width": 390,
+        "height": 844
+      },
+      "desktop": {
+        "width": 1280,
+        "height": 900
+      }
+    },
+    "captures": [
+      {
+        "file": "before/role-phone.png",
+        "commit": "c64d2ba471476c549d2017731d40a917f6ac97be",
+        "route": "/members",
+        "viewport": "phone",
+        "meaning": "The person sheet with the roles open",
+        "capturedAt": "2026-11-12T10:57:11.963Z",
+        "sha256": "a652eed9db691804abe0a2c7621bfd9cc78efc75efa1bbeda52af8e5c16d54a9"
+      },
+      {
+        "file": "before/limit-phone.png",
+        "commit": "c64d2ba471476c549d2017731d40a917f6ac97be",
+        "route": "/members",
+        "viewport": "phone",
+        "meaning": "The person sheet with the daily limits open",
+        "capturedAt": "2026-11-12T10:57:12.676Z",
+        "sha256": "ca86c53c7c9d9d7cf5e5585dd939e7812bf954b82efbbb82ba2550469c24d530"
+      },
+      {
+        "file": "before/role-desktop.png",
+        "commit": "c64d2ba471476c549d2017731d40a917f6ac97be",
+        "route": "/members",
+        "viewport": "desktop",
+        "meaning": "The person sheet with the roles open",
+        "capturedAt": "2026-11-12T10:57:14.782Z",
+        "sha256": "aba06583dc3940c18143cbddd83b547047beb3813f36e5ca23d186f3132ea4a2"
+      },
+      {
+        "file": "before/limit-desktop.png",
+        "commit": "c64d2ba471476c549d2017731d40a917f6ac97be",
+        "route": "/members",
+        "viewport": "desktop",
+        "meaning": "The person sheet with the daily limits open",
+        "capturedAt": "2026-11-12T10:57:15.536Z",
+        "sha256": "dc22edd4f438fb9fb5f02ee55204959129961ee0deaa5917a4bd9d820ecab9c0"
+      }
+    ]
+  },
+  "after": {
+    "side": "after",
+    "commit": "171fd3b9b5bd4be8bb0b3ee2523f5cf49b2af2aa",
+    "uncommittedSource": [],
+    "browser": "Chromium 153.0.8010.12",
+    "viewports": {
+      "phone": {
+        "width": 390,
+        "height": 844
+      },
+      "desktop": {
+        "width": 1280,
+        "height": 900
+      }
+    },
+    "captures": [
+      {
+        "file": "after/role-phone.png",
+        "commit": "171fd3b9b5bd4be8bb0b3ee2523f5cf49b2af2aa",
+        "route": "/members",
+        "viewport": "phone",
+        "meaning": "The person sheet with the roles open",
+        "capturedAt": "2026-11-12T10:57:05.147Z",
+        "sha256": "5e21544e4c6e7c1a6591d47af9b196113c33a5912fd80503c690a91618445d5d"
+      },
+      {
+        "file": "after/limit-phone.png",
+        "commit": "171fd3b9b5bd4be8bb0b3ee2523f5cf49b2af2aa",
+        "route": "/members",
+        "viewport": "phone",
+        "meaning": "The person sheet with the daily limits open",
+        "capturedAt": "2026-11-12T10:57:05.869Z",
+        "sha256": "df577a83c4d55048ac3d8a6263d411a33a6cff694900824a132b2ba42ee4571e"
+      },
+      {
+        "file": "after/role-desktop.png",
+        "commit": "171fd3b9b5bd4be8bb0b3ee2523f5cf49b2af2aa",
+        "route": "/members",
+        "viewport": "desktop",
+        "meaning": "The person sheet with the roles open",
+        "capturedAt": "2026-11-12T10:57:08.033Z",
+        "sha256": "44deafc1c17acd56407a27b4f8ed8eb3cd6405fbee92dda6d31aa028e4dae8bc"
+      },
+      {
+        "file": "after/limit-desktop.png",
+        "commit": "171fd3b9b5bd4be8bb0b3ee2523f5cf49b2af2aa",
+        "route": "/members",
+        "viewport": "desktop",
+        "meaning": "The person sheet with the daily limits open",
+        "capturedAt": "2026-11-12T10:57:08.768Z",
+        "sha256": "622e9f3ba88da9dd0373dc45a88306d36925a5f5363d3557e224142f2edc4393"
+      }
+    ]
+  },
+  "unpriced": {
+    "side": "unpriced",
+    "commit": "171fd3b9b5bd4be8bb0b3ee2523f5cf49b2af2aa",
+    "uncommittedSource": [],
+    "browser": "Chromium 153.0.8010.12",
+    "viewports": {
+      "phone": {
+        "width": 390,
+        "height": 844
+      },
+      "desktop": {
+        "width": 1280,
+        "height": 900
+      }
+    },
+    "captures": [
+      {
+        "file": "after/limit-unpriced-phone.png",
+        "commit": "171fd3b9b5bd4be8bb0b3ee2523f5cf49b2af2aa",
+        "route": "/members",
+        "viewport": "phone",
+        "meaning": "The daily limits when no agent has a model or price set: the usage report's estimate",
+        "capturedAt": "2026-11-12T10:57:38.379Z",
+        "sha256": "e78ff7352b2d3e4f4c4299359fa28e66f4f2edf137210391a3248bd1df36d59d"
+      }
+    ]
+  }
+}

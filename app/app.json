@@ -1,0 +1,176 @@
+{
+  "expo": {
+    "name": "Servant",
+    "slug": "servant",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.example.servant",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Servant uses the camera for invite codes and meeting video.",
+        "UIStatusBarStyle": "UIStatusBarStyleLightContent"
+      },
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "buildNumber": "28"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#112E51",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "com.example.servant",
+      "blockedPermissions": [
+        "android.permission.READ_MEDIA_IMAGES"
+      ],
+      "googleServicesFile": "./google-services.json",
+      "versionCode": 28
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "./plugins/with-launch-credit",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#112E51",
+          "image": "./assets/splash-wordmark.png",
+          "imageWidth": 280,
+          "resizeMode": "contain",
+          "dark": {
+            "backgroundColor": "#112E51",
+            "image": "./assets/splash-wordmark.png"
+          },
+          "android": {
+            "imageWidth": 180
+          }
+        }
+      ],
+      "expo-secure-store",
+      "expo-status-bar",
+      "expo-system-ui",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Servant uses the camera to read invite codes.",
+          "microphonePermission": "Servant uses the microphone so you can dictate messages.",
+          "recordAudioAndroid": false
+        }
+      ],
+      "@react-native-firebase/app",
+      "@react-native-firebase/crashlytics",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "dynamic"
+          },
+          "android": {
+            "extraProguardRules": "-keep class org.webrtc.** { *; }\n-dontwarn org.webrtc.**"
+          }
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#0071BC",
+          "defaultChannel": "messages",
+          "mode": "production"
+        }
+      ],
+      "./plugins/with-share-extension-name",
+      [
+        "expo-sharing",
+        {
+          "ios": {
+            "enabled": true,
+            "extensionBundleIdentifier": "com.example.servant.share",
+            "appGroupId": "group.com.example.servant",
+            "activationRule": {
+              "supportsText": true,
+              "supportsWebUrlWithMaxCount": 1,
+              "supportsImageWithMaxCount": 4,
+              "supportsMovieWithMaxCount": 4,
+              "supportsFileWithMaxCount": 4
+            }
+          },
+          "android": {
+            "enabled": true,
+            "singleShareMimeTypes": [
+              "text/*",
+              "image/*",
+              "video/*",
+              "audio/*",
+              "application/*"
+            ],
+            "multipleShareMimeTypes": [
+              "image/*",
+              "video/*",
+              "audio/*",
+              "application/*"
+            ]
+          }
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Servant lets you choose photos and videos to attach to messages, and a profile photo.",
+          "cameraPermission": "Servant uses the camera to read invite codes.",
+          "microphonePermission": "Servant uses the microphone so you can dictate messages."
+        }
+      ],
+      "expo-video",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Servant uses the microphone so you can dictate messages.",
+          "speechRecognitionPermission": "Servant turns your speech into text in the message box.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox",
+            "com.google.android.tts",
+            "com.samsung.android.bixby.agent"
+          ]
+        }
+      ],
+      "expo-web-browser",
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "Servant uses the camera for invite codes and meeting video.",
+          "microphonePermission": "Servant uses the microphone for dictation and meetings."
+        }
+      ],
+      "./plugins/with-simulator-call-audio",
+      "./plugins/with-call-screen",
+      "expo-updates"
+    ],
+    "scheme": "servant",
+    "experiments": {
+      "typedRoutes": false
+    },
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://servant.invalid/ota/manifest",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0,
+      "codeSigningCertificate": "./certs/certificate.pem",
+      "codeSigningMetadata": {
+        "keyid": "main",
+        "alg": "rsa-v1_5-sha256"
+      },
+      "enabled": false
+    }
+  }
+}

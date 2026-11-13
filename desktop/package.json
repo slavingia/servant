@@ -1,0 +1,94 @@
+{
+  "name": "servant-desktop",
+  "productName": "Servant",
+  "version": "1.0.8",
+  "description": "Servant for Mac \u2014 agents for public servants, with channels and direct messages",
+  "author": "Servant",
+  "license": "CC0-1.0",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "prepare:web": "node build.mjs",
+    "start": "electron .",
+    "test": "node --test *.test.mjs",
+    "test:smoke": "node smoke.mjs",
+    "test:ota": "node ota-e2e.mjs",
+    "pack": "npm run prepare:web && electron-builder --mac --dir -c.appId=${SERVANT_BUNDLE_ID:-com.example.servant}.desktop",
+    "dist": "npm run prepare:web && electron-builder --mac dmg zip --arm64 --x64 --publish never -c.appId=${SERVANT_BUNDLE_ID:-com.example.servant}.desktop",
+    "dist:preview": "npm run prepare:web && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg zip --arm64 --x64 --publish never -c.mac.identity=- -c.mac.notarize=false -c.mac.entitlements=entitlements.preview.plist -c.mac.entitlementsInherit=entitlements.preview.plist -c.appId=${SERVANT_BUNDLE_ID:-com.example.servant}.desktop",
+    "test:accounts": "node multi-account-smoke.mjs"
+  },
+  "devDependencies": {
+    "electron": "45.2.1",
+    "electron-builder": "26.18.0",
+    "playwright": "1.58.2"
+  },
+  "build": {
+    "appId": "com.example.servant.desktop",
+    "artifactName": "Servant-${version}-${arch}.${ext}",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.mjs",
+      "preload.cjs",
+      "policy.mjs",
+      "updates.mjs",
+      "ota.mjs",
+      "ota-certificate.pem",
+      "web/**/*",
+      "workspace.json",
+      "frame-origins.json",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "../app/assets/icon.png",
+      "minimumSystemVersion": "13.0",
+      "hardenedRuntime": true,
+      "protocols": [
+        {
+          "name": "Servant invite",
+          "schemes": [
+            "servant"
+          ]
+        }
+      ],
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist",
+      "extendInfo": {
+        "NSCameraUsageDescription": "Servant uses the camera for meeting video.",
+        "NSMicrophoneUsageDescription": "Servant uses the microphone for meetings.",
+        "NSAudioCaptureUsageDescription": "Servant records the audio of a meeting on your computer, such as Zoom or Meet, when you choose to include it."
+      }
+    },
+    "dmg": {
+      "title": "Servant",
+      "contents": [
+        {
+          "x": 140,
+          "y": 160,
+          "type": "file"
+        },
+        {
+          "x": 420,
+          "y": 160,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "slavingia",
+        "repo": "servant-desktop-releases",
+        "releaseType": "prerelease"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "6.8.10"
+  }
+}

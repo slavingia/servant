@@ -1,0 +1,109 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>Join Servant</title>
+<style>:root{color-scheme:light dark;--background:#FFFFFF;--surface:#F7F8FA;--subtle:#EEF1F5;--ink:#1D1C1D;--muted:#5B616B;--line:#E6E7EB;--borderStrong:#8B929B;--blue:#0071BC;--blueDark:#205493;--blueSoft:#E8F2FC;--navy:#004C97;--primary:#0071BC;--onPrimary:#FFFFFF;--red:#D11242;--redSoft:#FDECEF;--greenDark:#1F6E35;--greenSoft:#E7F4EA}
+@media (prefers-color-scheme:dark){:root{--background:#12161C;--surface:#1B222C;--subtle:#252F3C;--ink:#F0F3F7;--muted:#ADB8C7;--line:#303945;--borderStrong:#748397;--blue:#80C7FF;--blueDark:#A6D6FF;--blueSoft:#19344D;--navy:#004C97;--primary:#0071BC;--onPrimary:#FFFFFF;--red:#FF8FA5;--redSoft:#3D202B;--greenDark:#79D492;--greenSoft:#1B3A26}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{font:15px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:var(--ink);background:var(--background);-webkit-text-size-adjust:100%}
+body{margin:0}
+h1{font-size:28px;line-height:34px;letter-spacing:-.5px;margin:0 0 16px}
+h2{font-size:18px;line-height:24px;letter-spacing:-.15px;margin:32px 0 8px}
+p{margin:0 0 16px}
+ul{margin:0 0 16px;padding-left:24px}
+p,li{overflow-wrap:anywhere}
+li+li{margin-top:8px}
+a{color:var(--blue);text-decoration:underline;text-underline-offset:3px;overflow-wrap:anywhere}
+:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+button,input,textarea{font:inherit;color:inherit}
+label,.label{display:block;font-size:13px;line-height:18px;font-weight:600;margin:0 0 4px}
+.hint{font-size:13px;line-height:18px;color:var(--muted);margin:0 0 8px}
+input[type=text],input[type=email],textarea{display:block;width:100%;min-height:48px;padding:12px 16px;border:1px solid var(--borderStrong);border-radius:10px;background:var(--background);font-size:16px;line-height:24px}
+textarea{resize:vertical;overflow-wrap:anywhere}
+::placeholder{color:var(--muted);opacity:1}
+[aria-invalid=true]{border-color:var(--red)}
+.button,.primary,.secondary,.danger{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:12px 16px;border:1px solid transparent;border-radius:6px;font-size:15px;line-height:22px;font-weight:600;text-align:center;text-decoration:none;cursor:pointer}
+.button,.primary{background:var(--primary);color:var(--onPrimary)}
+.secondary{background:var(--background);border-color:var(--borderStrong);color:var(--ink)}
+.danger{background:var(--background);border-color:var(--red);color:var(--red)}
+.full{display:flex;width:100%}
+button:disabled{cursor:default}
+.primary:disabled{background:var(--line);color:var(--muted)}
+.secondary:disabled,.danger:disabled{opacity:.5}
+.muted{color:var(--muted)}
+.small{font-size:13px;line-height:18px}
+.notice{border-radius:10px;padding:12px 16px;margin:0 0 16px;background:var(--blueSoft)}
+.success{background:var(--greenSoft);color:var(--greenDark)}
+.error{background:var(--redSoft);color:var(--red)}
+.error:empty{display:none}
+.links{display:flex;flex-wrap:wrap;gap:0 24px}
+.links a{display:inline-flex;align-items:center;min-height:44px;min-width:44px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+main{max-width:472px;margin:0 auto;padding:24px 16px 48px}
+textarea{min-height:104px;margin:0 0 12px}
+.full{margin:0 0 12px}
+nav{margin-top:12px}
+.footer{margin-top:32px;font-size:13px;line-height:18px;color:var(--muted)}
+</style></head><body><main>
+<h1>Join Servant</h1>
+<form id="join" action="https://servant.com/pair" method="get">
+<label for="invite">Invite link</label><p id="invite-example" class="hint">Example: https://servant.example.gov/join?code=ABCDE-FGH23</p><textarea id="invite" placeholder="Paste your invite link" autocapitalize="none" autocorrect="off" spellcheck="false" aria-describedby="invite-example error" required></textarea>
+<p id="error" class="notice error" role="alert" hidden></p>
+<button class="primary full" id="continue" type="submit" disabled>Continue in browser</button>
+</form>
+<a class="secondary full" id="mac-download" hidden href="https://servant-desktop.web.app">Download for Mac</a>
+<div id="app-actions" hidden><a class="secondary full" id="open" href="#">Open Servant app</a><button class="secondary full" id="copy" type="button">Copy invite link</button></div>
+<nav class="links" aria-label="Help"><a href="/support">Support</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+<noscript><p>Enable JavaScript to continue with your invite.</p></noscript>
+</main><script>
+(function () {
+  var form = document.getElementById("join"), input = document.getElementById("invite"), error = document.getElementById("error"), next = document.getElementById("continue"), actions = document.getElementById("app-actions"), open = document.getElementById("open"), copy = document.getElementById("copy");
+  var q = new URLSearchParams(location.search);
+  if (["code", "key", "d", "hub", "server"].some(function (k) { return q.has(k); })) {
+    input.value = location.protocol === "https:" ? location.origin + "/join?" + q.toString() : "servant://pair?" + q.toString();
+  }
+  var mac = document.getElementById("mac-download");
+  if (mac) mac.hidden = !(/Mac/i.test(navigator.platform || "") && !(navigator.maxTouchPoints > 1));
+
+  // Accept the same web and app invite formats as the app's parseInvite.
+  function invite() {
+    var match = input.value.trim().match(/servant:\/\/pair\?[^\s]+/i) || input.value.trim().match(/https:\/\/[^\s/?#]+\/join\?[^\s]+/i);
+    if (!match) return null;
+    var p = new URLSearchParams(match[0].slice(match[0].indexOf("?") + 1));
+    var code = p.get("code") || "", direct = p.get("server") || p.get("hub"), discovery = p.get("d"), key = p.get("key");
+    if (!/^[0-9a-z]{5}-?[0-9a-z]{5}$/i.test(code) || (!direct && !discovery)) return null;
+    if ((direct && !/^https?:\/\//.test(direct)) || (discovery && !/^https:\/\//.test(discovery))) return null;
+    if (key && !/^(02|03)[0-9a-f]{64}$/.test(key)) return null;
+    var clean = new URLSearchParams({ code: code.toUpperCase() });
+    ["key", "d", "hub", "server"].forEach(function (k) { var v = p.get(k); if (v) clean.set(k, v); });
+    return clean;
+  }
+  function update(showError) {
+    var p = invite();
+    next.disabled = !input.value.trim();
+    actions.hidden = !p;
+    error.hidden = !showError || !!p;
+    error.textContent = error.hidden ? "" : "That invite link is incomplete or invalid. Paste the full link or ask for a new one.";
+    input.setAttribute("aria-invalid", String(!error.hidden));
+    copy.textContent = "Copy invite link";
+    if (p) open.href = "servant://pair?" + p.toString();
+    else open.removeAttribute("href");
+    return p;
+  }
+  input.oninput = function () { update(false); };
+  form.onsubmit = function (event) {
+    event.preventDefault();
+    var p = update(true);
+    if (!p) { input.focus(); return; }
+    var target = new URL(form.action);
+    target.search = p.toString();
+    location.href = target.href;
+  };
+  copy.onclick = function () {
+    var p = invite();
+    if (!p) return;
+    var link = new URL("/join", form.action);
+    link.search = p.toString();
+    (navigator.clipboard ? navigator.clipboard.writeText(link.href) : Promise.reject()).then(function () { copy.textContent = "Copied"; }, function () { input.focus(); input.select(); });
+  };
+  update(!!input.value);
+})();
+</script></body></html>

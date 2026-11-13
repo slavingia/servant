@@ -1,0 +1,10 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["ServantCallModule"],
+    "appDelegateSubscribers": ["ServantCallAppDelegateSubscriber"]
+  },
+  "android": {
+    "modules": ["expo.modules.servantcall.ServantCallModule"]
+  }
+}

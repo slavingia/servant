@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Servant admin command on Linux (installed to /usr/local/bin/servant).
+#   sudo servant invite [--fresh]                 team join link
+#   sudo servant invite --name "X" --role owner   one-time named invite
+#   sudo servant devices | revoke <id>
+#   sudo servant status | rollback                API release selection
+#   sudo servant logs                             follow every Servant service
+set -euo pipefail
+[[ $EUID -eq 0 ]] || { echo "run with sudo" >&2; exit 1; }
+set -a; . /etc/servant/servant.env; set +a
+run() { runuser -u servant -- env HOME="$HOME" SERVANT_RUNTIME_DIR="$SERVANT_RUNTIME_DIR" SERVANT_DATA_DIR="$SERVANT_DATA_DIR" SERVANT_PUSH_CONFIG="$SERVANT_PUSH_CONFIG" "$@"; }
+active() {
+  "$NODE" -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).activeRelease)' "$SERVANT_RUNTIME_DIR/deployment.json"
+}
+cmd="${1:-status}"; shift || true
+case "$cmd" in
+  status|rollback) run "$NODE" "$SERVANT_RUNTIME_DIR/bootstrap/deploy.mjs" "$cmd" "$@" ;;
+  logs) exec journalctl -f -u 'servant-*' ;;
+  invite|devices|revoke|release)
+    cd "$SERVANT_RUNTIME_DIR/releases/$(active)"
+    run "$NODE" server.mjs "$cmd" "$@" ;;
+  *) sed -n 2,7p "$0"; exit 2 ;;
+esac

@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    { "source": "/", "destination": "/site/index.html" },
+    { "source": "/support", "destination": "/support/index.html" },
+    { "source": "/privacy", "destination": "/privacy/index.html" },
+    { "source": "/terms", "destination": "/terms/index.html" },
+    { "source": "/((?!_expo|assets|join|site|support|privacy|terms|favicon.ico).*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    { "source": "/(support|privacy|terms)(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=300, no-transform" }] }
+  ]
+}

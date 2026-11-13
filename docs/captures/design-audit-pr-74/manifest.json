@@ -1,0 +1,277 @@
+{
+  "purpose": "Actual PR base versus PR head; no mockups or image edits.",
+  "fixture": "Two isolated servers on copies of the same made-up data: Pat Tester, Jo Park, Ana Ruiz and other invented teammates, example.gov addresses, invented messages, to-dos and shortcuts.",
+  "locale": "en-US",
+  "timezone": "America/New_York",
+  "colorScheme": "light",
+  "deviceScaleFactor": 1,
+  "browser": "Chromium 153.0.8010.12",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 900
+    },
+    "phone": {
+      "width": 390,
+      "height": 844
+    }
+  },
+  "versions": {
+    "before": {
+      "commit": "6f5f3cb3ff27f548c216c0e739e195902d68e37d"
+    },
+    "after": {
+      "commit": "0b738714277ca687ca0894396c6b9d34231578a2"
+    }
+  },
+  "captures": [
+    {
+      "file": "before/navigation-desktop.png",
+      "commit": "6f5f3cb3ff27f548c216c0e739e195902d68e37d",
+      "route": "/channels",
+      "served": "app (web build)",
+      "viewport": "desktop",
+      "httpStatus": 200,
+      "meaning": "Where the places are: the sidebar in a wide window, You on a phone",
+      "capturedAt": "2026-11-12T05:12:49.592Z",
+      "sha256": "68f42aaab7fbfc94635edd10fbb619d0a9d8df0ac5a6a8b9ce08aff928e8912c"
+    },
+    {
+      "file": "before/navigation-phone.png",
+      "commit": "6f5f3cb3ff27f548c216c0e739e195902d68e37d",
+      "route": "/you",
+      "served": "app (web build)",
+      "viewport": "phone",
+      "httpStatus": 200,
+      "meaning": "Where the places are: the sidebar in a wide window, You on a phone",
+      "capturedAt": "2026-11-12T05:13:39.217Z",
+      "sha256": "465df14b68b6b68e3f8f1f010ea4fea6bbe8b70e636c45784c75655dd489fab9"
+    },
+    {
+      "file": "before/join-desktop.png",
+      "commit": "6f5f3cb3ff27f548c216c0e739e195902d68e37d",
+      "route": "/join",
+      "served": "server page",
+      "viewport": "desktop",
+      "httpStatus": 200,
+      "meaning": "A page the server renders (join by invite link)",
+      "capturedAt": "2026-11-12T05:13:40.320Z",
+      "sha256": "6e63e0b1412d32c0e0aab039731d2aece16880e3e66287260e41d1dd8302a662"
+    },
+    {
+      "file": "before/join-phone.png",
+      "commit": "6f5f3cb3ff27f548c216c0e739e195902d68e37d",
+      "route": "/join",
+      "served": "server page",
+      "viewport": "phone",
+      "httpStatus": 200,
+      "meaning": "A page the server renders (join by invite link)",
+      "capturedAt": "2026-11-12T05:13:41.389Z",
+      "sha256": "fb5d58d7b06725ff60823f67f13c887dfa06725024118289aee4843fdf7e6786"
+    },
+    {
+      "file": "before/text-shortcuts-desktop.png",
+      "commit": "6f5f3cb3ff27f548c216c0e739e195902d68e37d",
+      "route": "/lexicon",
+      "served": "app (web build)",
+      "viewport": "desktop",
+      "httpStatus": 200,
+      "meaning": "A form and rows with actions (Text shortcuts)",
+      "capturedAt": "2026-11-12T05:14:30.474Z",
+      "sha256": "ab9edabd1a438bf18bd5146d2b778ad828aecd12cf34af8b2accdc10bbc47e2a"
+    },
+    {
+      "file": "before/text-shortcuts-phone.png",
+      "commit": "6f5f3cb3ff27f548c216c0e739e195902d68e37d",
+      "route": "/lexicon",
+      "served": "app (web build)",
+      "viewport": "phone",
+      "httpStatus": 200,
+      "meaning": "A form and rows with actions (Text shortcuts)",
+      "capturedAt": "2026-11-12T05:15:19.536Z",
+      "sha256": "15dc6ee775a852408b8fd6b34a8baac576a2d76800544c2957132d56ab024cc2"
+    },
+    {
+      "file": "before/todos-desktop.png",
+      "commit": "6f5f3cb3ff27f548c216c0e739e195902d68e37d",
+      "route": "/todos",
+      "served": "app (web build)",
+      "viewport": "desktop",
+      "httpStatus": 200,
+      "meaning": "The checkbox and a text field (To-dos)",
+      "capturedAt": "2026-11-12T05:16:08.604Z",
+      "sha256": "3f2a13e61f67687e80e264da8d358c7de40cb1cf428d5e41f71fbd6168fb6f02"
+    },
+    {
+      "file": "before/todos-phone.png",
+      "commit": "6f5f3cb3ff27f548c216c0e739e195902d68e37d",
+      "route": "/todos",
+      "served": "app (web build)",
+      "viewport": "phone",
+      "httpStatus": 200,
+      "meaning": "The checkbox and a text field (To-dos)",
+      "capturedAt": "2026-11-12T05:16:57.704Z",
+      "sha256": "b4e04481b3f0b355b3baad16ba6f42804a4361e7f87fee2443c7906d404e23bc"
+    },
+    {
+      "file": "before/new-channel-desktop.png",
+      "commit": "6f5f3cb3ff27f548c216c0e739e195902d68e37d",
+      "route": "/new-channel",
+      "served": "app (web build)",
+      "viewport": "desktop",
+      "httpStatus": 200,
+      "meaning": "The switch, in a browser (New channel)",
+      "capturedAt": "2026-11-12T05:17:02.098Z",
+      "sha256": "1dc3bbf5356a594afc41e1b7a13982e95a47e380bdc6348987bb32f61dc7b041"
+    },
+    {
+      "file": "before/new-channel-phone.png",
+      "commit": "6f5f3cb3ff27f548c216c0e739e195902d68e37d",
+      "route": "/new-channel",
+      "served": "app (web build)",
+      "viewport": "phone",
+      "httpStatus": 200,
+      "meaning": "The switch, in a browser (New channel)",
+      "capturedAt": "2026-11-12T05:17:51.129Z",
+      "sha256": "381814361410cc25484a555a5b01dd26db492edb8abd435510f2ed9e2bc9f68e"
+    },
+    {
+      "file": "after/navigation-desktop.png",
+      "commit": "0b738714277ca687ca0894396c6b9d34231578a2",
+      "route": "/channels",
+      "served": "app (web build)",
+      "viewport": "desktop",
+      "httpStatus": 200,
+      "meaning": "Where the places are: the sidebar in a wide window, You on a phone",
+      "capturedAt": "2026-11-12T05:18:40.669Z",
+      "sha256": "fb34d547c8dfc7fd4c80fc235ab2a25e76ade23db00f68bd9d5d2903620ececc"
+    },
+    {
+      "file": "after/navigation-phone.png",
+      "commit": "0b738714277ca687ca0894396c6b9d34231578a2",
+      "route": "/you",
+      "served": "app (web build)",
+      "viewport": "phone",
+      "httpStatus": 200,
+      "meaning": "Where the places are: the sidebar in a wide window, You on a phone",
+      "capturedAt": "2026-11-12T05:19:30.309Z",
+      "sha256": "e9f9bcf732099b52a2fb3f43ba66ce93aa7c2f365f95a95f2fe003549fa5348a"
+    },
+    {
+      "file": "after/join-desktop.png",
+      "commit": "0b738714277ca687ca0894396c6b9d34231578a2",
+      "route": "/join",
+      "served": "server page",
+      "viewport": "desktop",
+      "httpStatus": 200,
+      "meaning": "A page the server renders (join by invite link)",
+      "capturedAt": "2026-11-12T05:19:31.404Z",
+      "sha256": "472447b5b1bc6fe5b6428c7adc0886b685cc68f71a309fc00a174ad57fb0d7ec"
+    },
+    {
+      "file": "after/join-phone.png",
+      "commit": "0b738714277ca687ca0894396c6b9d34231578a2",
+      "route": "/join",
+      "served": "server page",
+      "viewport": "phone",
+      "httpStatus": 200,
+      "meaning": "A page the server renders (join by invite link)",
+      "capturedAt": "2026-11-12T05:19:32.475Z",
+      "sha256": "171baad1cdc149227d0738cbd6dcc075c501055e41257353d2d797be7abe4e04"
+    },
+    {
+      "file": "after/text-shortcuts-desktop.png",
+      "commit": "0b738714277ca687ca0894396c6b9d34231578a2",
+      "route": "/lexicon",
+      "served": "app (web build)",
+      "viewport": "desktop",
+      "httpStatus": 200,
+      "meaning": "A form and rows with actions (Text shortcuts)",
+      "capturedAt": "2026-11-12T05:20:21.577Z",
+      "sha256": "a6f42141ae3d143fcfa8f610feea904e4d20b5bbf75c5470c58856a71a7e8bf1"
+    },
+    {
+      "file": "after/text-shortcuts-phone.png",
+      "commit": "0b738714277ca687ca0894396c6b9d34231578a2",
+      "route": "/lexicon",
+      "served": "app (web build)",
+      "viewport": "phone",
+      "httpStatus": 200,
+      "meaning": "A form and rows with actions (Text shortcuts)",
+      "capturedAt": "2026-11-12T05:21:10.690Z",
+      "sha256": "c46d8001a79ccf22ecb7ce832200e60fc3d6ef2fcbc1bb1d80fb726d2cc30089"
+    },
+    {
+      "file": "after/todos-desktop.png",
+      "commit": "0b738714277ca687ca0894396c6b9d34231578a2",
+      "route": "/todos",
+      "served": "app (web build)",
+      "viewport": "desktop",
+      "httpStatus": 200,
+      "meaning": "The checkbox and a text field (To-dos)",
+      "capturedAt": "2026-11-12T05:21:59.815Z",
+      "sha256": "076cead0031a10bfc873440d07686281eade820ea0b41aab6257c7ad734d8873"
+    },
+    {
+      "file": "after/todos-phone.png",
+      "commit": "0b738714277ca687ca0894396c6b9d34231578a2",
+      "route": "/todos",
+      "served": "app (web build)",
+      "viewport": "phone",
+      "httpStatus": 200,
+      "meaning": "The checkbox and a text field (To-dos)",
+      "capturedAt": "2026-11-12T05:22:48.893Z",
+      "sha256": "772fdee3875a47154843b30f6096a3ffb8e5ebd42def6aa3416c8519f2e64b2a"
+    },
+    {
+      "file": "after/new-channel-desktop.png",
+      "commit": "0b738714277ca687ca0894396c6b9d34231578a2",
+      "route": "/new-channel",
+      "served": "app (web build)",
+      "viewport": "desktop",
+      "httpStatus": 200,
+      "meaning": "The switch, in a browser (New channel)",
+      "capturedAt": "2026-11-12T05:23:38.020Z",
+      "sha256": "aced2702f6e29ebb52cbed01b09714f9366d32c1b7acd5fa67bd4240b1ce1d3e"
+    },
+    {
+      "file": "after/new-channel-phone.png",
+      "commit": "0b738714277ca687ca0894396c6b9d34231578a2",
+      "route": "/new-channel",
+      "served": "app (web build)",
+      "viewport": "phone",
+      "httpStatus": 200,
+      "meaning": "The switch, in a browser (New channel)",
+      "capturedAt": "2026-11-12T05:24:27.116Z",
+      "sha256": "7c23e6bc5199c2c0c29e11543dc842c9e70b16fcb718008fcc20d8eb719a91d5"
+    }
+  ],
+  "keyboardFollowup": {
+    "commit": "6afbf05e3aa5b51bbfef1765cc82849b7fcaa903",
+    "fixCommit": "9d90bab",
+    "file": "keyboard-space-after.jpg",
+    "route": "/saved",
+    "viewport": {
+      "width": 1116,
+      "height": 902
+    },
+    "colorScheme": "dark",
+    "fixture": "Isolated loopback test server; synthetic Pat Tester account; purple workspace color.",
+    "meaning": "Custom radio selected by Space; date inputs visible. Enter and switch keyboard actions were also observed.",
+    "capturedAt": "2026-11-12T05:32:33.828169+00:00",
+    "sha256": "70ec68e4d3e4e9293aea465829e3a26831a4dba45b55cbe3b17d0599454d14c1",
+    "before": {
+      "commit": "9ba545c485014debed3ea847508d9e92e62636b3",
+      "file": "keyboard-space-before.jpg",
+      "route": "/saved",
+      "viewport": {
+        "width": 1116,
+        "height": 902
+      },
+      "colorScheme": "dark",
+      "meaning": "After Space on Custom, Custom stays unchecked; Past 7 days remains selected and date inputs are absent.",
+      "capturedAt": "2026-11-12T05:36:32.218433+00:00",
+      "sha256": "d7494a577aa16987da610f2e1a247f3956f6fd6c1663861beb9884345522b31e"
+    }
+  }
+}

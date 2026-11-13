@@ -1,0 +1,409 @@
+import { useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from "react";
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { router } from "expo-router";
+import { AppIcon } from "./AppIcon";
+import { Button, ButtonGroup, IconButton } from "./Button";
+import { CheckBox } from "./CheckBox";
+import { ReorderableList } from "./ReorderableList";
+import { refreshProjects, useProjects } from "../lib/projects-store";
+import { api, ServerError, type Account, type Conversation, type TodoItem, type TodoPatch } from "../lib/server";
+import { orderReleases } from "../lib/releases";
+import { editableTodos, mergeTodoUpdates, sortTodos, todoCountLine, todoMeta } from "../lib/todo-list";
+import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
+
+// A list of to-dos you can work, kept as plain as a list on paper: a box to tick and the words. Tap the words to
+// edit them in place; only then does that row offer what else can be done with it (send it to Agent, its details).
+// Hold a row and drag to reorder. Everything about the list as a whole (filters, tagging several, sending all) is
+// behind one icon at the top. Used under a meeting's notes and on its own screen.
+type Props = {
+  account: Account;
+  todos: TodoItem[];
+  /** Apply a change to the latest full list for this screen. */
+  onChange: (change: (current: TodoItem[]) => TodoItem[]) => void;
+  /** Pause and invalidate parent reads while this list writes, then refresh after the write. */
+  onBusyChange?: (busy: boolean) => void;
+  /** Re-read from the server (the agent may have finished something). */
+  onReload?: () => void;
+  empty?: string;
+  allowAdd?: boolean;
+  /** The screen's filters, shown at the top of the list's options. */
+  filters?: ReactNode;
+  /** Which filters are on, in a few words ("Mine · Example app"), said beside the count. */
+  filterSummary?: string;
+};
+
+// In a browser, pressing the mouse on a row's options would take focus from the words being edited, which ends the
+// edit and removes the options before the click lands. Keeping the press from moving focus leaves both in place.
+const KEEP_EDITING = (Platform.OS === "web" ? { onMouseDown: (event: { preventDefault(): void }) => event.preventDefault() } : {}) as object;
+
+export function TodoList({ account, todos, onChange, onBusyChange, onReload, empty = "Nothing to do", allowAdd = true, filters, filterSummary = "" }: Props) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  // The row whose words are being edited in place, and what its field holds.
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [words, setWords] = useState("");
+  // The row whose details sheet is open.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [menu, setMenu] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [bulk, setBulk] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [lifted, setLifted] = useState(false);
+  const [draft, setDraft] = useState("");
+  const running = useRef(false);
+  const mounted = useRef(true);
+  const adder = useRef<ComponentRef<typeof TextInput>>(null);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+
+  const ordered = useMemo(() => sortTodos(todos), [todos]);
+  const open = ordered.filter(t => t.status === "open");
+  const done = ordered.filter(t => t.status === "done");
+  const editableOpen = editableTodos(open);
+  const sendable = editableOpen.filter(t => !t.chatId);
+  const selected = editableTodos(todos).filter(t => picked.includes(t.id));
+  const editing = todos.find(t => t.id === editingId && t.canEdit) ?? null;
+  useEffect(() => {
+    // Permissions and visibility are server-controlled. Conceal immediately during render,
+    // then dismiss the editor so a later grant does not reopen an old private draft.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (editingId && !editing) setEditingId(null);
+  }, [editingId, editing]);
+  useEffect(() => {
+    const allowed = new Set(todos.filter(t => t.canEdit).map(t => t.id));
+    // Remove selections whose visibility or editing permission was revoked.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPicked(current => current.every(id => allowed.has(id)) ? current : current.filter(id => allowed.has(id)));
+  }, [todos]);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (bulk && !selected.length) setBulk(false);
+  }, [bulk, selected.length]);
+  const writeBusy = (id: string, value: boolean) => {
+    running.current = value;
+    if (!mounted.current) return;
+    setBusy(value ? id : null);
+    onBusyChange?.(value);
+  };
+  const replace = (next: TodoItem | TodoItem[]) => {
+    const list = Array.isArray(next) ? next : [next];
+    if (mounted.current) onChange(current => mergeTodoUpdates(current, list));
+  };
+  const fail = (e: unknown, fallback: string) => setError(e instanceof ServerError ? e.message : fallback);
+  const run = async <T,>(id: string, work: () => Promise<T>, fallback: string, accept?: (value: T) => void, rethrow = false): Promise<T | null> => {
+    if (running.current) return null;
+    writeBusy(id, true); setError(null);
+    try {
+      const value = await work();
+      if (!mounted.current) return null;
+      accept?.(value);
+      return value;
+    } catch (e) {
+      if (rethrow) throw e;
+      if (mounted.current) fail(e, fallback);
+      return null;
+    } finally { writeBusy(id, false); }
+  };
+
+  const tick = async (t: TodoItem) => {
+    await run(t.id, () => api.updateTodo(account, t.id, { status: t.status === "done" ? "open" : "done" }), "Couldn't save that. Try again", next => replace(next.todo));
+  };
+  // Leaving a row's words (a tap elsewhere, or Return) saves them if they changed, and puts its options away.
+  const finishWords = async (t: TodoItem) => {
+    const next = words.trim();
+    setActiveId(current => current === t.id ? null : current);
+    if (!next || next === t.text) return;
+    await run(t.id, () => api.updateTodo(account, t.id, { text: next }), "Couldn't save that. Try again", r => replace(r.todo));
+  };
+  const send = async (t: TodoItem) => {
+    setActiveId(null);
+    const sent = await run(t.id, () => api.sendTodoToAgent(account, t.id), "Couldn't start the agent. Try again", next => replace(next.todo));
+    if (!sent) return;
+    if (sent.chatId && sent.started) router.push({ pathname: "/chat/[id]", params: { id: sent.chatId, title: t.text } });
+  };
+  const sendAll = async () => {
+    await run("all", async () => {
+      for (const t of sendable) {
+        if (!mounted.current) break;
+        const result = await api.sendTodoToAgent(account, t.id);
+        replace(result.todo);
+      }
+    }, "Couldn't start the agent. Try again");
+  };
+  const drop = async (ids: string[]) => {
+    if (running.current || editableOpen.length !== open.length) return;
+    writeBusy("order", true); setError(null);
+    // Only the open ones are dragged; done ones stay at the bottom.
+    const positions = new Map(todos.map(t => [t.id, t.position]));
+    onChange(current => sortTodos(current.map(t => { const i = ids.indexOf(t.id); return i < 0 ? t : { ...t, position: Math.min(...open.map(o => o.position)) + i / 1000 }; })));
+    try { const r = await api.reorderTodos(account, ids); replace(r.todos); }
+    catch (e) { if (mounted.current) { onChange(current => sortTodos(current.map(t => ({ ...t, position: positions.get(t.id) ?? t.position })))); fail(e, "Couldn't save the new order"); } }
+    finally { writeBusy("order", false); }
+  };
+  const add = async () => {
+    const text = draft.trim();
+    if (!text) return;
+    // The line stays ready for the next one, as on a paper list.
+    await run("add", () => api.addTodo(account, { text }), "Couldn't add that. Try again", r => { setDraft(""); onChange(current => sortTodos([...current, r.todo])); });
+    adder.current?.focus();
+  };
+  const applyBulk = async (patch: TodoPatch) => {
+    if (!selected.length) throw new Error("Choose a to-do you can edit.");
+    await run("bulk", () => api.bulkTodos(account, selected.map(t => t.id), patch), "Couldn't change those. Try again", r => { replace(r.todos); setBulk(false); setSelecting(false); setPicked([]); }, true);
+  };
+
+  const row = (t: TodoItem, bind?: Parameters<NonNullable<React.ComponentProps<typeof ReorderableList<TodoItem>>["renderRow"]>>[1]) => {
+    const on = picked.includes(t.id);
+    const finished = t.status === "done";
+    const active = activeId === t.id && !selecting && t.canEdit;
+    const meta = todoMeta(t);
+    return (
+      <View key={t.id} testID={`todo-${t.id}`} style={[styles.row, finished && styles.rowDone, bind?.lifted && styles.rowLifted]}>
+        {selecting ? (
+          <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: on, disabled: !t.canEdit || !!busy }} aria-checked={on} accessibilityLabel={`Choose: ${t.text}`} disabled={!t.canEdit || !!busy}
+            onPress={() => setPicked(p => on ? p.filter(x => x !== t.id) : [...p, t.id])} style={styles.boxTarget}>
+            <CheckBox on={on} />
+          </Pressable>
+        ) : (
+          <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: finished, disabled: !t.canEdit || !!busy }} aria-checked={finished} accessibilityLabel={`${finished ? "Done" : "Not done"}: ${t.text}. Tap to ${finished ? "reopen" : "mark done"}`}
+            disabled={!t.canEdit || !!busy} onPress={() => void tick(t)} style={styles.boxTarget}>
+            <CheckBox on={finished} tone="done" busy={busy === t.id} />
+          </Pressable>
+        )}
+        {active ? (
+          <View style={styles.body}>
+            <TextInput testID="todo-words" accessibilityLabel="What needs doing" autoFocus multiline value={words} onChangeText={setWords} maxLength={300}
+              submitBehavior="blurAndSubmit" blurOnSubmit returnKeyType="done" onSubmitEditing={() => void finishWords(t)} onBlur={() => void finishWords(t)}
+              // In a browser Return in a field of several lines would start a new line: here it finishes the edit.
+              onKeyPress={event => { if (event.nativeEvent.key === "Enter" && !(event.nativeEvent as { shiftKey?: boolean }).shiftKey) { event.preventDefault(); void finishWords(t); } }}
+              cursorColor={colors.ink} style={styles.words} />
+            {/* What else can be done with this one, offered only while it is the one being worked on. */}
+            <View testID="todo-options" style={styles.options} {...KEEP_EDITING}>
+              <ButtonGroup>
+                {finished ? null : t.chatId
+                  ? <Button label="Open chat" kind="link" compact onPress={() => { setActiveId(null); router.push({ pathname: "/chat/[id]", params: { id: t.chatId!, title: t.text } }); }} />
+                  : <Button label="Send to Agent" kind="link" compact onPress={() => void send(t)} />}
+                <Button label="Details" accessibilityLabel={`Details of: ${t.text}`} kind="link" compact onPress={() => { setActiveId(null); setEditingId(t.id); }} />
+              </ButtonGroup>
+            </View>
+          </View>
+        ) : (
+          <Pressable accessibilityRole="button" accessibilityLabel={`${t.text}. Edit`} accessibilityActions={bind?.accessibilityActions} onAccessibilityAction={bind?.onAccessibilityAction}
+            disabled={!t.canEdit || !!busy} onPress={() => { if (selecting) setPicked(p => on ? p.filter(x => x !== t.id) : [...p, t.id]); else { setWords(t.text); setActiveId(t.id); } }}
+            onLongPress={bind && !finished && !selecting && t.canEdit ? bind.onLongPress : undefined} delayLongPress={350} style={styles.body}>
+            <Text style={[styles.text, finished && styles.textDone]}>{t.text}</Text>
+            {meta ? <Text style={styles.meta}>{meta}</Text> : null}
+          </Pressable>
+        )}
+      </View>
+    );
+  };
+
+  const count = todoCountLine(open.length, done.length, filterSummary);
+  const canChoose = editableOpen.length > 1;
+  const hasMenu = !!filters || canChoose || sendable.length > 1;
+  return (
+    <View>
+      {selecting ? (
+        <View style={styles.bulkBar}>
+          <Pressable accessibilityRole="button" disabled={!!busy} onPress={() => setPicked(selected.length === editableOpen.length ? [] : editableOpen.map(t => t.id))} style={styles.linkTarget}><Text style={styles.link}>{selected.length === editableOpen.length ? "Choose none" : "Choose all"}</Text></Pressable>
+          <ButtonGroup align="end">
+            <Button label={selected.length ? `Tag ${selected.length}` : "Tag"} compact disabled={!selected.length || !!busy} onPress={() => setBulk(true)} />
+            <Button label="Done" kind="secondary" compact disabled={!!busy} onPress={() => { setSelecting(false); setPicked([]); }} />
+          </ButtonGroup>
+        </View>
+      ) : count || hasMenu ? (
+        <View style={styles.toolbar}>
+          <Text testID="todo-count" style={styles.count}>{count}</Text>
+          {hasMenu ? <IconButton testID="todo-menu" icon="sort" label={filters ? "Filter and options" : "Options"} edge="end" disabled={!!busy} onPress={() => { setActiveId(null); setMenu(true); }} /> : null}
+        </View>
+      ) : null}
+      {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+      {open.length ? (selecting || editableOpen.length !== open.length || !!busy || !!activeId
+        ? open.map(t => row(t))
+        : <ReorderableList items={open} onLift={() => setLifted(true)} onSettle={() => setLifted(false)} onDrop={ids => void drop(ids)} renderRow={(t, bind) => row(t, bind)} />)
+        : !done.length ? <Text style={styles.empty}>{empty}</Text> : null}
+      {!selecting && allowAdd ? (
+        // The next line of the list: no box around it, no button beside it. Return adds it and waits for another.
+        <View style={styles.row}>
+          <View style={styles.boxTarget}><AppIcon name="plus" size={18} color={colors.muted} /></View>
+          <TextInput ref={adder} testID="todo-add" accessibilityLabel="New to-do" editable={!busy} placeholder="New to-do" placeholderTextColor={colors.muted} value={draft} onChangeText={setDraft}
+            onSubmitEditing={() => void add()} onBlur={() => void add()} blurOnSubmit={false} returnKeyType="done" maxLength={300} cursorColor={colors.ink} style={[styles.words, styles.adder]} />
+        </View>
+      ) : null}
+      {done.length ? <View>{open.length || allowAdd ? <Text style={styles.divider}>Done</Text> : null}{done.map(t => row(t))}</View> : null}
+      {menu ? (
+        <Modal transparent animationType="slide" onRequestClose={() => setMenu(false)}>
+          <View style={styles.sheetWrap}>
+            <Pressable accessibilityLabel="Close" accessibilityRole="button" style={StyleSheet.absoluteFill} onPress={() => setMenu(false)} />
+            <View testID="todo-menu-sheet" accessibilityViewIsModal style={styles.sheet}>
+              <ScrollView keyboardShouldPersistTaps="handled" style={{ flexGrow: 0 }}>
+                {filters}
+                {canChoose || sendable.length > 1 ? <View style={styles.menuActions}>
+                  {canChoose ? <Button label="Tag several" kind="secondary" onPress={() => { setMenu(false); setSelecting(true); setPicked([]); }} /> : null}
+                  {sendable.length > 1 ? <Button label={`Send all ${sendable.length} to Agent`} kind="secondary" disabled={!!busy || lifted} onPress={() => { setMenu(false); void sendAll(); }} /> : null}
+                </View> : null}
+              </ScrollView>
+              <View style={styles.sheetButtons}>
+                {onReload ? <Button label="Refresh" kind="link" compact onPress={() => { setMenu(false); onReload(); }} /> : null}
+                <View style={{ flex: 1 }} />
+                <Button label="Done" compact onPress={() => setMenu(false)} />
+              </View>
+            </View>
+          </View>
+        </Modal>
+      ) : null}
+      {editing ? <TodoEditor key={editing.id} account={account} todo={editing} onClose={() => setEditingId(null)} onBusyChange={value => writeBusy(editing.id, value)}
+        onSaved={t => { replace(t); setEditingId(null); }}
+        onDeleted={() => { onChange(current => current.filter(t => t.id !== editing.id)); setEditingId(null); }} /> : null}
+      {bulk && selected.length ? <TodoEditor account={account} bulkCount={selected.length} onClose={() => setBulk(false)} onBulk={applyBulk} /> : null}
+    </View>
+  );
+}
+
+// Edit one to-do, or tag several at once (bulkCount): words, who it's for, project, release and channel.
+function TodoEditor({ account, todo, bulkCount, onClose, onSaved, onDeleted, onBulk, onBusyChange }: {
+  account: Account; todo?: TodoItem; bulkCount?: number; onClose: () => void;
+  onSaved?: (t: TodoItem) => void; onDeleted?: () => void; onBulk?: (patch: TodoPatch) => Promise<void>;
+  onBusyChange?: (busy: boolean) => void;
+}) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const projects = useProjects();
+  const [text, setText] = useState(todo?.text ?? "");
+  const [who, setWho] = useState(todo?.assignee?.name ?? "");
+  const [projectId, setProjectId] = useState<string | null>(todo?.projectId ?? null);
+  const [releaseId, setReleaseId] = useState<string | null>(todo?.releaseId ?? null);
+  const [channelId, setChannelId] = useState<string | null>(todo?.channelId ?? null);
+  const [channels, setChannels] = useState<Conversation[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const bulk = bulkCount !== undefined;
+  useEffect(() => { void refreshProjects(account); }, [account]);
+  useEffect(() => { api.conversations(account).then(all => setChannels(all.filter(c => c.kind === "channel" && !c.archived))).catch(() => {}); }, [account]);
+  const list = projects?.list ?? [];
+  const project = list.find(p => p.id === projectId) ?? null;
+  // Upcoming releases first, then past ones: a to-do is usually for the next drop.
+  const ordered = project ? orderReleases(project.releases) : { upcoming: [], past: [] };
+  const releases = [...ordered.upcoming, ...ordered.past];
+  const pickProject = (id: string | null) => { setProjectId(id); setReleaseId(null); };
+
+  const save = async () => {
+    if (saving) return;
+    setSaving(true); setError(null); onBusyChange?.(true);
+    try {
+      if (bulk) {
+        const patch: TodoPatch = {};
+        if (projectId !== null) { patch.projectId = projectId; patch.releaseId = releaseId; }
+        if (channelId !== null) patch.channelId = channelId;
+        if (who.trim()) patch.assigneeName = who.trim();
+        if (!Object.keys(patch).length) { setError("Choose a project, a channel or who it's for"); return; }
+        await onBulk?.(patch);
+      } else if (todo) {
+        const r = await api.updateTodo(account, todo.id, { text, assigneeName: who.trim(), projectId, releaseId, channelId });
+        onSaved?.(r.todo);
+      }
+    } catch (e) { setError(e instanceof ServerError ? e.message : "Couldn't save. Try again"); }
+    finally { setSaving(false); onBusyChange?.(false); }
+  };
+  const remove = async () => {
+    if (!todo || saving) return;
+    setSaving(true); onBusyChange?.(true);
+    try { await api.deleteTodo(account, todo.id); onDeleted?.(); }
+    catch (e) { setError(e instanceof ServerError ? e.message : "Couldn't delete that"); }
+    finally { setSaving(false); onBusyChange?.(false); }
+  };
+
+  return (
+    <Modal transparent animationType="slide" onRequestClose={() => { if (!saving) onClose(); }}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.sheetWrap}>
+        <Pressable accessibilityLabel="Close" accessibilityRole="button" disabled={saving} style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View accessibilityViewIsModal style={styles.sheet}>
+          <Text accessibilityRole="header" style={styles.sheetTitle}>{bulk ? `Tag ${bulkCount} to-dos` : "Edit to-do"}</Text>
+          <ScrollView keyboardShouldPersistTaps="handled" style={{ flexGrow: 0 }}>
+            {!bulk ? <>
+              <Text style={styles.label}>What needs doing</Text>
+              <TextInput accessibilityLabel="What needs doing" value={text} onChangeText={setText} multiline maxLength={300} style={[styles.input, styles.inputTall]} />
+            </> : <Text style={styles.hint}>Only what you choose below changes. Everything else stays as it is.</Text>}
+            <Text style={styles.label}>For</Text>
+            <TextInput accessibilityLabel="Who it's for" placeholder="A name, or nobody yet" placeholderTextColor={colors.muted} value={who} onChangeText={setWho} maxLength={60} style={styles.input} />
+            <Text style={styles.label}>Project</Text>
+            <View style={styles.choices}>
+              {!bulk ? <Option label="No project" on={projectId === null} onPress={() => pickProject(null)} /> : null}
+              {list.map(p => <Option key={p.id} label={p.name} on={projectId === p.id} onPress={() => pickProject(p.id)} />)}
+            </View>
+            {project ? <>
+              <Text style={styles.label}>Release</Text>
+              <View style={styles.choices}>
+                <Option label="No release" on={releaseId === null} onPress={() => setReleaseId(null)} />
+                {releases.map(r => <Option key={r.id} label={r.name} on={releaseId === r.id} onPress={() => setReleaseId(r.id)} />)}
+              </View>
+              {!releases.length ? <Text style={styles.hint}>This project has no releases yet. Add one on its project page.</Text> : null}
+            </> : null}
+            <Text style={styles.label}>Post updates to</Text>
+            <View style={styles.choices}>
+              {!bulk ? <Option label="No channel" on={channelId === null} onPress={() => setChannelId(null)} /> : null}
+              {channels.map(c => <Option key={c.id} label={`#${c.title}`} on={channelId === c.id} onPress={() => setChannelId(c.id)} />)}
+            </View>
+            <Text style={styles.hint}>New, edited and finished to-dos are posted in that channel.</Text>
+          </ScrollView>
+          {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+          <View style={styles.sheetButtons}>
+            {!bulk ? <Button label="Delete" kind="danger" compact disabled={saving} onPress={() => void remove()} /> : null}
+            <View style={{ flex: 1 }} />
+            <Button label="Cancel" kind="secondary" compact disabled={saving} onPress={onClose} />
+            <Button label="Save" compact busy={saving} disabled={!bulk && !text.trim()} onPress={() => void save()} />
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+function Option({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
+  const styles = useStyles();
+  return <Pressable accessibilityRole="radio" accessibilityState={{ checked: on }} aria-checked={on} accessibilityLabel={label} onPress={onPress} style={[styles.option, on && styles.optionOn]}><Text style={[styles.optionText, on && styles.optionTextOn]}>{label}</Text></Pressable>;
+}
+
+const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create({
+  // Controls are at least 44 points by their own size: hit slop does nothing in a browser or the Mac app.
+  toolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 44 },
+  linkTarget: { minHeight: 44, justifyContent: "center" },
+  count: { ...typography.caption, color: colors.muted, flex: 1, minWidth: 0 },
+  link: { ...typography.label, color: colors.blue, ...linkUnderline },
+  error: { ...typography.caption, color: colors.red, backgroundColor: colors.redSoft, padding: space.sm, borderRadius: radius.sm, marginVertical: space.xs },
+  empty: { ...typography.body, color: colors.muted, paddingVertical: space.sm },
+  divider: { ...typography.label, color: colors.muted, marginTop: space.lg, marginBottom: space.xxs },
+  bulkBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 44, paddingBottom: space.xs },
+  // A line of the list: a box and the words, nothing drawn between one line and the next.
+  row: { flexDirection: "row", alignItems: "flex-start", gap: space.sm, paddingVertical: space.xxs, backgroundColor: colors.background },
+  rowDone: { opacity: 0.7 },
+  rowLifted: { backgroundColor: colors.surface },
+  // The 24-point box sits where it did; the target around it is 44 points and takes no extra room in the row.
+  boxTarget: { width: 44, height: 44, alignItems: "center", justifyContent: "center", marginHorizontal: -10 },
+  body: { flex: 1, minWidth: 0, minHeight: 44, justifyContent: "center", paddingVertical: space.xs },
+  text: { ...typography.body, color: colors.ink },
+  textDone: { textDecorationLine: "line-through", color: colors.muted },
+  // Who it is for and where it belongs, as one quiet line under the words.
+  meta: { ...typography.caption, color: colors.muted, marginTop: space.xxs / 2 },
+  // The words being edited sit exactly where they were read: the same type, no box around them.
+  words: { ...typography.body, color: colors.ink, padding: 0, margin: 0, borderWidth: 0, backgroundColor: "transparent", ...(Platform.OS === "web" ? { outlineStyle: "none" } as object : {}) },
+  adder: { flex: 1, minWidth: 0, minHeight: 44, paddingVertical: space.xs },
+  // The links sit under the words, flush with them, and close to them.
+  options: { marginLeft: -space.md, marginTop: -space.xxs, marginBottom: -space.xs },
+  menuActions: { gap: space.xs, marginTop: space.md },
+  input: { ...controls.input, flex: 1 },
+  inputTall: { minHeight: 88, textAlignVertical: "top" },
+  sheetWrap: { flex: 1, justifyContent: "flex-end", backgroundColor: colors.scrim },
+  sheet: { backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: space.side, maxHeight: "88%" },
+  sheetTitle: { ...typography.heading, color: colors.ink, marginBottom: space.sm },
+  label: { ...typography.label, color: colors.muted, marginTop: space.md, marginBottom: space.xs },
+  hint: { ...typography.caption, color: colors.muted, marginTop: space.xs },
+  choices: { flexDirection: "row", flexWrap: "wrap", gap: space.xs },
+  option: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.sm, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.background, maxWidth: 220 },
+  optionOn: { backgroundColor: colors.blueSoft, borderColor: colors.blue },
+  optionText: { ...typography.label, color: colors.ink },
+  optionTextOn: { color: colors.blueDark },
+  sheetButtons: { flexDirection: "row", alignItems: "center", gap: space.sm, marginTop: space.md },
+}));

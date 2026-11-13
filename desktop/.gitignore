@@ -1,0 +1,5 @@
+web/
+workspace.json
+frame-origins.json
+.firebase/
+ota-certificate.pem

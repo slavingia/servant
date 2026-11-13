@@ -1,0 +1,234 @@
+{
+  "purpose": "Actual PR base versus the branch, and the visitor's side of one conversation step by step; no mockups or image edits.",
+  "fixture": "Isolated servers on throwaway data with a made-up visitor (Ana Ruiz, ana@example.gov) and teammate (Pat Tester), invented messages and one invented file. Mail was written to a file by a mailer command; no email was sent.",
+  "locale": "en-US",
+  "timezone": "America/New_York",
+  "colorScheme": "light",
+  "deviceScaleFactor": 1,
+  "browser": "Chromium 153.0.8010.12",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 900
+    },
+    "phone": {
+      "width": 390,
+      "height": 844
+    }
+  },
+  "versions": {
+    "before": {
+      "commit": "9ba545c485014debed3ea847508d9e92e62636b3",
+      "emailsHandedToTheMailer": 0
+    },
+    "after": {
+      "commit": "b3399ebae4b73a2b6cce7b09bbd38c284d0e8ac4",
+      "emailsHandedToTheMailer": 2
+    },
+    "flow": {
+      "commit": "7c90537a276d4dd99feaf2aa004f50b81ab1b2f6",
+      "script": "scripts/secure-inbox-reply-email-e2e.mjs"
+    }
+  },
+  "captures": [
+    {
+      "file": "before/start-phone.png",
+      "commit": "9ba545c485014debed3ea847508d9e92e62636b3",
+      "route": "/contact",
+      "viewport": "phone",
+      "wholePage": true,
+      "meaning": "The public page before the first message, with an email address typed in",
+      "capturedAt": "2026-11-12T06:02:12.898Z",
+      "sha256": "34261d745a691455a5d16de805fb2ecef707b44e78da5d78bb9fb5561920a80b"
+    },
+    {
+      "file": "before/conversation-phone.png",
+      "commit": "9ba545c485014debed3ea847508d9e92e62636b3",
+      "route": "/contact",
+      "viewport": "phone",
+      "wholePage": true,
+      "meaning": "The conversation straight after the first message",
+      "capturedAt": "2026-11-12T06:02:13.628Z",
+      "sha256": "f1f0667a4c70dbe8c6d01b4f2844fee861f00cdd823fa797deb4266357ea5560"
+    },
+    {
+      "file": "before/start-desktop.png",
+      "commit": "9ba545c485014debed3ea847508d9e92e62636b3",
+      "route": "/contact",
+      "viewport": "desktop",
+      "wholePage": true,
+      "meaning": "The public page before the first message, with an email address typed in",
+      "capturedAt": "2026-11-12T06:02:13.832Z",
+      "sha256": "8e46a8008ccef8d0f817b5cb50062db86a63aafc9caa14617bd9e5955beed9c8"
+    },
+    {
+      "file": "before/conversation-desktop.png",
+      "commit": "9ba545c485014debed3ea847508d9e92e62636b3",
+      "route": "/contact",
+      "viewport": "desktop",
+      "wholePage": true,
+      "meaning": "The conversation straight after the first message",
+      "capturedAt": "2026-11-12T06:02:14.563Z",
+      "sha256": "abdf8d9fc17f38af024aaf819f78ae1c86120ba954cb7af836734c7e5e223f7b"
+    },
+    {
+      "file": "before/case-desktop.png",
+      "commit": "9ba545c485014debed3ea847508d9e92e62636b3",
+      "route": "/inbox/[id]",
+      "viewport": "desktop",
+      "wholePage": false,
+      "meaning": "A case in the team's app: what it says about reaching the visitor",
+      "capturedAt": "2026-11-12T06:02:17.382Z",
+      "sha256": "36fd38437af8283dda1df243aacd3f230bd977d257a43a040363e615a3d2e6fd"
+    },
+    {
+      "file": "before/case-phone.png",
+      "commit": "9ba545c485014debed3ea847508d9e92e62636b3",
+      "route": "/inbox/[id]",
+      "viewport": "phone",
+      "wholePage": false,
+      "meaning": "The same case on a phone, with Details open",
+      "capturedAt": "2026-11-12T06:02:19.231Z",
+      "sha256": "fbdfee6cbf14bebc70034829d84309abc2b05c2cd989920a3d177a8340ad8784"
+    },
+    {
+      "file": "after/start-phone.png",
+      "commit": "b3399ebae4b73a2b6cce7b09bbd38c284d0e8ac4",
+      "route": "/contact",
+      "viewport": "phone",
+      "wholePage": true,
+      "meaning": "The public page before the first message, with an email address typed in",
+      "capturedAt": "2026-11-12T06:02:28.929Z",
+      "sha256": "19dcc7e8eb06a08b84c51a279bfd8052c97fd3968fb8696e602026c8c858385e"
+    },
+    {
+      "file": "after/conversation-phone.png",
+      "commit": "b3399ebae4b73a2b6cce7b09bbd38c284d0e8ac4",
+      "route": "/contact",
+      "viewport": "phone",
+      "wholePage": true,
+      "meaning": "The conversation straight after the first message",
+      "capturedAt": "2026-11-12T06:02:29.717Z",
+      "sha256": "fcfb880963d11073736f0f5a8e2e934ae8550bcb90be93f2073cdc686fcf83a1"
+    },
+    {
+      "file": "after/start-desktop.png",
+      "commit": "b3399ebae4b73a2b6cce7b09bbd38c284d0e8ac4",
+      "route": "/contact",
+      "viewport": "desktop",
+      "wholePage": true,
+      "meaning": "The public page before the first message, with an email address typed in",
+      "capturedAt": "2026-11-12T06:02:30.009Z",
+      "sha256": "47720fc8f55ee9a22b8b5983675752a7a030c37b117c04afd8cf92386a5c12f3"
+    },
+    {
+      "file": "after/conversation-desktop.png",
+      "commit": "b3399ebae4b73a2b6cce7b09bbd38c284d0e8ac4",
+      "route": "/contact",
+      "viewport": "desktop",
+      "wholePage": true,
+      "meaning": "The conversation straight after the first message",
+      "capturedAt": "2026-11-12T06:02:30.769Z",
+      "sha256": "ce5d778e80f59531955782cf95622d1f7c11f31f05bc636767b9cac04dd88e3a"
+    },
+    {
+      "file": "after/case-desktop.png",
+      "commit": "b3399ebae4b73a2b6cce7b09bbd38c284d0e8ac4",
+      "route": "/inbox/[id]",
+      "viewport": "desktop",
+      "wholePage": false,
+      "meaning": "A case in the team's app: what it says about reaching the visitor",
+      "capturedAt": "2026-11-12T06:02:32.724Z",
+      "sha256": "9142d8d5009ea154cc3968df9223e300756fb3406ae67204da8fffc3fae56b4a"
+    },
+    {
+      "file": "after/case-phone.png",
+      "commit": "b3399ebae4b73a2b6cce7b09bbd38c284d0e8ac4",
+      "route": "/inbox/[id]",
+      "viewport": "phone",
+      "wholePage": false,
+      "meaning": "The same case on a phone, with Details open",
+      "capturedAt": "2026-11-12T06:02:34.559Z",
+      "sha256": "ff210d3600cc760447de6e5849a6fd5c699578974981789c50bb3d2a3cff6fc7"
+    }
+  ],
+  "flow": [
+    {
+      "file": "flow/01-start.png",
+      "step": 1,
+      "who": "visitor",
+      "caption": "The visitor writes to the team and gives an email address.",
+      "sha256": "cb9032e55447a825efad2936cd85e743402f43fd7cb5f39c5093f6f800330ead"
+    },
+    {
+      "file": "flow/02-enter-code.png",
+      "step": 2,
+      "who": "visitor",
+      "caption": "The message is sent. The page asks for the code it just emailed.",
+      "sha256": "d8272c08518890fb03ea48b20cef1e8ea04650463794e758b58009a83d9dd6f9"
+    },
+    {
+      "file": "flow/03-email-code.png",
+      "step": 3,
+      "who": "email",
+      "caption": "The first email: a code, to prove the address is theirs.",
+      "sha256": "50d355ed177527ef5827ffe02ff03bed2a21b0d904d15f30f89a5a01c97bdf35"
+    },
+    {
+      "file": "flow/04-emails-on.png",
+      "step": 4,
+      "who": "visitor",
+      "caption": "With the code entered, they are emailed each time the team replies.",
+      "sha256": "8956193b4c490218bb8d8c1f224c6041d922ec1d96066be3ec0aecb32e730e8e"
+    },
+    {
+      "file": "flow/05-team-replies.png",
+      "step": 5,
+      "who": "team",
+      "caption": "The team replies. The case says the visitor is emailed at a confirmed address.",
+      "sha256": "03366e7f748eca15bbe04aa87f4303f5d0690b48b8fa68a4f5c6d0eb82b51cd5"
+    },
+    {
+      "file": "flow/06-email-reply.png",
+      "step": 6,
+      "who": "email",
+      "caption": "The reply email: a private link, and nothing from the conversation.",
+      "sha256": "c128d5774388e34f65d7c5827ee81845a03dd9aa9a38d0eac29530d3367111a8"
+    },
+    {
+      "file": "flow/07-back-through-link.png",
+      "step": 7,
+      "who": "visitor",
+      "caption": "The link opens the conversation on any device, with the reply.",
+      "sha256": "b414da57f9c412c3a6c102bb0ec6a805492043df3fcc37602ac927ef54e35548"
+    },
+    {
+      "file": "flow/08-visitor-replies.png",
+      "step": 8,
+      "who": "visitor",
+      "caption": "The visitor answers and attaches a file.",
+      "sha256": "019d5d47d742fac610145f51dc229d60c3b8abad1cf5bb1eebfd0809fec8800a"
+    },
+    {
+      "file": "flow/09-resolved.png",
+      "step": 9,
+      "who": "visitor",
+      "caption": "The next reply was emailed too. The visitor sees the case is resolved and can still reply.",
+      "sha256": "7d9565d6d6febce41f2c29e0fad5a118e9f246fa8e27d0aae6bc93237094ac34"
+    },
+    {
+      "file": "flow/10-emails-stopped.png",
+      "step": 10,
+      "who": "visitor",
+      "caption": "Stop emails turns them off. They can be turned on again here.",
+      "sha256": "ff6f865d77b36670df97f63fe58ce927f3869d09269fbfdbd91f6c3dd056d10c"
+    },
+    {
+      "file": "flow/11-no-mailer.png",
+      "step": 11,
+      "who": "visitor",
+      "caption": "On a server that sends no email, the page says so and offers the return link.",
+      "sha256": "388fdd65d19a2dbc80c2096899ccbe9e0f1126d07189ac5c9397a0f7ec9c5620"
+    }
+  ]
+}

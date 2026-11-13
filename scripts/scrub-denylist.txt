@@ -1,0 +1,51 @@
+# Terms that must never appear in this public repository, in file contents or file names.
+# Read by scripts/scrub-check.sh, which skips this file itself.
+#
+# Format: one extended regular expression (grep -E) per line, matched case-insensitively.
+# Lines starting with # and blank lines are ignored. No inline comments.
+# Write each term so this file does not contain it in plain text (a character class
+# such as [r] in the middle), and use (^|[^a-z0-9]) ... ([^a-z0-9]|$) instead of \b:
+# \b behaves differently in BSD and GNU grep.
+
+# The agency, its domains, app ids and org names
+(^|[^a-z0-9])i[r]s([^a-z0-9]|$)
+i[r]s2go
+gov\.i[r]s
+i[r]s\.gov
+internal[ _-]*revenue
+taxp[a]yer
+T[a]xpayer-Services-and-[O]nline
+(^|[^a-z0-9])ts[o]a([^a-z0-9]|$)
+EXBV39[Z]XGR
+df-i[r]s-svc
+hai-[r]s
+ash-[w]ebb
+hkgit[2]026
+expo-i[r]s
+
+# Internal repositories and hosted deployments of the original team
+research-[h]ub
+design-[p]rototypes
+testflight\.apple\.com/join/qn5JQ[P]yS
+
+# People (the repo's own GitHub home, slavingia/servant, is allowed: the surname must not follow an s)
+sah[i]l
+(^|[^s])lav[i]ngia
+str[u]ble
+gianfr[a]nco
+we[i]ngarten
+spr[u]gh
+ric[h]burg
+aaronfr[a]zer
+cbill[i]ngs
+
+# Personal mail addresses (a placeholder such as ...@ with a dot before it is allowed)
+[a-z0-9_%+-]@gm[a]il\.com
+
+# Home directories: only the placeholders /Users/you and /Users/me (and $VAR) are allowed.
+# Prefer ~ in docs and scripts.
+/U[s]ers/([^ym$]|y[^o]|yo[^u]|you[a-z0-9_.-]|m[^e]|me[a-z0-9_.-])
+
+# Internal release items of the original team
+(^|[^a-z0-9])dm[a]f([^a-z0-9]|$)
+tr[u]mp[ _-]*accounts

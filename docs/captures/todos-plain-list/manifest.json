@@ -1,0 +1,102 @@
+{
+  "before": {
+    "side": "before",
+    "commit": "0896b83cba7aa6598ae329983228221b96b90fdd",
+    "captures": [
+      {
+        "file": "before/list-phone.png",
+        "commit": "0896b83cba7aa6598ae329983228221b96b90fdd",
+        "route": "/todos",
+        "viewport": "phone",
+        "meaning": "The To-dos screen",
+        "sha256": "62cf5b752c40d9cd7a59be6d991dd6658a6916ebefa2e59120901d7cb636240b"
+      },
+      {
+        "file": "before/list-desktop.png",
+        "commit": "0896b83cba7aa6598ae329983228221b96b90fdd",
+        "route": "/todos",
+        "viewport": "desktop",
+        "meaning": "The To-dos screen",
+        "sha256": "00479c07b34be215e1b5c98c832123ae804b5b54b0b782743ea743e2804a33e2"
+      }
+    ]
+  },
+  "after": {
+    "side": "after",
+    "commit": "2157759df49601284c0c9c3e541e3cbb4c176380",
+    "captures": [
+      {
+        "file": "after/list-phone.png",
+        "commit": "2157759df49601284c0c9c3e541e3cbb4c176380",
+        "route": "/todos",
+        "viewport": "phone",
+        "meaning": "The To-dos screen",
+        "sha256": "ed3a235cca275a0fcdad7e40dae3075bfacd659a44134a3b0916703e092f813f"
+      },
+      {
+        "file": "after/editing-phone.png",
+        "commit": "2157759df49601284c0c9c3e541e3cbb4c176380",
+        "route": "/todos",
+        "viewport": "phone",
+        "meaning": "A row being edited: the words are a field in place, and only this row offers Send to Agent and Details",
+        "sha256": "c66555a576bc5e7602abab84852ba73e8b4693bf69901dd6cbf52889103e3c11"
+      },
+      {
+        "file": "after/options-phone.png",
+        "commit": "2157759df49601284c0c9c3e541e3cbb4c176380",
+        "route": "/todos",
+        "viewport": "phone",
+        "meaning": "Filter and options: whose, project, show done, tag several, send all",
+        "sha256": "a0e95fbe719cbb77bc3c6aa053a8e7c2485f358f59e097b64ecbf47e81ab9cf8"
+      },
+      {
+        "file": "after/filtered-phone.png",
+        "commit": "2157759df49601284c0c9c3e541e3cbb4c176380",
+        "route": "/todos",
+        "viewport": "phone",
+        "meaning": "With a filter on, the line above the list says so",
+        "sha256": "a80f0b2abd86202aac8b3063dafe812f63404d2a22b946b2ab02b890ac5f42cd"
+      },
+      {
+        "file": "after/list-desktop.png",
+        "commit": "2157759df49601284c0c9c3e541e3cbb4c176380",
+        "route": "/todos",
+        "viewport": "desktop",
+        "meaning": "The To-dos screen",
+        "sha256": "c0835f09d624d9ff9b1d85d9b9d45320134b37c7f1d57e03beaf05d66e7296a7"
+      },
+      {
+        "file": "after/editing-desktop.png",
+        "commit": "2157759df49601284c0c9c3e541e3cbb4c176380",
+        "route": "/todos",
+        "viewport": "desktop",
+        "meaning": "A row being edited: the words are a field in place, and only this row offers Send to Agent and Details",
+        "sha256": "a21f4dafdd587fb5d2ebba79cdf0ae8c919fac4f52eced9b66d5b4fa375098f1"
+      },
+      {
+        "file": "after/details-desktop.png",
+        "commit": "2157759df49601284c0c9c3e541e3cbb4c176380",
+        "route": "/todos",
+        "viewport": "desktop",
+        "meaning": "Details: who it is for, project, release, channel and Delete",
+        "sha256": "5b04deb46d7396211c980e4ec55b47726f918cbfb59cd42aef08f5c8c70ea359"
+      },
+      {
+        "file": "after/options-desktop.png",
+        "commit": "2157759df49601284c0c9c3e541e3cbb4c176380",
+        "route": "/todos",
+        "viewport": "desktop",
+        "meaning": "Filter and options: whose, project, show done, tag several, send all",
+        "sha256": "bd446e8bf34fa3d3a49b13a0b61f1d7243ebe77c3cf8cae67e3b87f8183a19a9"
+      },
+      {
+        "file": "after/filtered-desktop.png",
+        "commit": "2157759df49601284c0c9c3e541e3cbb4c176380",
+        "route": "/todos",
+        "viewport": "desktop",
+        "meaning": "With a filter on, the line above the list says so",
+        "sha256": "4aa82d5bd6efa52656b3d40e53aeba7d7371723f500f8c5cb14d4ef6795837ca"
+      }
+    ]
+  }
+}

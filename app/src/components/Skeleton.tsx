@@ -1,0 +1,53 @@
+import { useEffect, useState } from "react";
+import { AccessibilityInfo, Animated, StyleSheet, View, type ViewStyle } from "react-native";
+import { radius, space, useTheme } from "../lib/theme";
+
+// Placeholder rows shown while a list loads, so the screen keeps its shape
+// instead of showing a spinner. Pulses unless Reduce Motion is on.
+function usePulse() {
+  const [value] = useState(() => new Animated.Value(0.5));
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void AccessibilityInfo.isReduceMotionEnabled().then(on => { if (active) setReduced(on); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (reduced) { value.setValue(0.7); return; }
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(value, { toValue: 1, duration: 700, useNativeDriver: true }),
+      Animated.timing(value, { toValue: 0.5, duration: 700, useNativeDriver: true }),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, [reduced, value]);
+  return value;
+}
+
+export function SkeletonRows({ label, count = 7, avatar = true, style }: { label: string; count?: number; avatar?: boolean; style?: ViewStyle }) {
+  const { colors } = useTheme();
+  const opacity = usePulse();
+  const fill = { backgroundColor: colors.line };
+  return (
+    <View accessible accessibilityRole="progressbar" accessibilityLabel={label} accessibilityState={{ busy: true }} style={[styles.list, style]}>
+      {Array.from({ length: count }, (_, i) => (
+        <Animated.View key={i} style={[styles.row, { opacity }]}>
+          {avatar ? <View style={[styles.avatar, fill]} /> : null}
+          <View style={styles.lines}>
+            <View style={[styles.line, fill, { width: `${46 + ((i * 17) % 30)}%` }]} />
+            <View style={[styles.line, styles.short, fill, { width: `${70 - ((i * 13) % 25)}%` }]} />
+          </View>
+        </Animated.View>
+      ))}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  list: { paddingTop: space.xs },
+  row: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.side, paddingVertical: space.sm, minHeight: 64 },
+  avatar: { width: 40, height: 40, borderRadius: radius.md },
+  lines: { flex: 1, gap: 8 },
+  line: { height: 12, borderRadius: radius.pill },
+  short: { height: 10 },
+});

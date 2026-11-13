@@ -1,0 +1,174 @@
+{
+  "before": {
+    "side": "before",
+    "commit": "ced7f324557540436060e1b7f5dbbbcdcf15c508",
+    "uncommittedSource": [],
+    "browser": "Chromium 153.0.8010.12",
+    "viewports": {
+      "phone": {
+        "width": 390,
+        "height": 844
+      },
+      "desktop": {
+        "width": 1280,
+        "height": 900
+      }
+    },
+    "captures": [
+      {
+        "file": "before/role-phone.png",
+        "commit": "ced7f324557540436060e1b7f5dbbbcdcf15c508",
+        "route": "/members",
+        "viewport": "phone",
+        "meaning": "The person sheet with the roles open",
+        "capturedAt": "2026-11-12T12:34:13.655Z",
+        "sha256": "5e21544e4c6e7c1a6591d47af9b196113c33a5912fd80503c690a91618445d5d"
+      },
+      {
+        "file": "before/limit-phone.png",
+        "commit": "ced7f324557540436060e1b7f5dbbbcdcf15c508",
+        "route": "/members",
+        "viewport": "phone",
+        "meaning": "The person sheet with the daily limits open",
+        "capturedAt": "2026-11-12T12:34:14.370Z",
+        "sha256": "df577a83c4d55048ac3d8a6263d411a33a6cff694900824a132b2ba42ee4571e"
+      },
+      {
+        "file": "before/role-desktop.png",
+        "commit": "ced7f324557540436060e1b7f5dbbbcdcf15c508",
+        "route": "/members",
+        "viewport": "desktop",
+        "meaning": "The person sheet with the roles open",
+        "capturedAt": "2026-11-12T12:34:16.468Z",
+        "sha256": "44deafc1c17acd56407a27b4f8ed8eb3cd6405fbee92dda6d31aa028e4dae8bc"
+      },
+      {
+        "file": "before/limit-desktop.png",
+        "commit": "ced7f324557540436060e1b7f5dbbbcdcf15c508",
+        "route": "/members",
+        "viewport": "desktop",
+        "meaning": "The person sheet with the daily limits open",
+        "capturedAt": "2026-11-12T12:34:17.262Z",
+        "sha256": "622e9f3ba88da9dd0373dc45a88306d36925a5f5363d3557e224142f2edc4393"
+      },
+      {
+        "file": "before/mention-list-desktop.png",
+        "commit": "ced7f324557540436060e1b7f5dbbbcdcf15c508",
+        "route": "/c/[id] (#general)",
+        "viewport": "desktop",
+        "meaning": "The mention suggestions after typing Hi @",
+        "sha256": "18d7d9416928e3fa7f2b622009c9fd20ccb8cba2ecea4590395831c7cc973253"
+      },
+      {
+        "file": "before/mention-list-phone.png",
+        "commit": "ced7f324557540436060e1b7f5dbbbcdcf15c508",
+        "route": "/c/[id] (#general)",
+        "viewport": "phone",
+        "meaning": "The mention suggestions after typing Hi @",
+        "sha256": "98dbfbccd58fed29d927cdc59e887d619ce030d9cce570617dd46e1821a76812"
+      },
+      {
+        "file": "before/mention-typed-desktop.png",
+        "commit": "ced7f324557540436060e1b7f5dbbbcdcf15c508",
+        "route": "/c/[id] (#general)",
+        "viewport": "desktop",
+        "meaning": "The message box after pressing the Agent row for 450 ms and typing on",
+        "sha256": "52afb18eee6c121b78363551120e4fa61499fc41eaf90c1fca5b77e38997c53b"
+      },
+      {
+        "file": "before/mention-typed-phone.png",
+        "commit": "ced7f324557540436060e1b7f5dbbbcdcf15c508",
+        "route": "/c/[id] (#general)",
+        "viewport": "phone",
+        "meaning": "The message box after pressing the Agent row for 450 ms and typing on",
+        "sha256": "ec666357b8e3d68d3ff7f23fbf025e54b50ab48ef1de9c0814cb8734044876c0"
+      }
+    ]
+  },
+  "after": {
+    "side": "after",
+    "commit": "1816440fee1dcc30d0b8e073492a7a044020583e",
+    "uncommittedSource": [],
+    "browser": "Chromium 153.0.8010.12",
+    "viewports": {
+      "phone": {
+        "width": 390,
+        "height": 844
+      },
+      "desktop": {
+        "width": 1280,
+        "height": 900
+      }
+    },
+    "captures": [
+      {
+        "file": "after/role-phone.png",
+        "commit": "1816440fee1dcc30d0b8e073492a7a044020583e",
+        "route": "/members",
+        "viewport": "phone",
+        "meaning": "The person sheet with the roles open",
+        "capturedAt": "2026-11-12T12:34:19.455Z",
+        "sha256": "8fff290fdac237cbf85028d5c3b6a096228449bbe61a9a2202ba56cab9fbabb3"
+      },
+      {
+        "file": "after/limit-phone.png",
+        "commit": "1816440fee1dcc30d0b8e073492a7a044020583e",
+        "route": "/members",
+        "viewport": "phone",
+        "meaning": "The person sheet with the daily limits open",
+        "capturedAt": "2026-11-12T12:34:20.175Z",
+        "sha256": "590d13ab36cb8e6e6948561ec6f5330ac7de1cbd9ecd46b6d60ce6ed2e516fc0"
+      },
+      {
+        "file": "after/role-desktop.png",
+        "commit": "1816440fee1dcc30d0b8e073492a7a044020583e",
+        "route": "/members",
+        "viewport": "desktop",
+        "meaning": "The person sheet with the roles open",
+        "capturedAt": "2026-11-12T12:34:22.186Z",
+        "sha256": "efe8f141786b1540210508c464c477ad4c8ba5ab327ce2d5ebefce01cff7d7f2"
+      },
+      {
+        "file": "after/limit-desktop.png",
+        "commit": "1816440fee1dcc30d0b8e073492a7a044020583e",
+        "route": "/members",
+        "viewport": "desktop",
+        "meaning": "The person sheet with the daily limits open",
+        "capturedAt": "2026-11-12T12:34:22.927Z",
+        "sha256": "542927e9b9d41fbe47b09700b1832baf23c3a401a5b7be25087723cbcb7eff15"
+      },
+      {
+        "file": "after/mention-list-desktop.png",
+        "commit": "1816440fee1dcc30d0b8e073492a7a044020583e",
+        "route": "/c/[id] (#general)",
+        "viewport": "desktop",
+        "meaning": "The mention suggestions after typing Hi @",
+        "sha256": "c142ac0a614af2d06ab9d739abc9be9c21747cff8dae638fa429159271f4f834"
+      },
+      {
+        "file": "after/mention-list-phone.png",
+        "commit": "1816440fee1dcc30d0b8e073492a7a044020583e",
+        "route": "/c/[id] (#general)",
+        "viewport": "phone",
+        "meaning": "The mention suggestions after typing Hi @",
+        "sha256": "a36f83619299878043957f59b84889f6ceaa0c9a83540844b1553fef70ee5804"
+      },
+      {
+        "file": "after/mention-typed-desktop.png",
+        "commit": "1816440fee1dcc30d0b8e073492a7a044020583e",
+        "route": "/c/[id] (#general)",
+        "viewport": "desktop",
+        "meaning": "The message box after pressing the Agent row for 450 ms and typing on",
+        "sha256": "791182bb7031ffbdff4a047e3c698ef06f0da67c5384b56ca5e648a1e082188c"
+      },
+      {
+        "file": "after/mention-typed-phone.png",
+        "commit": "1816440fee1dcc30d0b8e073492a7a044020583e",
+        "route": "/c/[id] (#general)",
+        "viewport": "phone",
+        "meaning": "The message box after pressing the Agent row for 450 ms and typing on",
+        "sha256": "473cb274c91a4cd0e6fe853040c5c5ba703d29b5e610d1fc4b845dffb8c12c27"
+      }
+    ]
+  }
+}

@@ -1,0 +1,137 @@
+{
+  "before": {
+    "side": "before",
+    "commit": "ced7f324557540436060e1b7f5dbbbcdcf15c508",
+    "uncommittedSource": [],
+    "browser": "Chromium 153.0.8010.12",
+    "viewports": {
+      "desktop": {
+        "width": 1280,
+        "height": 900
+      },
+      "phone": {
+        "width": 390,
+        "height": 844
+      }
+    },
+    "captures": [
+      {
+        "file": "before/shortcuts-desktop.png",
+        "commit": "ced7f324557540436060e1b7f5dbbbcdcf15c508",
+        "route": "/lexicon",
+        "viewport": "desktop",
+        "meaning": "Text shortcuts, the screen the sidebar opened",
+        "capturedAt": "2026-11-12T11:55:14.794Z",
+        "sha256": "11eed18998a02f21ebaf55e10f3021fa074b4f8318475155274a18fee4e8a54a"
+      },
+      {
+        "file": "before/shortcuts-phone.png",
+        "commit": "ced7f324557540436060e1b7f5dbbbcdcf15c508",
+        "route": "/lexicon",
+        "viewport": "phone",
+        "meaning": "Text shortcuts, the screen the sidebar opened",
+        "capturedAt": "2026-11-12T11:55:16.091Z",
+        "sha256": "c46d8001a79ccf22ecb7ce832200e60fc3d6ef2fcbc1bb1d80fb726d2cc30089"
+      }
+    ]
+  },
+  "after": {
+    "side": "after",
+    "commit": "6dc455b1eadc9eae80c5970cdde7229a538be6bc",
+    "uncommittedSource": [],
+    "browser": "Chromium 153.0.8010.12",
+    "viewports": {
+      "desktop": {
+        "width": 1280,
+        "height": 900
+      },
+      "phone": {
+        "width": 390,
+        "height": 844
+      }
+    },
+    "captures": [
+      {
+        "file": "after/asking-desktop.png",
+        "commit": "6dc455b1eadc9eae80c5970cdde7229a538be6bc",
+        "route": "/wiki",
+        "viewport": "desktop",
+        "meaning": "A new page: the only field is the request to Agent",
+        "capturedAt": "2026-11-12T12:05:45.192Z",
+        "sha256": "004f9fd568e6651c16692f82682d31d1440791155a4080a5244b79a638985c57"
+      },
+      {
+        "file": "after/draft-desktop.png",
+        "commit": "6dc455b1eadc9eae80c5970cdde7229a538be6bc",
+        "route": "/wiki",
+        "viewport": "desktop",
+        "meaning": "Agent's draft, shown where the page will be, with Save and Discard",
+        "capturedAt": "2026-11-12T12:05:45.844Z",
+        "sha256": "167769cbe08fb6843e134d760bb42c7dca995d8fdc6799600f3f7908365be8dc"
+      },
+      {
+        "file": "after/change-desktop.png",
+        "commit": "6dc455b1eadc9eae80c5970cdde7229a538be6bc",
+        "route": "/wiki",
+        "viewport": "desktop",
+        "meaning": "Asking for a change to a written page: what Agent was not told is left as a placeholder in square brackets",
+        "capturedAt": "2026-11-12T12:05:47.595Z",
+        "sha256": "dd2731a47c5d0ec20f6ff8fc2039515fd7af1bf07123db55e43739dfd99cbf5c"
+      },
+      {
+        "file": "after/page-desktop.png",
+        "commit": "6dc455b1eadc9eae80c5970cdde7229a538be6bc",
+        "route": "/wiki",
+        "viewport": "desktop",
+        "meaning": "The wiki: the tree of pages on the left, the open page beside it",
+        "capturedAt": "2026-11-12T12:05:48.333Z",
+        "sha256": "53ee6cc3ac14e3883fbfce09b8e9df1d447666bd1e55595f99d9fd3b931f9356"
+      },
+      {
+        "file": "after/subpage-desktop.png",
+        "commit": "6dc455b1eadc9eae80c5970cdde7229a538be6bc",
+        "route": "/wiki",
+        "viewport": "desktop",
+        "meaning": "A subpage, with the page it sits under named above its title",
+        "capturedAt": "2026-11-12T12:05:48.992Z",
+        "sha256": "69eefce2ea2223e3cb80c8012ca229b5ed6b18cad24c257fe52495b2b9899961"
+      },
+      {
+        "file": "after/abbreviations-desktop.png",
+        "commit": "6dc455b1eadc9eae80c5970cdde7229a538be6bc",
+        "route": "/wiki?page=abbreviations",
+        "viewport": "desktop",
+        "meaning": "Abbreviations, the built-in page that holds the text shortcuts",
+        "capturedAt": "2026-11-12T12:05:49.675Z",
+        "sha256": "7ab49f8bbe43f54e494e98d6c8731466688c3cb7deb14b1fe0a727ccdcd95174"
+      },
+      {
+        "file": "after/tree-phone.png",
+        "commit": "6dc455b1eadc9eae80c5970cdde7229a538be6bc",
+        "route": "/wiki",
+        "viewport": "phone",
+        "meaning": "On a phone the tree is the screen",
+        "capturedAt": "2026-11-12T12:05:51.836Z",
+        "sha256": "5e1a2d5ec3d480c439816a72b58666ae9e150be76109c85b95449bf280cc88fb"
+      },
+      {
+        "file": "after/page-phone.png",
+        "commit": "6dc455b1eadc9eae80c5970cdde7229a538be6bc",
+        "route": "/wiki",
+        "viewport": "phone",
+        "meaning": "A page on a phone, with the way back to all pages",
+        "capturedAt": "2026-11-12T12:05:52.501Z",
+        "sha256": "c87a9082dd31dae456c3fb3da3200c24f41d67506ac064267eb8dda5df1ffb38"
+      },
+      {
+        "file": "after/abbreviations-phone.png",
+        "commit": "6dc455b1eadc9eae80c5970cdde7229a538be6bc",
+        "route": "/wiki?page=abbreviations",
+        "viewport": "phone",
+        "meaning": "Abbreviations on a phone",
+        "capturedAt": "2026-11-12T12:05:53.217Z",
+        "sha256": "2237cb3ac2f83e86e7cc4b6e947c30e87c666119ebf39e7d95b2f1ed14ab6149"
+      }
+    ]
+  }
+}

@@ -1,0 +1,33 @@
+# Channel @agent jobs and notifications, pinned to SERVANT_WORKER_RELEASE
+# (/etc/servant/worker.env). Same as launchd com.example.servant.worker. Stopping
+# sends SIGTERM: it finishes the current job, then exits.
+[Unit]
+Description=Servant durable worker
+After=servant-supervisor.service
+
+[Service]
+User=servant
+Group=servant
+EnvironmentFile=/etc/servant/servant.env
+EnvironmentFile=/etc/servant/worker.env
+ExecStart=/bin/bash /var/lib/servant/runtime/bootstrap/run-worker.sh
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=310
+KillMode=mixed
+StandardOutput=append:/var/lib/servant/runtime/logs/worker.log
+StandardError=append:/var/lib/servant/runtime/logs/worker.log
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/servant
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
