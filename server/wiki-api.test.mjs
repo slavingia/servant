@@ -129,11 +129,14 @@ test("a page is changed by asking the agent: the draft comes back unsaved, and s
 
 // The request goes to the asker's own Agent on this server, the way an agent chat does: a session, then a turn.
 test("asking for a change runs a turn on the asker's own agent and counts its tokens", async () => {
-  const calls = [];
+  const calls = [], titles = new Set();
   const agent = http.createServer(async (req, res) => {
     const chunks = []; for await (const chunk of req) chunks.push(chunk);
     const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : {};
     calls.push({ method: req.method, url: req.url, auth: req.headers.authorization, key: req.headers["x-hermes-session-key"], body });
+    // Like Hermes, refuse a session whose title is already in use (400 invalid_title).
+    if (req.method === "POST" && req.url === "/api/sessions" && titles.has(body.title)) return res.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ error: { code: "invalid_title" } }));
+    if (req.method === "POST" && req.url === "/api/sessions") titles.add(body.title);
     if (req.method === "POST" && req.url === "/api/sessions") return res.writeHead(201, { "Content-Type": "application/json" }).end(JSON.stringify({ id: body.id }));
     if (req.method === "POST" && /^\/api\/sessions\/[^/]+\/chat\/stream$/.test(req.url)) {
       res.writeHead(200, { "Content-Type": "text/event-stream" });
@@ -161,8 +164,11 @@ test("asking for a change runs a turn on the asker's own agent and counts its to
     const after = (await api("GET", "/v1/leaderboard", owner)).body;
     assert.deepEqual([after.totals.total - before.totals.total, after.totals.turns - before.totals.turns], [320, 1]);
     // A second request does not reuse the first one's session.
-    await api("POST", `/v1/wiki/${page.id}/draft`, owner, { instruction: "Shorter still" });
+    const again = await api("POST", `/v1/wiki/${page.id}/draft`, owner, { instruction: "Shorter still" });
     assert.notEqual(calls[2].body.id, calls[0].body.id);
+    // Nor its title: Hermes refuses a title already in use, which once failed every second request with 400.
+    assert.notEqual(calls[2].body.title, calls[0].body.title);
+    assert.equal(again.status, 200, JSON.stringify(again.body));
     assert.equal((await api("DELETE", `/v1/wiki/${page.id}`, owner)).status, 200);
   } finally { config.upstreams = {}; saveConfig(); await new Promise(resolve => agent.close(resolve)); }
 });

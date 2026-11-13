@@ -2371,7 +2371,8 @@ async function meetingNotes({ transcript, rooms, room, people }) {
 // A wiki page is rewritten by the asker's own Agent: the same agent, on the same server, that answers their agent
 // chats and their @agent, reached the same way (a session, then a turn), so it writes with what that agent knows and
 // can look up. It runs as that person, verified the way their chats are, never as a more capable agent than theirs.
-// Each request gets a session of its own, so one page's text never becomes context for another.
+// Each request gets a session of its own, so one page's text never becomes context for another. The title carries
+// the session's suffix too: Hermes refuses a second session with a title already in use (400 invalid_title).
 async function askWikiAgent(messages, user, cfg) {
   const up = upstreamFor(user, cfg);
   if (!up) throw requestError(503, "agent_unavailable", "Pages are changed by asking the agent, and the agent isn't set up on this server yet. Ask an owner to set it up");
@@ -2380,7 +2381,7 @@ async function askWikiAgent(messages, user, cfg) {
   let usage = null;
   try {
     await verifyUpstream(agentLane(user, cfg), up);
-    const made = await hermes(up, "POST", "/api/sessions", { id: sessionId, title: `Servant · wiki · ${user.name}`.slice(0, 80) });
+    const made = await hermes(up, "POST", "/api/sessions", { id: sessionId, title: `Servant · wiki · ${user.name}`.slice(0, 66) + ` · ${sessionId.slice(-12)}` });
     if (!made.ok) throw requestError(502, "agent_failed", `The agent returned ${made.status}. Your page is unchanged; try again in a moment`);
     const content = await streamTurn(up, sessionId, request, `servant:wiki:${user.id}`, () => {}, () => false, () => {}, reported => { usage = reported; }, instructions);
     return { content, usage };
