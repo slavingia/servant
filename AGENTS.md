@@ -78,7 +78,7 @@ Every pull request must embed labeled **Before** and **After** screenshots in it
 
 This repository is public. The earlier private workflow of committing straight to `main` does not apply here.
 
-Maintainers: the project's private development repository commits straight to `main` and mirrors scrubbed commits here, after `scripts/scrub-check.sh` passes. Contributors to this public repository use pull requests, as described below.
+This is the only repository: there is no private mirror, and the history before the public baseline is not published. Everyone, maintainers included, lands changes through pull requests after `scripts/scrub-check.sh` passes.
 
 - Changes land through pull requests from forks or branches, reviewed before merge.
 - Run `bash scripts/scrub-check.sh` before every push; CI runs it on every push and pull request. Add new sensitive terms to `scripts/scrub-denylist.txt` written so the file does not contain them in plain text (for example a character class in the middle of the word).

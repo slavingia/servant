@@ -2,9 +2,12 @@
 """Google Play internal testing for Servant (package $SERVANT_BUNDLE_ID, default com.example.servant).
 
   play.py check                 does the app exist + can the key reach it?
-  play.py upload <aab> [notes]  upload AAB, release it to the internal track (testers only)
+  play.py upload <aab> [notes]  upload AAB, release it to the track (default internal)
 
-Tester lists are console-only (Testing > Internal testing > Testers).
+The track is $PLAY_TRACK: internal (testers listed in the console), alpha (closed
+testing) or beta (open testing: anyone can join from the Play listing's link, once
+the console's store listing, content rating and data safety forms are complete).
+Tester lists for internal and closed testing are console-only.
 
 Credential: $PLAY_JSON_KEY (default ~/.config/servant/play-service-account.json), a Play
 Console service-account JSON key with access to the app; keep it chmod 600.
@@ -13,6 +16,9 @@ Play cannot create apps via API; the app record must exist in Play Console first
 import json, os, sys, time, base64, urllib.request, urllib.error, subprocess
 
 PKG = os.environ.get("SERVANT_BUNDLE_ID") or "com.example.servant"
+TRACK = os.environ.get("PLAY_TRACK", "internal")
+if TRACK not in ("internal", "alpha", "beta"):
+    sys.exit("PLAY_TRACK is internal, alpha or beta")
 KEY = os.path.expanduser(os.environ.get("PLAY_JSON_KEY", "~/.config/servant/play-service-account.json"))
 API = "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/" + PKG
 UP = "https://androidpublisher.googleapis.com/upload/androidpublisher/v3/applications/" + PKG
@@ -60,18 +66,18 @@ def main(tries=3):
         sys.exit(2)
     e = edit["id"]
     if cmd == "check":
-        s, t = call("GET", f"{API}/edits/{e}/tracks/internal", tok)
-        print("app exists; internal track:", json.dumps(t.get("releases", []))[:400])
+        s, t = call("GET", f"{API}/edits/{e}/tracks/{TRACK}", tok)
+        print(f"app exists; {TRACK} track:", json.dumps(t.get("releases", []))[:400])
         call("DELETE", f"{API}/edits/{e}", tok)
     elif cmd == "upload":
         aab = sys.argv[2]
-        notes = sys.argv[3] if len(sys.argv) > 3 else "Internal build"
+        notes = sys.argv[3] if len(sys.argv) > 3 else f"{TRACK.capitalize()} build"
         s, b = call("POST", f"{UP}/edits/{e}/bundles?uploadType=media", tok, open(aab, "rb").read(), "application/octet-stream")
         if s != 200:
             print("upload failed", s, b); sys.exit(1)
         vc = str(b["versionCode"])
-        s, t = call("PUT", f"{API}/edits/{e}/tracks/internal", tok, {"track": "internal", "releases": [{
-            "versionCodes": [vc], "status": "completed", "name": f"{vc} (internal)",
+        s, t = call("PUT", f"{API}/edits/{e}/tracks/{TRACK}", tok, {"track": TRACK, "releases": [{
+            "versionCodes": [vc], "status": "completed", "name": f"{vc} ({TRACK})",
             "releaseNotes": [{"language": "en-US", "text": notes}]}]})
         if s != 200:
             print("track failed", s, t); sys.exit(1)
@@ -80,7 +86,7 @@ def main(tries=3):
             time.sleep(30); return main(tries - 1)
         if s != 200:  # brand-new apps may only accept status "draft" until first rollout
             print("commit failed", s, c.get("error", {}).get("message", "")); sys.exit(1)
-        print("internal track: versionCode", vc, "released (completed)")
+        print(f"{TRACK} track: versionCode", vc, "released (completed)")
 
 
 if __name__ == "__main__":

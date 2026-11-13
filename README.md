@@ -87,6 +87,7 @@ Open the invite link, or in the Mac app choose **Paste an invite link**. On a ph
 - [Linux](docs/linux.md): running the server on a Linux host (cloud VM or data center) with systemd
 - [Stable relay](docs/relay-transport.md): a fixed public address without exposing the machine
 - [Notifications](docs/notifications.md): APNs and FCM credentials, and exactly what Apple and Google can see
+- [Public testing](docs/public-testing.md): a public TestFlight link and Play open testing, from the release scripts
 - [Email sign-in](docs/email-sign-in.md): work-email codes, allowed domains and the mailer command
 - [Encryption](docs/encryption.md) and [member security](docs/member-security.md): the protocol and the restricted member agent
 - [Records preservation](docs/records-management.md) and the [business information filter](docs/business-info-filter.md)

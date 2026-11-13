@@ -57,6 +57,14 @@ Apple describes the inspected fields in [Inside Code Signing: Provisioning Profi
 
 To upload, use `scripts/testflight.sh <build-number> --notes <notes.md>` with the
 upload and App Store Connect environment described at the top of that script.
+
+With `SERVANT_IOS_SIGNING=automatic` the script needs no installed profiles and no
+app-specific password: Xcode registers both App IDs and the App Group, makes the
+App Store profiles and signs with a cloud-managed distribution certificate through
+the App Store Connect API key in `SERVANT_ASC_CONFIG` (see `scripts/asc.py`; the key
+needs the Admin role, or App Manager with access to cloud-managed certificates), and
+the upload uses the same key. The archive and IPA checks above still run. The
+preflight profile check is skipped, since there are no named profiles to inspect.
 Do not reuse a build number already uploaded to App Store Connect. Keep signing
 logs, profiles and archives private.
 
