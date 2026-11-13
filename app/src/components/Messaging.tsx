@@ -29,6 +29,7 @@ import { shouldEditLastMessage } from "../lib/edit-last-message";
 import { Attachments, DraftAttachments, attachmentsFromFiles, pickAttachments, pickDocuments, type DraftAttachment } from "./Attachments";
 import { AppIcon } from "./AppIcon";
 import { SaveMessageAction } from "./SaveMessageAction";
+import { useContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { MessageText } from "./MessageText";
 import { TweetEmbed } from "./TweetEmbed";
 import { tweetIds } from "../lib/tweet-embed";
@@ -227,6 +228,7 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
   const [busy, setBusy] = useState(false);
   const reacting = useRef(false);
   const insets = useSafeAreaInsets();
+  const context = useContextMenu();
   const available = !post.deleted && !post.pending && !post.activity;
   const working = post.pending && post.user.agent;
   const reactions = post.reactions ?? [];
@@ -281,10 +283,30 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
     setMenu(true);
     if (Platform.OS !== "web") void Haptics.selectionAsync().catch(() => {});
   };
+  // Right-click on a computer: the common actions at the pointer, and the full sheet one click away.
+  const contextItems = (): ContextMenuItem[] => {
+    if (!available) return [];
+    const quick = onReact ? REACTIONS.slice(0, 6) : [];
+    return [
+      ...(quick.length ? [{ key: "react", row: <View accessibilityRole="toolbar" accessibilityLabel="React" style={styles.contextReactions}>{quick.map(([emoji, name]) => {
+        const selected = reactions.some(r => r.emoji === emoji && r.userIds.includes(me));
+        return <Pressable key={emoji} accessibilityRole="button" accessibilityLabel={`${selected ? "Remove" : "Add"} ${name} reaction`} aria-pressed={selected} disabled={busy} onPress={() => { context.close(); void choose(emoji!); }} style={state => [styles.contextEmoji, ((state as { hovered?: boolean }).hovered || selected) && styles.selectedReaction]}><Text style={styles.emoji}>{emoji}</Text></Pressable>;
+      })}</View> }, { separator: true as const }] : []),
+      ...(onOpenThread ? [{ label: "Reply in thread", onPress: onOpenThread }] : []),
+      ...(post.text ? [{ label: "Copy text", onPress: () => { void Clipboard.setStringAsync(post.text!); } }] : []),
+      ...(account ? [{ label: "Save for later", onPress: () => { void api.saveMessage(account, post.id).catch(() => {}); } }] : []),
+      ...(onAskAgent ? [{ label: "Ask the agent", onPress: onAskAgent }] : []),
+      ...(mine && (onEdit || onDelete) ? [{ separator: true as const }] : []),
+      ...(mine && onEdit ? [{ label: "Edit", onPress: onEdit }] : []),
+      ...(mine && onDelete ? [{ label: "Delete", onPress: onDelete, destructive: true }] : []),
+      { separator: true as const },
+      { label: "More actions", onPress: actions },
+    ];
+  };
   const label = `${post.user.name}, ${when(post.createdAt)}${deviceLabel ? (post.sourceDevice?.kind === "agent" ? ", posted by an agent" : `, sent from ${deviceLabel}`) : ""}. ${post.deleted ? "Message deleted" : working ? "Working on it…" : post.text}${post.replyCount ? `. ${post.replyCount} ${post.replyCount === 1 ? "reply" : "replies"}` : ""}`;
   return (
     <>
-    <Pressable onLongPress={actions} delayLongPress={400} accessible={false} style={[styles.post, compact && styles.postCompact, menu && { backgroundColor: colors.surface }]}>
+    <Pressable onLongPress={actions} delayLongPress={400} accessible={false} {...context.bind(contextItems)} style={[styles.post, compact && styles.postCompact, (menu || context.open) && { backgroundColor: colors.surface }]}>
       <View style={styles.gutter}>{compact ? null : <Avatar name={post.user.name} agent={post.user.agent} userId={post.user.id} tapToMessage />}</View>
       <View style={styles.postContent}>
         <View accessible accessibilityLabel={label} accessibilityHint={available ? "Touch and hold to copy, select text, react or open message actions" : undefined} accessibilityActions={available ? [{ name: "activate", label: "Copy, react or open message actions" }] : undefined} onAccessibilityAction={actions}>
@@ -339,6 +361,7 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
         </View> : null}
       </View>
     </Pressable>
+    {context.menu}
     {menu && available ? <Modal transparent animationType="fade" visible onRequestClose={() => setMenu(false)}>
       <View style={[styles.menuOverlay, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 16 }]}>
         <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel="Dismiss message actions" onPress={() => setMenu(false)} />
@@ -897,6 +920,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   emojiGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: space.xxs, marginBottom: space.sm },
   emojiButton: { width: 48, height: 48, borderRadius: radius.md, borderWidth: 1, borderColor: "transparent", justifyContent: "center", alignItems: "center" },
   emoji: { fontSize: 28 },
+  contextReactions: { flexDirection: "row", justifyContent: "space-between" },
+  contextEmoji: { flex: 1, height: 44, borderRadius: radius.sm, alignItems: "center", justifyContent: "center" },
   menuAction: { minHeight: 48, paddingVertical: space.sm, justifyContent: "center", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   menuActionText: { ...typography.body, color: colors.blue },
   avatar: { backgroundColor: colors.blueSoft, alignItems: "center", justifyContent: "center" },

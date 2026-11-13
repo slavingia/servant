@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View, type PressableStateCallbackType } from "react-native";
 import { router, useGlobalSearchParams, usePathname, type Href } from "expo-router";
-import { type Conversation } from "../lib/server";
+import { api, type Conversation } from "../lib/server";
+import * as Clipboard from "expo-clipboard";
 import { isDesktop } from "../lib/desktop";
 import { useLive } from "../lib/live";
 import { groupPresenceDot } from "../lib/message-status";
@@ -22,6 +23,7 @@ import { PresenceDot } from "./Presence";
 import { ServerSwitcher } from "./ServerSwitcher";
 import { Omnibar } from "./Omnibar";
 import { EmailNudge } from "./EmailNudge";
+import { useContextMenu, type ContextMenuItem } from "./ContextMenu";
 
 export const SIDEBAR_WIDTH = 264;
 
@@ -179,9 +181,22 @@ function ConversationItem({ c, selected, onPress }: { c: Conversation; selected:
   // The other people in a direct message: a green dot when one is available, the moon when one is in deep work (deep-work.ts).
   const peers = c.kind === "dm" ? (c.members ?? []).filter(person => !person.agent && person.id !== account?.user.id) : [];
   const dot = groupPresenceDot(peers.map(person => presence[person.id] ?? person));
+  const context = useContextMenu();
+  // Right-click on a computer: what you'd otherwise open the conversation to do.
+  const contextItems = (): ContextMenuItem[] => {
+    const web = typeof window !== "undefined" && /^https?:$/.test(window.location?.protocol ?? "");
+    return [
+      { label: "Open", onPress: onPress },
+      ...(bold && account ? [{ label: "Mark as read", onPress: () => { void api.markRead(account, c.id); } }] : []),
+      ...(c.kind === "channel" ? [{ label: "Channel details", onPress: () => router.push({ pathname: "/channel-info", params: { id: c.id } }) }] : []),
+      { label: "Files", onPress: () => router.push({ pathname: "/files", params: { kind: "conversation", id: c.id, title: c.title } }) },
+      ...(web ? [{ separator: true as const }, { label: "Copy link", onPress: () => { void Clipboard.setStringAsync(`${window.location.origin}/c/${c.id}`); } }] : []),
+    ];
+  };
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={`${c.kind === "channel" ? "#" : ""}${c.title}${dot === "deepWork" ? ", Deep work" : ""}${bold ? `, ${c.unread} unread` : ""}`} accessibilityState={{ selected }} aria-current={selected ? "page" : undefined} onPress={onPress}
-      style={state => [styles.item, hovered(state) && styles.hovered, selected && styles.selected]}>
+    <>
+    <Pressable {...context.bind(contextItems)} accessibilityRole="button" accessibilityLabel={`${c.kind === "channel" ? "#" : ""}${c.title}${dot === "deepWork" ? ", Deep work" : ""}${bold ? `, ${c.unread} unread` : ""}`} accessibilityState={{ selected }} aria-current={selected ? "page" : undefined} onPress={onPress}
+      style={state => [styles.item, (hovered(state) || context.open) && styles.hovered, selected && styles.selected]}>
       <View style={styles.itemIcon}>
         {c.kind === "dm" ? <View>
           <Avatar name={c.title} agent={c.agentDm} userId={dmPeer(c, account?.user.id)} size={18} onBrand />
@@ -191,6 +206,8 @@ function ConversationItem({ c, selected, onPress }: { c: Conversation; selected:
       <Text style={[styles.itemLabel, bold && styles.unreadLabel, selected && styles.selectedLabel]}>{c.title}</Text>
       {bold ? <Text style={styles.badge}>{c.unread > 99 ? "99+" : c.unread}</Text> : null}
     </Pressable>
+    {context.menu}
+    </>
   );
 }
 
