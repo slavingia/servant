@@ -25,6 +25,7 @@ export type { StreamEvent } from "./agent-events";
 export type Role = "owner" | "member";
 // shared: the author chose to let the rest of the server read it (off when a chat starts). author/readOnly: someone else's chat.
 export type ChatLastMessage = { role: "user" | "assistant"; text: string; at: number; attachments: number; pending?: boolean };
+export type PrototypeChanges = { edits: { from: string; to: string }[]; styles: { selector: string; css: Record<string, string> }[] };
 export type ProjectLevel = "read" | "write" | "merge";
 export type ProjectPerson = { key: string; id?: string; name: string; github?: string; level: ProjectLevel; owner: boolean };
 // A body of work the team shares (docs/projects.md). access: your level (null for an admin who isn't listed);
@@ -486,6 +487,8 @@ export const api = {
   readAllChats: (a: Account) => request(a, "/v1/chats/read-all", { method: "POST", body: "{}" }).then(() => undefined),
   readChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/read`, { method: "POST", body: "{}" }).then(() => undefined),
   chat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}`).then((r) => r.json()).then((d) => d.chat as Chat),
+  // Edit mode in the prototype preview: save the changed page over the prototype's file.
+  savePrototype: (a: Account, id: string, path: string, changes: PrototypeChanges) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype`, { method: "POST", body: JSON.stringify({ path, ...changes }) }).then(json<{ ok: true; path: string; missed: string[] }>),
   setChatShared: (a: Account, id: string, shared: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ shared }) }).then((r) => r.json()).then((d) => d.chat as Chat),
   // Projects: shared bodies of work with notes, files, rules and who can read, write or merge (docs/projects.md).
   projects: (a: Account) => request(a, "/v1/projects").then(json<{ projects: Project[]; vibeCoder: boolean; vibe: boolean; vibeProject?: string; vibeLinks?: { primary: string; backup: string } }>),

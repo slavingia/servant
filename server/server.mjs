@@ -15,7 +15,7 @@
 //   node server/server.mjs release <build> <notes.md>   post a build's notes to #whats-new
 
 import { joinPage } from "./join-page.mjs";
-import { newFolder, removePrototype, servePrototype } from "./prototypes.mjs";
+import { newFolder, removePrototype, savePrototypePage, servePrototype } from "./prototypes.mjs";
 import { privacyPage } from "./privacy-page.mjs";
 import { landingPage, supportPage } from "./public-page.mjs";
 import { termsPage } from "./terms-page.mjs";
@@ -1870,6 +1870,14 @@ async function handle(req, res, cfg) {
       }
     });
     return send(res, 200, { chat: chatView(updated, user) });
+  }
+  // Edit mode in the preview: the app hands over the tweaks someone made (words, color, size, spacing) and they go
+  // into the page's source, so the agent and everyone with the link see them. Only the chat's own person, only its pages.
+  if (method === "POST" && parts[3] === "prototype" && parts.length === 4) {
+    if (chat.mode !== "vibe" || chat.hosted !== "server" || !chat.vibeFolder) return fail(res, 404, "not_found", "This chat has no prototype to edit");
+    const body = await readAuthorizedBody(req, 512 * 1024);
+    try { return send(res, 200, { ok: true, ...savePrototypePage(PROTOTYPES_DIR, chat.vibeFolder, body.path, { edits: body.edits, styles: body.styles }) }); }
+    catch (e) { return fail(res, e.status || 500, e.status === 404 ? "not_found" : "bad_request", e.message || "Couldn't save the page"); }
   }
   // A member promoted to owner (or the reverse) keeps old chats on the old agent.
   const chatUp = cfg.upstreams[agentRole(chat.role, cfg)];

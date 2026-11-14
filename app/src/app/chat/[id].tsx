@@ -25,7 +25,7 @@ import { estimateCost, formatCost, formatTokens } from "../../lib/token-format";
 import { helpText, parseSlash } from "../../lib/slash-commands";
 import { PiiDeclined, withPiiConfirm } from "../../lib/pii-warning";
 import { usePiiConfirm } from "../../components/PiiConfirm";
-import { api, sendMessage, ServerError, uploadPost, type Chat, type Project, type Message, type Upload } from "../../lib/server";
+import { api, sendMessage, ServerError, uploadPost, type Chat, type Project, type Message, type PrototypeChanges, type Upload } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { anyTalk, useFeatures } from "../../lib/features";
 import { useLive } from "../../lib/live";
@@ -199,13 +199,40 @@ let NativeWebView: any = null;
 if (Platform.OS !== "web") { try { NativeWebView = require("react-native-webview").WebView; } catch { NativeWebView = null; } }
 export const canSplitPreview = Platform.OS === "web" || !!NativeWebView;
 
-function PreviewPane({ url, version, stacked, onClose }: { url: string; version: number; stacked: boolean; onClose: () => void }) {
+// Edit mode: the page gets a small editor (tap text to change it; color, size, spacing; undo; save). The page is
+// sandboxed, so it hands its changes (words before and after, styles per element) to us and we save it through the signed-in API.
+export const editUrl = (url: string, version: number, editing: boolean) => `${url}${url.includes("?") ? "&" : "?"}v=${version}${editing ? "&edit=1" : ""}`;
+
+function PreviewPane({ url, version, stacked, onClose, onSave }: { url: string; version: number; stacked: boolean; onClose: () => void; onSave?: (path: string, changes: PrototypeChanges) => Promise<{ missed?: string[] }> }) {
   const styles = useStyles();
   const { colors } = useTheme();
-  const src = `${url}${url.includes("?") ? "&" : "?"}v=${version}`;
+  const [editing, setEditing] = useState(false);
+  // A state ref (not useRef): the frame is set once it mounts and read only in handlers.
+  const [frame, setFrame] = useState<any>(null);
+  const src = editUrl(url, version, editing);
+  const reply = useCallback((result: { ok: boolean; message?: string; missed?: string[] }) => {
+    const msg = { servant: "prototype-saved", ...result };
+    if (Platform.OS === "web") frame?.contentWindow?.postMessage(JSON.stringify(msg), "*");
+    else frame?.injectJavaScript(`window.__servantSaved && window.__servantSaved(${JSON.stringify(msg)}); true;`);
+  }, [frame]);
+  const handle = useCallback((raw: unknown) => {
+    let d: any = raw;
+    try { d = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { return; }
+    if (!d || d.servant !== "prototype-save" || !onSave) return;
+    onSave(String(d.path || ""), { edits: Array.isArray(d.edits) ? d.edits : [], styles: Array.isArray(d.styles) ? d.styles : [] }).then((r) => reply({ ok: true, missed: r.missed }), (e) => reply({ ok: false, message: e instanceof ServerError ? e.message : "Couldn't save. Try again" }));
+  }, [onSave, reply]);
+  useEffect(() => {
+    if (Platform.OS !== "web" || !editing) return;
+    const listen = (e: MessageEvent) => { if (e.source && e.source === frame?.contentWindow) handle(e.data); };
+    window.addEventListener("message", listen);
+    return () => window.removeEventListener("message", listen);
+  }, [editing, handle, frame]);
   return <View testID="preview-pane" style={[styles.previewPane, stacked && styles.previewPaneStacked]}>
     <View style={styles.previewBar}>
-      <Text accessibilityRole="header" style={[styles.turnLabel, styles.turnCopy]}>Preview</Text>
+      <Text accessibilityRole="header" style={[styles.turnLabel, styles.turnCopy]}>{editing ? "Editing" : "Preview"}</Text>
+      {onSave ? <Pressable testID="edit-preview" accessibilityRole="button" accessibilityLabel={editing ? "Done editing" : "Edit the words and styles"} onPress={() => setEditing(e => !e)} style={styles.previewBarLink}>
+        <Text style={styles.headerLinkText}>{editing ? "Done" : "Edit"}</Text>
+      </Pressable> : null}
       <Pressable accessibilityRole="button" accessibilityLabel={Platform.OS === "web" ? "Open preview in a new tab" : "Open preview full screen"} onPress={() => openPreview(url)} style={styles.previewBarLink}>
         <Text style={styles.headerLinkText}>{Platform.OS === "web" ? "Open" : "Full screen"}</Text>
       </Pressable>
@@ -213,8 +240,8 @@ function PreviewPane({ url, version, stacked, onClose }: { url: string; version:
         <AppIcon name="close" size={16} color={colors.muted} />
       </Pressable>
     </View>
-    {Platform.OS !== "web" ? <NativeWebView key={src} source={{ uri: src }} style={{ flex: 1, backgroundColor: "#FFFFFF" }} startInLoadingState setSupportMultipleWindows={false} />
-    : createElement("iframe", { key: src, src, title: "Preview", style: { flex: 1, width: "100%", height: "100%", border: 0, backgroundColor: "#FFFFFF" }, sandbox: "allow-scripts allow-same-origin allow-forms allow-popups" })}
+    {Platform.OS !== "web" ? <NativeWebView ref={setFrame} key={src} source={{ uri: src }} style={{ flex: 1, backgroundColor: "#FFFFFF" }} startInLoadingState setSupportMultipleWindows={false} onMessage={(e: { nativeEvent: { data: string } }) => handle(e.nativeEvent.data)} />
+    : createElement("iframe", { ref: setFrame, key: src, src, title: "Preview", style: { flex: 1, width: "100%", height: "100%", border: 0, backgroundColor: "#FFFFFF" }, sandbox: "allow-scripts allow-same-origin allow-forms allow-popups" })}
   </View>;
 }
 
@@ -354,7 +381,8 @@ function ChatConversation() {
   const { width: winWidth } = useWindowDimensions();
   // Portrait phones stack the preview above the chat; folds, tablets, landscape and wide windows put it beside.
   const stacked = winWidth < 600;
-  const [previewOpen, setPreviewOpen] = useState(false);
+  // The preview is open by default once there is something to see (the agent has replied); closing it sticks for this visit.
+  const [previewClosed, setPreviewClosed] = useState(false);
   const [previewVersion, setPreviewVersion] = useState(0);
   // Links, pushes and the sidebar may open a chat without its title: read it from the server.
   useEffect(() => {
@@ -793,12 +821,14 @@ function ChatConversation() {
   const sentMeanwhile = queuedBelow(waiting, [unstarted, turn]);
   const waitingRow = (t: AgentTurn): Row => ({ id: `queued_${t.id}`, role: "user", text: t.text || "Attachment", at: t.createdAt, queuedTurn: t });
   // A finished reply's steps, fetched when its summary is opened.
+  const previewOpen = !!previewUrl && canSplitPreview && !previewClosed && (messages ?? []).some(m => m.role === "assistant" && !m.pending);
+  const savePrototype = (path: string, changes: PrototypeChanges) => api.savePrototype(account, String(id), path, changes);
   const loadSteps = (turnId: string) => api.agentTurn(account, String(id), turnId).then(found => found?.steps ?? []);
   const showPreview = () => {
     if (!previewUrl) return;
     if (!canSplitPreview) { openPreview(previewUrl); return; }
     if (!previewOpen) setPreviewVersion(v => v + 1);
-    setPreviewOpen(!previewOpen);
+    setPreviewClosed(previewOpen);
   };
   const headerLinks: HeaderLink[] = [
     ...(previewUrl ? [{ label: "Preview", testID: "open-preview", accessibilityLabel: previewOpen ? "Hide preview" : "Open preview", onPress: showPreview }] : []),
@@ -932,7 +962,7 @@ function ChatConversation() {
           holdToQueue={busy || activeAgentTurn(turn)} onStop={stoppable ? () => { void stop(); } : undefined} /> : null}
       </ConversationKeyboardView>
       </View>
-      {previewOpen && previewUrl && canSplitPreview ? <PreviewPane url={previewUrl} version={previewVersion} stacked={stacked} onClose={() => setPreviewOpen(false)} /> : null}
+      {previewOpen && previewUrl && canSplitPreview ? <PreviewPane url={previewUrl} version={previewVersion} stacked={stacked} onClose={() => setPreviewClosed(true)} onSave={savePrototype} /> : null}
       </View>
     </View>
     </MediaGalleryProvider>

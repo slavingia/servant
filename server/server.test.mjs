@@ -1173,6 +1173,14 @@ test("vibe coders: owners mark them; their chats build a prototype and show a pr
   const stream = owner.calls.slice(before).find((c) => c.url.endsWith("/chat/stream"));
   assert.match(stream.body.system_message, /prototyping session/);
   assert.ok(stream.body.system_message.includes(`PREVIEW: ${chat.previewUrl}`));
+  // Edit mode saves through the chat: its own person only, its own pages only.
+  const editDir = path.join(dataDir, "prototypes", chat.previewUrl.split("/p/")[1].replace(/\/$/, ""));
+  fs.mkdirSync(editDir, { recursive: true }); fs.writeFileSync(path.join(editDir, "index.html"), "<h1>Old</h1>");
+  const edited = await api("POST", `/v1/chats/${chat.id}/prototype`, { token, body: { path: new URL(chat.previewUrl).pathname, edits: [{ from: "Old", to: "New" }], styles: [] } });
+  assert.deepEqual([edited.status, edited.json.path, edited.json.missed], [200, "index.html", []]);
+  assert.equal(fs.readFileSync(path.join(editDir, "index.html"), "utf8"), "<h1>New</h1>");
+  assert.equal((await api("POST", `/v1/chats/${chat.id}/prototype`, { token, body: { path: "/p/x/../../config.json", edits: [{ from: "a", to: "b" }] } })).status, 400);
+  assert.equal((await api("POST", `/v1/chats/${chat.id}/prototype`, { token: boss, body: { path: "/", edits: [{ from: "New", to: "x" }] } })).status, 403, "others only read");
   // Deleting the chat deletes its prototype files too.
   const gone = (await api("POST", "/v1/chats", { token, body: {} })).json.chat;
   const goneDir = path.join(dataDir, "prototypes", gone.previewUrl.split("/p/")[1].replace(/\/$/, ""));
