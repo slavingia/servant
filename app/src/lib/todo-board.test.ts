@@ -72,7 +72,7 @@ test("the details sheet takes a due date and says what happens without one", () 
   assert.match(editor, /<TextInput testID="todo-due-date" accessibilityLabel="Due date, year-month-day"/);
   assert.match(editor, /`Leave it empty and it is due with its release, \$\{releaseDate\(releaseDay\)\}\.` : "Leave it empty and it has no due date\."/);
   assert.match(editor, /if \(dueDate && !DATE_SHAPE\.test\(dueDate\)\) \{ setError\("Due dates look like 2026-11-20"\); return; \}/);
-  assert.match(editor, /dueDate: dueDate \|\| null \}\)/, "an empty field clears the to-do's own date");
+  assert.match(editor, /channelId, dueDate: dueDate \|\| null,/, "an empty field clears the to-do's own date");
 });
 
 // "These should basically feed into work log too": a finished to-do's entry says when it was started and whether

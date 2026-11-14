@@ -1,4 +1,4 @@
-import type { TodoItem, TodoStage } from "./server.ts";
+import type { TodoItem, TodoPriority, TodoStage, TodoType } from "./server.ts";
 import { DATE_SHAPE, localDate, releaseDate } from "./releases.ts";
 
 export const sortTodos = (todos: readonly TodoItem[]): TodoItem[] => [...todos].sort((a, b) => Number(a.status === "done") - Number(b.status === "done") || a.position - b.position);
@@ -62,4 +62,41 @@ export function dueLine(todo: Pick<TodoItem, "status" | "due">, today = localDat
   if (todo.due === today) return { text: "Due today", overdue: false };
   const day = releaseDate(todo.due, now);
   return todo.due < today ? { text: `Overdue, ${day}`, overdue: true } : { text: `Due ${day}`, overdue: false };
+}
+
+// The tracker: what kind of work a to-do is, how much it matters and how big it is.
+export const TODO_TYPES: TodoType[] = ["task", "bug", "story", "epic"];
+export const TYPE_LABEL: Record<TodoType, string> = { task: "Task", bug: "Bug", story: "Story", epic: "Epic" };
+export const TODO_PRIORITIES: TodoPriority[] = ["high", "medium", "low"];
+export const PRIORITY_LABEL: Record<TodoPriority, string> = { high: "High", medium: "Medium", low: "Low" };
+/** "3 pts", "1 pt", "0.5 pts"; nothing without an estimate. */
+export const pointsText = (estimate: number | null | undefined): string => estimate === null || estimate === undefined ? "" : `${estimate} ${estimate === 1 ? "pt" : "pts"}`;
+
+/**
+ * The tracker's part of a card's quiet line: "EA-42 · Bug · High · 3 pts · Guest mode · 2 comments". A plain task
+ * says only its key, so a list of ordinary to-dos stays as quiet as it was.
+ */
+export function trackerMeta(todo: Pick<TodoItem, "key" | "type" | "priority" | "estimate" | "parentText" | "commentCount">): { lead: string; tail: string } {
+  const lead = [
+    todo.key, todo.type && todo.type !== "task" ? TYPE_LABEL[todo.type] : "", todo.priority ? PRIORITY_LABEL[todo.priority] : "",
+    pointsText(todo.estimate), todo.parentText,
+  ].filter(Boolean).join(" · ");
+  const count = todo.commentCount ?? 0;
+  return { lead, tail: count ? `${count} ${count === 1 ? "comment" : "comments"}` : "" };
+}
+
+export type BoardSort = "manual" | "priority" | "due";
+export const SORT_LABEL: Record<BoardSort, string> = { manual: "My order", priority: "Priority", due: "Due date" };
+/** Order a column: as dragged, most important first, or soonest due first. Ties keep the dragged order. */
+export function sortColumn(todos: readonly TodoItem[], by: BoardSort): TodoItem[] {
+  if (by === "manual") return [...todos];
+  const rank = (todo: TodoItem) => by === "priority" ? (todo.priority ? TODO_PRIORITIES.indexOf(todo.priority) : TODO_PRIORITIES.length) : 0;
+  const due = (todo: TodoItem) => todo.due || "9999-99-99";
+  return todos.map((todo, index) => ({ todo, index })).sort((a, b) =>
+    (by === "priority" ? rank(a.todo) - rank(b.todo) : due(a.todo).localeCompare(due(b.todo))) || a.index - b.index).map(item => item.todo);
+}
+/** How many points a column holds, for its heading: "8 pts". Nothing when no to-do in it has an estimate. */
+export function columnPoints(todos: readonly TodoItem[]): string {
+  const sized = todos.filter(todo => typeof todo.estimate === "number");
+  return sized.length ? pointsText(Math.round(sized.reduce((sum, todo) => sum + (todo.estimate ?? 0), 0) * 100) / 100) : "";
 }

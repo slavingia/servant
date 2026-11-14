@@ -41,7 +41,10 @@ test("a row at rest is a box and its words: no Send button, no grip, no colored 
   assert.ok(rest.length > 0, "found the row at rest");
   assert.doesNotMatch(rest, /<Button\b|<IconButton\b/, "no buttons on a row that is not being edited");
   // Under the words, one quiet line: when it is due, then who it is for and where it belongs.
-  assert.match(rest, /<Text style=\{\[styles\.text, finished && styles\.textDone\]\}>\{t\.text\}<\/Text>\s*\{due \|\| meta \? <Text style=\{styles\.meta\}>\{due \? <Text testID="todo-due" style=\{due\.overdue \? styles\.overdue : undefined\}>\{due\.text\}<\/Text> : null\}\{due && meta \? " · " : ""\}\{meta\}<\/Text> : null\}/);
+  assert.match(rest, /<Text style=\{\[styles\.text, finished && styles\.textDone\]\}>\{t\.text\}<\/Text>/);
+  assert.match(rest, /\{due \? <Text testID="todo-due" style=\{due\.overdue \? styles\.overdue : undefined\}>\{due\.text\}<\/Text> : null\}/);
+  assert.match(rest, /\{meta\}\{meta && tracker\.tail \? " · " : ""\}\{tracker\.tail\}\s*<\/Text> : null\}/);
+  assert.equal((rest.match(/style=\{styles\.meta\}/g) ?? []).length, 1, "one line, not a row of tags");
 });
 
 test("who it is for and where it belongs is one quiet line", () => {

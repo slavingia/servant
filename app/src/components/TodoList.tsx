@@ -6,9 +6,10 @@ import { Button, ButtonGroup, IconButton } from "./Button";
 import { CheckBox } from "./CheckBox";
 import { ReorderableList } from "./ReorderableList";
 import { refreshProjects, useProjects } from "../lib/projects-store";
-import { api, ServerError, type Account, type Conversation, type TodoItem, type TodoPatch, type TodoStage } from "../lib/server";
+import { api, ServerError, type Account, type Conversation, type TodoComment, type TodoItem, type TodoPatch, type TodoPriority, type TodoStage, type TodoType } from "../lib/server";
 import { DATE_SHAPE, orderReleases, releaseDate } from "../lib/releases";
-import { boardColumns, dueLine, editableTodos, mergeTodoUpdates, sortTodos, STAGE_LABEL, TODO_STAGES, todoCountLine, todoMeta, todoStage } from "../lib/todo-list";
+import { boardColumns, columnPoints, dueLine, editableTodos, mergeTodoUpdates, PRIORITY_LABEL, SORT_LABEL, sortColumn, sortTodos, STAGE_LABEL, TODO_PRIORITIES, TODO_STAGES, TODO_TYPES, todoCountLine, todoMeta, todoStage, trackerMeta, TYPE_LABEL, type BoardSort } from "../lib/todo-list";
+import { savedWorkLabel } from "../lib/saved-report";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
 
 // A list of to-dos you can work, kept as plain as a list on paper: a box to tick and the words. Tap the words to
@@ -72,6 +73,8 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
   const [boardWidth, setBoardWidth] = useState(useWindowDimensions().width);
   const [over, setOver] = useState<TodoStage | null>(null);
   const [allDone, setAllDone] = useState(false);
+  // How the open columns are ordered: as dragged, by priority, or by due date.
+  const [sort, setSort] = useState<BoardSort>("manual");
   const sideBySide = board && boardWidth >= BOARD_MIN_WIDTH;
   // Dragging between columns is the browser's own drag and drop, so it is for the web and Mac apps with a mouse.
   const canDrag = sideBySide && Platform.OS === "web";
@@ -190,6 +193,7 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
     const meta = todoMeta(t);
     const due = dueLine(t);
     const stage = todoStage(t);
+    const tracker = board ? trackerMeta(t) : { lead: "", tail: "" };
     const line = (
       <View key={t.id} testID={`todo-${t.id}`} style={[styles.row, finished && styles.rowDone, bind?.lifted && styles.rowLifted]}>
         {selecting ? (
@@ -227,7 +231,12 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
             disabled={!t.canEdit || !!busy} onPress={() => { if (selecting) setPicked(p => on ? p.filter(x => x !== t.id) : [...p, t.id]); else { setWords(t.text); setActiveId(t.id); } }}
             onLongPress={bind && !finished && !selecting && t.canEdit ? bind.onLongPress : undefined} delayLongPress={350} style={styles.body}>
             <Text style={[styles.text, finished && styles.textDone]}>{t.text}</Text>
-            {due || meta ? <Text style={styles.meta}>{due ? <Text testID="todo-due" style={due.overdue ? styles.overdue : undefined}>{due.text}</Text> : null}{due && meta ? " · " : ""}{meta}</Text> : null}
+            {/* One quiet line: on the board its key and what kind of work it is, then when it is due, who it is for and where it belongs. */}
+            {tracker.lead || due || meta || tracker.tail ? <Text style={styles.meta}>
+              {tracker.lead ? <Text testID="todo-key">{tracker.lead}</Text> : null}{tracker.lead && (due || meta || tracker.tail) ? " · " : ""}
+              {due ? <Text testID="todo-due" style={due.overdue ? styles.overdue : undefined}>{due.text}</Text> : null}{due && (meta || tracker.tail) ? " · " : ""}
+              {meta}{meta && tracker.tail ? " · " : ""}{tracker.tail}
+            </Text> : null}
           </Pressable>
         )}
       </View>
@@ -242,7 +251,7 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
   };
 
   // Hold and drag reorders the open to-dos of a list or a column, except where a mouse drags cards between columns.
-  const still = selecting || editableOpen.length !== open.length || !!busy || !!activeId || canDrag;
+  const still = selecting || editableOpen.length !== open.length || !!busy || !!activeId || canDrag || (board && sort !== "manual");
   // The next line of the list: no box around it, no button beside it. Return adds it and waits for another.
   const adderLine = !selecting && allowAdd ? (
     <View style={styles.row}>
@@ -299,10 +308,11 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
             </View>
           </View>}
           <View style={sideBySide ? styles.board : undefined}>{(sideBySide ? TODO_STAGES : [shown]).map(stage => {
-            const items = columns[stage];
+            const items = stage === "done" ? columns[stage] : sortColumn(columns[stage], sort);
+            const points = columnPoints(items);
             const listed = stage === "done" && !allDone ? items.slice(0, DONE_SHOWN) : items;
             const inside = <>
-              {sideBySide ? <View style={styles.columnHead}><Text accessibilityRole="header" style={styles.columnTitle}>{STAGE_LABEL[stage]}</Text><Text style={styles.columnCount}>{items.length}</Text></View> : null}
+              {sideBySide ? <View style={styles.columnHead}><Text accessibilityRole="header" style={styles.columnTitle}>{STAGE_LABEL[stage]}</Text><Text style={styles.columnCount}>{items.length}{points ? ` · ${points}` : ""}</Text></View> : null}
               {stage === "done" ? listed.map(t => row(t)) : !items.length ? null : still ? items.map(t => row(t)) : <ReorderableList items={items} onLift={() => setLifted(true)} onSettle={() => setLifted(false)} onDrop={ids => void drop(ids, items)} renderRow={(t, bind) => row(t, bind)} />}
               {!todos.length && stage === "todo" ? <Text style={styles.empty}>{empty}</Text>
                 : !items.length && !(stage === "todo" && adderLine) ? <Text style={styles.empty}>{EMPTY_COLUMN[stage]}</Text> : null}
@@ -327,6 +337,12 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
             <View testID="todo-menu-sheet" accessibilityViewIsModal style={styles.sheet}>
               <ScrollView keyboardShouldPersistTaps="handled" style={{ flexGrow: 0 }}>
                 {filters}
+                {board ? <>
+                  <Text style={styles.label}>Sort To do and In progress by</Text>
+                  <View accessibilityRole="radiogroup" accessibilityLabel="Sort by" style={styles.choices}>
+                    {(Object.keys(SORT_LABEL) as BoardSort[]).map(by => <Option key={by} label={SORT_LABEL[by]} on={sort === by} onPress={() => setSort(by)} />)}
+                  </View>
+                </> : null}
                 {canChoose || sendable.length > 1 ? <View style={styles.menuActions}>
                   {canChoose ? <Button label="Tag several" kind="secondary" onPress={() => { setMenu(false); setSelecting(true); setPicked([]); }} /> : null}
                   {sendable.length > 1 ? <Button label={`Send all ${sendable.length} to Agent`} kind="secondary" disabled={!!busy || lifted} onPress={() => { setMenu(false); void sendAll(); }} /> : null}
@@ -343,7 +359,7 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
           </View>
         </Modal>
       ) : null}
-      {editing ? <TodoEditor key={editing.id} account={account} todo={editing} onClose={() => setEditingId(null)} onBusyChange={value => writeBusy(editing.id, value)}
+      {editing ? <TodoEditor key={editing.id} account={account} todo={editing} epics={todos.filter(t => t.type === "epic" && t.id !== editing.id)} onClose={() => setEditingId(null)} onBusyChange={value => writeBusy(editing.id, value)}
         onSaved={t => { replace(t); setEditingId(null); }}
         onDeleted={() => { onChange(current => current.filter(t => t.id !== editing.id)); setEditingId(null); }} /> : null}
       {bulk && selected.length ? <TodoEditor account={account} bulkCount={selected.length} onClose={() => setBulk(false)} onBulk={applyBulk} /> : null}
@@ -364,8 +380,8 @@ function DropColumn({ stage, over, onOver, onCard, children }: { stage: TodoStag
 }
 
 // Edit one to-do, or tag several at once (bulkCount): words, who it's for, project, release and channel.
-function TodoEditor({ account, todo, bulkCount, onClose, onSaved, onDeleted, onBulk, onBusyChange }: {
-  account: Account; todo?: TodoItem; bulkCount?: number; onClose: () => void;
+function TodoEditor({ account, todo, epics = [], bulkCount, onClose, onSaved, onDeleted, onBulk, onBusyChange }: {
+  account: Account; todo?: TodoItem; epics?: TodoItem[]; bulkCount?: number; onClose: () => void;
   onSaved?: (t: TodoItem) => void; onDeleted?: () => void; onBulk?: (patch: TodoPatch) => Promise<void>;
   onBusyChange?: (busy: boolean) => void;
 }) {
@@ -375,6 +391,31 @@ function TodoEditor({ account, todo, bulkCount, onClose, onSaved, onDeleted, onB
   const [text, setText] = useState(todo?.text ?? "");
   const [who, setWho] = useState(todo?.assignee?.name ?? "");
   const [due, setDue] = useState(todo?.dueDate ?? "");
+  // The tracker's fields: what kind of work, how much it matters, how big, a longer write-up, its epic, its Jira issue.
+  const [type, setType] = useState<TodoType>(todo?.type ?? "task");
+  const [priority, setPriority] = useState<TodoPriority | null>(todo?.priority ?? null);
+  const [estimate, setEstimate] = useState(todo?.estimate === null || todo?.estimate === undefined ? "" : String(todo.estimate));
+  const [description, setDescription] = useState(todo?.description ?? "");
+  const [parentId, setParentId] = useState<string | null>(todo?.parentId ?? null);
+  const [jiraKey, setJiraKey] = useState(todo?.jiraKey ?? "");
+  const [comments, setComments] = useState<TodoComment[] | null>(null);
+  const [remark, setRemark] = useState("");
+  const [remarking, setRemarking] = useState(false);
+  const todoId = todo?.id;
+  useEffect(() => {
+    if (!todoId) return;
+    let live = true;
+    api.todoComments(account, todoId).then(result => { if (live) setComments(result.comments); }).catch(() => { if (live) setComments([]); });
+    return () => { live = false; };
+  }, [account, todoId]);
+  const addComment = async () => {
+    const words = remark.trim();
+    if (!todoId || !words || remarking) return;
+    setRemarking(true); setError(null);
+    try { const result = await api.addTodoComment(account, todoId, words); setComments(current => [...(current ?? []), result.comment]); setRemark(""); }
+    catch (e) { setError(e instanceof ServerError ? e.message : "Couldn't add the comment. Try again"); }
+    finally { setRemarking(false); }
+  };
   const [projectId, setProjectId] = useState<string | null>(todo?.projectId ?? null);
   const [releaseId, setReleaseId] = useState<string | null>(todo?.releaseId ?? null);
   const [channelId, setChannelId] = useState<string | null>(todo?.channelId ?? null);
@@ -407,7 +448,10 @@ function TodoEditor({ account, todo, bulkCount, onClose, onSaved, onDeleted, onB
       } else if (todo) {
         const dueDate = due.trim();
         if (dueDate && !DATE_SHAPE.test(dueDate)) { setError("Due dates look like 2026-11-20"); return; }
-        const r = await api.updateTodo(account, todo.id, { text, assigneeName: who.trim(), projectId, releaseId, channelId, dueDate: dueDate || null });
+        const points = estimate.trim();
+        if (points && !Number.isFinite(Number(points))) { setError("Give the estimate as a number of points, like 3"); return; }
+        const r = await api.updateTodo(account, todo.id, { text, assigneeName: who.trim(), projectId, releaseId, channelId, dueDate: dueDate || null,
+          type, priority, estimate: points ? Number(points) : null, description, parentId: type === "epic" ? null : parentId, jiraKey: jiraKey.trim() || null });
         onSaved?.(r.todo);
       }
     } catch (e) { setError(e instanceof ServerError ? e.message : "Couldn't save. Try again"); }
@@ -431,6 +475,20 @@ function TodoEditor({ account, todo, bulkCount, onClose, onSaved, onDeleted, onB
             {!bulk ? <>
               <Text style={styles.label}>What needs doing</Text>
               <TextInput accessibilityLabel="What needs doing" value={text} onChangeText={setText} multiline maxLength={300} style={[styles.input, styles.inputTall]} />
+              <Text style={styles.label}>Description</Text>
+              <TextInput testID="todo-description" accessibilityLabel="Description" placeholder="Background, steps, what done looks like" placeholderTextColor={colors.muted} value={description} onChangeText={setDescription} multiline maxLength={5000} style={[styles.input, styles.inputTall]} />
+              <Text style={styles.label}>Type</Text>
+              <View accessibilityRole="radiogroup" accessibilityLabel="Type" style={styles.choices}>
+                {TODO_TYPES.map(kind => <Option key={kind} label={TYPE_LABEL[kind]} on={type === kind} onPress={() => setType(kind)} />)}
+              </View>
+              {type === "epic" ? <Text style={styles.hint}>An epic is a larger piece of work that other to-dos belong to.</Text> : null}
+              <Text style={styles.label}>Priority</Text>
+              <View accessibilityRole="radiogroup" accessibilityLabel="Priority" style={styles.choices}>
+                <Option label="No priority" on={priority === null} onPress={() => setPriority(null)} />
+                {TODO_PRIORITIES.map(level => <Option key={level} label={PRIORITY_LABEL[level]} on={priority === level} onPress={() => setPriority(level)} />)}
+              </View>
+              <Text style={styles.label}>Estimate (points)</Text>
+              <TextInput testID="todo-estimate" accessibilityLabel="Estimate in points" placeholder="No estimate" placeholderTextColor={colors.muted} value={estimate} onChangeText={setEstimate} maxLength={6} keyboardType="decimal-pad" style={styles.input} />
             </> : <Text style={styles.hint}>Only what you choose below changes. Everything else stays as it is.</Text>}
             <Text style={styles.label}>For</Text>
             <TextInput accessibilityLabel="Who it's for" placeholder="A name, or nobody yet" placeholderTextColor={colors.muted} value={who} onChangeText={setWho} maxLength={60} style={styles.input} />
@@ -452,12 +510,35 @@ function TodoEditor({ account, todo, bulkCount, onClose, onSaved, onDeleted, onB
               </View>
               {!releases.length ? <Text style={styles.hint}>This project has no releases yet. Add one on its project page.</Text> : null}
             </> : null}
+            {!bulk && type !== "epic" && (epics.length || parentId) ? <>
+              <Text style={styles.label}>Epic</Text>
+              <View accessibilityRole="radiogroup" accessibilityLabel="Epic" style={styles.choices}>
+                <Option label="No epic" on={parentId === null} onPress={() => setParentId(null)} />
+                {epics.map(epic => <Option key={epic.id} label={epic.text} on={parentId === epic.id} onPress={() => setParentId(epic.id)} />)}
+              </View>
+            </> : null}
             <Text style={styles.label}>Post updates to</Text>
             <View style={styles.choices}>
               {!bulk ? <Option label="No channel" on={channelId === null} onPress={() => setChannelId(null)} /> : null}
               {channels.map(c => <Option key={c.id} label={`#${c.title}`} on={channelId === c.id} onPress={() => setChannelId(c.id)} />)}
             </View>
             <Text style={styles.hint}>New, edited and finished to-dos are posted in that channel.</Text>
+            {!bulk && todo ? <>
+              <Text style={styles.label}>Jira issue</Text>
+              <TextInput testID="todo-jira-key" accessibilityLabel="Jira issue key" placeholder="Not in Jira yet" placeholderTextColor={colors.muted} value={jiraKey} onChangeText={setJiraKey} maxLength={30} autoCapitalize="characters" autoCorrect={false} style={styles.input} />
+              <Text style={styles.hint}>{todo.key} in Servant. Once it has a Jira key such as APP-42, the export updates that issue instead of making a new one.</Text>
+              <Text style={styles.label}>Comments</Text>
+              {comments === null ? <Text style={styles.hint}>Loading comments</Text> : !comments.length ? <Text style={styles.hint}>No comments yet.</Text> : (
+                <View testID="todo-comments" style={styles.comments}>
+                  {comments.map(comment => <View key={comment.id}>
+                    <Text style={styles.commentBy}>{comment.author.name} · {savedWorkLabel(comment.createdAt)}</Text>
+                    <Text selectable style={styles.commentText}>{comment.text}</Text>
+                  </View>)}
+                </View>
+              )}
+              <TextInput testID="todo-comment" accessibilityLabel="Add a comment" placeholder="Add a comment" placeholderTextColor={colors.muted} value={remark} onChangeText={setRemark} multiline maxLength={2000} style={[styles.input, styles.commentBox]} />
+              <View style={styles.commentSend}><Button label="Add comment" kind="secondary" compact busy={remarking} disabled={!remark.trim()} onPress={() => void addComment()} /></View>
+            </> : null}
           </ScrollView>
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           <View style={styles.sheetButtons}>
@@ -533,5 +614,10 @@ const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create
   optionOn: { backgroundColor: colors.blueSoft, borderColor: colors.blue },
   optionText: { ...typography.label, color: colors.ink },
   optionTextOn: { color: colors.blueDark },
+  comments: { gap: space.sm, marginBottom: space.sm },
+  commentBy: { ...typography.caption, color: colors.muted },
+  commentText: { ...typography.body, color: colors.ink },
+  commentBox: { minHeight: 64, textAlignVertical: "top" },
+  commentSend: { alignItems: "flex-start", marginTop: space.xs },
   sheetButtons: { flexDirection: "row", alignItems: "center", gap: space.sm, marginTop: space.md },
 }));
