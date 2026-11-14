@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
-import { router, useFocusEffect, useScrollToTop } from "expo-router";
+import { Redirect, router, useFocusEffect, useScrollToTop } from "expo-router";
 import { SkeletonRows } from "../../components/Skeleton";
 import { Avatar } from "../../components/Messaging";
 import { Button } from "../../components/Button";
@@ -11,7 +11,7 @@ import { api, ServerError, type Person } from "../../lib/server";
 import { useLivePresence } from "../../lib/live";
 import { presenceDot, presenceLabel } from "../../lib/message-status";
 import { useSession } from "../../lib/session";
-import { useFeature } from "../../lib/features";
+import { landingHref, useFeature, useFeatures } from "../../lib/features";
 import { emailLine, type EmailLine } from "../../lib/person-email";
 import { AGENT_ROLES, roleLabel } from "../../lib/agent-roles";
 import { chosenLimit, costNote, limitApplies, limitChange, limitRows, limitSummary, roleCostLine, unbroken, type LimitChoice, type RoleCosts, type RoleLimits } from "../../lib/token-limit";
@@ -54,6 +54,8 @@ export default function Members() {
   const { account, deepWork } = useSession();
   // Tapping a person opens a direct message; on a server without DMs the row is just a listing.
   const dms = useFeature("directMessages");
+  // Deep work hides People (features.ts withDeepWork); a link or a tab left open lands where the app opens.
+  const features = useFeatures();
   const { presence, connected } = useLivePresence();
   const now = useStatusNow();
   const [directory, setDirectory] = useState<{ token: string; people: Person[]; emailChecks?: boolean; roleLimits?: RoleLimits; roleCosts?: RoleCosts } | null>(null);
@@ -82,6 +84,7 @@ export default function Members() {
   }, [account]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
   if (!account) return null;
+  if (!features.people) return <Redirect href={landingHref(features)} />;
   const people = directory?.token === account.token ? directory.people : null;
   const owner = account.user.role === "owner";
   const reconnecting = !connected && people !== null;

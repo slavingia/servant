@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { matchesQuery, omnibarShortcuts, searchExcerpt } from "./omnibar.ts";
-import { ALL_FEATURES } from "./features.ts";
+import { ALL_FEATURES, withDeepWork, type Features } from "./features.ts";
 
 test("secure inbox is discoverable with team messaging off and hidden by its own flag", () => {
   const features = { ...ALL_FEATURES, channels: false, directMessages: false };
@@ -39,13 +39,16 @@ test("saved messages are discoverable as a personal checklist even when conversa
 });
 
 test("quick actions that lead to a feature the server turned off are not offered", () => {
-  const ids = (features: { channels: boolean; directMessages: boolean; meetings: boolean; secureInbox: boolean }) => omnibarShortcuts("", true, features).map(item => item.id);
-  const off = { channels: false, directMessages: false, meetings: false, secureInbox: false };
+  const ids = (features: Features) => omnibarShortcuts("", true, features).map(item => item.id);
+  const off = { channels: false, directMessages: false, meetings: false, secureInbox: false, people: true };
   assert.ok(ids({ ...off, channels: true, directMessages: true, meetings: true }).includes("new-message"));
   assert.deepEqual(ids(off).filter(id => ["new-message", "new-channel", "archive"].includes(id)), []);
   assert.deepEqual(ids({ ...off, channels: true }).filter(id => ["new-message", "new-channel", "archive"].includes(id)), ["new-channel", "archive"]);
   assert.deepEqual(ids({ ...off, directMessages: true }).filter(id => ["new-message", "new-channel", "archive"].includes(id)), ["new-message", "archive"]);
   assert.ok(ids(off).includes("agent") && ids(off).includes("members") && ids(off).includes("you"));
+  // Deep work hides People and its invite from search too.
+  const deep = ids(withDeepWork(ALL_FEATURES, true));
+  assert.ok(!deep.includes("members") && !deep.includes("invite") && deep.includes("agent") && deep.includes("you"));
 });
 
 // Search lists four quick actions before anything is typed (Omnibar.tsx). Each new destination arrived at the top

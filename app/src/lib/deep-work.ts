@@ -1,6 +1,6 @@
 // Deep work (server/deep-work.mjs, docs/features.md "Deep work"): your own quiet mode, kept on the server against
-// you, so every device you use agrees. While it is on, the app hides channels, direct messages and
-// meetings and the secure inbox (features.ts withDeepWork) and lands on the agent; everyone else sees "Deep work" as your
+// you, so every device you use agrees. While it is on, the app hides channels, direct messages,
+// meetings, the secure inbox and People (features.ts withDeepWork) and lands on the agent; everyone else sees "Deep work" as your
 // status; messages still arrive and count as unread, but nothing rings or buzzes. It ends only when you
 // switch it off, and then the calls and meeting invites that didn't ring are listed once.
 
@@ -35,4 +35,4 @@ export function missedDetail(m: MissedCall, time: string): string {
 }
 
 export const MISSED_TITLE = "Missed while in deep work";
-export const DEEP_WORK_HINT = "Hides channels, direct messages, meetings and the secure inbox. Messages still arrive, nothing rings or buzzes, and others see you're in deep work. Your agent and projects stay.";
+export const DEEP_WORK_HINT = "Hides channels, direct messages, meetings, the secure inbox and People. Messages still arrive, nothing rings or buzzes, and others see you're in deep work. Your agent and projects stay.";

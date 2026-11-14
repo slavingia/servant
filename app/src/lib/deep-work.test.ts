@@ -31,5 +31,5 @@ test("one plain line per missed call, read after deep work ended: a missed call 
   assert.equal(missedDetail(call, "3:40 PM"), "3:40 PM");
   assert.equal(missedDetail({ ...call, place: "#refund-desk" }, "3:40 PM"), "Ben Okafor · 3:40 PM");
   assert.equal(MISSED_TITLE, "Missed while in deep work");
-  assert.match(DEEP_WORK_HINT, /^Hides channels, direct messages, meetings and the secure inbox\./);
+  assert.match(DEEP_WORK_HINT, /^Hides channels, direct messages, meetings, the secure inbox and People\./);
 });

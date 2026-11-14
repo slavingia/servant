@@ -23,7 +23,7 @@ export const SLASH_COMMANDS: Omit<SlashCommand, "args">[] = [
   { name: "archive", hint: "", description: "Archive this for you. Find it again under Archived", where: "any" },
   { name: "new", hint: "", description: "Start a new message to someone", where: "any", needs: "directMessages" },
   { name: "browse", hint: "", description: "Find channels to join", where: "any", needs: "channels" },
-  { name: "people", hint: "", description: "See everyone on the server", where: "any" },
+  { name: "people", hint: "", description: "See everyone on the server", where: "any", needs: "people" },
   { name: "stop", hint: "", description: "Stop the agent's current reply", where: "agent" },
   // A message sent while the agent replies joins that reply. This one waits for it to finish instead.
   { name: "queue", hint: "message", description: "Send it after the current reply, not into it", where: "agent" },

@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { DESTINATIONS, destinationGroups, placeIsOpen, reachable } from "./destinations.ts";
-import { ALL_FEATURES } from "./features.ts";
+import { ALL_FEATURES, withDeepWork } from "./features.ts";
 import { omnibarShortcuts } from "./omnibar.ts";
 
 const read = (file: string) => fs.readFileSync(path.join(import.meta.dirname, "..", file), "utf8");
@@ -42,9 +42,12 @@ test("You lists the same places under the same names, plus the ones a wide windo
 });
 
 test("a place a server has turned off is not offered anywhere", () => {
-  const quiet = { ...everyone, features: { channels: false, directMessages: false, meetings: false, secureInbox: false } };
+  const quiet = { ...everyone, features: { channels: false, directMessages: false, meetings: false, secureInbox: false, people: true } };
   assert.deepEqual(labels("sidebar", quiet)[0], ["Conversations", ["Agent"]]);
   assert.ok(!destinationGroups("you", quiet).flatMap(entry => entry.places).some(place => ["Meetings", "Archived", "Cases"].includes(place.label)));
+  // Deep work hides People (and its invite) from the sidebar and You, not just the talk places.
+  const deep = { ...everyone, features: withDeepWork(ALL_FEATURES, true) };
+  assert.ok(!destinationGroups("sidebar", deep).concat(destinationGroups("you", deep)).flatMap(entry => entry.places).some(place => ["People", "Invite people"].includes(place.label)));
   const noCases = { ...everyone, features: { ...ALL_FEATURES, secureInbox: false } };
   assert.deepEqual(labels("sidebar", noCases)[0], ["Conversations", ["Home", "Agent", "Chats"]], "Cases follows its own switch");
   assert.ok(!destinationGroups("you", noCases).some(entry => entry.title === "Conversations"), "and a group with nothing in it is left out");

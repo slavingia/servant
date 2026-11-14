@@ -4,20 +4,24 @@ import { createContext, useContext } from "react";
 // doesn't use"). Every flag is on unless the server said exactly `false`; a server from before
 // the flag existed says nothing and gets everything. Screens ask `useFeature("meetings")` and
 // hide their entry points; the server refuses the routes as well, so an old build just sees errors.
-export type FeatureName = "channels" | "directMessages" | "meetings" | "secureInbox";
+// `people` (the People directory and invites) is not a server flag: the server never turns it off, only Deep work does.
+export type FeatureName = "channels" | "directMessages" | "meetings" | "secureInbox" | "people";
 export type Features = Record<FeatureName, boolean>;
-export const FEATURE_NAMES: FeatureName[] = ["channels", "directMessages", "meetings", "secureInbox"];
-export const ALL_FEATURES: Features = { channels: true, directMessages: true, meetings: true, secureInbox: true };
+export const FEATURE_NAMES: FeatureName[] = ["channels", "directMessages", "meetings", "secureInbox", "people"];
+/** The flags the server sends and an account stores; `people` is always on there. */
+export type ServerFeatures = Omit<Features, "people">;
+const SERVER_FEATURE_NAMES = FEATURE_NAMES.filter((name): name is keyof ServerFeatures => name !== "people");
+export const ALL_FEATURES: Features = { channels: true, directMessages: true, meetings: true, secureInbox: true, people: true };
 
 export function normalizeFeatures(raw: unknown): Features {
   const given = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
-  return { channels: given.channels !== false, directMessages: given.directMessages !== false, meetings: given.meetings !== false, secureInbox: given.secureInbox !== false };
+  return { channels: given.channels !== false, directMessages: given.directMessages !== false, meetings: given.meetings !== false, secureInbox: given.secureInbox !== false, people: true };
 }
 
-export const sameFeatures = (a: Features, b: Features) => FEATURE_NAMES.every(name => a[name] === b[name]);
+export const sameFeatures = (a: ServerFeatures, b: ServerFeatures) => SERVER_FEATURE_NAMES.every(name => a[name] === b[name]);
 
-/** Deep work (deep-work.ts) hides channels, direct messages, meetings and the secure inbox on top of the server's flags. It only hides: a flag the server has off stays off. */
-export const withDeepWork = (features: Features, on: boolean): Features => on ? { channels: false, directMessages: false, meetings: false, secureInbox: false } : features;
+/** Deep work (deep-work.ts) hides channels, direct messages, meetings, the secure inbox and People on top of the server's flags. It only hides: a flag the server has off stays off. */
+export const withDeepWork = (features: Features, on: boolean): Features => on ? { channels: false, directMessages: false, meetings: false, secureInbox: false, people: false } : features;
 
 export type TabName = "channels" | "messages" | "agent" | "members" | "you";
 export type TabHref = "/channels" | "/messages" | "/agent" | "/members" | "/you";
@@ -26,7 +30,7 @@ export const TAB_HREF: Record<TabName, TabHref> = { channels: "/channels", messa
 /** The tabs this server shows, in order. Without channels (Home) the agent comes first. */
 export function tabsFor(features: Features): TabName[] {
   const talk: TabName[] = features.channels ? ["channels", "messages", "agent"] : ["agent", "messages"];
-  return [...talk.filter(tab => tab !== "messages" || features.directMessages), "members", "you"];
+  return [...talk.filter(tab => tab !== "messages" || features.directMessages), ...(features.people ? ["members" as const] : []), "you"];
 }
 
 /** Where the app lands after sign-in, on a notification with nowhere to go, and when Back has no history. */

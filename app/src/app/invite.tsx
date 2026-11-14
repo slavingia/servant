@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import QRCode from "react-native-qrcode-svg";
+import { Redirect } from "expo-router";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { api, ServerError } from "../lib/server";
 import { useSession } from "../lib/session";
+import { landingHref, useFeatures } from "../lib/features";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
 type Link = { code: string; link: string; webLink?: string | null; expiresAt: number };
@@ -15,6 +17,8 @@ export default function Invite() {
   const styles = useStyles();
   const { colors } = useTheme();
   const { account } = useSession();
+  // Deep work hides People and its invite (features.ts withDeepWork).
+  const features = useFeatures();
   const [invite, setInvite] = useState<Link | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -54,11 +58,12 @@ export default function Invite() {
   };
 
   useEffect(() => {
-    if (account) fetchLink();
+    if (account && features.people) fetchLink();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (!account) return null;
+  if (!features.people) return <Redirect href={landingHref(features)} />;
   if (error && !invite) {
     return (
       <View style={styles.center}>
