@@ -152,3 +152,19 @@ Researcher chat still receives freshly re-resolved evidence with citations.
 Original Servant clients continue to see ordinary private chats and ordinary
 messages; there is no new message type and ordinary Researcher chats retain
 their restricted capability.
+
+## Researcher skills
+
+The Researcher Agent gets Civic Research Studio knowledge as a read-only Hermes
+skill instead of GitHub access. `config/skills/researcher/civic-research-studio/`
+covers the methods, A/B assignment and measures, sample sizes, the two Qualtrics
+routes, the study file and plan format, and how Servant's Research Studio uses
+it, for Civic Research Studio 0.3.24. It is written from that release's public
+README and docs and holds no study, participant or Research Hub data.
+
+`node scripts/member-profile.mjs <new-directory> <model> researcher` installs it
+in a new researcher profile. To add or update it in an existing researcher
+profile, run `node scripts/member-profile.mjs --skills <profile>` and restart the
+bridge. The researcher policy is unchanged: the agent reads skills with
+`skills_list` and `skill_view` and still has no GitHub, shell or file access.
+Update the skill when `SUPPORTED_RESEARCH_STUDIO_VERSION` changes.

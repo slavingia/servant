@@ -26,6 +26,17 @@ export const STUDY_METHODS: readonly { id: StudyMethod; label: string; descripti
   { id: "survey", label: "Survey", description: "Standalone, structured research questions" },
 ];
 
+/** What participants do in each method, in a sentence, shown with its illustration. */
+export const METHOD_PARTICIPANT_VIEW: Readonly<Record<StudyMethod, string>> = {
+  prototype: "Participants try a task in a working prototype. Research Studio records time, clicks and whether they reach the success signal.",
+  ab_test: "Each participant is randomly given one of the two designs and tries the same task. Results are compared between designs.",
+  card_sort: "Participants sort cards into groups and name them, or use groups you provide.",
+  tree_test: "Participants click through a text-only menu to where they'd expect to find something.",
+  first_click: "Participants see a screenshot or mockup and click where they'd go first.",
+  preference: "Participants see the options and choose one, or say they have no preference.",
+  survey: "Participants answer questions. There's no design or task.",
+};
+
 export const methodLabel = (method: StudyMethod) => STUDY_METHODS.find(item => item.id === method)?.label ?? method;
 
 /** How results are collected. Research Studio has no database of its own for live studies. */
@@ -136,26 +147,203 @@ export function newStudyActivity(method: StudyMethod, key: string): StudyActivit
   };
 }
 
-/** Changing an activity's method keeps what was typed and resets method-specific defaults. */
+// ---------- starting templates ----------
+/**
+ * Starting text for each method, filled in when the method is chosen so the
+ * researcher edits a plan instead of starting from blank fields. Anything that
+ * must be made specific is in [square brackets], and a working draft isn't
+ * saved while any is left (templateTextProblem). Planning decisions are never
+ * filled in: no stopping rule, success signal, links, cards, categories or tree.
+ */
+type TemplateText = Partial<Pick<StudyActivity, "instructions" | "objective" | "criteria" | "questions" | "constructs">>;
+const TASK_GOAL = "[what they're trying to do, in their words]";
+export const METHOD_TEMPLATES: Readonly<Record<StudyMethod, TemplateText>> = {
+  prototype: {
+    instructions: `Imagine you need to ${TASK_GOAL}. Use the prototype the way you would on your own. When you've finished, or if you would stop trying, move on.`,
+    objective: "Where people get stuck or confused, and why.",
+    criteria: "Fix the problems that stop people from finishing before the next round.",
+  },
+  ab_test: {
+    instructions: `Imagine you need to ${TASK_GOAL}. Do it the way you normally would. When you've finished, or if you would stop trying, move on.`,
+    objective: "Whether the new design changes how many people complete the task, compared with the current design.",
+    criteria: "If the range for the difference is above zero, consider the new design. If it includes zero, this test doesn't show a difference: look at where people struggled before deciding.",
+  },
+  card_sort: {
+    instructions: "Sort these cards into groups that make sense to you, then give each group a name. There are no right or wrong answers.",
+    objective: "How people group and name this content, to inform navigation and labels.",
+    criteria: "Start navigation from the groups most people agree on, and look again at cards people split between groups.",
+  },
+  tree_test: {
+    instructions: "Where would you look to [find something, in their words]? Click through the menu, then choose the place you'd expect to find it.",
+    objective: "Whether people can find the item in this navigation, and which branch they try first.",
+    criteria: "Relabel or move items that fewer people than the benchmark find.",
+  },
+  first_click: {
+    instructions: `Look at this page. Where would you click first to ${TASK_GOAL}?`,
+    objective: "Whether people's first click heads toward the right place.",
+    criteria: "Make the target clearer or more prominent if many first clicks miss it.",
+  },
+  preference: {
+    instructions: `Look at each design. Which would you rather use to ${TASK_GOAL}? You can also say you have no preference.`,
+    objective: "Which design people prefer, as one input alongside how well they can use each one.",
+    criteria: "Treat preference as one signal: don't choose a design on preference alone.",
+  },
+  survey: {
+    instructions: "Answer a few questions about your experience. There are no right or wrong answers.",
+    objective: "How people describe their experience, and what would make it easier.",
+    questions: `How easy or difficult was it to ${TASK_GOAL}?\nWhat, if anything, was confusing?\nWhat would have made it easier?`,
+    constructs: "ease, clarity",
+  },
+};
+
+/** A new activity with its method's starting text, as the method picker adds it. */
+export function templateActivity(method: StudyMethod, key: string): StudyActivity {
+  return { ...newStudyActivity(method, key), ...METHOD_TEMPLATES[method] };
+}
+/** Anything changed since the template was added (removing it would lose work). */
+export const activityEdited = (activity: StudyActivity) => JSON.stringify(activity) !== JSON.stringify(templateActivity(activity.method, activity.key));
+
+const SHARED_FIELDS = ["title", "instructions", "objective", "criteria"] as const;
+/**
+ * The shared fields to keep when an activity changes method: what the
+ * researcher wrote carries over, but a field that's empty or still the old
+ * method's starting text takes the new method's value instead.
+ */
+function carryShared(from: StudyActivity, target: StudyActivity): Pick<StudyActivity, typeof SHARED_FIELDS[number]> {
+  const untouched = (field: typeof SHARED_FIELDS[number]) => !from[field].trim() || from[field] === ((METHOD_TEMPLATES[from.method] as Partial<Record<string, string>>)[field] ?? "");
+  return Object.fromEntries(SHARED_FIELDS.map(field => [field, untouched(field) ? target[field] : from[field]])) as Pick<StudyActivity, typeof SHARED_FIELDS[number]>;
+}
+
+/** Changing an activity's method keeps what was typed and resets method-specific details to the new method's template. */
 export function changeActivityMethod(activity: StudyActivity, method: StudyMethod): StudyActivity {
   if (activity.method === method) return activity;
-  const fresh = newStudyActivity(method, activity.key);
-  return { ...fresh, title: activity.title, instructions: activity.instructions, objective: activity.objective, criteria: activity.criteria };
+  const fresh = templateActivity(method, activity.key);
+  return { ...fresh, ...carryShared(activity, fresh) };
 }
 
 /**
  * Changes an activity's method without losing what was entered for the old
  * one: the old method's details are set aside, and switching back restores
- * them. The shared fields (title, instructions, objective, criteria) carry over.
- * The set-aside details live only in the editor; they aren't exported.
+ * them. What was written in the shared fields (title, instructions, objective,
+ * criteria) carries over. The set-aside details live only in the editor; they
+ * aren't exported.
  */
 export function switchActivityMethod(activity: StudyActivity, method: StudyMethod, setAside: Partial<Record<StudyMethod, StudyActivity>> = {}) {
   if (activity.method === method) return { activity, setAside };
   const earlier = setAside[method];
-  const next = earlier
-    ? { ...earlier, key: activity.key, title: activity.title, instructions: activity.instructions, objective: activity.objective, criteria: activity.criteria }
-    : changeActivityMethod(activity, method);
+  const target = earlier ? { ...earlier, key: activity.key } : templateActivity(method, activity.key);
+  const next = { ...target, ...carryShared(activity, target) };
   return { activity: next, setAside: { ...setAside, [activity.method]: activity } };
+}
+
+// ---------- methods run outside Research Studio ----------
+/**
+ * Moderated sessions, interviews and any custom method. They're part of the
+ * study plan (the researcher prompt and the working draft's analysis plan)
+ * but aren't Research Studio activities: they have no task, sample-size
+ * planner or results in its file.
+ */
+export type OtherMethodPreset = "moderated" | "interviews" | "custom";
+export type OtherMethod = {
+  key: string;
+  preset: OtherMethodPreset;
+  name: string;
+  /** What happens in a session, as the researcher would run it. */
+  description: string;
+  objective: string;
+  /** How many people, if the researcher has decided. Nothing is calculated for it. */
+  participants: number | null;
+  criteria: string;
+};
+export const MAX_OTHER_METHODS = 6;
+export const MAX_OTHER_METHOD_PARTICIPANTS = 1_000;
+export const OTHER_METHOD_PRESETS: readonly { id: OtherMethodPreset; label: string; description: string }[] = [
+  { id: "moderated", label: "Moderated usability sessions", description: "A facilitator watches each person try tasks live, usually over video, and asks follow-up questions" },
+  { id: "interviews", label: "Interviews", description: "One-on-one conversations about how people do something today, what's hard, and what they need" },
+  { id: "custom", label: "Custom method", description: "Name and describe any other method: a diary study, field visits, a focus group, an accessibility review…" },
+];
+/** What happens in each method run outside Research Studio, in a sentence, shown with its illustration. */
+export const OTHER_METHOD_PARTICIPANT_VIEW: Readonly<Record<OtherMethodPreset, string>> = {
+  moderated: "A facilitator watches each person try tasks live, usually over video, and asks follow-up questions.",
+  interviews: "A researcher talks one-on-one with each person about their experience and needs.",
+  custom: "Whatever you describe below.",
+};
+const OTHER_TEMPLATES: Readonly<Record<OtherMethodPreset, Omit<OtherMethod, "key" | "preset">>> = {
+  moderated: {
+    name: "Moderated usability sessions",
+    description: `A facilitator watches each person try to ${TASK_GOAL} with the prototype, asks them to think aloud, and follows up on what they did.`,
+    objective: "Why people get stuck, in their own words, and what they expected to happen.",
+    participants: null,
+    criteria: "Fix the problems seen most often, or that stop people from finishing.",
+  },
+  interviews: {
+    name: "Interviews",
+    description: "One-on-one conversations about [the task or topic]: how people handle it today, what's hard about it, and what would help.",
+    objective: "People's needs, current workarounds and pain points.",
+    participants: null,
+    criteria: "Use the needs and pain points heard most often to decide what to design or test next.",
+  },
+  custom: { name: "", description: "", objective: "", participants: null, criteria: "" },
+};
+export const otherMethodLabel = (preset: OtherMethodPreset) => OTHER_METHOD_PRESETS.find(item => item.id === preset)?.label ?? "Custom method";
+export function newOtherMethod(preset: OtherMethodPreset, key: string): OtherMethod {
+  return { key, preset, ...OTHER_TEMPLATES[preset] };
+}
+export const otherMethodEdited = (method: OtherMethod) => JSON.stringify(method) !== JSON.stringify(newOtherMethod(method.preset, method.key));
+
+/** A key unused by any activity or other method in the plan. */
+export function nextPlanKey(prefix: string, used: Iterable<string>): string {
+  const taken = new Set(used);
+  let n = 1;
+  while (taken.has(`${prefix}-${n}`)) n++;
+  return `${prefix}-${n}`;
+}
+
+// ---------- template text left in place ----------
+const PLACEHOLDER = /\[[^[\]\n]{1,80}\]/;
+/** True when text still holds a template's [bracketed] placeholder. */
+export const hasTemplatePlaceholder = (...values: readonly string[]) => values.some(value => PLACEHOLDER.test(value));
+export const TEMPLATE_TEXT_PROBLEM = "replace the [bracketed] template text with your own";
+
+export function otherMethodProblems(methods: readonly OtherMethod[]): string[] {
+  const problems: string[] = [];
+  methods.forEach((method, index) => {
+    const add = (detail: string) => problems.push(`Other method ${index + 1}${method.name.trim() ? ` (${clean(method.name, 60)})` : ""}: ${detail}`);
+    if (!method.name.trim()) add("name the method");
+    if (!method.description.trim()) add("describe what happens");
+    if (hasTemplatePlaceholder(method.name, method.description, method.objective, method.criteria)) add(TEMPLATE_TEXT_PROBLEM);
+    if (method.participants != null && (method.participants < 1 || method.participants > MAX_OTHER_METHOD_PARTICIPANTS)) add(`the number of people must be between 1 and ${MAX_OTHER_METHOD_PARTICIPANTS}`);
+  });
+  return problems;
+}
+
+function otherMethodLines(method: OtherMethod): string[] {
+  return [
+    `What happens: ${clean(method.description, 2_000)}`,
+    ...(method.objective.trim() ? [`What it should tell us: ${clean(method.objective, 600)}`] : []),
+    method.participants != null ? `People: about ${method.participants}` : "People: not decided yet",
+    ...(method.criteria.trim() ? [`Good enough, and what we would do: ${clean(method.criteria, 600)}`] : []),
+  ];
+}
+/** The plan's other methods, for the end of the working draft's analysis plan. */
+export function otherMethodsAnalysis(methods: readonly OtherMethod[]): string {
+  if (!methods.length) return "";
+  return `Other methods in this study (not run in Research Studio, and not counted in its sample sizes)\n${methods
+    .map((method, index) => [`Other method ${index + 1}: ${clean(method.name, 120) || "Untitled method"}`, ...otherMethodLines(method)].join("\n")).join("\n\n")}`;
+}
+/** The plan's other methods, for the Researcher Agent prompt. */
+export function otherMethodsPrompt(methods: readonly OtherMethod[]): string[] {
+  if (!methods.length) return [];
+  return [
+    "",
+    "Other methods (not run in Research Studio):",
+    ...methods.flatMap((method, index) => [`${index + 1}. ${clean(method.name, 120) || "Untitled method"}`, ...otherMethodLines(method).map(line => `   - ${line}`)]),
+    "",
+    "For these methods:",
+    "- Recommend how many people to include where it isn't decided, and give a session guide or protocol and an analysis approach for each.",
+    "- Say how each fits with the other activities in this plan, and what it can and can't tell the team.",
+    "- Do not schedule, recruit, or run anything, and do not claim that any session took place.",
+  ];
 }
 
 /** Card sorts start with the goal Research Studio picks for their sort mode. */
@@ -500,14 +688,19 @@ const RANGE_METHODS: Record<string, StudyMethod[]> = {
  * Everything Research Studio's import would reject, in plain language. Mirrors
  * validateStudy, validateActivity and validatePlan from Research Studio v0.3.24.
  */
+const NO_ACTIVITY_PROBLEM = "Add at least one study activity";
+const NO_STUDIO_ACTIVITY_PROBLEM = "Add at least one Research Studio activity: other methods are listed in the working draft's plan, but Research Studio doesn't run them";
 export function researchStudioFileProblems(title: string, activities: readonly StudyActivity[], { studyPrototypeUrl = "" }: { studyPrototypeUrl?: string } = {}): string[] {
   const problems: string[] = [];
   if (slugify(title, "").length < 3) problems.push("Add a working title of at least three letters or numbers");
-  if (!activities.length) problems.push("Add at least one study activity");
+  if (!activities.length) problems.push(NO_ACTIVITY_PROBLEM);
   activities.forEach((activity, index) => {
     const name = `Activity ${index + 1} (${methodLabel(activity.method)})`;
     const add = (detail: string) => problems.push(`${name}: ${detail}`);
     if (!activity.instructions.trim()) add("add instructions for participants");
+    // Starting text left as it was would reach participants (instructions, questions) or the plan.
+    if (hasTemplatePlaceholder(activity.title, activity.instructions, activity.objective, activity.criteria, activity.questions, activity.constructs,
+      activity.cards, activity.categories, activity.stoppingRule, ...activity.designs.map(design => design.label))) add(TEMPLATE_TEXT_PROBLEM);
     // Stricter than Research Studio on purpose: an invalid signal would otherwise be left out of the file silently.
     const signal = activity.successSignal.trim();
     if (signal && !SLUG.test(signal)) add("the success signal can use only lowercase letters, numbers and hyphens");
@@ -579,6 +772,8 @@ export type StudyDraftInput = {
   participants?: string;
   setup: StudySetup;
   activities: readonly StudyActivity[];
+  /** Methods run outside Research Studio: listed in the working draft's analysis plan. */
+  otherMethods?: readonly OtherMethod[];
   /** "existing" with no prototype chosen yet blocks the draft. */
   prototype?: { mode: "none" } | { mode: "existing"; url: string | null };
 };
@@ -595,19 +790,22 @@ export function studyDraftProblems(input: StudyDraftInput): string[] {
     else if (studyUrlProblem(input.prototype.url)) problems.push("The chosen prototype's preview link can't be used in Research Studio (it must be HTTPS). Choose another prototype");
     else studyPrototypeUrl = input.prototype.url;
   }
-  const fileProblems = researchStudioFileProblems(input.title, input.activities, { studyPrototypeUrl });
+  const others = input.otherMethods ?? [];
+  const fileProblems = researchStudioFileProblems(input.title, input.activities, { studyPrototypeUrl })
+    // Other methods alone don't make a Research Studio study.
+    .map(problem => problem === NO_ACTIVITY_PROBLEM && others.length ? NO_STUDIO_ACTIVITY_PROBLEM : problem);
   // Plans Research Studio would change on import are not saved (research-studio-compat.ts).
-  const draft = buildResearchStudioWorkingCopy({ title: input.title, setup: input.setup, activities: input.activities, prototypeUrl: studyPrototypeUrl });
+  const draft = buildResearchStudioWorkingCopy({ title: input.title, setup: input.setup, activities: input.activities, otherMethods: others, prototypeUrl: studyPrototypeUrl });
   const changes = researchStudioImportChanges(draft as unknown as WorkingDraft).map(change => {
     const index = draft.tasks.findIndex(task => task.id === change.taskId);
     return `Activity ${index + 1} (${methodLabel(input.activities[index].method)}): ${change.problem}`;
   });
-  const texts = studioPlanTexts(input.setup, input.activities);
+  const texts = studioPlanTexts(input.setup, input.activities, others);
   if (texts.recruitment.length > RS_PARTICIPANT_FIELD_LIMIT || texts.exclusions.length > RS_PARTICIPANT_FIELD_LIMIT) changes.push(`The recruitment summary is longer than Research Studio's ${RS_PARTICIPANT_FIELD_LIMIT.toLocaleString("en-US")}-character field. Use fewer activities or shorter titles`);
   if (texts.analysis.length > RS_ANALYSIS_LIMIT) changes.push(`The analysis plan is longer than Research Studio's ${RS_ANALYSIS_LIMIT.toLocaleString("en-US")}-character field. Use fewer activities`);
   // Title first, then the brief, then activities: the order the form reads in.
   const isTitle = (problem: string) => problem.startsWith("Add a working title");
-  return [...fileProblems.filter(isTitle), ...problems, ...fileProblems.filter(problem => !isTitle(problem)), ...changes];
+  return [...fileProblems.filter(isTitle), ...problems, ...fileProblems.filter(problem => !isTitle(problem)), ...otherMethodProblems(others), ...changes];
 }
 
 /**
@@ -649,7 +847,7 @@ export const RS_ANALYSIS_LIMIT = 20_000;
  * own sample-size numbers, go in the analysis plan, which it shows as a
  * multi-line box and in full in the plan document.
  */
-export function studioPlanTexts(setup: StudySetup, activities: readonly StudyActivity[]): { recruitment: string; exclusions: string; analysis: string } {
+export function studioPlanTexts(setup: StudySetup, activities: readonly StudyActivity[], otherMethods: readonly OtherMethod[] = []): { recruitment: string; exclusions: string; analysis: string } {
   const loss = usableLoss(setup.lossAllowance);
   const summary = summarizeActivities(activities, setup.lossAllowance);
   const converted = convertActivities(activities);
@@ -696,7 +894,7 @@ export function studioPlanTexts(setup: StudySetup, activities: readonly StudyAct
   const analysis = [sampleSize, ...converted.map((item, index) => {
     const d = methodDenominator(item.task.method, item.plan?.goal, item.experiment?.primaryMeasure ?? item.plan?.measure);
     return [name(index), summary.items[index].analysis, ...(item.experiment ? [] : [`Analysis denominator: ${d.what}.`])].join("\n");
-  })].join("\n\n");
+  }), ...(otherMethods.length ? [otherMethodsAnalysis(otherMethods)] : [])].join("\n\n");
   return { recruitment, exclusions, analysis };
 }
 
@@ -710,6 +908,8 @@ export type StudyFileContext = {
   background?: string;
   setup: StudySetup;
   activities: readonly StudyActivity[];
+  /** Methods run outside Research Studio: described at the end of the analysis plan. */
+  otherMethods?: readonly OtherMethod[];
   /** The chosen existing prototype's live preview. Prototype activities left blank use it. */
   prototypeUrl?: string;
 };
@@ -725,7 +925,7 @@ export function buildResearchStudioWorkingCopy(context: StudyFileContext) {
   const qualtrics = context.setup.collection !== "undecided";
   const desktop = context.setup.devices === "desktop";
   const questions = (context.question ?? "").split(/\r?\n/).map(line => clean(line, 1_000)).filter(Boolean).slice(0, 30);
-  const texts = studioPlanTexts(context.setup, context.activities);
+  const texts = studioPlanTexts(context.setup, context.activities, context.otherMethods ?? []);
   return {
     schemaVersion: 3,
     id: slugify(context.title, "research-study").slice(0, 64),

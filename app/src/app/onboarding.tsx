@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { Band } from "../components/Band";
@@ -20,6 +20,8 @@ import {
   type UXOnboardingState,
   type UXRole,
 } from "../lib/onboarding";
+import { BENEFITS, benefitPage } from "../lib/onboarding-benefits";
+import { BenefitDots, BenefitPage } from "../components/OnboardingBenefits";
 import { createThemedStyles, radius, space, typography } from "../lib/theme";
 import { checkboxKeys, useRadioGroup } from "../components/useRadioGroup";
 
@@ -30,6 +32,9 @@ export default function Onboarding() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [agentTier, setAgentTier] = useState<number | null | undefined>(undefined);
+  // Which "Why Servant" page is showing. Kept on screen only: the tour is short.
+  const [page, setPage] = useState(0);
+  const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
 
   useEffect(() => {
     if (!account) return;
@@ -67,6 +72,8 @@ export default function Onboarding() {
   const selectRole = (role: UXRole) => void persist(chooseRole(state, role));
   const selectGoal = (goal: UXGoal) => void persist(toggleGoal(state, goal));
   const goTo = (step: UXOnboardingState["step"]) => void persist(moveOnboarding(state, step));
+  const showPage = (next: number) => { setPage(benefitPage(next)); scroll.current?.scrollTo({ y: 0, animated: false }); };
+  const lastPage = page === BENEFITS.length - 1;
   const finish = async () => {
     const completed = completeOnboarding(state);
     if (!completed.completedAt || !await persist(completed)) return;
@@ -76,14 +83,23 @@ export default function Onboarding() {
   return (
     <View style={styles.root}>
       <Band />
-      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+      <ScrollView ref={scroll} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
         <Progress step={state.step} />
-        {state.step === "role" ? <>
+        {state.step === "why" ? <>
+          <BenefitPage benefit={BENEFITS[page]} agentTier={agentTier} isOwner={account.user.role === "owner"} />
+          <BenefitDots page={page} />
+          {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+          <Button label={lastPage ? "Set up your workspace" : "Next"} busy={busy} onPress={() => lastPage ? goTo("role") : showPage(page + 1)} style={styles.action} />
+          {page > 0
+            ? <Button label="Back" kind="link" disabled={busy} onPress={() => showPage(page - 1)} />
+            : <Button label="Skip the tour" kind="link" disabled={busy} onPress={() => goTo("role")} />}
+        </> : state.step === "role" ? <>
           <Text accessibilityRole="header" style={styles.title}>How do you work?</Text>
           <Text style={styles.lead}>Choose the closest fit. It only shapes your starting points; it doesn't change what you can access.</Text>
           <RoleOptions value={state.role ?? null} disabled={busy} onChange={selectRole} />
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           <Button label="Continue" disabled={!state.role} busy={busy} onPress={() => goTo("goals")} style={styles.action} />
+          <Button label="Back" kind="link" disabled={busy} onPress={() => { showPage(BENEFITS.length - 1); goTo("why"); }} />
         </> : state.step === "goals" ? <>
           <Text accessibilityRole="header" style={styles.title}>What do you want to do first?</Text>
           <Text style={styles.lead}>Choose one or more goals. This personalizes suggestions; it does not change your workspace access.</Text>
@@ -108,9 +124,9 @@ export default function Onboarding() {
 
 function Progress({ step }: { step: UXOnboardingState["step"] }) {
   const styles = useStyles();
-  const index = step === "role" ? 0 : step === "goals" ? 1 : 2;
-  return <View accessibilityRole="progressbar" accessibilityLabel="Onboarding progress" accessibilityValue={{ min: 1, max: 3, now: index + 1, text: `Step ${index + 1} of 3` }} style={styles.progress}>
-    {[0, 1, 2].map(value => <View key={value} style={[styles.progressSegment, value <= index && styles.progressActive]} />)}
+  const index = step === "why" ? 0 : step === "role" ? 1 : step === "goals" ? 2 : 3;
+  return <View accessibilityRole="progressbar" accessibilityLabel="Onboarding progress" accessibilityValue={{ min: 1, max: 4, now: index + 1, text: `Step ${index + 1} of 4` }} style={styles.progress}>
+    {[0, 1, 2, 3].map(value => <View key={value} style={[styles.progressSegment, value <= index && styles.progressActive]} />)}
   </View>;
 }
 

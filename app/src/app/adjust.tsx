@@ -43,13 +43,17 @@ import {
   type Layer,
 } from "../lib/prototype-adjustments";
 import { AppIcon } from "../components/AppIcon";
-import { api, ServerError } from "../lib/server";
+import { api, ServerError, type Chat } from "../lib/server";
+import { designReviewText } from "../lib/designs";
 import { useSession } from "../lib/session";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
 
 // react-native-web renders this as a real <iframe> (web and the Mac app only).
 const Frame = "iframe" as any;
-type Mode = { kind: "author"; chatId: string } | { kind: "reviewer"; conv: string; root: string; fromThread: boolean };
+// author: their own design, into its design chat. reviewer: a suggestion in a review thread.
+// direct: a suggestion on a teammate's shared design from Design Studio, sent to its author in a direct message.
+type Mode = { kind: "author"; chatId: string } | { kind: "reviewer"; conv: string; root: string; fromThread: boolean }
+  | { kind: "direct"; design: Chat; author: { id: string; name: string } };
 type Ready = { mode: Mode; page: string; title: string };
 
 /**
@@ -62,7 +66,7 @@ export default function AdjustPrototype() {
   const styles = useStyles();
   const { account } = useSession();
   const projects = useProjects();
-  const params = useLocalSearchParams<{ chat?: string; conv?: string; root?: string; from?: string }>();
+  const params = useLocalSearchParams<{ chat?: string; design?: string; conv?: string; root?: string; from?: string }>();
   const [ready, setReady] = useState<Ready | null>(null);
   const [blocked, setBlocked] = useState<string | null>(null);
 
@@ -77,9 +81,20 @@ export default function AdjustPrototype() {
     if (params.chat) {
       api.chat(account, String(params.chat)).then(chat => {
         const page = prototypePageUrl(chat.previewUrl, origin);
-        if (chat.mode !== "vibe" || chat.readOnly || chat.canSend === false) return fail("Only the design's author can adjust it here. Others can suggest adjustments from its review thread.");
+        if (chat.mode !== "vibe" || chat.readOnly || chat.canSend === false) return fail("Only the design's author can adjust it here. Others can suggest adjustments from Design Studio or its review thread.");
         if (!page || chat.previewReady === false) return fail("This design doesn't have a published page yet.");
         if (live) setReady({ mode: { kind: "author", chatId: chat.id }, page, title: chat.title || "Untitled design" });
+      }).catch(e => fail(e instanceof ServerError ? e.message : "Couldn't open this design."));
+    } else if (params.design) {
+      // From Design Studio: the author adjusts their own design; anyone else suggests, to the author.
+      api.chat(account, String(params.design)).then(chat => {
+        const page = prototypePageUrl(chat.previewUrl, origin);
+        if (chat.mode !== "vibe") return fail("This isn't a design.");
+        if (!page || chat.previewReady === false) return fail("This design doesn't have a published page yet.");
+        const title = chat.title || "Untitled design";
+        if (!chat.readOnly && chat.canSend !== false) { if (live) setReady({ mode: { kind: "author", chatId: chat.id }, page, title }); return; }
+        if (!chat.author?.id || chat.author.id === account.user.id) return fail("Couldn't tell who made this design, so there's no one to send a suggestion to.");
+        if (live) setReady({ mode: { kind: "direct", design: chat, author: { id: chat.author.id, name: chat.author.name || "the author" } }, page, title });
       }).catch(e => fail(e instanceof ServerError ? e.message : "Couldn't open this design."));
     } else if (params.conv && params.root) {
       api.thread(account, String(params.conv), String(params.root)).then(thread => {
@@ -88,9 +103,9 @@ export default function AdjustPrototype() {
         if (!review || !page) return fail("This message isn't a design review with a preview from this server.");
         if (live) setReady({ mode: { kind: "reviewer", conv: String(params.conv), root: String(params.root), fromThread: params.from === "thread" }, page, title: review.title });
       }).catch(e => fail(e instanceof ServerError ? e.message : "Couldn't open this review thread."));
-    } else fail("Open Adjust design from a design's preview or its review thread.");
+    } else fail("Open Adjust design from Design Studio, a design's preview or its review thread.");
     return () => { live = false; };
-  }, [account, projects, params.chat, params.conv, params.root, params.from]);
+  }, [account, projects, params.chat, params.design, params.conv, params.root, params.from]);
 
   return <View style={styles.root}>
     <Stack.Screen options={{ title: ready ? `Adjust ${ready.title}` : "Adjust design" }} />
@@ -288,6 +303,7 @@ function Adjuster({ mode, page, title }: Ready) {
       finished.current = true;
       if (router.canGoBack()) router.back();
       else if (mode.kind === "author") router.replace({ pathname: "/chat/[id]", params: { id: mode.chatId, title, studio: "1" } });
+      else if (mode.kind === "direct") router.replace("/designs");
       else router.replace({ pathname: "/thread", params: { conv: mode.conv, root: mode.root } });
     };
     if (unsaved) setLeaving(() => go); else go();
@@ -304,6 +320,13 @@ function Adjuster({ mode, page, title }: Ready) {
         appendToDraft(`chat:${mode.chatId}`, request);
         if (router.canGoBack()) router.back();
         else router.replace({ pathname: "/chat/[id]", params: { id: mode.chatId, title, compose: "1", studio: "1" } });
+      } else if (mode.kind === "direct") {
+        // A review card in a direct message with the author, then the suggestion in its thread, where
+        // the author can add it to their design chat.
+        const conversation = await api.openDm(account, [mode.author.id]);
+        const review = await api.post(account, conversation.id, designReviewText(mode.design, ""));
+        await api.post(account, conversation.id, request, review.id);
+        router.replace({ pathname: "/thread", params: { conv: conversation.id, root: review.id, title: conversation.title } });
       } else {
         await api.post(account, mode.conv, request, mode.root);
         // Back to the thread, where the suggestion now is (wherever Suggest adjustments was pressed).
@@ -350,7 +373,7 @@ function Adjuster({ mode, page, title }: Ready) {
     </View>
     <View style={[styles.panel, wide && styles.panelWide]}>
       <View style={styles.panelHead}>
-        {wide ? <Text style={styles.help}>{mode.kind === "author" ? "Changes show only here until you add them to your design chat." : "Changes show only here until you post them as a suggestion."}</Text> : null}
+        {wide ? <Text style={styles.help}>{mode.kind === "author" ? "Changes show only here until you add them to your design chat." : mode.kind === "direct" ? `Changes show only here until you send them to ${mode.author.name} as a suggestion.` : "Changes show only here until you post them as a suggestion."}</Text> : null}
         <Text accessibilityLiveRegion="polite" style={styles.status}>{connected ? notice : "Connecting to the preview…"}</Text>
         <View {...tabs.group} style={styles.tabs}>
           {(["edit", "changes", "check"] as const).map((id, index) => <Chip key={id} {...tabs.radio(id, index)} selected={tab === id}
@@ -413,27 +436,29 @@ function Adjuster({ mode, page, title }: Ready) {
         <View style={styles.footerRow}>
           <Button label="Cancel" kind="link" compact onPress={leave} />
           <Button label={mode.kind === "author" ? "Review request" : "Review suggestion"} disabled={!count && !note.trim()} onPress={() => setReviewing(true)} style={styles.flex}
-            accessibilityHint={mode.kind === "author" ? "Shows the request for the agent before it's added to your design chat" : "Shows the suggestion before it's posted to the thread"} />
+            accessibilityHint={mode.kind === "author" ? "Shows the request for the agent before it's added to your design chat" : mode.kind === "direct" ? `Shows the suggestion before it's sent to ${mode.author.name}` : "Shows the suggestion before it's posted to the thread"} />
         </View>
       </View>
     </View>
-    {reviewing ? <ReviewSheet mode={mode.kind} request={request} busy={busy} error={error} onConfirm={() => { void finish(); }} onClose={() => setReviewing(false)} /> : null}
+    {reviewing ? <ReviewSheet mode={mode.kind} author={mode.kind === "direct" ? mode.author.name : null} request={request} busy={busy} error={error} onConfirm={() => { void finish(); }} onClose={() => setReviewing(false)} /> : null}
     <ConfirmDialog visible={!!leaving} title="Leave without your changes?" confirmLabel="Leave"
-      description={mode.kind === "author" ? "Your changes haven't been added to your design chat yet, so they'll be lost." : "Your suggestion hasn't been posted yet, so it will be lost."}
+      description={mode.kind === "author" ? "Your changes haven't been added to your design chat yet, so they'll be lost." : mode.kind === "direct" ? "Your suggestion hasn't been sent yet, so it will be lost." : "Your suggestion hasn't been posted yet, so it will be lost."}
       onConfirm={() => { const go = leaving; finished.current = true; setLeaving(null); go?.(); }} onCancel={() => setLeaving(null)} />
   </View>;
 }
 
 // The full request (or suggestion) to read before it goes anywhere.
-function ReviewSheet({ mode, request, busy, error, onConfirm, onClose }: { mode: "author" | "reviewer"; request: string; busy: boolean; error: string | null; onConfirm: () => void; onClose: () => void }) {
+function ReviewSheet({ mode, author, request, busy, error, onConfirm, onClose }: { mode: Mode["kind"]; author: string | null; request: string; busy: boolean; error: string | null; onConfirm: () => void; onClose: () => void }) {
   const styles = useStyles();
-  const people = mode === "reviewer" ? suggestionForPeople(request) : null;
+  const people = mode === "author" ? null : suggestionForPeople(request);
   return <Modal visible transparent animationType="fade" onRequestClose={() => { if (!busy) onClose(); }}>
     <View style={styles.scrim}>
       <View accessibilityViewIsModal style={styles.sheet}>
         <Text accessibilityRole="header" style={styles.heading}>{mode === "author" ? "Review your request" : "Review your suggestion"}</Text>
         <Text style={styles.help}>{mode === "author"
           ? "This is added to your design chat's message box. Nothing is sent until you send it there."
+          : mode === "direct"
+          ? `This is sent to ${author} in a direct message, with a link to the design. Only ${author} can add it to their design chat.`
           : "This is posted in the review thread, where everyone in it can read it. Only the design's author can add it to their design chat."}</Text>
         <ScrollView style={styles.requestBox} contentContainerStyle={styles.requestContent}>
           <Text selectable style={styles.requestText}>{people ?? request}</Text>
@@ -442,7 +467,7 @@ function ReviewSheet({ mode, request, busy, error, onConfirm, onClose }: { mode:
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         <View style={styles.sheetActions}>
           <Button label="Keep editing" kind="secondary" disabled={busy} onPress={onClose} />
-          <Button label={mode === "author" ? "Add to design chat" : "Post to the thread"} busy={busy} onPress={onConfirm} />
+          <Button label={mode === "author" ? "Add to design chat" : mode === "direct" ? `Send to ${author}` : "Post to the thread"} busy={busy} onPress={onConfirm} />
         </View>
       </View>
     </View>

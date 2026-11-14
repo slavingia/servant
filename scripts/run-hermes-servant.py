@@ -23,6 +23,11 @@ def main():
     os.environ["HERMES_HOME"] = str(profile)
     # No tools from kanban work or inherited outer-agent contexts may sneak in.
     os.environ.pop("HERMES_KANBAN_TASK", None)
+    if args.member or args.researcher:
+        # A restricted bridge never installs packages at runtime. This also keeps a self-updating
+        # Hermes install (v0.22+ installer layout) from relaunching this process under its bare
+        # interpreter, where the bridge's dependencies aren't importable.
+        os.environ["HERMES_DISABLE_LAZY_INSTALLS"] = "1"
     sys.path[:0] = [str(Path(__file__).resolve().parents[1] / "server"), str(root)]
     from hermes_bridge import ServantAPIServerAdapter, validate_member_profile, validate_researcher_profile, verify_contract
     from hermes_cli.config import load_config, load_env

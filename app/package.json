@@ -66,6 +66,7 @@
     "test:web": "node --test scripts/web-a11y.test.mjs",
     "test:web:signed-in": "node --test --test-concurrency=1 scripts/web-signed-in.test.mjs",
     "sandbox": "node scripts/feedback-sandbox.mjs",
+    "sandbox:share": "node scripts/feedback-sandbox.mjs --share --full",
     "lint": "expo lint"
   },
   "private": true

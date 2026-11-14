@@ -14,7 +14,7 @@ const periods: { key: LeaderboardPeriod; label: string; caption: string }[] = [
   { key: "all", label: "All time", caption: "all time" },
 ];
 
-// Built-in shame board: agent tokens used across the server and by person.
+// Built-in usage report: agent tokens used across the server and by person.
 export default function LeaderboardScreen() {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -27,7 +27,7 @@ export default function LeaderboardScreen() {
   const load = useCallback(async (which: LeaderboardPeriod) => {
     if (!account) return;
     try { setBoard(await api.leaderboard(account, which)); setError(null); }
-    catch (e) { setError(e instanceof ServerError ? e.message : "Couldn't load the shame board"); }
+    catch (e) { setError(e instanceof ServerError ? e.message : "Couldn't load the usage report"); }
   }, [account]);
   useFocusEffect(useCallback(() => { void load(period); }, [load, period]));
   if (!account) return null;
@@ -47,7 +47,7 @@ export default function LeaderboardScreen() {
     <Text style={styles.goal}>The goal is productivity: pull requests merged per million tokens, not tokens used. Tokens only show how much the agent is used.</Text>
 
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-    {!board ? <ActivityIndicator accessibilityLabel="Loading shame board" style={{ marginTop: space.xl }} color={colors.blue} /> : <>
+    {!board ? <ActivityIndicator accessibilityLabel="Loading usage report" style={{ marginTop: space.xl }} color={colors.blue} /> : <>
       <View accessible accessibilityLabel={`${formatTokens(board.totals.total)} tokens used on ${account.serverName} in ${current.caption}, across ${board.totals.turns} agent replies, about ${formatCost(estimateCost(board.totals.input, board.totals.output))} estimated`} style={styles.total}>
         <Text style={styles.totalLabel}>{account.serverName} · {current.caption}</Text>
         <Text style={styles.totalValue}>{formatTokens(board.totals.total)}</Text>

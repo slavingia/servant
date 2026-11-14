@@ -2,7 +2,7 @@
 // is checked before it's put back. Only what the researcher typed or chose is
 // kept: never Research Hub evidence, Hub metadata or design guidance (those are
 // fetched and reviewed again), and prototypes only by id (rechecked on restore).
-import { DEFAULT_STUDY_SETUP, MAX_STUDY_ACTIVITIES, newStudyActivity, STUDY_COLLECTIONS, STUDY_METHODS, type StudyActivity, type StudySetup } from "./research-methods.ts";
+import { DEFAULT_STUDY_SETUP, MAX_OTHER_METHODS, MAX_STUDY_ACTIVITIES, newOtherMethod, newStudyActivity, OTHER_METHOD_PRESETS, STUDY_COLLECTIONS, STUDY_METHODS, type OtherMethod, type StudyActivity, type StudySetup } from "./research-methods.ts";
 import type { ResearchFieldId, ResearchTaskKind } from "./research-studio.ts";
 
 export const RESEARCH_FORM_DRAFT_VERSION = 1;
@@ -14,6 +14,8 @@ export type ResearchFormDraft = {
   title: string;
   answers: Partial<Record<ResearchFieldId, string>>;
   activities: StudyActivity[];
+  /** Methods run outside Research Studio. Older drafts have none (an "Other methods" answer becomes one). */
+  otherMethods: OtherMethod[];
   setup: StudySetup;
   prototypeMode: DraftPrototypeMode;
   prototypePurpose: string;
@@ -40,6 +42,7 @@ export function researchFormDraftEmpty(draft: ResearchFormDraft): boolean {
   return !draft.title.trim()
     && FIELD_IDS.every(field => !(draft.answers[field] ?? "").trim())
     && !draft.activities.length
+    && !draft.otherMethods.length
     && JSON.stringify(draft.setup) === JSON.stringify(DEFAULT_STUDY_SETUP)
     && draft.prototypeMode === "none"
     && !draft.prototypePurpose.trim()
@@ -78,6 +81,19 @@ function activity(value: unknown, index: number): StudyActivity | null {
   return out as unknown as StudyActivity;
 }
 
+function otherMethod(value: unknown, index: number): OtherMethod | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const saved = value as Record<string, unknown>;
+  const preset = OTHER_METHOD_PRESETS.find(item => item.id === saved.preset)?.id ?? "custom";
+  const fresh = newOtherMethod(preset, id(saved.key) ?? `other-${index + 1}`);
+  const participants = saved.participants === null || (typeof saved.participants === "number" && Number.isInteger(saved.participants)) ? saved.participants as number | null : fresh.participants;
+  return {
+    ...fresh,
+    ...Object.fromEntries((["name", "description", "objective", "criteria"] as const).map(field => [field, typeof saved[field] === "string" ? text(saved[field], field === "name" ? 120 : MAX_TEXT) : fresh[field]])),
+    participants,
+  };
+}
+
 function setup(value: unknown): StudySetup {
   if (!value || typeof value !== "object") return DEFAULT_STUDY_SETUP;
   const saved = value as Record<string, unknown>;
@@ -104,10 +120,22 @@ export function parseResearchFormDraft(value: unknown, kind: ResearchTaskKind): 
   const activities = study && Array.isArray(saved.activities)
     ? saved.activities.slice(0, MAX_STUDY_ACTIVITIES).map(activity).filter((item): item is StudyActivity => !!item)
     : [];
-  // Two activities can't share a key (the editor tells them apart by it).
+  const otherMethods = study && Array.isArray(saved.otherMethods)
+    ? saved.otherMethods.slice(0, MAX_OTHER_METHODS).map(otherMethod).filter((item): item is OtherMethod => !!item)
+    : [];
+  // Before other methods were planned one by one, they were a free-text "Other methods" answer.
+  if (study && answers.method?.trim()) {
+    if (!otherMethods.length) otherMethods.push({ ...newOtherMethod("custom", "other-1"), name: "Other methods", description: answers.method.slice(0, MAX_TEXT) });
+    delete answers.method;
+  }
+  // No two items in the plan can share a key (the editor tells them apart by it).
   const seen = new Set<string>();
   for (const [index, item] of activities.entries()) {
     if (seen.has(item.key)) { let n = index + 1; while (seen.has(`activity-${n}`)) n++; item.key = `activity-${n}`; }
+    seen.add(item.key);
+  }
+  for (const [index, item] of otherMethods.entries()) {
+    if (seen.has(item.key)) { let n = index + 1; while (seen.has(`other-${n}`)) n++; item.key = `other-${n}`; }
     seen.add(item.key);
   }
   const prototypeMode: DraftPrototypeMode = study && (saved.prototypeMode === "new" || saved.prototypeMode === "existing") ? saved.prototypeMode : "none";
@@ -116,6 +144,7 @@ export function parseResearchFormDraft(value: unknown, kind: ResearchTaskKind): 
     title: text(saved.title, 200),
     answers,
     activities,
+    otherMethods,
     setup: study ? setup(saved.setup) : DEFAULT_STUDY_SETUP,
     prototypeMode,
     prototypePurpose: study ? text(saved.prototypePurpose, 1_000) : "",

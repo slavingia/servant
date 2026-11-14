@@ -20,7 +20,8 @@ export const UX_GOALS = [
 ] as const;
 
 export type UXGoal = (typeof UX_GOALS)[number]["id"];
-export type OnboardingStep = "role" | "goals" | "ready";
+// "why" is the benefits tour shown before the role step.
+export type OnboardingStep = "why" | "role" | "goals" | "ready";
 
 export type UXOnboardingState = {
   version: typeof ONBOARDING_VERSION;
@@ -55,13 +56,13 @@ const ACCESS_LABELS: Record<number, string> = {
 
 const roles = new Set<string>(UX_ROLES.map(role => role.id));
 const goals = new Set<string>(UX_GOALS.map(goal => goal.id));
-const steps = new Set<string>(["role", "goals", "ready"]);
+const steps = new Set<string>(["why", "role", "goals", "ready"]);
 
 const timestamp = (value: unknown, fallback: number) =>
   typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
 
 export function startOnboarding(now = Date.now()): UXOnboardingState {
-  return { version: ONBOARDING_VERSION, step: "role", role: null, goals: [], startedAt: now, updatedAt: now };
+  return { version: ONBOARDING_VERSION, step: "why", role: null, goals: [], startedAt: now, updatedAt: now };
 }
 
 /**
@@ -76,7 +77,7 @@ export function normalizeOnboarding(value: unknown, now = Date.now()): UXOnboard
     ? [...new Set(raw.goals.filter((goal): goal is UXGoal => typeof goal === "string" && goals.has(goal)))]
     : [];
   let step = typeof raw.step === "string" && steps.has(raw.step) ? raw.step as OnboardingStep : role ? "goals" : "role";
-  if (!role) step = "role";
+  if (!role) step = step === "why" ? "why" : "role";
   else if (step === "ready" && selected.length === 0) step = "goals";
   const startedAt = timestamp(raw.startedAt, now);
   const updatedAt = Math.max(startedAt, timestamp(raw.updatedAt, startedAt));
@@ -122,7 +123,7 @@ export function toggleGoal(state: UXOnboardingState, goal: UXGoal, now = Date.no
 
 export function moveOnboarding(state: UXOnboardingState, step: OnboardingStep, now = Date.now()): UXOnboardingState {
   const current = normalizeOnboarding(state, now);
-  const safeStep = !current.role ? "role" : step === "ready" && current.goals.length === 0 ? "goals" : step;
+  const safeStep = !current.role ? (step === "why" ? "why" : "role") : step === "ready" && current.goals.length === 0 ? "goals" : step;
   return { ...current, step: safeStep, updatedAt: now, completedAt: undefined, roleIntroCompletedAt: undefined };
 }
 

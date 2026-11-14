@@ -190,6 +190,44 @@ test("a prototype that stops being ready is caught at save time: nothing is save
   } finally { restorePage(); }
 });
 
+test("Choose your methods: several at once, each with starting text; untouched ones go quietly, changed ones ask first", { skip }, async () => {
+  await open(accounts.researcher, "/research-new?kind=study");
+  await page.getByRole("heading", { name: "Choose your methods" }).waitFor({ timeout: 120000 });
+  const method = name => page.getByRole("checkbox", { name: new RegExp(`^${name}\\.`) });
+  assert.equal(await method("Survey").getAttribute("aria-checked"), "false");
+  await method("Survey").click();
+  await method("Interviews").click();
+  assert.equal(await method("Survey").getAttribute("aria-checked"), "true");
+  await page.getByText("Added Interviews. Edit it under Study activities below.").waitFor({ timeout: 5000 });
+  assert.match(await page.getByLabel(/^Instructions for participants/).inputValue(), /^Answer a few questions about your experience\./);
+  assert.match(await page.getByLabel(/^Questions/).inputValue(), /^How easy or difficult was it to \[what they're trying to do, in their words\]\?/);
+  assert.equal(await page.getByLabel(/^Method name/).inputValue(), "Interviews");
+  assert.match(await bodyText(), /Other method 1\. Interviews/);
+  assert.match(await bodyText(), /Activity 1 \(Survey\): replace the \[bracketed\] template text with your own/);
+  assert.match(await bodyText(), /Other method 1 \(Interviews\): replace the \[bracketed\] template text with your own/);
+  assert.ok(await noOverflow(), "no sideways scrolling on a phone");
+  // Untouched: unticking removes it straight away.
+  await method("Survey").click();
+  assert.equal(await page.getByLabel(/^Questions/).count(), 0);
+  // Changed: unticking asks first, and Cancel keeps it.
+  await method("Card sorting").click();
+  await page.getByLabel(/^Cards/).fill("Payments\nNotices");
+  await method("Card sorting").click();
+  await page.getByText("Remove Card sorting?").waitFor({ timeout: 5000 });
+  await page.getByRole("button", { name: "Cancel" }).last().click();
+  assert.equal(await method("Card sorting").getAttribute("aria-checked"), "true");
+  assert.equal(await page.getByLabel(/^Cards/).inputValue(), "Payments\nNotices");
+  await method("Card sorting").click();
+  await page.getByRole("button", { name: "Remove", exact: true }).click();
+  assert.equal(await method("Card sorting").getAttribute("aria-checked"), "false");
+  // A custom method of your own, added from the activities list.
+  await page.getByRole("button", { name: "Add another activity" }).click();
+  await page.getByRole("button", { name: "Add Custom method" }).click();
+  await page.getByLabel(/^Method name/).last().fill("Diary study");
+  assert.match(await bodyText(), /Other method 2\. Diary study/);
+  assert.equal(await method("Custom method").getAttribute("aria-checked"), "true");
+});
+
 test("hold off: arrowing onto 'Create a new prototype' keeps the chosen prototype; choosing it is deliberate", { skip }, async () => {
   setHold(false);
   await open(accounts.researcher, "/research-new?kind=study");
@@ -826,14 +864,88 @@ test("author: a reviewer's suggestion goes to the design chat's message box, uns
 
 test("adjustments open only for this server's prototype pages, and only for the author or a review thread", { skip }, async () => {
   await open(accounts.researcher, "/adjust?chat=cht_sample_ready", WIDE);
-  await page.getByText("Only the design's author can adjust it here. Others can suggest adjustments from its review thread.").waitFor({ timeout: 120000 });
+  await page.getByText("Only the design's author can adjust it here. Others can suggest adjustments from Design Studio or its review thread.").waitFor({ timeout: 120000 });
   assert.equal(await page.locator("iframe").count(), 0);
   // Someone else's private draft: the server won't even show it.
   await page.goto(`${APP}/adjust?chat=cht_sample_draft`, { waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: "Back" }).last().waitFor({ timeout: 60000 });
   assert.equal(await page.locator("iframe").count(), 0);
   await page.goto(`${APP}/adjust`, { waitUntil: "domcontentloaded" });
-  await page.getByText("Open Adjust design from a design's preview or its review thread.").waitFor({ timeout: 60000 });
+  await page.getByText("Open Adjust design from Design Studio, a design's preview or its review thread.").waitFor({ timeout: 60000 });
+  // From Design Studio, someone else's private draft can't be opened for suggestions either.
+  await page.goto(`${APP}/adjust?design=cht_sample_draft`, { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Back" }).last().waitFor({ timeout: 60000 });
+  assert.equal(await page.locator("iframe").count(), 0);
+});
+
+test("Design Studio: a design opens on its own page with its picture and what this person can do", { skip }, async () => {
+  // The author: a picture of the published page, and every action on their own design.
+  await open(accounts.designer, "/designs", WIDE);
+  await page.getByRole("button", { name: "Balance lookup prototype, Published" }).click({ timeout: 120000 });
+  await page.waitForURL(/\/design\?id=cht_sample_ready/);
+  await page.getByRole("heading", { name: "What you can do" }).waitFor({ timeout: 60000 });
+  const picture = page.locator('iframe[aria-hidden="true"]');
+  await picture.first().waitFor({ state: "attached" });
+  assert.match(await picture.first().getAttribute("src"), /\/p\/proto-/, "a live picture of its page");
+  const labels = async () => page.locator('[role="list"] [role="button"]').evaluateAll(els => els.map(e => e.getAttribute("aria-label")));
+  assert.deepEqual(await labels(), ["Open design chat", "View prototype", "Adjust design", "Share for review", "Version history", "Duplicate"]);
+  assert.ok(await page.getByRole("button", { name: "Rename or archive" }).isVisible());
+  await page.getByRole("button", { name: "Open design chat" }).click();
+  await page.waitForURL(/\/chat\/cht_sample_ready/);
+  // Their unpublished draft: no picture yet, and nothing that needs a page.
+  await page.goto(`${APP}/design?id=cht_sample_draft`, { waitUntil: "domcontentloaded" });
+  await page.getByText("No page yet. A picture appears here as soon as the agent publishes the first version.").waitFor({ timeout: 60000 });
+  assert.deepEqual(await labels(), ["Open design chat"]);
+  // A teammate: read the chat, view the prototype, suggest; nothing only the author may do.
+  await open(accounts.boss, "/design?id=cht_sample_ready", WIDE);
+  await page.getByRole("heading", { name: "What you can do" }).waitFor({ timeout: 120000 });
+  assert.deepEqual(await labels(), ["Read the design chat", "View prototype", "Suggest adjustments", "Share for review", "Version history", "Duplicate"]);
+  assert.equal(await page.getByRole("button", { name: "Rename or archive" }).count(), 0);
+  // Someone who can't see a private draft is told so, with a way back.
+  await open(accounts.researcher, "/design?id=cht_sample_draft", WIDE);
+  await page.getByText("This design isn't available").waitFor({ timeout: 120000 });
+  await page.getByRole("button", { name: "Back to Design" }).waitFor();
+});
+
+test("Design Studio: the author adjusts a design from the list; a teammate's suggestion from the list goes to the author in a direct message", { skip }, async () => {
+  const { testFetch } = await import(new URL("../../server/encrypted-test-client.mjs", import.meta.url).href);
+  const call = async (token, route) => (await testFetch(accounts.dir, `${accounts.base}${route}`, { headers: { Authorization: `Bearer ${token}` } })).json();
+  // The author: Adjust on their own published design opens it for adjusting, into their design chat.
+  await open(accounts.designer, "/designs", WIDE);
+  await page.getByRole("button", { name: "Adjust design: Balance lookup prototype" }).click({ timeout: 120000 });
+  assert.equal(await page.getByRole("button", { name: /^Suggest adjustments:/ }).count(), 0, "nothing of theirs to suggest on");
+  await page.waitForURL(/\/adjust\?design=cht_sample_ready/);
+  await waitForPreview();
+  await page.getByRole("button", { name: "Review request" }).waitFor();
+  // A teammate: Suggest on a shared design; private drafts aren't offered.
+  await open(accounts.boss, "/designs", WIDE);
+  await page.getByRole("button", { name: "Suggest adjustments: Balance lookup prototype" }).waitFor({ timeout: 120000 });
+  assert.equal(await page.getByRole("button", { name: /: Private sketch$/ }).count(), 0, "a private draft isn't offered");
+  assert.equal(await page.getByRole("button", { name: /^Adjust design:/ }).count(), 0, "only the author adjusts");
+  await page.getByRole("button", { name: "Suggest adjustments: Balance lookup prototype" }).click();
+  await page.waitForURL(/\/adjust\?design=cht_sample_ready/);
+  await waitForPreview();
+  await page.getByRole("button", { name: "Select first element" }).focus();
+  await page.keyboard.press("Enter");
+  await page.getByRole("heading", { name: 'Heading "Your balance"' }).waitFor();
+  await field("Font size").fill("36px");
+  await field("Font size").press("Enter");
+  assert.equal(await changeCount(), 1);
+  await page.getByRole("button", { name: "Review suggestion" }).click();
+  await page.getByText("This is sent to Dev Designer in a direct message, with a link to the design.", { exact: false }).waitFor();
+  await page.getByRole("button", { name: "Send to Dev Designer" }).click();
+  await page.waitForURL(/\/thread\?/);
+  const url = new URL(page.url());
+  const conv = url.searchParams.get("conv"), root = url.searchParams.get("root");
+  const dm = (await call(accounts.boss.token, "/v1/conversations")).conversations.find(c => c.id === conv);
+  assert.equal(dm?.kind, "dm");
+  const thread = await call(accounts.designer.token, `/v1/conversations/${conv}/threads/${root}`);
+  assert.match(thread.root.text, /^Design review: Balance lookup prototype\nStatus: Published\nPreview: https:\/\/tsoa\.example\.test\/p\//);
+  assert.ok(thread.replies.some(p => p.text.startsWith("Suggested adjustments for Balance lookup prototype:") && /font size 32px → 36px/.test(p.text)));
+  assert.equal(fs.readFileSync(indexFile, "utf8"), accounts.samplePage, "the prototype is unchanged");
+  // The author can add it to their design chat from that thread.
+  await open(accounts.designer, `/thread?conv=${conv}&root=${root}`, WIDE);
+  await page.getByRole("button", { name: "Add to design chat" }).waitFor({ timeout: 120000 });
 });
 
 // ---------- designer walk-through fixes and additions ----------

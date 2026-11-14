@@ -84,6 +84,19 @@ test("legacy accounts skip role introduction and milestone-one accounts receive 
   assert.equal(roleIntroRequired(normalized), false);
 });
 
+test("new onboarding opens on the benefits tour and can go back to it", () => {
+  const fresh = startOnboarding(10);
+  assert.equal(fresh.step, "why");
+  assert.equal(normalizeOnboarding(fresh, 20).step, "why");
+  const toRole = moveOnboarding(fresh, "role", 30);
+  assert.equal(toRole.step, "role");
+  assert.equal(moveOnboarding(toRole, "why", 40).step, "why");
+  // Without a role, later steps still fall back to the role step.
+  assert.equal(moveOnboarding(fresh, "goals", 50).step, "role");
+  // Older saved state without a step and without a role resumes at the role step.
+  assert.equal(normalizeOnboarding({ version: ONBOARDING_VERSION, role: null, goals: [], startedAt: 1, updatedAt: 1 }, 2).step, "role");
+});
+
 test("completion requires both a role and a goal", () => {
   const blank = startOnboarding(10);
   assert.equal(completeOnboarding(blank, 20).completedAt, undefined);

@@ -95,6 +95,16 @@ export default function RoleStart() {
         <Text style={styles.summaryLabel}>Your goals</Text>
         {goalLabels(onboarding.goals).map(goal => <Text key={goal} style={styles.goal}>• {goal}</Text>)}
       </View>
+      {accessChecked && tasks.length ? <Pressable accessibilityRole="button" accessibilityLabel="Take the tour"
+        accessibilityHint={`A short look at each feature for ${roleInSentence(roleLabel(onboarding.role))}s, with examples`}
+        disabled={busy} onPress={() => router.push("/role-tour")} style={({ pressed }) => [styles.tour, pressed && styles.taskPressed]}>
+        <View style={styles.taskIcon}><AppIcon name="sparkles" size={18} /></View>
+        <View style={styles.taskCopy}>
+          <Text style={styles.taskTitle}>Take the tour</Text>
+          <Text style={styles.taskBody}>Optional. See what each feature does, with examples.</Text>
+        </View>
+        <AppIcon name="chevronRight" size={18} />
+      </Pressable> : null}
       <Text style={styles.sectionTitle}>Starting points</Text>
       {!accessChecked ? <View style={styles.accessCheck}>
         <Text style={styles.accessCheckText}>Checking workspace access…</Text>
@@ -138,6 +148,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   accessCheckText: { ...typography.caption, color: colors.muted },
   task: { minHeight: 92, flexDirection: "row", alignItems: "center", gap: space.sm, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, borderRadius: radius.lg, padding: space.md, backgroundColor: colors.background },
   taskRecommended: { borderColor: colors.blue, backgroundColor: colors.blueSoft },
+  tour: { minHeight: 72, flexDirection: "row", alignItems: "center", gap: space.sm, marginTop: space.lg, borderWidth: 1, borderColor: colors.line, borderStyle: "dashed", borderRadius: radius.lg, padding: space.md },
   taskLocked: { backgroundColor: colors.subtle },
   taskPressed: { opacity: 0.72 },
   taskIcon: { width: 36, height: 36, borderRadius: radius.md, alignItems: "center", justifyContent: "center", backgroundColor: colors.background },

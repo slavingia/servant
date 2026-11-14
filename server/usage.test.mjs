@@ -49,6 +49,26 @@ test("members stop at one million tokens a day, the owner never does, and the da
   store.close();
 });
 
+test("a server-wide daily limit replaces the tier limits, except for no agent and the owner", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "servant-usage-"));
+  let override = 2_000_000;
+  const store = createUsageStore(path.join(dir, "usage.db"), { limitOverride: () => override });
+  const researcher = { id: "r", role: "member", agentTier: 4 };
+  assert.equal(store.limitFor(researcher), 2_000_000);
+  assert.equal(store.limitFor({ id: "n", role: "member", agentTier: 0 }), 0, "no agent stays no agent");
+  store.record({ eventId: "a", userId: "r", usage: { total_tokens: 1_999_999 } });
+  assert.equal(store.overLimit(researcher), false);
+  store.record({ eventId: "b", userId: "r", usage: { total_tokens: 1 } });
+  assert.equal(store.overLimit(researcher), true);
+  assert.equal(store.overLimit({ id: "r", role: "owner" }), false, "the owner is never limited");
+  for (const bad of [undefined, 0, -5, 1.5, "2000000", null]) {
+    override = bad;
+    assert.equal(store.limitFor(researcher), 5_000_000, `ignored: ${bad}`);
+  }
+  store.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test("a conversation's running total is kept per chat", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "servant-usage-"));
   const store = createUsageStore(path.join(dir, "usage.db"));

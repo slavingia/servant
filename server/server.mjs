@@ -178,6 +178,8 @@ export function loadConfig() {
     // from any client still work, and researchers can still make prototypes
     // (from their own reviewed findings, never Hub records).
     researchHold: cfg.researchHold !== false,
+    // One daily token limit for everyone but the owner, instead of the tier limits (a test server, say).
+    dailyTokenLimit: Number.isSafeInteger(cfg.dailyTokenLimit) && cfg.dailyTokenLimit > 0 ? cfg.dailyTokenLimit : undefined,
   };
 }
 
@@ -1069,7 +1071,8 @@ let recordings = null;
 let workChatStarter = null;
 let otaServer;
 const ota = () => otaServer ??= createOta({ dir: path.join(DATA_DIR, "ota") });
-const usageStore = () => usageDb ??= createUsageStore(path.join(DATA_DIR, "usage.db"));
+// "dailyTokenLimit" in config.json, when set, is everyone's daily limit (but the owner's) instead of the tier limits.
+const usageStore = () => usageDb ??= createUsageStore(path.join(DATA_DIR, "usage.db"), { limitOverride: () => loadConfig().dailyTokenLimit });
 const RESEARCH_DESIGN_GUIDANCE_MAX_COMPLETION_TOKENS = 1_600;
 const researchDesignGuidanceTails = new Map();
 

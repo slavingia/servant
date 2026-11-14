@@ -5,7 +5,7 @@ import { radius, createThemedStyles, useTheme } from "../lib/theme";
 
 // react-native-web renders this as a real <iframe> (web and the Mac app only).
 const Frame = "iframe" as never as React.ComponentType<Record<string, unknown>>;
-// The page at phone width, so a small picture still shows its top readably.
+// By default the page at phone width, so a small picture still shows its top readably.
 const PAGE_WIDTH = 390;
 
 /**
@@ -14,15 +14,15 @@ const PAGE_WIDTH = 390;
  * and not focusable or clickable. Anything else (an unpublished draft, a page
  * from another site, the phone apps) shows the design icon instead.
  */
-export function DesignThumbnail({ url, origin, width = 72, height = 48 }: { url?: string | null; origin?: string | null; width?: number; height?: number }) {
+export function DesignThumbnail({ url, origin, width = 72, height = 48, pageWidth = PAGE_WIDTH }: { url?: string | null; origin?: string | null; width?: number; height?: number; pageWidth?: number }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const page = Platform.OS === "web" ? prototypePageUrl(url, origin) : null;
   if (!page) return <View style={[styles.box, styles.icon, { width, height }]}><AppIcon name="brush" size={19} color={colors.blueDark} /></View>;
-  const scale = width / PAGE_WIDTH;
+  const scale = width / pageWidth;
   return <View style={[styles.box, { width, height }]} aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
     <Frame src={page} title="" tabIndex={-1} loading="lazy" sandbox="allow-scripts" aria-hidden="true"
-      style={{ width: PAGE_WIDTH, height: Math.ceil(height / scale), border: 0, backgroundColor: "#FFFFFF", transform: `scale(${scale})`, transformOrigin: "top left", pointerEvents: "none" }} />
+      style={{ width: pageWidth, height: Math.ceil(height / scale), flexShrink: 0, border: 0, backgroundColor: "#FFFFFF", transform: `scale(${scale})`, transformOrigin: "top left", pointerEvents: "none" }} />
   </View>;
 }
 

@@ -6,6 +6,7 @@ import { PageTitle } from "../components/Band";
 import { Button } from "../components/Button";
 import { ResearchCollaborators } from "../components/ResearchCollaborators";
 import { StudyActivities } from "../components/StudyActivities";
+import { StudyMethodPicker } from "../components/StudyMethodPicker";
 import {
   buildResearchPreviewPrompt,
   createResearchPreviewState,
@@ -22,7 +23,7 @@ import {
 } from "../lib/research-preview";
 import { buildStudyPrototypePrompt, researchFindingsProblems, researchTask, type ResearchFieldId, type ResearchTaskKind } from "../lib/research-studio";
 import { accessLabel, collaborationNotice, collaboratorCandidates, planTimesText, type PlanCollaborator } from "../lib/research-collaborators";
-import { DEFAULT_STUDY_SETUP, buildResearchStudioWorkingCopy, recheckStudyPrototype, researchStudioFileName, studyActivitiesPrompt, studyDraftProblems, type StudyActivity, type StudySetup } from "../lib/research-methods";
+import { DEFAULT_STUDY_SETUP, buildResearchStudioWorkingCopy, otherMethodsPrompt, recheckStudyPrototype, researchStudioFileName, studyActivitiesPrompt, studyDraftProblems, type OtherMethod, type StudyActivity, type StudySetup } from "../lib/research-methods";
 import { DraftChecklist } from "../components/DraftChecklist";
 import { useRadioGroup } from "../components/useRadioGroup";
 import { PROTOTYPE_OPTIONS, PrototypeModeOptions } from "../components/PrototypeModeOptions";
@@ -58,6 +59,7 @@ export default function ResearchPreview() {
   const [showPrompt, setShowPrompt] = useState(false);
   const [collaborators, setCollaborators] = useState<PlanCollaborator[]>([]);
   const [activities, setActivities] = useState<StudyActivity[]>(researchPreviewActivities);
+  const [otherMethods, setOtherMethods] = useState<OtherMethod[]>([]);
   const [studySetup, setStudySetup] = useState<StudySetup>(DEFAULT_STUDY_SETUP);
   const [showFile, setShowFile] = useState(false);
   const [showActivityPrompt, setShowActivityPrompt] = useState(false);
@@ -125,7 +127,7 @@ export default function ResearchPreview() {
   const readyPrototypes = RESEARCH_PREVIEW_PROTOTYPES.filter(item => !unreadyIds.includes(item.id));
   const chosenPrototype = prototypeChoice === "existing" ? RESEARCH_PREVIEW_PROTOTYPES.find(item => item.id === prototypeId) ?? null : null;
   const draftPrototype = prototypeChoice === "existing" ? { mode: "existing" as const, url: chosenPrototype?.previewUrl ?? null } : { mode: "none" as const };
-  const fileProblems = studyDraftProblems({ title, decision: answers.decision, question: answers.question, participants: answers.participants, setup: studySetup, activities, prototype: draftPrototype });
+  const fileProblems = studyDraftProblems({ title, decision: answers.decision, question: answers.question, participants: answers.participants, setup: studySetup, activities, otherMethods, prototype: draftPrototype });
   const changed = () => { setShowFile(false); setFileNotice(null); };
   // Same recheck as the live app, against the synthetic library, right before the draft is shown.
   const viewFile = () => {
@@ -138,7 +140,7 @@ export default function ResearchPreview() {
     setShowFile(true);
   };
   const studioFile = showFile && !fileProblems.length
-    ? JSON.stringify(buildResearchStudioWorkingCopy({ title, decision: answers.decision, question: answers.question, participants: answers.participants, background: answers.inputs, setup: studySetup, activities, prototypeUrl: chosenPrototype?.previewUrl }), null, 2)
+    ? JSON.stringify(buildResearchStudioWorkingCopy({ title, decision: answers.decision, question: answers.question, participants: answers.participants, background: answers.inputs, setup: studySetup, activities, otherMethods, prototypeUrl: chosenPrototype?.previewUrl }), null, 2)
     : "";
   const viewer = collaborators.find(person => person.id === viewingAs) ?? null;
   const viewerNotice = viewer ? collaborationNotice(viewer.access, "The plan's author") : null;
@@ -358,8 +360,13 @@ export default function ResearchPreview() {
       <Text accessibilityRole="header" style={styles.flowTitle}>Plan Research Studio activities</Text>
       <Text style={styles.flowDescription}>In the live app this sits in Build a research study. Sample activities use example.com links. The working draft below is shown, not saved.</Text>
       <View style={styles.activitiesCard}>
+        <StudyMethodPicker activities={activities} otherMethods={otherMethods}
+          onActivities={next => { setActivities(next); changed(); }} onOtherMethods={next => { setOtherMethods(next); changed(); }} />
+      </View>
+      <View style={styles.activitiesCard}>
         <StudyActivities activities={activities} setup={studySetup} studyPrototype={chosenPrototype ? { title: chosenPrototype.title, url: chosenPrototype.previewUrl } : null}
-          onActivities={next => { setActivities(next); changed(); }} onSetup={next => { setStudySetup(next); changed(); }} />
+          onActivities={next => { setActivities(next); changed(); }} onSetup={next => { setStudySetup(next); changed(); }}
+          otherMethods={otherMethods} onOtherMethods={next => { setOtherMethods(next); changed(); }} />
       </View>
       <View style={styles.activitiesCard}>
         <DraftChecklist problems={fileProblems} notice={fileNotice} onSave={viewFile}
@@ -372,7 +379,7 @@ export default function ResearchPreview() {
       {!PILOT_HOLD ? <Button label={showActivityPrompt ? "Hide the Researcher agent's activity section" : "View the Researcher agent's activity section"} kind="link" onPress={() => setShowActivityPrompt(value => !value)} /> : null}
       {!PILOT_HOLD && showActivityPrompt ? <View style={[styles.promptPanel, styles.activitiesCard]}>
         <Text style={styles.promptTitle}>Added to the unsent study draft</Text>
-        <Text selectable style={styles.promptText}>{studyActivitiesPrompt(studySetup, activities).join("\n").trim()}</Text>
+        <Text selectable style={styles.promptText}>{[...studyActivitiesPrompt(studySetup, activities), ...otherMethodsPrompt(otherMethods)].join("\n").trim()}</Text>
       </View> : null}
 
       <View style={styles.divider} />

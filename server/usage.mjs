@@ -37,7 +37,9 @@ export const startOfDay = (at = Date.now()) => { const d = new Date(at); d.setHo
 export const limitMessage = (limit = DAILY_TOKEN_LIMIT) =>
   `You've reached today's limit of ${limit.toLocaleString("en-US")} tokens. It resets at midnight`;
 
-export function createUsageStore(file, { limit = DAILY_TOKEN_LIMIT, clock = Date.now } = {}) {
+// limitOverride(user): an optional single daily limit (a positive whole number) that replaces the tier
+// limits, for a test server say. Anything else keeps the tier limits; no agent (tier 0) is always 0.
+export function createUsageStore(file, { limit = DAILY_TOKEN_LIMIT, clock = Date.now, limitOverride = () => undefined } = {}) {
   const db = new DatabaseSync(file);
   db.exec(`PRAGMA journal_mode=WAL;
     CREATE TABLE IF NOT EXISTS token_usage (
@@ -72,7 +74,12 @@ export function createUsageStore(file, { limit = DAILY_TOKEN_LIMIT, clock = Date
       return { input: Number(r.input), output: Number(r.output), total: Number(r.total), turns: Number(r.turns) };
     },
     limit,
-    limitFor(user) { return limit === DAILY_TOKEN_LIMIT ? TIER_TOKEN_LIMITS[agentTierOf(user)] : limit * (TIER_TOKEN_LIMITS[agentTierOf(user)] / DAILY_TOKEN_LIMIT); },
+    limitFor(user) {
+      if (agentTierOf(user) === 0) return 0;
+      const override = limitOverride(user);
+      if (Number.isSafeInteger(override) && override > 0) return override;
+      return limit === DAILY_TOKEN_LIMIT ? TIER_TOKEN_LIMITS[agentTierOf(user)] : limit * (TIER_TOKEN_LIMITS[agentTierOf(user)] / DAILY_TOKEN_LIMIT);
+    },
     usedToday: userId => Number(db.prepare("SELECT COALESCE(SUM(total_tokens),0) AS n FROM token_usage WHERE user_id=? AND at>=?").get(String(userId), startOfDay(clock())).n),
     // The owner is unlimited, and so is anyone flagged `unlimitedTokens` (testers).
     overLimit(user) { return !!user && (agentTierOf(user) === 0 || (user.role !== "owner" && !user.unlimitedTokens)) && this.usedToday(user.id) >= this.limitFor(user); },

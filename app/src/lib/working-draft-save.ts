@@ -18,7 +18,7 @@ export type SaveResult =
 
 /** Everything the saved file depends on. Any change between start and save aborts it. */
 export function draftRevision(form: WorkingDraftForm): string {
-  return JSON.stringify([form.title, form.decision, form.question, form.participants, form.background, form.setup, form.activities, form.prototype, form.prototypeId ?? null]);
+  return JSON.stringify([form.title, form.decision, form.question, form.participants, form.background, form.setup, form.activities, form.otherMethods ?? [], form.prototype, form.prototypeId ?? null]);
 }
 
 export async function saveWorkingDraft<P extends { id: string; previewUrl?: string | null }>({ current, loadReadyPrototypes, save }: {
@@ -52,7 +52,7 @@ export async function saveWorkingDraft<P extends { id: string; previewUrl?: stri
     prototypeId = checked.prototype.id;
   }
   const file = buildResearchStudioWorkingCopy({ title: form.title, decision: form.decision, question: form.question, participants: form.participants, background: form.background,
-    setup: form.setup, activities: form.activities, prototypeUrl });
+    setup: form.setup, activities: form.activities, otherMethods: form.otherMethods ?? [], prototypeUrl });
   const fileName = researchStudioFileName(form.title);
   if (changed()) return changedResult;
   try { await save(fileName, `${JSON.stringify(file, null, 2)}\n`); }

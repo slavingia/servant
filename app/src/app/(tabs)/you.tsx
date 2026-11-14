@@ -13,7 +13,7 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { AppIcon } from "../../components/AppIcon";
 import { useSession } from "../../lib/session";
 import { createThemedStyles, useTheme, radius, space, typography } from "../../lib/theme";
-import { startOnboarding } from "../../lib/onboarding";
+import { normalizeOnboarding, startOnboarding } from "../../lib/onboarding";
 import { appName } from "../../lib/app-identity";
 
 function Row({ label, value, onPress }: { label: string; value?: string; onPress?: () => void }) {
@@ -253,6 +253,7 @@ export default function Settings() {
       <View style={styles.group}>
         <Row label="Notifications" onPress={() => router.push("/notifications")} />
         <Row label="Link a computer" onPress={() => router.push("/link-computer")} />
+        {normalizeOnboarding(account.uxOnboarding).role ? <Row label="Take your role tour" onPress={() => router.push("/role-tour")} /> : null}
         <Row label="Restart onboarding" onPress={() => void restartOnboarding()} />
       </View>
       {onboardingError ? <Text accessibilityRole="alert" style={styles.photoError}>{onboardingError}</Text> : null}
@@ -261,7 +262,7 @@ export default function Settings() {
       <View style={styles.group}>
         <Row label="People" onPress={() => router.push("/members")} />
         <Row label="Meetings" onPress={() => router.push("/meetings")} />
-        <Row label="Shame board" onPress={() => router.push("/leaderboard")} />
+        <Row label="Usage report" onPress={() => router.push("/leaderboard")} />
         {owner ? <Row label="Invite people" onPress={() => router.push("/invite")} /> : null}
         <Row label="Archived" onPress={() => router.push("/archived-channels")} />
       </View>

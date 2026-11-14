@@ -2,9 +2,15 @@ import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { AppIcon } from "./AppIcon";
 import { Button } from "./Button";
+import { MethodIllustration } from "./MethodIllustration";
 import {
   GOALS,
+  METHOD_PARTICIPANT_VIEW,
+  OTHER_METHOD_PARTICIPANT_VIEW,
+  MAX_OTHER_METHOD_PARTICIPANTS,
+  MAX_OTHER_METHODS,
   MAX_STUDY_ACTIVITIES,
+  OTHER_METHOD_PRESETS,
   STUDY_COLLECTIONS,
   STUDY_METHODS,
   STOP_DEFAULT,
@@ -12,12 +18,17 @@ import {
   chooseControl,
   directionOptions,
   methodLabel,
-  newStudyActivity,
+  newOtherMethod,
+  nextPlanKey,
+  otherMethodLabel,
   summarizeActivities,
+  templateActivity,
   switchActivityMethod,
   usableLoss,
   NO_LOSS_ALLOWANCE_TEXT,
   type HypothesisDirection,
+  type OtherMethod,
+  type OtherMethodPreset,
   type StudyActivity,
   type StudyGoal,
   type StudyMethod,
@@ -35,11 +46,14 @@ const MAX_DESIGNS = 6;
  * caller owns the state, so the live study form and the local preview share it.
  * Sample sizes and standard analysis come from the ported Research Studio planner.
  */
-export function StudyActivities({ activities, setup, onActivities, onSetup, disabled = false, studyPrototype = null }: {
+export function StudyActivities({ activities, setup, onActivities, onSetup, otherMethods = [], onOtherMethods, disabled = false, studyPrototype = null }: {
   activities: readonly StudyActivity[];
   setup: StudySetup;
   onActivities: (next: StudyActivity[]) => void;
   onSetup: (next: StudySetup) => void;
+  /** Methods run outside Research Studio. Shown, and offered in the picker, when onOtherMethods is given. */
+  otherMethods?: readonly OtherMethod[];
+  onOtherMethods?: (next: OtherMethod[]) => void;
   disabled?: boolean;
   /** The existing prototype chosen for the study; prototype activities without a link use it. */
   studyPrototype?: { title: string; url: string } | null;
@@ -61,19 +75,24 @@ export function StudyActivities({ activities, setup, onActivities, onSetup, disa
   const summary = useMemo(() => summarizeActivities(activities, setup.lossAllowance), [activities, setup.lossAllowance]);
   const update = (key: string, change: (activity: StudyActivity) => StudyActivity) =>
     onActivities(activities.map(activity => activity.key === key ? change(activity) : activity));
+  // Keys only need to be unique within the plan.
+  const usedKeys = () => [...activities.map(activity => activity.key), ...otherMethods.map(method => method.key)];
   const add = (method: StudyMethod) => {
-    // Keys only need to be unique within this list.
-    const used = new Set(activities.map(activity => activity.key));
-    let n = activities.length + 1;
-    while (used.has(`activity-${n}`)) n++;
-    const key = `activity-${n}`;
-    onActivities([...activities, newStudyActivity(method, key)]);
+    onActivities([...activities, templateActivity(method, nextPlanKey("activity", usedKeys()))]);
     setChoosing(false);
   };
+  const addOther = (preset: OtherMethodPreset) => {
+    onOtherMethods?.([...otherMethods, newOtherMethod(preset, nextPlanKey("other", usedKeys()))]);
+    setChoosing(false);
+  };
+  const updateOther = (key: string, change: Partial<OtherMethod>) =>
+    onOtherMethods?.(otherMethods.map(method => method.key === key ? { ...method, ...change } : method));
+  const canAddStudio = activities.length < MAX_STUDY_ACTIVITIES;
+  const canAddOther = !!onOtherMethods && otherMethods.length < MAX_OTHER_METHODS;
 
   return <View style={styles.root}>
     <Text accessibilityRole="header" style={styles.heading}>Study activities</Text>
-    <Text style={styles.description}>Unmoderated activities that run in Civic Research Studio. Everyone takes every activity. Sample sizes and analysis use Research Studio's own planner.</Text>
+    <Text style={styles.description}>Unmoderated activities that run in Civic Research Studio. Everyone takes every activity. Sample sizes and analysis use Research Studio's own planner. New activities start with template text: replace anything in [brackets] with your own.</Text>
 
     <Choice label="Data collection" value={setup.collection} disabled={disabled}
       options={STUDY_COLLECTIONS.map(item => ({ value: item.id, label: item.label, description: item.description }))}
@@ -96,6 +115,7 @@ export function StudyActivities({ activities, setup, onActivities, onSetup, disa
             <AppIcon name="close" size={16} color={colors.muted} />
           </Pressable>
         </View>
+        <MethodReference method={activity.method} text={METHOD_PARTICIPANT_VIEW[activity.method]} />
         <Choice label="Method" value={activity.method} disabled={disabled} inline activation="manual"
           options={STUDY_METHODS.map(method => ({ value: method.id, label: method.label }))}
           help="Arrow keys move between methods; Space or Enter chooses one. Switching back to a method restores what you'd entered for it."
@@ -237,18 +257,70 @@ export function StudyActivities({ activities, setup, onActivities, onSetup, disa
     {summary.largest && activities.length > 1 ? <Text style={styles.recruit}>Recruit for the largest need: about {summary.largest.n} people ({summary.largest.title}). {loss ? `That already allows for ${loss}% loss.` : "No loss allowance is set."}</Text> : null}
     {loss == null && activities.length ? <Text style={styles.recruit}>{NO_LOSS_ALLOWANCE_TEXT}</Text> : null}
 
-    {choosing ? <View accessibilityLabel="Choose an activity type" style={styles.picker}>
+    {onOtherMethods && otherMethods.length ? <View style={styles.otherGroup}>
+      <Text accessibilityRole="header" style={styles.subheading}>Other methods</Text>
+      <Text style={styles.description}>Run outside Research Studio. They're part of this plan and listed in the working draft's analysis plan, but Research Studio doesn't run them or size their samples.</Text>
+      {otherMethods.map((method, index) => <View key={method.key} style={styles.card}>
+        <View style={styles.cardHeader}>
+          <Text accessibilityRole="header" style={styles.cardTitle} numberOfLines={2}>Other method {index + 1}. {method.name.trim() || "Untitled method"}{method.preset !== "custom" && method.name.trim() !== otherMethodLabel(method.preset) ? ` · ${otherMethodLabel(method.preset)}` : ""}</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Remove other method ${index + 1}`} disabled={disabled} hitSlop={8}
+            onPress={() => onOtherMethods(otherMethods.filter(item => item.key !== method.key))} style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}>
+            <AppIcon name="close" size={16} color={colors.muted} />
+          </Pressable>
+        </View>
+        <MethodReference method={method.preset} text={OTHER_METHOD_PARTICIPANT_VIEW[method.preset]} />
+        <Field label="Method name" required value={method.name} onChange={name => updateOther(method.key, { name })} placeholder="e.g. Diary study" disabled={disabled} />
+        <Field label="What happens" required value={method.description} onChange={description => updateOther(method.key, { description })} multiline
+          placeholder="What participants and the research team do, and how sessions run" disabled={disabled} />
+        <Field label="What this method should tell you" value={method.objective} onChange={objective => updateOther(method.key, { objective })} multiline disabled={disabled} />
+        <NumberField label="How many people (optional)" value={method.participants} onChange={participants => updateOther(method.key, { participants })} disabled={disabled}
+          help={`Your decision: nothing is calculated for methods run outside Research Studio. Up to ${MAX_OTHER_METHOD_PARTICIPANTS.toLocaleString("en-US")}.`} />
+        <Field label="What result would be good enough, and what you would do" value={method.criteria} onChange={criteria => updateOther(method.key, { criteria })} multiline disabled={disabled} />
+      </View>)}
+    </View> : null}
+
+    {choosing ? <View accessibilityLabel="Choose what to add" style={styles.picker}>
+      <Text style={styles.label}>Run in Civic Research Studio</Text>
       {STUDY_METHODS.map(method => <Pressable key={method.id} accessibilityRole="button" accessibilityLabel={`Add ${method.label}`} accessibilityHint={method.description}
+        disabled={!canAddStudio} accessibilityState={{ disabled: !canAddStudio }}
         onPress={() => add(method.id)} style={({ pressed }) => [styles.methodOption, pressed && styles.pressed]}>
+        <MethodIllustration method={method.id} width={60} />
         <View style={styles.methodCopy}>
-          <Text style={styles.methodLabel}>{method.label}</Text>
+          <Text style={[styles.methodLabel, !canAddStudio && styles.muted]}>{method.label}</Text>
           <Text style={styles.help}>{method.description}</Text>
         </View>
-        <AppIcon name="plus" size={16} color={colors.blueDark} />
+        <AppIcon name="plus" size={16} color={canAddStudio ? colors.blueDark : colors.muted} />
       </Pressable>)}
+      {!canAddStudio ? <Text style={styles.help}>A plan can have up to {MAX_STUDY_ACTIVITIES} Research Studio activities.</Text> : null}
+      {onOtherMethods ? <>
+        <Text style={styles.label}>Run outside Research Studio</Text>
+        {OTHER_METHOD_PRESETS.map(preset => <Pressable key={preset.id} accessibilityRole="button" accessibilityLabel={`Add ${preset.label}`} accessibilityHint={preset.description}
+          disabled={!canAddOther} accessibilityState={{ disabled: !canAddOther }}
+          onPress={() => addOther(preset.id)} style={({ pressed }) => [styles.methodOption, pressed && styles.pressed]}>
+          <MethodIllustration method={preset.id} width={60} />
+          <View style={styles.methodCopy}>
+            <Text style={[styles.methodLabel, !canAddOther && styles.muted]}>{preset.label}</Text>
+            <Text style={styles.help}>{preset.description}</Text>
+          </View>
+          <AppIcon name="plus" size={16} color={canAddOther ? colors.blueDark : colors.muted} />
+        </Pressable>)}
+        {!canAddOther ? <Text style={styles.help}>A plan can have up to {MAX_OTHER_METHODS} other methods.</Text> : null}
+      </> : null}
       <Button label="Cancel" kind="link" compact onPress={() => setChoosing(false)} />
-    </View> : <Button label={activities.length ? "Add another activity" : "Add a study activity"} kind="secondary" compact
-      disabled={disabled || activities.length >= MAX_STUDY_ACTIVITIES} onPress={() => setChoosing(true)} style={styles.addButton} />}
+    </View> : <Button label={activities.length || otherMethods.length ? "Add another activity" : "Add a study activity"} kind="secondary" compact
+      disabled={disabled || (!canAddStudio && !canAddOther)} onPress={() => setChoosing(true)} style={styles.addButton} />}
+  </View>;
+}
+
+/** The method's illustration and what participants do in it, at the top of its card. */
+function MethodReference({ method, text }: { method: Parameters<typeof MethodIllustration>[0]["method"]; text: string }) {
+  const styles = useStyles();
+  return <View style={styles.reference}>
+    <MethodIllustration method={method} width={96} />
+    <View style={styles.methodCopy}>
+      <Text style={styles.label}>What participants do</Text>
+      <Text style={styles.help}>{text}</Text>
+    </View>
   </View>;
 }
 
@@ -358,6 +430,8 @@ function Row({ children }: { children: ReactNode }) {
 const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create({
   root: { gap: space.sm },
   heading: { ...typography.heading, color: colors.ink },
+  subheading: { ...typography.bodyStrong, color: colors.ink },
+  otherGroup: { gap: space.sm, marginTop: space.sm },
   description: { ...typography.caption, color: colors.muted },
   card: { gap: space.sm, padding: space.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.background },
   cardHeader: { flexDirection: "row", alignItems: "flex-start", gap: space.sm },
@@ -394,6 +468,7 @@ const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create
   disclosureText: { ...typography.meta, color: colors.blueDark, fontWeight: "700" },
   recruit: { ...typography.caption, color: colors.ink },
   picker: { gap: space.xs },
+  reference: { flexDirection: "row", alignItems: "center", gap: space.sm },
   methodOption: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: space.sm, padding: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line },
   methodCopy: { flex: 1, minWidth: 0 },
   methodLabel: { ...typography.caption, color: colors.ink, fontWeight: "700" },

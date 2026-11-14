@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { router, Stack, useFocusEffect, useScrollToTop } from "expo-router";
 import { AppIcon } from "../components/AppIcon";
 import { Button } from "../components/Button";
@@ -96,6 +96,11 @@ export default function Designs() {
     await load();
     router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, studio: "1" } });
   };
+  // Editing on the preview works in a browser and the Mac app: the author adjusts their own design;
+  // a teammate's shared design gets suggestions, sent to its author.
+  const adjustable = (design: Chat) => Platform.OS === "web" && !!origin && designPreviewPublished(design) && (mine.has(design.id) || design.shared === true);
+  const adjust = (design: Chat) => router.push({ pathname: "/adjust", params: { design: design.id } });
+  const adjustLabel = (design: Chat) => mine.has(design.id) ? "Adjust design" : "Suggest adjustments";
   const actionsFor = (design: Chat): DesignAction[] => {
     const own = mine.has(design.id);
     const published = designPreviewPublished(design);
@@ -107,6 +112,7 @@ export default function Designs() {
     // On narrow screens the row has no room for Share for review, so it's here instead.
     const canShare = designPreviewPublished(design) && (own || design.shared === true);
     return [
+      ...(narrow && adjustable(design) ? [{ id: "adjust", label: adjustLabel(design), icon: "brush" as const, hint: own ? "Change text, styles and layout on the preview, then add them to your design chat" : `Change text, styles and layout on the preview, then send them to ${design.author?.name ?? "its author"}`, run: () => { setActing(null); adjust(design); } }] : []),
       ...(narrow && canShare ? [{ id: "share", label: "Share for review", icon: "send" as const, hint: "Post it in a channel or direct message for feedback", run: () => { setActing(null); setSharing(design); } }] : []),
       ...(published && access?.canCreate ? [{ id: "duplicate", label: "Duplicate", icon: "copy" as const, hint: "Make your own copy to change", run: () => duplicate(design) }] : []),
       ...(published ? [{ id: "versions", label: "Version history", icon: "clock" as const, hint: own ? "Compare or restore earlier versions" : "Look at earlier versions", run: () => { setActing(null); router.push({ pathname: "/versions", params: { chat: design.id } }); } }] : []),
@@ -118,15 +124,8 @@ export default function Designs() {
     ];
   };
   const shown = designs ? filterDesigns(designs, { query, filter, mine }) : null;
-  const open = (design: Chat) => {
-    const own = mine.has(design.id);
-    router.push({ pathname: "/chat/[id]", params: {
-      id: design.id,
-      title: design.title,
-      studio: "1",
-      ...(own ? {} : { readOnly: "1", author: design.author?.name ?? "" }),
-    } });
-  };
+  // A design opens on its own page: its picture and everything that can be done with it.
+  const open = (design: Chat) => router.push({ pathname: "/design", params: { id: design.id, title: designTitle(design) } });
 
   return <View style={styles.root}>
     <Stack.Screen options={{ title: "Design" }} />
@@ -185,7 +184,7 @@ export default function Designs() {
         // Only a design with a live preview page can be shared for review.
         const canShare = designPreviewPublished(item) && (own || item.shared === true);
         return <View style={styles.rowWrap}>
-          <Pressable accessibilityRole="button" accessibilityLabel={`${designTitle(item)}, ${status}${privateForAdmin ? ", private, visible to admins" : ""}`} accessibilityHint="Open design workspace" onPress={() => open(item)}
+          <Pressable accessibilityRole="button" accessibilityLabel={`${designTitle(item)}, ${status}${privateForAdmin ? ", private, visible to admins" : ""}`} accessibilityHint="Shows the design's picture and what you can do with it" onPress={() => open(item)}
             style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
             <DesignThumbnail url={designPreviewPublished(item) ? item.previewUrl : null} origin={origin} width={narrow ? 48 : 72} height={narrow ? 56 : 64} />
             <View style={styles.copy}>
@@ -207,12 +206,18 @@ export default function Designs() {
             </View>
             <AppIcon name="chevronRight" size={16} color={colors.muted} />
           </Pressable>
+          {adjustable(item) && !narrow ? <Pressable accessibilityRole="button" accessibilityLabel={`${adjustLabel(item)}: ${designTitle(item)}`}
+            accessibilityHint={own ? "Change text, styles and layout on the preview, then add them to your design chat" : `Change text, styles and layout on the preview, then send them to ${item.author?.name ?? "its author"}`}
+            onPress={() => adjust(item)} style={({ pressed }) => [styles.share, pressed && { opacity: 0.65 }]}>
+            <AppIcon name="brush" size={17} color={colors.blue} />
+            <Text style={styles.shareText}>{own ? "Adjust" : "Suggest"}</Text>
+          </Pressable> : null}
           {canShare && !narrow ? <Pressable accessibilityRole="button" accessibilityLabel={`Share ${designTitle(item)} for review`} accessibilityHint="Choose a channel or direct message" onPress={() => setSharing(item)}
             style={({ pressed }) => [styles.share, pressed && { opacity: 0.65 }]}>
             <AppIcon name="send" size={17} color={colors.blue} />
             <Text style={styles.shareText}>Share for review</Text>
           </Pressable> : null}
-          {own || actionsFor(item).length ? <Pressable accessibilityRole="button" accessibilityLabel={`More for ${designTitle(item)}`} accessibilityHint={narrow ? "Share, rename, duplicate, versions or archive" : "Rename, duplicate, versions or archive"}
+          {own || actionsFor(item).length ? <Pressable accessibilityRole="button" accessibilityLabel={`More for ${designTitle(item)}`} accessibilityHint={narrow ? "Adjust, share, rename, duplicate, versions or archive" : "Rename, duplicate, versions or archive"}
             onPress={() => setActing(item)} style={({ pressed }) => [styles.more, pressed && { opacity: 0.65 }]}>
             <AppIcon name="more" size={18} color={colors.muted} />
           </Pressable> : null}

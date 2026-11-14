@@ -99,6 +99,25 @@ the conversation with its agent. A design with a page is **Published**.
   read it too; this app shows it as a card without the CSS paths, and the author
   gets **Add to design chat** on it. Replies from before this release that say
   "Note: …" still work.
+- **A design's own page:** choosing a design in Design Studio opens
+  `/design?id=<id>`: a live picture of the top of its published page (at
+  desktop width on wide screens, phone width otherwise; web and the Mac app)
+  and what this person can do with it. The author gets Open design chat, View
+  prototype, Adjust design, Share for review, Version history, Duplicate, Use in
+  a study plan (Researcher tier) and Rename or archive. A teammate gets Read the
+  design chat, View prototype, Suggest adjustments, Share for review (when the
+  design is shared), Version history, Duplicate and Use in a study plan. Until
+  the first version is published, the picture is a placeholder that says so;
+  the picture appears by itself once there's a page. Everything offered follows
+  the server's answer about whose design it is.
+- **From Design Studio:** each published design in the list has **Adjust** (the
+  author's own designs) or **Suggest** (a teammate's shared design) on its row,
+  in the row's More menu on phones; both open `/adjust?design=<id>`. Private
+  drafts aren't offered. A suggestion made there has no review thread yet, so
+  **Send to <author>** posts the design's review card in a direct message with
+  its author and the suggestion in that card's thread, where the author gets
+  **Add to design chat**. The server decides who is the author; the app only
+  offers adjusting to them.
 - **Exact values for the agent, rounded ones for people:** the panel and cards
   show 13.3333px as 13.3px; the request and suggestion text keep 13.3333px so
   the agent can find it in the source.
@@ -188,6 +207,29 @@ the conversation with its agent. A design with a page is **Published**.
   design instead of starters. The workspace refreshes after each reply, so a
   newly published preview appears without reopening it. However a design is
   opened, the sidebar keeps **Design** selected (marked with `aria-current`).
+- **Why Servant tour:** onboarding opens on five short pages, written for
+  people new to AI (no tool names or jargon), each with a small drawn example
+  in the app's own colors: a person is always in charge (approval and Stop),
+  access matches the job (the five levels with their daily caps in dollars,
+  the person's own level marked), a daily cap like a data plan (their own cap
+  and the team usage report), where your information goes (device, team
+  server, AI provider, and the pilot's no-taxpayer-data rule), and less admin,
+  more research. Caps are shown as the most a day could cost at the app's list
+  prices ($15 per million tokens, every token priced as output). **Skip the
+  tour** goes straight to the role step, and Back on the role step returns to
+  the last page. The copy lives in `src/lib/onboarding-benefits.ts`; its test
+  fails if the levels or caps drift from `server/usage.mjs` or the copy grows
+  jargon or length.
+- **Role tour (optional):** the start page offers **Take the tour**, and You
+  has **Take your role tour**. It opens `/role-tour`: one page per starting
+  point for the person's role, in the start page's order, each with a small
+  drawn example (invented content), two lines on how it works, and its status:
+  **You can use this now** with a **Try it** button, locked with the start
+  page's reason, or paused while `researchHold` is on (Research synthesis and
+  design review). Pages come from `roleStartTasks`, so the tour can't disagree
+  with the start page; `src/lib/role-tour.test.ts` fails if a starting point
+  has no demo. Opening the tour doesn't count as leaving the start page; trying
+  a feature from it does.
 - **Onboarding and the start page:** the role step says a role only shapes
   starting points. The last step ("You're all set") shows the person's agent
   access tier ("Design engineer tier"), separate from their role, and **See your
@@ -404,6 +446,39 @@ study may mix several. Each activity uses the same fields as Research Studio's
 planner, such as goal, benchmark, precision, designs and control, sort type, tree
 and correct destinations, and split and power.
 
+**Choose your methods** at the top of the form starts the plan: tick one or more
+methods and each adds an activity with starting text, for the seven Research
+Studio methods and for methods run outside it (moderated usability sessions,
+interviews, or a custom method the person names). Activities can be added,
+removed and edited afterwards in the activities list, which offers the same
+choices.
+
+- Starting text (`METHOD_TEMPLATES` and the other-method presets in
+  `app/src/lib/research-methods.ts`) fills instructions, what the activity
+  should tell you, what would be good enough and, for surveys, starter
+  questions. Anything to make specific is in [square brackets], and **Save
+  working draft** lists any bracketed text still left, so template wording
+  never reaches participants by accident. Planning decisions are never filled
+  in: no stopping rule, success signal, links, cards, categories or tree.
+- Each method has a small illustration (`app/src/components/MethodIllustration.tsx`):
+  in Choose your methods, in the list that opens from Add another activity, and
+  at the top of each activity with a sentence on what participants do
+  (`METHOD_PARTICIPANT_VIEW`). They're original, generic drawings in the app's
+  theme colors, so they follow light and dark mode, and they're hidden from
+  screen readers because the method's name and description sit beside them.
+- Unticking a method removes its activities. If anything was changed from the
+  starting text, the person confirms first. Changing an activity's method swaps
+  starting text that wasn't changed for the new method's, and keeps what the
+  person wrote.
+- Methods run outside Research Studio have a name, what happens, what it
+  should tell you, how many people (the person's own number; nothing is
+  calculated) and what would be good enough. They go into the unsent
+  Researcher-agent draft and at the end of the working draft's analysis plan,
+  but never become Research Studio tasks or sample sizes. A plan needs at least
+  one Research Studio activity for a working draft. They replace the brief's
+  free-text "Other methods" field; a saved draft with an answer there gets it
+  back as a custom method.
+
 - Sample sizes, A/B hypotheses, and standard analyses are computed on the
   device with Research Studio's own planner rules, ported from Research Studio
   v0.3.24 into `app/src/lib/research-stats.ts` and
@@ -521,7 +596,7 @@ leaving part-way (another screen, a closed tab, a restart) doesn't lose them.
   `app/src/lib/form-drafts.ts`). One draft per form, per person and server; at
   most 12 drafts, each kept for 60 days. Signing out clears that person's
   drafts.
-- Kept: the title, written answers, study activities and setup, the prototype
+- Kept: the title, written answers, study activities, other methods and setup, the prototype
   choice and purpose, and what the research found. Prototypes are kept by id
   only and checked again when the draft is restored: a chosen prototype that's
   no longer published isn't chosen, and a prototype workspace this form created

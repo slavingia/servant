@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { assertMemberCapabilities, verifyMemberUpstream, MEMBER_POLICY_VERSION, MEMBER_ALLOWED_TOOLS } from "./member-policy.mjs";
-import { createMemberProfile } from "../scripts/member-profile.mjs";
+import { createMemberProfile, installResearcherSkills } from "../scripts/member-profile.mjs";
 
 const attestation = () => ({ features: { servant_member_isolation: true }, servant: { memberPolicy: {
   version: 1, allowedTools: [], persistentMemory: false, localContext: false, localMedia: false,
@@ -64,6 +65,40 @@ test("profile setup creates private empty-memory profile and never overwrites ex
     assert.throws(() => createMemberProfile(target), /never overwritten/);
     assert.deepEqual(fs.readdirSync(target), ["config.yaml"]);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("researcher profiles get the checked-in reference skills; member profiles don't", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "servant-researcher-profile-"));
+  try {
+    const researcher = path.join(directory, "researcher");
+    createMemberProfile(researcher, { model: "test-model", kind: "researcher" });
+    const skill = path.join(researcher, "skills", "civic-research-studio", "SKILL.md");
+    const text = fs.readFileSync(skill, "utf8");
+    assert.match(text, /^---\nname: civic-research-studio\ndescription: .{20,1024}\n---\n/);
+    for (const file of ["methods.md", "ab-testing.md", "study-file.md", "servant.md"]) {
+      assert.ok(fs.existsSync(path.join(researcher, "skills", "civic-research-studio", "references", file)), file);
+    }
+    // Reinstalling replaces only the checked-in skills.
+    fs.writeFileSync(skill, "stale");
+    fs.mkdirSync(path.join(researcher, "skills", "someone-elses"));
+    assert.deepEqual(installResearcherSkills(researcher), ["civic-research-studio"]);
+    assert.equal(fs.readFileSync(skill, "utf8"), text);
+    assert.ok(fs.existsSync(path.join(researcher, "skills", "someone-elses")));
+    const member = path.join(directory, "member");
+    createMemberProfile(member, { model: "test-model" });
+    assert.deepEqual(fs.readdirSync(member), ["config.yaml"]);
+    assert.throws(() => installResearcherSkills(member), /only in researcher profiles/);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+// The reference skills are knowledge for the Researcher Agent: no data, no links to GitHub it can't open anyway.
+test("researcher skills hold no records, identifiers or personal details", () => {
+  const root = fileURLToPath(new URL("../config/skills/researcher", import.meta.url));
+  const files = fs.readdirSync(root, { recursive: true }).filter(file => file.endsWith(".md")).map(file => fs.readFileSync(path.join(root, file), "utf8"));
+  assert.ok(files.length >= 5);
+  for (const text of files) {
+    assert.doesNotMatch(text, /\brhe_[a-f0-9]{16}\b|\bR_[A-Za-z0-9]{10,}\b|[\w.+-]+@[\w-]+\.[\w.]+|\b\d{3}-\d{2}-\d{4}\b/);
+  }
 });
 
 import { assertResearcherCapabilities, verifyResearcherUpstream, RESEARCHER_POLICY_VERSION, RESEARCHER_ALLOWED_TOOLS } from "./member-policy.mjs";

@@ -4,7 +4,7 @@ import { DEFAULT_STUDY_SETUP, newStudyActivity } from "./research-methods.ts";
 import { parseResearchFormDraft, researchFormDraft, researchFormDraftEmpty } from "./research-form-draft.ts";
 
 const form = (extra = {}) => researchFormDraft({
-  kind: "study", title: "", answers: {}, activities: [], setup: DEFAULT_STUDY_SETUP, prototypeMode: "none",
+  kind: "study", title: "", answers: {}, activities: [], otherMethods: [], setup: DEFAULT_STUDY_SETUP, prototypeMode: "none",
   prototypePurpose: "", researchFindings: "", selectedPrototypeId: null, createdPrototypeId: null, createdPrototypePrompt: null, ...extra,
 });
 

@@ -116,7 +116,7 @@ For one release the old `/v1/folders` routes answer as projects under the old na
 
 ## API
 
-- Agent tiers: 0 no agent (where new people start; `defaultAgentTier` in config.json), 1 tester (files GitHub issues only), 2 prototyper (design prototypes only), 3 design engineer (everything; owners), and 4 Researcher (restricted research agent plus an explicit, folder-scoped prototype lane). Owners set one with `PATCH /v1/people/<id>` `{ agentTier }`. Daily token limits scale with the tier (`TIER_TOKEN_LIMITS` in usage.mjs). People who joined before tiers keep what they had: vibe coders are tier 2, everyone else tier 1.
+- Agent tiers: 0 no agent (where new people start; `defaultAgentTier` in config.json), 1 tester (files GitHub issues only), 2 prototyper (design prototypes only), 3 design engineer (everything; owners), and 4 Researcher (restricted research agent plus an explicit, folder-scoped prototype lane). Owners set one with `PATCH /v1/people/<id>` `{ agentTier }`. Daily token limits scale with the tier (`TIER_TOKEN_LIMITS` in usage.mjs), unless `dailyTokenLimit` in config.json sets one daily limit for everyone but the owner (for a test server, say). People who joined before tiers keep what they had: vibe coders are tier 2, everyone else tier 1.
 - `GET /v1/projects` lists the projects you can see, plus `vibeCoder` and `vibe` (whether prototyping is set up).
 - `POST /v1/projects` `{ name, description?, notes?, repo?, path?, workflow?, rules?, stages? }` makes one you own.
 - `GET /v1/projects/<id>` returns the project (with `stages` and `releases`, soonest first; every item carries a cell for every stage, `{ status, owner, ownerName, note? }`) and `sharedChats` (teammates' chats shared with it).

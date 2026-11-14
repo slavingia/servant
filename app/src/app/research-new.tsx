@@ -25,7 +25,8 @@ import {
 import { api, ServerError, type Chat, type ResearchHubAvailableMetadata, type ResearchHubEvidence, type ResearchHubMetadata } from "../lib/server";
 import { setDraft } from "../lib/drafts";
 import { StudyActivities } from "../components/StudyActivities";
-import { DEFAULT_STUDY_SETUP, studyDraftProblems, type StudyActivity, type StudySetup } from "../lib/research-methods";
+import { StudyMethodPicker } from "../components/StudyMethodPicker";
+import { DEFAULT_STUDY_SETUP, studyDraftProblems, type OtherMethod, type StudyActivity, type StudySetup } from "../lib/research-methods";
 import { saveWorkingDraft, type WorkingDraftForm } from "../lib/working-draft-save";
 import { DraftChecklist } from "../components/DraftChecklist";
 import { useRadioGroup } from "../components/useRadioGroup";
@@ -102,6 +103,7 @@ export default function NewResearchWork() {
   const [title, setTitle] = useState("");
   const [answers, setAnswers] = useState<Partial<Record<ResearchFieldId, string>>>({});
   const [activities, setActivities] = useState<StudyActivity[]>([]);
+  const [otherMethods, setOtherMethods] = useState<OtherMethod[]>([]);
   const [studySetup, setStudySetup] = useState<StudySetup>(DEFAULT_STUDY_SETUP);
   const [fileNotice, setFileNotice] = useState<string | null>(null);
   const [savingFile, setSavingFile] = useState(false);
@@ -153,11 +155,11 @@ export default function NewResearchWork() {
   const draftForm = useRef<WorkingDraftForm | null>(null);
   useEffect(() => {
     draftForm.current = {
-      title, decision: answers.decision, question: answers.question, participants: answers.participants, background: answers.inputs, setup: studySetup, activities,
+      title, decision: answers.decision, question: answers.question, participants: answers.participants, background: answers.inputs, setup: studySetup, activities, otherMethods,
       prototype: prototypeMode === "existing" ? { mode: "existing", url: selectedPrototype?.previewUrl?.trim() || null } : { mode: "none" },
       prototypeId: prototypeMode === "existing" ? selectedPrototype?.id ?? null : null,
     };
-  }, [title, answers, studySetup, activities, prototypeMode, selectedPrototype]);
+  }, [title, answers, studySetup, activities, otherMethods, prototypeMode, selectedPrototype]);
 
   const acceptHubMetadata = useCallback((hub: ResearchHubMetadata) => {
     if (hub.available) {
@@ -248,6 +250,7 @@ export default function NewResearchWork() {
         setTitle(draft.title);
         setAnswers(draft.answers);
         setActivities(draft.activities);
+        setOtherMethods(draft.otherMethods);
         setStudySetup(draft.setup);
         setPrototypePurpose(draft.prototypePurpose);
         setResearchFindings(draft.researchFindings);
@@ -295,7 +298,7 @@ export default function NewResearchWork() {
   useEffect(() => {
     if (!hydrated || !draftKey || draftDone.current) return;
     const draft = researchFormDraft({
-      kind, title, answers, activities, setup: studySetup, prototypeMode, prototypePurpose, researchFindings,
+      kind, title, answers, activities, otherMethods, setup: studySetup, prototypeMode, prototypePurpose, researchFindings,
       selectedPrototypeId: prototypeMode === "existing" ? selectedPrototype?.id ?? null : null,
       createdPrototypeId: createdPrototype?.id ?? null,
       createdPrototypePrompt: createdPrototype ? createdPrototypePrompt : null,
@@ -308,7 +311,7 @@ export default function NewResearchWork() {
       void writeFormDraft(draftKey, draft, at).then(() => setDraftSavedAt(at)).catch(() => {});
     }, 600);
     return () => clearTimeout(timer);
-  }, [hydrated, draftKey, kind, title, answers, activities, studySetup, prototypeMode, prototypePurpose, researchFindings, selectedPrototype?.id, createdPrototype, createdPrototypePrompt]);
+  }, [hydrated, draftKey, kind, title, answers, activities, otherMethods, studySetup, prototypeMode, prototypePurpose, researchFindings, selectedPrototype?.id, createdPrototype, createdPrototypePrompt]);
   // Anything typed in the last moment is saved when leaving the form, and when
   // the page is closed, reloaded or hidden, or the app goes to the background.
   useEffect(() => {
@@ -396,10 +399,11 @@ export default function NewResearchWork() {
     evidenceHub: hub ?? (hubState.kind === "available" ? hubState.hub : undefined),
     ...(prototype ? { prototype } : {}),
     ...(kind === "study" && activities.length ? { activities, setup: studySetup } : {}),
+    ...(kind === "study" && otherMethods.length ? { otherMethods } : {}),
   });
   // The working draft uses an existing prototype the person chose; new prototypes aren't part of it.
   const draftPrototype = prototypeMode === "existing" ? { mode: "existing" as const, url: selectedPrototype?.previewUrl?.trim() || null } : { mode: "none" as const };
-  const draftInput = { title, decision: answers.decision, question: answers.question, participants: answers.participants, setup: studySetup, activities, prototype: draftPrototype };
+  const draftInput = { title, decision: answers.decision, question: answers.question, participants: answers.participants, setup: studySetup, activities, otherMethods, prototype: draftPrototype };
   const fileProblems = kind === "study" ? studyDraftProblems(draftInput) : [];
   // Everything that feeds the working draft is locked while it's checked and saved.
   const locked = busy || savingFile;
@@ -484,6 +488,7 @@ export default function NewResearchWork() {
     setTitle("");
     setAnswers({});
     setActivities([]);
+    setOtherMethods([]);
     setStudySetup(DEFAULT_STUDY_SETUP);
     prototypeModeRef.current = "none";
     setPrototypeMode("none");
@@ -820,6 +825,11 @@ export default function NewResearchWork() {
           maxLength={Math.max(20, 80 - task.titlePrefix.length)} autoCapitalize="sentences" autoCorrect style={styles.input} />
       </View>
 
+      {kind === "study" ? <View style={styles.methods}>
+        <StudyMethodPicker activities={activities} otherMethods={otherMethods} disabled={locked || designGuidanceBusy}
+          onActivities={next => { setActivities(next); setFileNotice(null); }} onOtherMethods={next => { setOtherMethods(next); setFileNotice(null); }} />
+      </View> : null}
+
       <Text accessibilityRole="header" style={styles.sectionTitle}>Build the brief</Text>
       <Text style={styles.sectionDescription}>{held && prototypeMode === "new"
         ? "Required fields are marked. Your written answers will be drafted for the prototype agent, so use only public or made-up information."
@@ -923,7 +933,8 @@ export default function NewResearchWork() {
       {kind === "study" ? <View style={styles.activities}>
         <StudyActivities activities={activities} setup={studySetup} disabled={locked || designGuidanceBusy}
           studyPrototype={draftPrototype.mode === "existing" && selectedPrototype && draftPrototype.url ? { title: designTitle(selectedPrototype), url: draftPrototype.url } : null}
-          onActivities={next => { setActivities(next); setFileNotice(null); }} onSetup={next => { setStudySetup(next); setFileNotice(null); }} />
+          onActivities={next => { setActivities(next); setFileNotice(null); }} onSetup={next => { setStudySetup(next); setFileNotice(null); }}
+          otherMethods={otherMethods} onOtherMethods={next => { setOtherMethods(next); setFileNotice(null); }} />
         <View style={styles.studioFile}>
           <Text accessibilityRole="header" style={styles.label}>Working draft for Research Studio</Text>
           <Text style={styles.prototypeHelp}>Save a working draft (study and plan) to open with Import JSON in Civic Research Studio {SUPPORTED_RESEARCH_STUDIO_VERSION}'s builder. It's a draft to keep refining, not a finished or reviewed plan. It's made on this device from this form only and includes no Research Hub records. A chosen prototype is checked again just before saving. Write the welcome and consent text in Research Studio.</Text>
@@ -1322,6 +1333,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   findingsProblemsTitle: { ...typography.captionStrong, color: colors.ink },
   prototypeHelp: { ...typography.caption, color: colors.muted },
   activities: { marginTop: space.lg, marginHorizontal: space.side, gap: space.md },
+  methods: { marginTop: space.lg, marginHorizontal: space.side },
   studioFile: { gap: space.xs, padding: space.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
   prototypeChecking: { flexDirection: "row", alignItems: "center", gap: space.sm },
   prototypeReadyNotice: { ...typography.captionStrong, color: colors.blueDark, padding: space.sm, borderRadius: radius.sm, backgroundColor: colors.blueSoft },

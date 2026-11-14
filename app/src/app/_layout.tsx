@@ -56,7 +56,7 @@ function SessionNavigation() {
   const roleIntro = paired && !onboarding && roleIntroRequired(account?.uxOnboarding);
   // The start page is where a new person lands, not a gate: going anywhere else
   // from the navigation counts as having picked a starting point.
-  const leftStart = roleIntro && pathname !== "/" && pathname !== "/start";
+  const leftStart = roleIntro && pathname !== "/" && pathname !== "/start" && pathname !== "/role-tour";
   useEffect(() => {
     if (!leftStart || !account) return;
     const updated = { ...account, uxOnboarding: completeRoleIntro(normalizeOnboarding(account.uxOnboarding)) };
@@ -127,6 +127,7 @@ function SessionNavigation() {
       <Stack.Protected guard={paired} redirectTo="/welcome">
         <Stack.Screen name="onboarding" options={{ headerShown: false, animation: "fade" }} />
         <Stack.Screen name="start" options={{ headerShown: false, animation: "fade" }} />
+        <Stack.Screen name="role-tour" options={{ headerShown: false, animation: "fade" }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false, title: "Back", animation: "none" }} />
         <Stack.Screen name="c/[id]" options={{ title: "", ...sidebarScreen }} />
         <Stack.Screen name="thread" options={{ title: "Thread", ...childScreen }} />
@@ -139,6 +140,7 @@ function SessionNavigation() {
         <Stack.Screen name="files" options={{ title: "Files", ...childScreen }} />
         <Stack.Screen name="project" options={{ title: "Project", ...childScreen }} />
         <Stack.Screen name="designs" options={{ title: "Design", ...sidebarScreen }} />
+        <Stack.Screen name="design" options={{ title: "Design", ...childScreen }} />
         <Stack.Screen name="adjust" options={{ title: "Quick adjustments", ...childScreen }} />
         <Stack.Screen name="versions" options={{ title: "Version history", ...childScreen }} />
         <Stack.Screen name="research" options={{ title: "Research", ...sidebarScreen }} />
@@ -147,7 +149,7 @@ function SessionNavigation() {
         <Stack.Screen name="chat/[id]" options={{ title: "", ...childScreen }} />
         <Stack.Screen name="feedback" options={{ title: "Feedback", ...childScreen }} />
         <Stack.Screen name="notifications" options={{ title: "Notifications", ...childScreen }} />
-        <Stack.Screen name="leaderboard" options={{ title: "Shame board", ...childScreen }} />
+        <Stack.Screen name="leaderboard" options={{ title: "Usage report", ...childScreen }} />
         <Stack.Screen name="invite" options={{ title: "Invite someone", ...childScreen }} />
         <Stack.Screen name="meetings/index" options={{ title: "Meetings", ...sidebarScreen }} />
         <Stack.Screen name="meetings/[id]" options={{ title: "Meeting", ...childScreen }} />
