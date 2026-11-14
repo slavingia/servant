@@ -10,7 +10,8 @@ import { mediaFromPosts } from "../lib/media";
 import { TypingLine, useTyping, useTypingPing } from "../lib/typing";
 import { PiiDeclined, withPiiConfirm } from "../lib/pii-warning";
 import { usePiiConfirm } from "../components/PiiConfirm";
-import { api, ServerError, type Upload, type Post, type Conversation, type LiveEvent } from "../lib/server";
+import { api, ServerError, type Account, type Upload, type Post, type Conversation, type LiveEvent } from "../lib/server";
+import { useStableCallback } from "../lib/stable-callback";
 import { useReadReceipts } from "../lib/use-read-receipts";
 import { mergeReadEvent } from "../lib/read-receipts";
 import { latestMessageReceipts } from "../lib/message-status";
@@ -23,13 +24,22 @@ import { askAgentAbout } from "../lib/ask-agent";
 import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
 export default function ThreadScreen() {
+  const { conv, root, title, focus, from } = useLocalSearchParams<{ conv: string; root: string; title?: string; focus?: string; from?: string }>();
+  const { account } = useSession();
+  const features = useFeatures();
+  if (!account) return null;
+  // A thread in a kind of conversation this server has turned off (features.ts).
+  if (conversationHidden(conv, features)) return <Redirect href={landingHref(features)} />;
+  // A different thread starts with its own replies, draft and send state.
+  return <OpenThread key={`${conv}:${root}`} account={account} conv={conv} root={root} title={title} focus={focus} from={from} />;
+}
+
+function OpenThread({ account, conv, root, title, focus, from }: { account: Account; conv: string; root: string; title?: string; focus?: string; from?: string }) {
   const { ask: askPii, dialog: piiDialog } = usePiiConfirm();
   const styles = useStyles();
   const { colors } = useTheme();
-  const { conv, root, title, focus, from } = useLocalSearchParams<{ conv: string; root: string; title?: string; focus?: string; from?: string }>();
   // A push lands on the notified reply: highlight it, but it is not a search match.
   const matchLabel = from === "push" ? null : from === "saved" ? "Saved message" : "Search match";
-  const { account } = useSession();
   const focused = useIsFocused();
   const { subscribe } = useLiveActions();
   const list = useRef<FlatList<Post>>(null);
@@ -64,8 +74,8 @@ export default function ThreadScreen() {
   const ping = useTypingPing(account, conv, root);
   const rows = useMemo(() => head ? [head, ...(replies ?? [])] : replies ?? [], [head, replies]);
   const receipts = useMemo(() => conversation && conversation.id === conv && conversation.kind === "dm"
-    ? latestMessageReceipts(rows, account?.user.id ?? "", conversation.members)
-    : undefined, [rows, account?.user.id, conversation, conv]);
+    ? latestMessageReceipts(rows, account.user.id, conversation.members)
+    : undefined, [rows, account.user.id, conversation, conv]);
   const readTracking = useReadReceipts(account, conv, focused, joined && replies !== null && !unavailable, root, rows);
   const scrollToSearchResult = useCallback(() => {
     const target = searchFocus.current;
@@ -177,10 +187,6 @@ export default function ThreadScreen() {
   );
 
   const media = useMemo(() => mediaFromPosts(rows), [rows]);
-  const features = useFeatures();
-  if (!account) return null;
-  // A thread in a kind of conversation this server has turned off (features.ts).
-  if (conversationHidden(conv, features)) return <Redirect href={landingHref(features)} />;
   const me = account.user.id;
   const editLast = lastEditableMessage(replies ?? [], me);
 
@@ -229,6 +235,32 @@ export default function ThreadScreen() {
     }
   };
 
+  // Every row gets the same handlers for as long as the thread is open, and the list gets the same
+  // rows until the replies change: typing or an error line draw no message again.
+  const onReact = useStableCallback(react);
+  const onAskAgent = useStableCallback(askAgent);
+  const onDelete = useStableCallback((p: Post) => { void remove(p); });
+  const role = account.user.role;
+  const replyCount = replies?.length ?? 0;
+  const renderItem = useCallback(({ item, index }: { item: Post; index: number }) => {
+    if (item.id === root) return <View style={[styles.head, item.id === focus && styles.searchMatch]}>
+      {item.id === focus && matchLabel ? <Text style={styles.searchLabel}>{matchLabel}</Text> : null}
+      {title ? <Text style={styles.where}>In {title}</Text> : null}
+      <PostRow post={item} receipt={receipts?.get(item.id)} onReact={onReact} onAskAgent={onAskAgent} me={me} onEdit={setEditing} onDelete={onDelete} />
+      <Text accessibilityRole="header" style={styles.count}>
+        {!replyCount ? "No replies yet" : `${replyCount} ${replyCount === 1 ? "reply" : "replies"}`}
+      </Text>
+    </View>;
+    const above = rows[index - 1];
+    const newDay = !!above && new Date(item.createdAt).toDateString() !== new Date(above.createdAt).toDateString();
+    const compact = above?.id !== root && canCompactPost(above, item, role);
+    return <View style={item.id === focus ? styles.searchMatch : undefined}>
+      {newDay ? <MessageDate at={item.createdAt} /> : null}
+      {item.id === focus && matchLabel ? <Text style={styles.searchLabel}>{matchLabel}</Text> : null}
+      <PostRow post={item} receipt={receipts?.get(item.id)} onReact={onReact} onAskAgent={onAskAgent} me={me} compact={compact && item.id !== focus} onEdit={setEditing} onDelete={onDelete} />
+    </View>;
+  }, [rows, root, focus, matchLabel, title, receipts, me, role, replyCount, styles, onReact, onAskAgent, onDelete]);
+
   return (
     <MediaGalleryProvider key={`${conv}:${unavailable}`} scope={{ kind: "conversation", id: conv }} items={media}>
     {piiDialog}
@@ -257,26 +289,9 @@ export default function ThreadScreen() {
             onLayout={() => maintainPosition(false)}
             onScrollBeginDrag={releaseSearchFocus}
             onScrollToIndexFailed={onFocusScrollFailed}
-            keyExtractor={(p) => p.id}
-            contentContainerStyle={{ paddingBottom: space.side }}
-            renderItem={({ item, index }) => {
-              if (item.id === root) return <View style={[styles.head, item.id === focus && styles.searchMatch]}>
-                {item.id === focus && matchLabel ? <Text style={styles.searchLabel}>{matchLabel}</Text> : null}
-                {title ? <Text style={styles.where}>In {title}</Text> : null}
-                <PostRow post={item} receipt={receipts?.get(item.id)} onReact={(emoji, active) => react(item, emoji, active)} onAskAgent={() => askAgent(item)} me={me} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
-                <Text accessibilityRole="header" style={styles.count}>
-                  {!replies?.length ? "No replies yet" : `${replies.length} ${replies.length === 1 ? "reply" : "replies"}`}
-                </Text>
-              </View>;
-              const above = rows[index - 1];
-              const newDay = !!above && new Date(item.createdAt).toDateString() !== new Date(above.createdAt).toDateString();
-              const compact = above?.id !== root && canCompactPost(above, item, account.user.role);
-              return <View style={item.id === focus ? styles.searchMatch : undefined}>
-                {newDay ? <MessageDate at={item.createdAt} /> : null}
-                {item.id === focus && matchLabel ? <Text style={styles.searchLabel}>{matchLabel}</Text> : null}
-                <PostRow post={item} receipt={receipts?.get(item.id)} onReact={(emoji, active) => react(item, emoji, active)} onAskAgent={() => askAgent(item)} me={me} compact={compact && item.id !== focus} onEdit={() => setEditing(item)} onDelete={() => remove(item)} />
-              </View>;
-            }}
+            keyExtractor={postKey}
+            contentContainerStyle={styles.list}
+            renderItem={renderItem}
           />
         )}
         {!unavailable ? <TypingLine names={typingNames} /> : null}
@@ -293,8 +308,11 @@ export default function ThreadScreen() {
   );
 }
 
+const postKey = (post: Post) => post.id;
+
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
+  list: { paddingBottom: space.side },
   error: { ...typography.caption, paddingHorizontal: space.side, paddingVertical: space.sm, color: colors.red, backgroundColor: colors.redSoft },
   gone: { flex: 1, alignItems: "center", justifyContent: "center", padding: space.lg },
   goneTitle: { ...typography.bodyStrong, color: colors.ink, textAlign: "center" },

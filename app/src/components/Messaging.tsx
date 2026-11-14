@@ -1,4 +1,4 @@
-import { useLayoutEffect, useEffect, useRef, useState, type ComponentRef, type ReactNode } from "react";
+import { memo, useLayoutEffect, useEffect, useRef, useState, type ComponentRef, type ReactNode } from "react";
 import { MeetingCard } from "./MeetingCard";
 import { useProjectGlossary } from "../lib/use-project-glossary";
 import { findUnknownAbbreviations } from "../lib/abbreviations";
@@ -201,11 +201,13 @@ type PostProps = {
   me: string;
   receipt?: MessageReceipt;
   compact?: boolean; // same author and visible device category within five minutes
-  onOpenThread?: () => void;
-  onEdit?: () => void;
-  onDelete?: () => void;
-  onReact?: (emoji: string, active: boolean) => Promise<void>;
-  onAskAgent?: () => void;
+  // Each handler is given the post, so a list can hand every row the same function and a row
+  // whose post did not change is not drawn again.
+  onOpenThread?: (post: Post) => void;
+  onEdit?: (post: Post) => void;
+  onDelete?: (post: Post) => void;
+  onReact?: (post: Post, emoji: string, active: boolean) => Promise<void>;
+  onAskAgent?: (post: Post) => void;
   /** Sends a suggested reply. Given only for the newest message, so old chips go away. */
   onSuggest?: (text: string) => void;
 };
@@ -216,7 +218,12 @@ const REACTIONS = [
   ["👀", "Looking"], ["🔥", "Fire"], ["👏", "Applause"], ["💯", "Hundred"],
 ];
 
-export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDelete, onReact, onAskAgent, onSuggest }: PostProps) {
+export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpenThread: openThread, onEdit: edit, onDelete: remove, onReact: react, onAskAgent: askAgent, onSuggest }: PostProps) {
+  const onOpenThread = openThread && (() => openThread(post));
+  const onEdit = edit && (() => edit(post));
+  const onDelete = remove && (() => remove(post));
+  const onReact = react && ((emoji: string, active: boolean) => react(post, emoji, active));
+  const onAskAgent = askAgent && (() => askAgent(post));
   const styles = useStyles();
   const { colors } = useTheme();
   const { account } = useSession();
@@ -403,7 +410,7 @@ export function PostRow({ post, me, receipt, compact, onOpenThread, onEdit, onDe
     </Modal> : null}
     </>
   );
-}
+});
 
 // Keyboard-and-pointer browsers and the Mac app send on Return, like Slack.
 // Touch browsers keep Return for new lines and use the send button.

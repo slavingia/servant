@@ -19,7 +19,8 @@ import { useActiveCall } from "../../lib/active-call";
 import { callErrorText, callsSupported } from "../../lib/meeting-call";
 import { PiiDeclined, withPiiConfirm } from "../../lib/pii-warning";
 import { usePiiConfirm } from "../../components/PiiConfirm";
-import { api, ServerError, type Conversation, type Upload, type Post, type LiveEvent } from "../../lib/server";
+import { api, ServerError, type Account, type Conversation, type Person, type Upload, type Post, type LiveEvent } from "../../lib/server";
+import { useStableCallback } from "../../lib/stable-callback";
 import { useLiveActions } from "../../lib/live";
 import { useSession } from "../../lib/session";
 import { askAgentAbout } from "../../lib/ask-agent";
@@ -34,6 +35,7 @@ import { channelVisibility } from "../../lib/channel-visibility";
 import { groupActivity } from "../../lib/activity-groups";
 
 const errorText = (e: unknown, fallback: string) => (e instanceof ServerError ? e.message : fallback);
+const postKey = (post: Post) => post.id;
 
 // Merge posts by id, keeping order by id (ids are increasing numbers).
 function merge(list: Post[], incoming: Post[]) {
@@ -43,11 +45,34 @@ function merge(list: Post[], incoming: Post[]) {
 }
 
 export default function ConversationScreen() {
+  const { id, compose } = useLocalSearchParams<{ id: string; compose?: string }>();
+  const { account } = useSession();
+  const features = useFeatures();
+  if (!account) return null;
+  // A channel on a server without channels, or a DM without DMs: the server refuses it too (features.ts).
+  if (conversationHidden(id, features)) return <Redirect href={landingHref(features)} />;
+  // A different conversation starts with its own messages, draft and send state.
+  return <OpenConversation key={id} account={account} id={id} compose={compose} />;
+}
+
+// The other people in a direct conversation and what they are doing. On its own so a change in someone's
+// presence draws this bar again and nothing else.
+function PeerPresence({ peers }: { peers: Person[] }) {
+  const styles = useStyles();
+  const shownPeers = usePresentPeers(peers);
+  if (!shownPeers.length) return null;
+  return <View style={styles.presence}>
+    {shownPeers.map(person => <View key={person.id} style={styles.peer}>
+      {peers.length > 1 ? <Text style={styles.peerName}>{person.name}</Text> : null}
+      <PresenceLine person={person} />
+    </View>)}
+  </View>;
+}
+
+function OpenConversation({ account, id, compose }: { account: Account; id: string; compose?: string }) {
   const { ask: askPii, dialog: piiDialog } = usePiiConfirm();
   const styles = useStyles();
   const { colors } = useTheme();
-  const { id, compose } = useLocalSearchParams<{ id: string; compose?: string }>();
-  const { account } = useSession();
   const focused = useIsFocused();
   const visible = useRef(focused);
   useEffect(() => { visible.current = focused; }, [focused]);
@@ -157,18 +182,15 @@ export default function ConversationScreen() {
 
   const media = useMemo(() => mediaFromPosts(posts ?? []), [posts]);
   const receipts = useMemo(() => conv && conv.id === id && conv.kind === "dm"
-    ? latestMessageReceipts(posts ?? [], account?.user.id ?? "", conv.members)
-    : undefined, [posts, account?.user.id, conv, id]);
+    ? latestMessageReceipts(posts ?? [], account.user.id, conv.members)
+    : undefined, [posts, account.user.id, conv, id]);
   const activeCall = useActiveCall();
-  const peers = conv?.kind === "dm" ? conv.members?.filter(person => person.id !== account?.user.id && !person.agent) ?? [] : [];
-  const shownPeers = usePresentPeers(peers);
+  const members = conv?.kind === "dm" ? conv.members : undefined;
+  const peers = useMemo(() => members?.filter(person => person.id !== account.user.id && !person.agent) ?? [], [members, account.user.id]);
   const wide = useWideLayout();
   const insets = useSafeAreaInsets();
   const [detailsOpen, setDetailsOpen] = useDetailsPanelOpen();
   const features = useFeatures();
-  if (!account) return null;
-  // A channel on a server without channels, or a DM without DMs: the server refuses it too (features.ts).
-  if (conversationHidden(id, features)) return <Redirect href={landingHref(features)} />;
   const me = account.user.id;
   const editLast = lastEditableMessage(posts ?? [], me);
   const isChannel = conv?.kind === "channel";
@@ -298,7 +320,37 @@ export default function ConversationScreen() {
   const openThread = (p: Post) => router.push({ pathname: "/thread", params: { conv: id, root: p.id, title } });
   const askAgent = (p: Post) => { askAgentAbout(account, p, conv).catch(e => setError(errorText(e, "Couldn't start a chat with the agent"))); };
   // Joins and leaves close together read as one line ("Ann and Bo joined the channel").
-  const data = groupActivity([...(posts ?? [])].reverse());
+  const data = useMemo(() => groupActivity([...(posts ?? [])].reverse()), [posts]);
+  // Every row gets the same handlers for as long as the screen is open, and the list gets the same
+  // rows until the messages change: typing, a presence change or an error line draw no message again.
+  const onReact = useStableCallback(react);
+  const onOpenThread = useStableCallback(openThread);
+  const onAskAgent = useStableCallback(askAgent);
+  const onDelete = useStableCallback((p: Post) => { void remove(p); });
+  const onSuggest = useStableCallback((text: string) => { void send(text); });
+  const onEndReached = useStableCallback(() => { void older(); });
+  const role = account.user.role;
+  const renderItem = useCallback(({ item, index }: { item: Post; index: number }) => {
+    const above = data[index + 1];
+    const newDay = !above || new Date(item.createdAt).toDateString() !== new Date(above.createdAt).toDateString();
+    const compact = canCompactPost(above, item, role);
+    return (
+      <View>
+      {newDay ? <MessageDate at={item.createdAt} /> : null}
+      <PostRow
+        post={item} onReact={joined ? onReact : undefined}
+        me={me}
+        receipt={receipts?.get(item.id)}
+        compact={compact}
+        onOpenThread={onOpenThread}
+        onAskAgent={onAskAgent}
+        onSuggest={joined && index === 0 ? onSuggest : undefined}
+        onEdit={setEditing}
+        onDelete={onDelete}
+      />
+      </View>
+    );
+  }, [data, joined, me, receipts, role, onReact, onOpenThread, onAskAgent, onSuggest, onDelete]);
 
   // Wide screens (browser, Mac app) show Details beside the channel, open by default; Details
   // toggles it. Phones open the Details page.
@@ -352,12 +404,7 @@ export default function ConversationScreen() {
               : undefined,
         }}
       />
-      {shownPeers.length ? <View style={styles.presence}>
-        {shownPeers.map(person => <View key={person.id} style={styles.peer}>
-          {peers.length > 1 ? <Text style={styles.peerName}>{person.name}</Text> : null}
-          <PresenceLine person={person} />
-        </View>)}
-      </View> : null}
+      <PeerPresence peers={peers} />
       <ConversationKeyboardView>
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         {note ? <Text accessibilityLiveRegion="polite" selectable style={styles.note} onPress={() => setNote(null)}>{note}</Text> : null}
@@ -370,10 +417,10 @@ export default function ConversationScreen() {
             keyboardDismissMode="interactive"
             keyboardShouldPersistTaps="handled"
             data={data}
-            keyExtractor={(p) => p.id}
-            onEndReached={older}
+            keyExtractor={postKey}
+            onEndReached={onEndReached}
             onEndReachedThreshold={0.3}
-            contentContainerStyle={{ paddingVertical: space.sm }}
+            contentContainerStyle={styles.list}
             ListFooterComponent={
               conv && !more && isChannel ? (
                 <View style={styles.intro}>
@@ -387,27 +434,7 @@ export default function ConversationScreen() {
                 </View>
               ) : undefined
             }
-            renderItem={({ item, index }) => {
-              const above = data[index + 1];
-              const newDay = !above || new Date(item.createdAt).toDateString() !== new Date(above.createdAt).toDateString();
-              const compact = canCompactPost(above, item, account.user.role);
-              return (
-                <View>
-                {newDay ? <MessageDate at={item.createdAt} /> : null}
-                <PostRow
-                  post={item} onReact={joined ? (emoji, active) => react(item, emoji, active) : undefined}
-                  me={me}
-                  receipt={receipts?.get(item.id)}
-                  compact={compact}
-                  onOpenThread={() => openThread(item)}
-                  onAskAgent={() => askAgent(item)}
-                  onSuggest={joined && index === 0 ? (text) => { void send(text); } : undefined}
-                  onEdit={() => setEditing(item)}
-                  onDelete={() => remove(item)}
-                />
-                </View>
-              );
-            }}
+            renderItem={renderItem}
           />
         )}
         {joined ? <TypingLine names={typingNames} /> : null}
@@ -434,6 +461,7 @@ export default function ConversationScreen() {
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   row: { flexDirection: "row" },
+  list: { paddingVertical: space.sm },
   presence: { paddingHorizontal: space.side, paddingVertical: space.xs, backgroundColor: colors.background, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   peer: { flexDirection: "row", flexWrap: "wrap", gap: space.xs, alignItems: "center" },
   peerName: { ...typography.captionStrong, color: colors.ink },
