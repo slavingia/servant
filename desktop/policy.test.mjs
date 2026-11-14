@@ -1,11 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { allowedPermission, assetPath, contentSecurityPolicy, externalUrl, frameOrigins, inviteLink, isAppUrl, teamIdentifier, updateMode, workspaceConfig } from './policy.mjs';
+import fs from 'node:fs';
+import { allowedPermission, assetPath, contentSecurityPolicy, desktopPage, externalUrl, frameOrigins, inviteLink, isAppUrl, teamIdentifier, updateMode, workspaceConfig } from './policy.mjs';
 
 test('only servant://pair invite links reach the app', () => {
   const link = 'servant://pair?code=ABCDE-FGH23&server=http%3A%2F%2F127.0.0.1%3A8787&key=02' + 'a'.repeat(64);
   assert.equal(inviteLink(link), link);
   for (const url of ['servant://pair', 'servant://chat?code=X', 'https://pair?code=X', 'javascript:alert(1)', 'servant://pair?code=' + 'A'.repeat(5000), undefined, 42]) assert.equal(inviteLink(url), null);
+});
+
+test("the app's page is marked as the Mac app's, and its skeleton makes room for the window controls", () => {
+  const page = fs.readFileSync(new URL('../app/public/index.html', import.meta.url), 'utf8');
+  const marked = desktopPage(page);
+  assert.equal(marked.match(/<html data-servant-desktop lang=/g)?.length, 1, 'one mark, on the page itself');
+  assert.equal(marked.replace('<html data-servant-desktop', '<html'), page, 'nothing else changes');
+  // Sidebar.tsx: 38 points for the window controls in the Mac app, 12 above the workspace in a browser.
+  assert.match(page, /html\[data-servant-desktop\] #launch \.top \{ height: 38px; \}/);
+  assert.match(page, /#launch \.top \{ height: 12px; \}/);
+  assert.equal(desktopPage('<htmlx><html>'), '<htmlx><html data-servant-desktop>');
 });
 
 test('local assets cannot escape their root or use another origin', () => {

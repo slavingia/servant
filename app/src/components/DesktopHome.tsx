@@ -7,6 +7,7 @@ import { useFeatures } from "../lib/features";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 import { AppIcon, type AppIconName } from "./AppIcon";
 import { ConversationRow } from "./Messaging";
+import { RecentSkeleton } from "./HomeSkeleton";
 
 const hovered = (state: PressableStateCallbackType) => (state as PressableStateCallbackType & { hovered?: boolean }).hovered || state.pressed;
 
@@ -14,11 +15,13 @@ const hovered = (state: PressableStateCallbackType) => (state as PressableStateC
 export function DesktopHome() {
   const styles = useStyles();
   const { account } = useSession();
-  const { conversations } = useLiveList();
+  const { conversations, error } = useLiveList();
   const { refresh } = useLiveActions();
   const features = useFeatures();
   useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
   if (!account) return null;
+  // Still waiting for the first list, not a list that failed to load.
+  const loading = conversations === null && !error;
   const recent = (conversations ?? []).filter(c => !c.archived).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 6);
 
   return (
@@ -30,12 +33,11 @@ export function DesktopHome() {
           {features.directMessages ? <Action icon="compose" title="New message" detail="Write to a teammate" href="/new-message" /> : null}
           {features.channels ? <Action icon="hash" title="Browse channels" detail="Find a conversation" href="/browse" /> : null}
         </View>
-        {recent.length ? <>
-          <Text style={styles.sectionTitle}>Recent</Text>
-          <View style={styles.card}>
-            {recent.map(c => <ConversationRow key={c.id} c={c} onPress={() => router.push({ pathname: "/c/[id]", params: { id: c.id } })} />)}
-          </View>
-        </> : null}
+        {/* While the list loads, Recent keeps the shape the launch screen drew (HomeSkeleton.tsx). */}
+        {loading || recent.length ? <Text style={styles.sectionTitle}>Recent</Text> : null}
+        {loading ? <RecentSkeleton label="Loading recent conversations" /> : recent.length ? <View style={styles.card}>
+          {recent.map(c => <ConversationRow key={c.id} c={c} onPress={() => router.push({ pathname: "/c/[id]", params: { id: c.id } })} />)}
+        </View> : null}
       </View>
     </ScrollView>
   );

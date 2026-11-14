@@ -10,8 +10,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.example.servant",
       "infoPlist": {
-        "NSCameraUsageDescription": "Servant uses the camera for invite codes and meeting video.",
-        "UIStatusBarStyle": "UIStatusBarStyleLightContent"
+        "NSCameraUsageDescription": "Servant uses the camera for invite codes and meeting video."
       },
       "googleServicesFile": "./GoogleService-Info.plist",
       "buildNumber": "28"
@@ -37,20 +36,13 @@
     },
     "plugins": [
       "expo-router",
-      "./plugins/with-launch-credit",
+      "./plugins/with-launch-skeleton",
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#112E51",
-          "image": "./assets/splash-wordmark.png",
-          "imageWidth": 280,
-          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF",
           "dark": {
-            "backgroundColor": "#112E51",
-            "image": "./assets/splash-wordmark.png"
-          },
-          "android": {
-            "imageWidth": 180
+            "backgroundColor": "#12161C"
           }
         }
       ],

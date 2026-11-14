@@ -124,10 +124,10 @@ White on the brand color (the sidebar and the phone's header bar) comes from
 one scale, `onBrandTint`: `muted` for supporting labels and icons, `border`,
 `hover` for a row under the pointer, `field` for the search field and the
 workspace mark, `selected` for the open page, `pressed`, and `track` for a
-switch that is off. Do not write out a white of your own there. `LAUNCH_COLOR`
-is the splash screen's color from `app.json`; the launch screen and the
-wordmark band on Welcome continue it, and it does not follow a workspace color
-because no server is known yet. A chart's legend shows each color beside what
+switch that is off. Do not write out a white of your own there. `WORDMARK_COLOR`
+is the app icon's navy from `app.json`; the wordmark band on Welcome uses it,
+and it does not follow a workspace color because no server is known yet. A
+chart's legend shows each color beside what
 it measures and never names the color, since a workspace can change it
 (`color-tokens.test.ts`).
 
@@ -342,6 +342,13 @@ stream on the content background. Author names lead, timestamps stay secondary, 
 messages by the same person within five minutes can share a compact author group;
 day changes and thread context preserve the appropriate separation.
 
+A channel or DM with unread messages shows one **New** line above the first of
+them (`UnreadLine`, placed by `lib/unread-line.ts`): a rule across the stream in
+`primary`, ending in a filled "New" like the unread badges. It is above the date
+when both fall on one message, and the message under it always shows its author.
+It marks where reading started for this visit, so it does not move as messages
+are read or arrive.
+
 Replies, mentions, reaction chips, delivery/read status, typing, and presence
 remain contextual to their conversation. Reaction chips retain 44-point hit
 targets around their smaller visible shape. Failed agent messages use the error
@@ -394,6 +401,17 @@ chosen, the open one has room to explain each choice.
 
 ## Screen states
 
+- Opening the app shows the signed-in app's shape, never a logo: Home's title,
+  filters and rows on a phone, the sidebar beside Home in the wide layout. Four
+  places draw it, each handing over to the next without anything moving: the
+  iOS launch screen (`plugins/with-launch-skeleton.js`), the web page before
+  its script loads (`public/index.html`, which the Mac app shows too), the
+  launch screen while the saved account is read (`LaunchScreen.tsx`), and then
+  Home, the sidebar and the wide Home while their lists load
+  (`HomeSkeleton.tsx`). The phone's shapes and the page colors come from one
+  file, `launch-skeleton.json`; change a shape there, and in the page when it
+  is the wide layout's (`launch-skeleton.test.ts`). Android's launch screen
+  can only be a color, so it is the page color in light and dark.
 - Explain what an empty screen is for and offer the next useful action.
 - Show initial loading separately from an empty result.
 - Keep existing content visible during refresh and reconnection.

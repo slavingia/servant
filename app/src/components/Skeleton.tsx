@@ -1,11 +1,13 @@
-import { useEffect, useState } from "react";
-import { AccessibilityInfo, Animated, StyleSheet, View, type ViewStyle } from "react-native";
+import { useEffect, useState, type ReactNode } from "react";
+import { AccessibilityInfo, Animated, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import { radius, space, useTheme } from "../lib/theme";
 
-// Placeholder rows shown while a list loads, so the screen keeps its shape
-// instead of showing a spinner. Pulses unless Reduce Motion is on.
+// Placeholder shapes shown while something loads, so the screen keeps its shape
+// instead of showing a spinner. They pulse unless Reduce Motion is on, and start
+// at full strength: the launch screen's still frames (the iOS launch screen and
+// the web page before its script runs) hand over to them without a flicker.
 function usePulse() {
-  const [value] = useState(() => new Animated.Value(0.5));
+  const [value] = useState(() => new Animated.Value(1));
   const [reduced, setReduced] = useState(false);
   useEffect(() => {
     let active = true;
@@ -15,13 +17,23 @@ function usePulse() {
   useEffect(() => {
     if (reduced) { value.setValue(0.7); return; }
     const loop = Animated.loop(Animated.sequence([
-      Animated.timing(value, { toValue: 1, duration: 700, useNativeDriver: true }),
       Animated.timing(value, { toValue: 0.5, duration: 700, useNativeDriver: true }),
+      Animated.timing(value, { toValue: 1, duration: 700, useNativeDriver: true }),
     ]));
     loop.start();
     return () => loop.stop();
   }, [reduced, value]);
   return value;
+}
+
+/** Shapes that pulse together. With a label, a screen reader hears one "loading" for the lot. */
+export function Pulse({ label, style, children }: { label?: string; style?: StyleProp<ViewStyle>; children?: ReactNode }) {
+  const opacity = usePulse();
+  return (
+    <Animated.View accessible={!!label} accessibilityRole={label ? "progressbar" : undefined} accessibilityLabel={label} accessibilityState={label ? { busy: true } : undefined} style={[style, { opacity }]}>
+      {children}
+    </Animated.View>
+  );
 }
 
 export function SkeletonRows({ label, count = 7, avatar = true, style }: { label: string; count?: number; avatar?: boolean; style?: ViewStyle }) {

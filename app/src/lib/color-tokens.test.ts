@@ -7,7 +7,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { darkColors, lightColors, onBrandTint, LAUNCH_COLOR } from "./theme-colors.ts";
+import { darkColors, lightColors, onBrandTint, WORDMARK_COLOR } from "./theme-colors.ts";
 
 const root = path.join(import.meta.dirname, "..");
 const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
@@ -54,10 +54,8 @@ test("the usage chart's second bar is a palette color that shows against its tra
   assert.match(board, /styles\.swatch[^\n]*Share of survey comments/);
 });
 
-test("the launch screen and the wordmark band continue the splash screen's color", () => {
-  const splash = [...read("../app.json").matchAll(/"backgroundColor": "(#[0-9A-Fa-f]{6})"/g)].map(match => match[1]!.toUpperCase());
-  assert.ok(splash.length >= 1);
-  for (const color of splash) assert.equal(color, LAUNCH_COLOR);
-  assert.match(read("components/LaunchScreen.tsx"), /backgroundColor: LAUNCH_COLOR/);
-  assert.match(read("components/Band.tsx"), /brandBand: \{ backgroundColor: LAUNCH_COLOR \}/);
+test("the wordmark band on Welcome is the app icon's color", () => {
+  const icon = JSON.parse(read("../app.json")).expo.android.adaptiveIcon.backgroundColor;
+  assert.equal(icon.toUpperCase(), WORDMARK_COLOR);
+  assert.match(read("components/Band.tsx"), /brandBand: \{ backgroundColor: WORDMARK_COLOR \}/);
 });

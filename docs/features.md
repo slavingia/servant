@@ -50,6 +50,12 @@ Members and direct messages show **Online** while a person is using the app, the
 
 Your messages show **Sent** until another member views them, then **Read** with reader details available in message actions. Receipts work in channels, direct messages, and threads, and persist across reconnects and server restarts. Only messages visible in the active app are marked read; background updates and off-screen messages do not create receipts. Agent messages do not have read receipts. Older app builds continue to clear unread counts without creating receipts.
 
+## The New line
+
+When you open a channel or a direct message with unread messages, a line marked **New** sits above the first one that arrived since you last read there. It stays put while you read, so you can see where you started, and a message that arrives while you are looking draws no line. Leaving the conversation and coming back (another screen, another tab, the app in the background) starts again: the line moves to what arrived while you were away, or goes when nothing did. Your own messages, deleted messages and "joined the channel" lines are never the first new one, the same as in the unread count, so the line and the badge agree. With more unread messages than one page, the line appears once you scroll back to it.
+
+The place comes from the server: each conversation carries `readThrough`, the id of the last message you have read there, in `GET /v1/conversations` and `GET /v1/conversations/:id`. It is your own place and is sent only to you. An older server sends none and shows no line; older app builds ignore it. Threads and agent chats have no line.
+
 ## Saved messages
 
 Touch and hold a channel message, direct message, or thread reply (or open its **•••** menu on the web or Mac) and choose **Save for later**. Open **Saved** in the sidebar, **You → Saved** on a phone, or search for “saved” in the search bar. Your private task list has **In progress**, **Completed**, and **Work log** views. Tick an item off, undo or reopen it, remove it from the list, or use **Open message** to return to the highlighted original and its thread. Before checking it off, **Add work note** can record the result, decisions, or links to what you finished.

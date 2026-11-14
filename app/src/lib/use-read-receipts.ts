@@ -6,9 +6,12 @@ import { createReadReceiptQueue } from "./read-receipts";
 const VIEWABILITY = { viewAreaCoveragePercentThreshold: 50, minimumViewTime: 500 };
 type VisibleItems = { viewableItems: { item: Post; isViewable: boolean }[] };
 
-export function useReadReceipts(account: Account | null, conversationId: string, focused: boolean, enabled = true, scope = "", posts?: Post[]) {
+/** `onRead` hears the messages the server has just been told were seen. */
+export function useReadReceipts(account: Account | null, conversationId: string, focused: boolean, enabled = true, scope = "", posts?: Post[], onRead?: (messageIds: string[]) => void) {
   const latestAccount = useRef(account);
   const latestPosts = useRef(posts);
+  const latestOnRead = useRef(onRead);
+  useLayoutEffect(() => { latestOnRead.current = onRead; }, [onRead]);
   const identity = account ? JSON.stringify([account.serverKey, account.token, account.user.id]) : "";
   const controller = useRef<{
     update: (posts: Post[]) => void;
@@ -36,7 +39,7 @@ export function useReadReceipts(account: Account | null, conversationId: string,
         const currentAccount = latestAccount.current;
         if (!currentAccount || currentAccount.token !== initialAccount.token || currentAccount.serverKey !== initialAccount.serverKey)
           return Promise.reject(new Error("Account changed"));
-        return api.markMessagesRead(currentAccount, conversationId, messageIds);
+        return api.markMessagesRead(currentAccount, conversationId, messageIds).then(answer => { latestOnRead.current?.(messageIds); return answer; });
       },
     });
     let foreground = AppState.currentState === "active";

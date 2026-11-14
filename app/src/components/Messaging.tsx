@@ -128,6 +128,15 @@ export function GroupAvatar({ people, size = 40 }: { people: { id: string; name:
   );
 }
 
+/** Above the first message that arrived since you last read this conversation (lib/unread-line.ts). */
+export function UnreadLine() {
+  const styles = useStyles();
+  return <View accessibilityRole="header" accessibilityLabel="New messages" style={styles.unreadSeparator}>
+    <View style={styles.unreadRule} />
+    <Text style={styles.unreadLabel}>New</Text>
+  </View>;
+}
+
 export function MessageDate({ at }: { at: number }) {
   const styles = useStyles();
   const date = new Date(at);
@@ -899,6 +908,10 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   dateSeparator: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.side, paddingVertical: space.sm, marginVertical: space.xxs },
   dateLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.line },
   dateLabel: { ...typography.captionStrong, color: colors.ink, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, borderRadius: radius.pill, paddingHorizontal: space.sm, paddingVertical: space.xxs },
+  // The same row as the day's, in the unread badges' color: a rule across, ending in a filled "New".
+  unreadSeparator: { flexDirection: "row", alignItems: "center", gap: space.xs, paddingHorizontal: space.side, paddingVertical: space.xs },
+  unreadRule: { flex: 1, height: 1, backgroundColor: colors.primary },
+  unreadLabel: { ...typography.captionStrong, color: colors.onPrimary, backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: space.xs, overflow: "hidden" },
   reactions: { flexDirection: "row", flexWrap: "wrap", gap: space.xxs, marginTop: 0 },
   reaction: { minHeight: 44, minWidth: 44, justifyContent: "center" },
   reactionPill: { minHeight: 28, minWidth: 42, paddingHorizontal: space.xs, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },

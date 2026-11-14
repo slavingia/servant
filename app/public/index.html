@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="%LANG_ISO_CODE%">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>%WEB_TITLE%</title>
+    <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
+    <style id="expo-reset">
+      /* These styles make the body full-height */
+      html,
+      body {
+        height: 100%;
+      }
+      /* These styles disable body scrolling if you are using <ScrollView> */
+      body {
+        overflow: hidden;
+      }
+      /* These styles make the root element full-height */
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+    </style>
+    <!--
+      What shows before the app's script has loaded: the signed-in app's shape, the same one the app draws
+      while it starts (src/components/LaunchScreen.tsx), so the page never opens blank or on a logo. It sits
+      inside #root, so the app's first frame replaces it. Styles only: the Mac app allows no inline script.
+      The colors are launch-skeleton.json's and the brand color, and the phone's bars are that file's too
+      (src/lib/launch-skeleton.test.ts checks both).
+    -->
+    <style id="launch-skeleton">
+      html { background: #FFFFFF; color-scheme: light; --page: #FFFFFF; --bar: #E6E7EB; }
+      @media (prefers-color-scheme: dark) {
+        html { background: #12161C; color-scheme: dark; --page: #12161C; --bar: #303945; }
+      }
+      #launch { position: fixed; inset: 0; overflow: hidden; background: var(--page); }
+      /* With scripts turned off the shapes would never be replaced, so the reason shows over them. */
+      noscript { position: fixed; z-index: 1; inset: 0 0 auto; padding: 16px; background: var(--page); font: 15px/22px system-ui, sans-serif; }
+      #launch * { box-sizing: border-box; }
+      #launch i, #launch b { display: block; flex: none; border-radius: 6px; background: var(--bar); }
+      #launch i { position: absolute; }
+      #launch b { height: 12px; }
+
+      /* A phone-width page: Home, over the tab bar. */
+      #launch .body { position: absolute; inset: 0 0 62px; overflow: hidden; }
+      #launch .rule { left: 0; right: 0; top: 122px; height: 1px; border-radius: 0; }
+      #launch .tabs { position: absolute; inset: auto 0 0; height: 62px; display: flex; border-top: 1px solid var(--bar); }
+      #launch .tab { position: relative; flex: 1; }
+      #launch .tab i { left: 50%; }
+      #launch .tab i:first-child { top: 9px; width: 24px; height: 24px; margin-left: -12px; }
+      #launch .tab i:last-child { top: 38px; width: 32px; height: 10px; margin-left: -16px; }
+
+      /* A wide page: the sidebar on the brand color beside Home. */
+      #launch .wide { display: none; position: absolute; inset: 0; background: #004C97; }
+      @media (min-width: 720px) {
+        #launch .phone { display: none; }
+        #launch .wide { display: flex; }
+      }
+      #launch .side { width: 264px; flex: none; display: flex; flex-direction: column; --bar: rgba(255,255,255,0.18); }
+      /* The Mac app marks the page (desktop/policy.mjs): its window controls sit over the first 38 points. */
+      #launch .top { height: 12px; }
+      html[data-servant-desktop] #launch .top { height: 38px; }
+      #launch .workspace { height: 44px; display: flex; align-items: center; gap: 12px; padding-left: 12px; margin-bottom: 8px; }
+      #launch .workspace b:first-child { width: 30px; height: 30px; }
+      #launch .workspace b:last-child { width: 84px; height: 14px; }
+      #launch .search { height: 34px; margin: 0 12px 12px; border-radius: 999px; }
+      #launch .places { flex: 1; min-height: 0; padding: 0 8px; overflow: hidden; }
+      #launch .r { height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px; }
+      #launch .g { width: 16px; height: 16px; margin: 0 2px; }
+      #launch .section { width: 56px; height: 10px; margin: 24px 0 12px 8px; }
+      #launch .you { display: flex; align-items: center; gap: 12px; margin: 8px; padding: 8px; }
+      #launch .you .pic { width: 30px; height: 30px; border-radius: 999px; }
+      #launch .lines { display: flex; flex-direction: column; gap: 8px; }
+      #launch .you .lines b:first-child { width: 76px; height: 10px; }
+      #launch .you .lines b:last-child { width: 44px; height: 8px; }
+      #launch .pane { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; padding: 48px 24px 0; background: var(--page); overflow: hidden; }
+      #launch .column { width: 100%; max-width: 680px; }
+      #launch .title { height: 34px; display: flex; align-items: center; }
+      #launch .title b { width: 132px; height: 24px; }
+      #launch .actions { display: flex; gap: 12px; margin-top: 24px; }
+      #launch .action { flex: 1; min-width: 0; padding: 16px; border: 1px solid var(--bar); border-radius: 12px; }
+      #launch .action .icon { width: 32px; height: 32px; border-radius: 10px; margin-bottom: 12px; }
+      #launch .action .name { height: 22px; display: flex; flex-direction: column; justify-content: center; }
+      #launch .action .name b { width: 58%; }
+      #launch .recent { height: 18px; display: flex; align-items: center; margin: 32px 0 8px; }
+      #launch .recent b { width: 48px; height: 10px; }
+      #launch .card { border: 1px solid var(--bar); border-radius: 12px; overflow: hidden; }
+      #launch .row { min-height: 72px; display: flex; align-items: center; gap: 12px; padding: 0 16px; }
+      #launch .row + .row { border-top: 1px solid var(--bar); }
+      #launch .row .pic { width: 40px; height: 40px; border-radius: 10px; }
+      #launch .row .lines { flex: 1; min-width: 0; }
+      #launch .row .short { height: 10px; }
+    </style>
+  </head>
+
+  <body>
+    <!-- Use static rendering with Expo Router to support running without JavaScript. -->
+    <noscript> You need to enable JavaScript to run this app. </noscript>
+    <!-- The root element for your Expo app. -->
+    <div id="root">
+      <div id="launch" aria-hidden="true">
+        <div class="phone">
+          <div class="body">
+            <i style="left:16px;top:20px;width:64px;height:20px"></i>
+            <i style="left:32px;top:84px;width:20px;height:14px"></i>
+            <i style="left:91px;top:84px;width:52px;height:14px"></i>
+            <i style="left:16px;top:150px;width:72px;height:14px"></i>
+            <i style="left:19px;top:191px;width:20px;height:20px"></i>
+            <i style="left:54px;top:195px;width:96px;height:12px"></i>
+            <i style="left:19px;top:235px;width:20px;height:20px"></i>
+            <i style="left:54px;top:239px;width:132px;height:12px"></i>
+            <i style="left:16px;top:294px;width:80px;height:14px"></i>
+            <i style="left:19px;top:335px;width:20px;height:20px"></i>
+            <i style="left:54px;top:339px;width:108px;height:12px"></i>
+            <i style="left:19px;top:379px;width:20px;height:20px"></i>
+            <i style="left:54px;top:383px;width:148px;height:12px"></i>
+            <i style="left:19px;top:423px;width:20px;height:20px"></i>
+            <i style="left:54px;top:427px;width:84px;height:12px"></i>
+            <i style="left:19px;top:467px;width:20px;height:20px"></i>
+            <i style="left:54px;top:471px;width:124px;height:12px"></i>
+            <i style="left:16px;top:526px;width:56px;height:14px"></i>
+            <i style="left:19px;top:567px;width:20px;height:20px"></i>
+            <i style="left:54px;top:571px;width:116px;height:12px"></i>
+            <i style="left:19px;top:611px;width:20px;height:20px"></i>
+            <i style="left:54px;top:615px;width:92px;height:12px"></i>
+            <i style="left:19px;top:655px;width:20px;height:20px"></i>
+            <i style="left:54px;top:659px;width:140px;height:12px"></i>
+            <i class="rule"></i>
+          </div>
+          <div class="tabs">
+            <div class="tab"><i></i><i></i></div>
+            <div class="tab"><i></i><i></i></div>
+            <div class="tab"><i></i><i></i></div>
+            <div class="tab"><i></i><i></i></div>
+            <div class="tab"><i></i><i></i></div>
+          </div>
+        </div>
+        <div class="wide">
+          <div class="side">
+            <div class="top"></div>
+            <div class="workspace"><b></b><b></b></div>
+            <b class="search"></b>
+            <div class="places">
+              <div class="r"><b class="g"></b><b style="width:64px"></b></div>
+              <div class="r"><b class="g"></b><b style="width:102px"></b></div>
+              <div class="r"><b class="g"></b><b style="width:140px"></b></div>
+              <div class="r"><b class="g"></b><b style="width:94px"></b></div>
+              <div class="r"><b class="g"></b><b style="width:132px"></b></div>
+              <div class="r"><b class="g"></b><b style="width:86px"></b></div>
+              <div class="r"><b class="g"></b><b style="width:124px"></b></div>
+              <div class="r"><b class="g"></b><b style="width:78px"></b></div>
+              <div class="r"><b class="g"></b><b style="width:116px"></b></div>
+              <b class="section"></b>
+              <div class="r"><b class="g"></b><b style="width:94px"></b></div>
+              <b class="section"></b>
+              <div class="r"><b class="g"></b><b style="width:86px"></b></div>
+              <div class="r"><b class="g"></b><b style="width:124px"></b></div>
+              <div class="r"><b class="g"></b><b style="width:78px"></b></div>
+            </div>
+            <div class="you"><b class="pic"></b><div class="lines"><b></b><b></b></div></div>
+          </div>
+          <div class="pane">
+            <div class="column">
+              <div class="title"><b></b></div>
+              <div class="actions">
+                <div class="action"><b class="icon"></b><div class="name"><b></b></div></div>
+                <div class="action"><b class="icon"></b><div class="name"><b></b></div></div>
+                <div class="action"><b class="icon"></b><div class="name"><b></b></div></div>
+              </div>
+              <div class="recent"><b></b></div>
+              <div class="card">
+                <div class="row"><b class="pic"></b><div class="lines"><b style="width:96px"></b><b class="short" style="width:62%"></b></div></div>
+                <div class="row"><b class="pic"></b><div class="lines"><b style="width:140px"></b><b class="short" style="width:45%"></b></div></div>
+                <div class="row"><b class="pic"></b><div class="lines"><b style="width:112px"></b><b class="short" style="width:58%"></b></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

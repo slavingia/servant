@@ -5,12 +5,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ConversationKeyboardView } from "../../components/ConversationKeyboardView";
 import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
-import { Composer, MessageDate, PostRow } from "../../components/Messaging";
+import { Composer, MessageDate, PostRow, UnreadLine } from "../../components/Messaging";
 import { MediaGalleryProvider } from "../../components/MediaGallery";
 import { mediaFromPosts } from "../../lib/media";
 import { PresenceLine, usePresentPeers } from "../../components/Presence";
 import { useReadReceipts } from "../../lib/use-read-receipts";
 import { mergeReadEvent } from "../../lib/read-receipts";
+import { createUnreadVisits, readPlace, unreadLineAbove } from "../../lib/unread-line";
 import { latestMessageReceipts } from "../../lib/message-status";
 import { canCompactPost, sourceDeviceOf } from "../../lib/message-device";
 import { createOutbox } from "../../lib/outbox";
@@ -69,6 +70,23 @@ function PeerPresence({ peers }: { peers: Person[] }) {
   </View>;
 }
 
+// Coming back to a screen that was left open: from another screen over it, another tab, or the app in the
+// background. Not the first time it is shown.
+function useOnReturn(focused: boolean, onReturn: () => void) {
+  const here = useRef(focused && AppState.currentState === "active");
+  const back = useStableCallback(onReturn);
+  useEffect(() => {
+    const update = (foreground: boolean) => {
+      const now = focused && foreground;
+      if (now && !here.current) back();
+      here.current = now;
+    };
+    update(AppState.currentState === "active");
+    const sub = AppState.addEventListener("change", state => update(state === "active"));
+    return () => sub.remove();
+  }, [focused, back]);
+}
+
 function OpenConversation({ account, id, compose }: { account: Account; id: string; compose?: string }) {
   const { ask: askPii, dialog: piiDialog } = usePiiConfirm();
   const styles = useStyles();
@@ -108,7 +126,12 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
   const snapshot = useRef<{ sequence: number; replace: boolean; updates: Map<string, Post>; reads: Extract<LiveEvent, { event: "messages.read" }>["data"][] } | null>(null);
   const typingNames = useTyping(id, null, account?.user.id ?? "");
   const ping = useTypingPing(account, id);
-  const readTracking = useReadReceipts(account, id, focused, joined && posts !== null && !unavailable, undefined, posts ?? undefined);
+  // The "New" line (lib/unread-line.ts): above the first message that came since this person last read here,
+  // decided once for each visit and left alone while they read.
+  const [visits] = useState(() => createUnreadVisits(account.user.id));
+  const [unreadMark, setUnreadMark] = useState<number | null>(null);
+  useOnReturn(focused, () => visits.returned());
+  const readTracking = useReadReceipts(account, id, focused, joined && posts !== null && !unavailable, undefined, posts ?? undefined, ids => visits.read(ids));
 
   const applyPosts = useCallback((incoming: Post[]) => {
     for (const post of incoming) snapshot.current?.updates.set(post.id, post);
@@ -135,6 +158,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
       setConv(shown => reuseEqual(shown, c.conversation));
       setJoined(c.joined);
       const recovered = merge(p.messages, [...current.updates.values()]).map(post => current.reads.reduce(mergeReadEvent, post));
+      setUnreadMark(visits.loaded(readPlace(c.conversation.readThrough), recovered));
       setPosts((old) => reuseEqual(old, current.replace ? recovered : merge(old ?? [], recovered)));
       setMore(p.more);
       setUnavailable(false);
@@ -154,7 +178,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
     }).finally(() => {
       if (snapshot.current === current) snapshot.current = null;
     });
-  }, [account, id]);
+  }, [account, id, visits]);
 
   useEffect(() => () => {
     loadSequence.current++;
@@ -378,12 +402,15 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
   const onSuggest = useStableCallback((text: string) => { void send(text); });
   const onEndReached = useStableCallback(() => { void older(); });
   const role = account.user.role;
+  const newAbove = useMemo(() => unreadLineAbove(posts ?? [], unreadMark, me, more), [posts, unreadMark, me, more]);
   const renderItem = useCallback(({ item, index }: { item: Post; index: number }) => {
     const above = data[index + 1];
     const newDay = !above || new Date(item.createdAt).toDateString() !== new Date(above.createdAt).toDateString();
-    const compact = canCompactPost(above, item, role);
+    const isNew = item.id === newAbove;
+    const compact = !isNew && canCompactPost(above, item, role);
     return (
       <View>
+      {isNew ? <UnreadLine /> : null}
       {newDay ? <MessageDate at={item.createdAt} /> : null}
       <PostRow
         post={item} onReact={joined ? onReact : undefined}
@@ -398,7 +425,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
       />
       </View>
     );
-  }, [data, joined, me, receipts, role, onReact, onOpenThread, onAskAgent, onSuggest, onDelete]);
+  }, [data, joined, me, receipts, role, newAbove, onReact, onOpenThread, onAskAgent, onSuggest, onDelete]);
 
   // Wide screens (browser, Mac app) show Details beside the channel, open by default; Details
   // toggles it. Phones open the Details page.
