@@ -4,7 +4,10 @@ import { createThemedStyles, radius, useTheme } from "../lib/theme";
 import { tweetEmbedUrl, tweetResizeHeight } from "../lib/tweet-embed";
 
 let NativeWebView: any = null;
-if (Platform.OS !== "web") { try { NativeWebView = require("react-native-webview").WebView; } catch { NativeWebView = null; } }
+if (Platform.OS !== "web") {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- the module is missing on the web and in older builds, so it cannot be a static import
+  try { NativeWebView = require("react-native-webview").WebView; } catch { NativeWebView = null; }
+}
 
 // Twitter's own embed. It reports its height by postMessage once loaded.
 const FORWARD = `window.addEventListener('message',function(e){try{window.ReactNativeWebView.postMessage(typeof e.data==='string'?e.data:JSON.stringify(e.data))}catch(_){}});true;`;
