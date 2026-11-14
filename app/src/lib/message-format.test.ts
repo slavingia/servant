@@ -76,3 +76,26 @@ test('in-app chat link tolerates a stray space before the parenthesis', () => {
   assert.equal(inlineMessage('[a] (https://x.com)').some(p => p.url), false);
   assert.equal(inlineMessage('[a](/chat/cht_FWKLlgGGBFxV)').some(p => p.url), true);
 });
+
+test("a person's message is formatted as people type, and an ordinary line stays an ordinary line", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const kinds = (text: string) => messageBlocks(text, { chat: true }).map(block => block.kind);
+  // What people type by hand works.
+  assert.deepEqual(inlineMessage("*now* or **now**, _maybe_, ~~never~~ and `code`").filter(p => p.strong || p.em || p.strike || p.code).map(p => p.text), ["now", "now", "maybe", "never", "code"]);
+  assert.deepEqual(kinds("> as Jo said\n\n- one\n- two\n\n1. first\n\n```\nnpm test\n```"), ["quote", "list", "list", "list", "code"]);
+  // /me posts "_Pat Tester is out today_": italics, not underscores.
+  assert.deepEqual(inlineMessage("_Pat Tester is out today_"), [{ text: "Pat Tester is out today", em: true }]);
+  // A line that would be a heading, a rule or a table in an agent's reply is just what was typed.
+  assert.deepEqual(kinds("# 1 priority this week"), ["paragraph"]);
+  assert.deepEqual(kinds("---"), ["paragraph"]);
+  assert.deepEqual(kinds("a | b\n--- | ---\n1 | 2"), ["paragraph"]);
+  assert.deepEqual(messageBlocks("# 1 priority this week").map(b => b.kind), ["heading"], "an agent's reply keeps its headings");
+  // Names with underscores, sums and paths are left alone.
+  for (const text of ["update the intake_form_v2 file", "2*3*4 is 24", "see /docs/read_me_first.md", "a_b and c_d"]) assert.deepEqual(inlineMessage(text), [{ text }]);
+  // Channels, DMs and threads draw a person's message this way, with mentions standing out.
+  const read = (file: string) => fs.readFileSync(path.join(import.meta.dirname, "..", file), "utf8");
+  assert.match(read("components/Messaging.tsx"), /if \(!parsed\) return <MessageText chat text=\{text\} \/>;/);
+  assert.match(read("components/MessageText.tsx"), /messageBlocks\(text, \{ chat \}\)/);
+  assert.match(read("components/MessageText.tsx"), /piece\.startsWith\('@'\) \? <Text key=\{i\} style=\{styles\.mention\}>/);
+});

@@ -2,10 +2,8 @@ import { memo, useLayoutEffect, useEffect, useRef, useState, type ComponentRef, 
 import { MeetingCard } from "./MeetingCard";
 import { useProjectGlossary } from "../lib/use-project-glossary";
 import { findUnknownAbbreviations } from "../lib/abbreviations";
-import { useAbbreviations } from "../lib/use-abbreviations";
-import { withAbbreviations } from "./Abbr";
 import { lexiconApi } from "../lib/lexicon-api";
-import { ActivityIndicator, Alert, Image, Keyboard, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type PressableProps } from "react-native";
+import { ActivityIndicator, Alert, Image, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type PressableProps } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -34,7 +32,6 @@ import { useContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { MessageText } from "./MessageText";
 import { TweetEmbed } from "./TweetEmbed";
 import { tweetIds } from "../lib/tweet-embed";
-import { safeUrl } from "../lib/message-format";
 import { conversationPreview } from "../lib/conversation-preview";
 import { parseForward } from "../lib/forward";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
@@ -163,17 +160,18 @@ const MAX_LEARNED_TERMS = 8;
 
 // Splits text so @mentions stand out.
 // A message forwarded from an agent chat shows as a quote card, then the note.
-function ForwardedPost({ text, edited }: { text: string; edited: boolean }) {
+function ForwardedPost({ text }: { text: string }) {
   const styles = useStyles();
   const parsed = parseForward(text);
-  if (!parsed) return <Rich text={text + (edited ? " " : "")} style={styles.body} />;
+  // A person's own words are formatted as they typed them: *bold*, _italics_, `code`, quotes and lists.
+  if (!parsed) return <MessageText chat text={text} />;
   const where = [parsed.forward.where, parsed.forward.when].filter(Boolean).join(" · ");
   return <>
     <View accessible accessibilityLabel={`Forwarded message from ${parsed.forward.author}, ${where}. ${parsed.forward.quote || "No text"}`} style={styles.forwardCard}>
       <Text style={styles.forwardLabel}>Forwarded from {parsed.forward.author}<Text style={styles.forwardWhere}> · {where}</Text></Text>
       {parsed.forward.quote ? <Text selectable={Platform.OS === "web"} style={styles.body}>{parsed.forward.quote}</Text> : null}
     </View>
-    {parsed.rest ? <Rich text={parsed.rest + (edited ? " " : "")} style={styles.body} /> : null}
+    {parsed.rest ? <MessageText chat text={parsed.rest} /> : null}
   </>;
 }
 
@@ -181,30 +179,6 @@ const MENTION_TOKEN = /(@[\p{L}\p{M}\p{N}_’'.-]+)/gu;
 const mentionParts = (text: string, names: Set<string>) =>
   text.split(MENTION_TOKEN).map(t => ({ text: t, mention: t.startsWith("@") && names.has(t.toLowerCase().replace(/[.,;:!?)'’]+$/, "")) }));
 const hasMention = (text: string, names: Set<string>) => text.includes("@") && mentionParts(text, names).some(p => p.mention);
-
-function Rich({ text, style }: { text: string; style: object }) {
-  const styles = useStyles();
-  const abbreviations = useAbbreviations();
-  // Web links open in the browser; @mentions are highlighted; known abbreviations get a dotted underline.
-  const parts = text.split(/(https?:\/\/[^\s<>"'`]*[^\s<>"'`.,;:!?)\]}*_~]|@[\p{L}\p{M}\p{N}_’'.-]+)/gu);
-  return (
-    <Text selectable={Platform.OS === "web"} style={style}>
-      {parts.map((p, i) =>
-        /^https?:\/\//.test(p) && safeUrl(p) ? (
-          <Text key={i} style={styles.link} accessibilityRole="link" onPress={() => void Linking.openURL(p).catch(() => {})}>
-            {p}
-          </Text>
-        ) : p.startsWith("@") ? (
-          <Text key={i} style={styles.mention}>
-            {p}
-          </Text>
-        ) : (
-          withAbbreviations(p, abbreviations)
-        ),
-      )}
-    </Text>
-  );
-}
 
 type PostProps = {
   post: Post;
@@ -341,7 +315,7 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
         ) : working || (post.pending && !post.text && !post.attachments?.length) ? (
           <Text style={styles.deleted}>Working…</Text>
         ) : post.text ? (
-          post.user.agent ? <MessageText text={post.text} /> : <ForwardedPost text={post.text} edited={!!post.editedAt} />
+          post.user.agent ? <MessageText text={post.text} /> : <ForwardedPost text={post.text} />
         ) : null}
         {!post.deleted ? tweetIds(post.text).map(id => <TweetEmbed key={id} id={id} />) : null}
         {post.editedAt && !post.deleted ? <Text style={styles.edited}>Edited</Text> : null}
