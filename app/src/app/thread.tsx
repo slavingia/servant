@@ -20,7 +20,8 @@ import { createOutbox } from "../lib/outbox";
 import { asDeleted, showChange, undoChange, withReaction } from "../lib/post-changes";
 import { isDesktop } from "../lib/desktop";
 import { lastEditableMessage } from "../lib/edit-last-message";
-import { useLiveActions } from "../lib/live";
+import { liveEventCount, useLiveActions } from "../lib/live";
+import { earlyThread, fetchThread, forgetThread, keepThread, keptThread } from "../lib/thread-cache";
 import { useSession } from "../lib/session";
 import { conversationHidden, landingHref, useFeatures } from "../lib/features";
 import { askAgentAbout } from "../lib/ask-agent";
@@ -62,14 +63,19 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
     searchFocus.current = { target: focus, pending: !!focus, holding: !!focus, retries: 0 };
     return clearFocusRetry;
   }, [conv, root, focus, clearFocusRetry]);
-  const [conversation, setConversation] = useState<Conversation | null>(null);
-  const [head, setHead] = useState<Post | null>(null);
-  const [replies, setReplies] = useState<Post[] | null>(null);
+  // What this thread showed the last time it was open (lib/thread-cache.ts): it is on screen at once and a
+  // fresh copy loads behind it.
+  const [kept] = useState(() => keptThread(account, conv, root));
+  const loaded = useRef(!!kept);
+  const reload = useRef<() => void>(() => {});
+  const [conversation, setConversation] = useState<Conversation | null>(kept?.conversation ?? null);
+  const [head, setHead] = useState<Post | null>(kept?.head ?? null);
+  const [replies, setReplies] = useState<Post[] | null>(kept?.replies ?? null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Post | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Post | null>(null);
   const [unavailable, setUnavailable] = useState(false);
-  const [joined, setJoined] = useState(false);
+  const [joined, setJoined] = useState(kept?.joined ?? false);
   const needsSnapshot = useRef(false);
   const accessDenied = useRef(false);
   const snapshot = useRef<{ updates: Map<string, Post>; reads: Extract<LiveEvent, { event: "messages.read" }>["data"][] } | null>(null);
@@ -131,11 +137,16 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
     if (!account) return Promise.resolve();
     const current = { updates: new Map<string, Post>(), reads: [] as Extract<LiveEvent, { event: "messages.read" }>["data"][] };
     snapshot.current = current;
-    return Promise.all([api.thread(account, conv, root), api.conversation(account, conv)])
+    // Whatever opened this thread started the request when it was pressed; take that one instead of asking again.
+    const early = earlyThread(account, conv, root);
+    return (early?.result ?? fetchThread(account, conv, root))
       .then(([t, c]) => {
         if (snapshot.current !== current) return;
         needsSnapshot.current = false;
+        loaded.current = true;
         accessDenied.current = false;
+        // That request left before this screen was listening. If anything arrived for the conversation since, look again.
+        if (early && liveEventCount(conv) !== early.mark) reload.current();
         setConversation(c.conversation);
         setJoined(c.joined);
         setHead(current.reads.reduce(mergeReadEvent, current.updates.get(root) ?? t.root));
@@ -164,9 +175,16 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
   }, [account, conv, root]);
 
   useEffect(() => {
-    load();
+    reload.current = () => { void load(); };
+    void load();
     return () => { snapshot.current = null; };
   }, [load]);
+  // Keep what is on screen for the next visit; a thread that is gone or closed to you is not kept, nor is an
+  // empty one left by a failed load.
+  useEffect(() => {
+    if (unavailable) forgetThread(account, conv, root);
+    else if (replies !== null && loaded.current) keepThread(account, conv, root, { conversation, joined, head, replies });
+  }, [account, conv, root, conversation, joined, head, replies, unavailable]);
 
   useEffect(
     () =>

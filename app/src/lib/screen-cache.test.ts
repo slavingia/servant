@@ -137,3 +137,17 @@ test("kept screens are dropped when the signed-in account changes", async () => 
   assert.doesNotMatch(await read("lib/screen-cache.ts"), /setItem|SecureStore|localStorage|AsyncStorage/);
   assert.doesNotMatch(await read("lib/conversation-cache.ts"), /setItem|SecureStore|localStorage|AsyncStorage/);
 });
+
+test("a thread starts from what it last showed, and its request leaves when it is opened", async () => {
+  const source = await read("app/thread.tsx");
+  assert.match(source, /useState\(\(\) => keptThread\(account, conv, root\)\)/);
+  assert.match(source, /useState<Post\[\] \| null>\(kept\?\.replies \?\? null\)/, "the replies are there on the first frame");
+  assert.match(source, /const early = earlyThread\(account, conv, root\);\n\s+return \(early\?\.result \?\? fetchThread\(account, conv, root\)\)/);
+  assert.match(source, /if \(early && liveEventCount\(conv\) !== early\.mark\) reload\.current\(\);/);
+  assert.match(source, /else if \(replies !== null && loaded\.current\) keepThread\(account, conv, root, \{ conversation, joined, head, replies \}\)/);
+  assert.match(source, /if \(unavailable\) forgetThread\(account, conv, root\)/);
+  const conversation = await read("app/c/[id].tsx");
+  const open = conversation.slice(conversation.indexOf("const openThread = "));
+  assert.ok(open.indexOf("openingThread(account, id, p.id);") < open.indexOf('pathname: "/thread"'), "the request starts before navigating");
+  assert.doesNotMatch(await read("lib/thread-cache.ts"), /setItem|SecureStore|localStorage|AsyncStorage/);
+});
