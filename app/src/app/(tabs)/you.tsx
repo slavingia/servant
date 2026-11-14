@@ -193,8 +193,8 @@ export default function Settings() {
     <View style={styles.root}>
     <ScrollView ref={scrollRef} style={styles.root} contentContainerStyle={styles.content} contentInsetAdjustmentBehavior="automatic">
       <PageTitle>You</PageTitle>
-      {/* The photo and "Change name" are two separate buttons side by side: a button inside a button is invalid on the
-          web and lets the outer one swallow the inner for screen-reader users. */}
+      {/* The photo and the pencil beside the name are two separate buttons: a button inside a button is invalid on the
+          web and lets the outer one swallow the inner for screen-reader users. The photo badge covers changing the photo. */}
       <View style={styles.profile}>
         <Pressable testID="profile-photo" accessibilityRole="button" accessibilityLabel={hasPhoto ? "Change your profile photo" : "Add a profile photo"} accessibilityHint="Everyone on this server sees it"
           accessibilityState={{ busy: photoBusy, expanded: hasPhoto ? photoMenu : undefined }} aria-expanded={hasPhoto ? photoMenu : undefined} disabled={photoBusy}
@@ -204,17 +204,14 @@ export default function Settings() {
           <View style={styles.photoBadge}>{photoBusy ? <ActivityIndicator size="small" color={colors.onPrimary} /> : <AppIcon name={hasPhoto ? "compose" : "plus"} size={12} color={colors.onPrimary} strokeWidth={2.4} />}</View>
         </Pressable>
         <View style={styles.profileCopy}>
-          <Text style={styles.profileName}>{account.user.name}</Text>
-          <Text style={styles.profileRole}>{account.serverName} · {owner ? "Workspace owner" : "Member"}</Text>
-          <View style={styles.linkRow}>
-            <Pressable accessibilityRole="button" accessibilityLabel={hasPhoto ? "Change your profile photo" : "Add a profile photo"} disabled={photoBusy} style={styles.linkAction}
-              onPress={() => { if (hasPhoto) setPhotoMenu(open => !open); else void choosePhoto(); }}>
-              <Text style={styles.photoLink}>{photoBusy ? "Saving photo…" : hasPhoto ? "Change photo" : "Add a photo"}</Text>
-            </Pressable>
-            <Pressable testID="change-name" accessibilityRole="button" accessibilityLabel="Change your name" style={styles.linkAction} onPress={() => { setNameDraft(account.user.name); setNameError(null); setEditingName(true); }}>
-              <Text style={styles.photoLink}>Change name</Text>
+          <View style={styles.nameRow}>
+            <Text style={[styles.profileName, styles.nameText]}>{account.user.name}</Text>
+            <Pressable testID="change-name" accessibilityRole="button" accessibilityLabel="Change your name" style={({ pressed }) => [styles.nameEdit, pressed && { opacity: 0.6 }]}
+              onPress={() => { setNameDraft(account.user.name); setNameError(null); setEditingName(true); }}>
+              <AppIcon name="compose" size={18} color={colors.muted} />
             </Pressable>
           </View>
+          <Text style={styles.profileRole}>{account.serverName} · {owner ? "Workspace owner" : "Member"}</Text>
         </View>
       </View>
       {photoMenu && hasPhoto ? <View style={[styles.group, styles.photoMenu]}>
@@ -292,9 +289,10 @@ const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create
   profileCopy: { flex: 1, minWidth: 0 },
   profileName: { ...typography.heading, color: colors.ink },
   profileRole: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
-  linkRow: { flexDirection: "row", flexWrap: "wrap", columnGap: space.lg },
-  photoLink: { ...typography.captionStrong, color: colors.blue, ...linkUnderline },
-  linkAction: { minHeight: 44, justifyContent: "center" },
+  nameRow: { flexDirection: "row", alignItems: "center", gap: space.xs },
+  nameText: { flexShrink: 1 },
+  // A 44pt target that doesn't push the name row taller.
+  nameEdit: { width: 44, height: 44, marginVertical: -space.xs, marginLeft: -space.sm, alignItems: "center", justifyContent: "center" },
   photoBadge: { position: "absolute", right: -2, bottom: -2, width: 22, height: 22, borderRadius: radius.pill, backgroundColor: colors.primary, borderWidth: 2, borderColor: colors.groupedBackground, alignItems: "center", justifyContent: "center" },
   photoMenu: { marginTop: -space.xxs },
   // Text links, but 44pt tall targets.
