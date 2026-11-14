@@ -52,6 +52,7 @@ import { createBusinessReports, reportFalseAlarm, reportingEnabled } from "./bus
 import { businessVerdict } from "./business-gate.mjs";
 import { createPushService, preferences, previewText, updatePushRegistration, updateVoipRegistration, updatePreferences } from "./push.mjs";
 import { createPushTransport } from "./push-transport.mjs";
+import { vapidSubject, webPushIdentity } from "./web-push.mjs";
 import { createSecureTransport, serverIdentity } from "./secure-transport.mjs";
 import { createStateStore } from "./state-store.mjs";
 import { createDeviceLink, previewDeviceLink, approveDeviceLink, denyDeviceLink, pollDeviceLink, createSignInLink } from "./device-links.mjs";
@@ -223,6 +224,9 @@ export function loadConfig() {
 // opening account storage just because it imports runFeedback.
 let stateStore;
 const store = () => stateStore ??= createStateStore({ directory: DATA_DIR });
+// This server's signing key for browser push (web-push.mjs): made on first use, kept in the data directory.
+let webPushKeys = null;
+const webPush = () => webPushKeys ??= webPushIdentity(DATA_DIR);
 const readState = () => store().read();
 // The stable ingress deliberately blocks administrative routes. Discover
 // the private active API port through the operator-only control socket.
@@ -1206,7 +1210,7 @@ async function handle(req, res, cfg) {
 
   // Device tokens are registered only through the authenticated device session.
   if (parts[1] === "notifications") {
-    if (method === "GET" && parts.length === 2) return send(res, 200, { preferences: preferences(user), registered: !!device.push, deviceId: device.id });
+    if (method === "GET" && parts.length === 2) return send(res, 200, { preferences: preferences(user), registered: !!device.push, deviceId: device.id, webPushKey: webPush().publicKey });
     if (["PUT", "PATCH", "POST"].includes(method)) {
       const body = await readBody(req);
       const result = mutateAuthenticated(req, (state, current) => {
@@ -1217,7 +1221,7 @@ async function handle(req, res, cfg) {
           const conversation = typeof body.conversation === "string" && /^(ch|dm|cht|inbox)_[A-Za-z0-9_-]+$/.test(body.conversation) ? body.conversation : null;
           current.device.pushPresence = { conversation, until: body.active === true ? now() + 75000 : 0 };
         } else throw requestError(404, "not_found", "Not found");
-        return { preferences: preferences(current.user), registered: !!current.device.push, deviceId: current.device.id };
+        return { preferences: preferences(current.user), registered: !!current.device.push, deviceId: current.device.id, webPushKey: webPush().publicKey };
       });
       return send(res, 200, result);
     }
@@ -2397,7 +2401,8 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
   });
   const serviceTurns = createAgentTurns({ file: path.join(DATA_DIR, "agent-turns.db"), keepRecords: recordsPreservationEnabled((fixedCfg || loadConfig()).recordsPreservation),
     execute: (turn, hooks) => executePrivateTurn(turn, hooks, fixedCfg || loadConfig()) });
-  const pushTransport = createPushTransport(() => loadJson(process.env.SERVANT_PUSH_CONFIG || path.join(os.homedir(), ".config/servant/push.json"), {}));
+  const pushTransport = createPushTransport(() => loadJson(process.env.SERVANT_PUSH_CONFIG || path.join(os.homedir(), ".config/servant/push.json"), {}), fetch,
+    () => ({ identity: webPush(), subject: vapidSubject(fixedCfg || loadConfig()) }));
   servicePush = createPushService({
     file: path.join(DATA_DIR, "push.db"),
     autoDrain,
