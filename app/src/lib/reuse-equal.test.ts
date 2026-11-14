@@ -81,3 +81,35 @@ test("the result never shares the new copy's changed objects with the old value 
   assert.equal(after.people.u2.online, true);
   assert.equal(before.people.u2.online, false);
 });
+
+test("a map rebuilt with the same entries is the same map", async () => {
+  const { sameEntries } = await import("./reuse-equal.ts");
+  const first = { id: "t1" }, second = { id: "t2" };
+  const before = new Map([["m1", first], ["m2", second]]);
+  assert.equal(sameEntries(before, new Map([["m1", first], ["m2", second]])), before);
+  // Order does not matter; a different value, a missing key or a new key does.
+  assert.equal(sameEntries(before, new Map([["m2", second], ["m1", first]])), before);
+  const changed = new Map([["m1", first], ["m2", { id: "t2" }]]);
+  assert.equal(sameEntries(before, changed), changed);
+  const fewer = new Map([["m1", first]]);
+  assert.equal(sameEntries(before, fewer), fewer);
+  const other = new Map([["m1", first], ["m3", second]]);
+  assert.equal(sameEntries(before, other), other);
+  const empty = new Map<string, object>();
+  assert.equal(sameEntries(empty, new Map()), empty);
+});
+
+test("a look at an agent chat's turns that finds nothing new hands back the same turns", () => {
+  const turns = [
+    { id: "t2", chatId: "c", status: "running", accepted: true, text: "and this", assistantText: "", canStop: true, createdAt: 2, updatedAt: 5, steps: [{ kind: "tool", label: "Reading files" }] },
+    { id: "t1", chatId: "c", status: "completed", accepted: true, text: "do this", assistantText: "Done", canStop: false, createdAt: 1, updatedAt: 3, messageId: "m9", steps: [] },
+  ];
+  const again = reuseEqual(turns, copy(turns));
+  assert.equal(again, turns);
+  const stepped = copy(turns);
+  stepped[0].updatedAt = 6;
+  stepped[0].steps.push({ kind: "tool", label: "Writing the page" });
+  const after = reuseEqual(turns, stepped);
+  assert.notEqual(after[0], turns[0]);
+  assert.equal(after[1], turns[1], "the finished reply is untouched, so its row is not drawn again");
+});

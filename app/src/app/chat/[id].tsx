@@ -1,5 +1,5 @@
 import { Radio } from "../../components/Radio";
-import { createElement, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createElement, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, AppState, FlatList, Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
@@ -17,7 +17,9 @@ import { withoutContextSummaries } from "../../lib/context-summary";
 import { TweetEmbed } from "../../components/TweetEmbed";
 import { tweetIds } from "../../lib/tweet-embed";
 import { AgentApprovalCard } from "../../components/AgentApprovalCard";
-import { activeAgentTurn, agentTurnLabel, inOrder, joinsReply, liveAgentLine, queuedBelow, splitTurns, withRead, workByMessage, workedFor, type AgentTurn } from "../../lib/agent-turns";
+import { activeAgentTurn, agentTurnLabel, inOrder, joinsReply, liveAgentLine, queuedBelow, splitTurns, withRead, workByMessage, workedFor, type AgentStep, type AgentTurn } from "../../lib/agent-turns";
+import { reuseEqual, sameEntries } from "../../lib/reuse-equal";
+import { useStableCallback } from "../../lib/stable-callback";
 import { AgentProgress, AgentWorked } from "../../components/AgentSteps";
 import { bufferAgentReply } from "../../lib/agent-events";
 import { messageDeviceLabel } from "../../lib/message-device";
@@ -41,6 +43,8 @@ import * as Clipboard from "expo-clipboard";
 import { headerTitleType, radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../../lib/theme";
 import { useWideLayout } from "../../lib/layout";
 import { Toggle } from "../../components/Toggle";
+
+const rowKey = (row: { id: string }) => row.id;
 
 type Row = Message & { waitingForAgent?: boolean; queuedTurn?: AgentTurn; agentWorking?: boolean; pending?: boolean; failed?: boolean; localId?: string; uploads?: Upload[]; forwardPreview?: ForwardCard | null };
 
@@ -429,7 +433,8 @@ function ChatConversation({ account }: { account: Account }) {
       if (request === currentLoad.current) {
         hasShown.current = true;
         lastTurns.current = turns;
-        setMessages(history);
+        // Messages that were already on screen (from the last visit) and did not change are not drawn again.
+        setMessages(shown => reuseEqual<Row[] | null>(shown, history));
         const split = splitTurns(turns);
         setTurn(split.current); setWaiting(split.waiting); setWorked(workByMessage(turns));
         readSteers.current = new Set(turns.filter(t => t.status === "steered").map(t => t.id));
@@ -466,7 +471,9 @@ function ChatConversation({ account }: { account: Account }) {
       if (refreshing) { again = true; return; }
       refreshing = true;
       try {
-        const turns = await api.agentTurns(account, id);
+        // The turns are looked at every few seconds. What did not change keeps its identity, so a look that
+        // finds nothing new sets nothing and draws nothing.
+        const turns = reuseEqual(lastTurns.current, await api.agentTurns(account, id));
         if (!active) return;
         lastTurns.current = turns;
         const { current: latest, waiting: listed } = splitTurns(turns);
@@ -481,17 +488,19 @@ function ChatConversation({ account }: { account: Account }) {
         const ended = !!replying.current && replying.current !== running;
         replying.current = running;
         const reload = !turnsOnly && (foregroundRefresh || newest !== lastTurnUpdate.current) && !abort.current;
-        const showTurns = () => { setTurn(current => current && (!latest || current.updatedAt > latest.updatedAt) ? current : latest); setWorked(workByMessage(turns)); };
+        const showTurns = () => { setTurn(current => current && (!latest || current.updatedAt > latest.updatedAt) ? current : reuseEqual(current, latest)); setWorked(current => sameEntries(current, workByMessage(turns))); };
+        const showWaiting = () => setWaiting(current => reuseEqual(current, queued));
         const together = read.length > 0 || (ended && reload);
-        if (!together) { showTurns(); setWaiting(queued); }
+        if (!together) { showTurns(); showWaiting(); }
         if (reload || read.length) {
           let history: Row[] | null = null;
           try { history = await api.messages(account, id); } catch { /* The visible history remains available; the next look catches up. */ }
           if (!active) return;
           if (together) showTurns();
-          if (!history) { if (!read.length) setWaiting(queued); return; }
+          if (!history) { if (!read.length) showWaiting(); return; }
           if (reload && !abort.current) {
-            setMessages(history); setLoadError(null); setSendError(null);
+            const fetched = history;
+            setMessages(shown => reuseEqual<Row[] | null>(shown, fetched)); setLoadError(null); setSendError(null);
             lastTurnUpdate.current = newest;
             foregroundRefresh = false;
           } else {
@@ -499,7 +508,7 @@ function ChatConversation({ account }: { account: Account }) {
             const fetched = history;
             setMessages(shown => withRead(shown ?? [], fetched));
           }
-          if (together) setWaiting(queued);
+          if (together) showWaiting();
           for (const t of read) readSteers.current.add(t.id);
         }
       } catch { /* The visible history remains available; foreground retries catch up. */ }
@@ -758,7 +767,7 @@ function ChatConversation({ account }: { account: Account }) {
           const hasUser = canonicalMineId ? userIndex >= 0 : history.length > messages.length;
           const hasReply = !responseSeen || (canonicalReplyId ? history.some(message => message.id === canonicalReplyId)
             : history.slice(userIndex + 1).some(message => message.role === "assistant"));
-          if (isCurrent() && hasUser && hasReply) setMessages(history);
+          if (isCurrent() && hasUser && hasReply) setMessages(shown => reuseEqual<Row[] | null>(shown, history));
         } catch { /* The completed reply remains visible if history refresh fails. */ }
       }
     } catch (e) {
@@ -814,19 +823,18 @@ function ChatConversation({ account }: { account: Account }) {
   // "What can I help with?", while it waits its turn.
   const unstarted = messages?.length === 0 && !loadError
     ? (turn && activeAgentTurn(turn) && !turn.accepted ? turn : waiting[0] ?? null) : null;
-  const firstRow: Row | null = unstarted ? { id: `waiting_${unstarted.id}`, role: "user", text: unstarted.text || "Attachment", at: unstarted.createdAt, waitingForAgent: true } : null;
+  const firstRow = useMemo<Row | null>(() => unstarted ? { id: `waiting_${unstarted.id}`, role: "user", text: unstarted.text || "Attachment", at: unstarted.createdAt, waitingForAgent: true } : null, [unstarted]);
   // The reply in progress lives in the conversation itself. This phone's own
   // stream already has a pending reply row; otherwise (reopened, other device)
   // show one from the turn.
   const streaming = !!messages?.some(m => m.role === "assistant" && m.pending);
-  const workingRow: Row | null = turn && !streaming && unstarted?.id !== turn.id && ['running', 'waiting_for_approval', 'stopping'].includes(turn.status)
-    ? { id: `working_${turn.id}`, role: "assistant", text: "", at: undefined as unknown as Message["at"], pending: true, agentWorking: true } : null;
+  const workingTurnId = turn && !streaming && unstarted?.id !== turn.id && ['running', 'waiting_for_approval', 'stopping'].includes(turn.status) ? turn.id : null;
+  const workingRow = useMemo<Row | null>(() => workingTurnId ? { id: `working_${workingTurnId}`, role: "assistant", text: "", at: undefined as unknown as Message["at"], pending: true, agentWorking: true } : null, [workingTurnId]);
   // Messages sent meanwhile: the ones on their way into this reply sit just above it, as good as said; the
   // ones held for after it sit below.
-  const sentMeanwhile = queuedBelow(waiting, [unstarted, turn]);
-  const waitingRow = (t: AgentTurn): Row => ({ id: `queued_${t.id}`, role: "user", text: t.text || "Attachment", at: t.createdAt, queuedTurn: t });
+  const sentMeanwhile = useMemo(() => queuedBelow(waiting, [unstarted, turn]), [waiting, unstarted, turn]);
   // A finished reply's steps, fetched when its summary is opened.
-  const loadSteps = (turnId: string) => api.agentTurn(account, String(id), turnId).then(found => found?.steps ?? []);
+  const loadSteps = useStableCallback((turnId: string) => api.agentTurn(account, String(id), turnId).then(found => found?.steps ?? []));
   const showPreview = () => {
     if (!previewUrl) return;
     if (!canSplitPreview) { openPreview(previewUrl); return; }
@@ -837,8 +845,25 @@ function ChatConversation({ account }: { account: Account }) {
     ...(previewUrl ? [{ label: "Preview", testID: "open-preview", accessibilityLabel: previewOpen ? "Hide preview" : "Open preview", onPress: showPreview }] : []),
     { label: "•••", icon: "more", testID: "open-options", accessibilityLabel: "Chat options", onPress: () => setSharing(true) },
   ];
-  const data = inOrder<Row>([...withoutContextSummaries(messages ?? []), ...(firstRow ? [firstRow] : [])], sentMeanwhile.filter(t => t.steerRequested).map(waitingRow), workingRow,
-    sentMeanwhile.filter(t => !t.steerRequested).map(waitingRow), row => row.role === "assistant" && !!row.pending).reverse();
+  // The rows are built once per change of the messages or the turns, and each row is given only what it shows:
+  // the list draws the row that changed, not every message, when the agent takes a step or the turns are looked at.
+  const data = useMemo(() => {
+    const waitingRow = (t: AgentTurn): Row => ({ id: `queued_${t.id}`, role: "user", text: t.text || "Attachment", at: t.createdAt, queuedTurn: t });
+    return inOrder<Row>([...withoutContextSummaries(messages ?? []), ...(firstRow ? [firstRow] : [])], sentMeanwhile.filter(t => t.steerRequested).map(waitingRow), workingRow,
+      sentMeanwhile.filter(t => !t.steerRequested).map(waitingRow), row => row.role === "assistant" && !!row.pending).reverse();
+  }, [messages, firstRow, sentMeanwhile, workingRow]);
+  const onUnqueue = useStableCallback((target: AgentTurn) => { void unqueue(target); });
+  const canForward = anyTalk(features);
+  const activeTurn = turn && activeAgentTurn(turn) ? turn : null;
+  const me = account.user;
+  const renderItem = useCallback(({ item }: { item: Row }) => {
+    const working = item.role !== "user" && item.pending;
+    // The reply this phone just followed to its end has its turn at hand before the next look at the list.
+    const work = item.role !== "user" && !working ? worked.get(item.id) ?? (turn?.messageId === item.id && workedFor(turn) ? turn : undefined) : undefined;
+    return <ChatRow item={item} chatId={String(id)} me={me} role={me.role} canForward={canForward} work={work} settle={work?.id === watched}
+      turn={working ? activeTurn : null} status={working && !item.agentWorking ? status : null} uploadProgress={item.uploads?.length && item.pending ? uploadProgress : null}
+      onForward={setForwarding} onUnqueue={onUnqueue} loadSteps={loadSteps} />;
+  }, [worked, turn, watched, activeTurn, status, uploadProgress, id, me, canForward, onUnqueue, loadSteps]);
   // With nothing typed, the Send button stops the reply. It is the only Stop on the screen besides /stop.
   const stoppable = !!turn?.canStop && activeAgentTurn(turn) && turn.status !== "stopping" && !actionBusy;
   const about = vibe ? VIBE_CHOICE : projectId;
@@ -891,7 +916,7 @@ function ChatConversation({ account }: { account: Account }) {
             ref={list}
             inverted
             data={data}
-            keyExtractor={(m) => m.id}
+            keyExtractor={rowKey}
             contentContainerStyle={styles.list}
             ListFooterComponent={
               messages.length === 0 && !firstRow && loadError ? (
@@ -902,37 +927,7 @@ function ChatConversation({ account }: { account: Account }) {
                 </View>
               ) : undefined
             }
-            renderItem={({ item }) => {
-              const mine = item.role === "user";
-              const working = !mine && item.pending;
-              const queued = item.queuedTurn;
-              // The reply this phone just followed to its end has its turn at hand before the next look at the list.
-              const work = !mine && !working ? worked.get(item.id) ?? (turn?.messageId === item.id && workedFor(turn) ? turn : undefined) : undefined;
-              const timestamp = typeof item.at === "number" ? item.at : item.at ? new Date(item.at).getTime() : NaN;
-              const deviceLabel = messageDeviceLabel(account.user.role, item);
-              return <MessageActions item={item} author={mine ? account.user.name : "Agent"} canForward={!queued && !item.pending && !item.failed && anyTalk(features)} onForward={setForwarding} chatId={String(id)}
-                label={mine ? `Your message${queued ? (queued.steerRequested ? ", being added to the current reply" : ", waiting for the current reply") : item.pending ? ", not yet received" : deviceLabel ? `, sent from ${deviceLabel}` : ""}` : "Agent response"} style={[styles.message, item.failed && styles.failed, item.pending && mine && styles.unconfirmed, queued && styles.queuedMessage]}>
-                <Avatar name={mine ? account.user.name : "Agent"} agent={!mine} userId={mine ? account.user.id : undefined} size={34} />
-                <View style={styles.messageCopy}>
-                  <View style={styles.messageMeta}>
-                    <Text style={styles.author}>{mine ? account.user.name : "Agent"}</Text>
-                    {Number.isFinite(timestamp) || deviceLabel ? <Text style={styles.time}>{Number.isFinite(timestamp) ? when(timestamp) : null}{deviceLabel ? <Text testID={`message-device-${item.id}`} accessibilityLabel={`Sent from ${deviceLabel}`}>{Number.isFinite(timestamp) ? " · " : ""}{deviceLabel}</Text> : null}</Text> : null}
-                  </View>
-                  {work ? <AgentWorked turn={work} load={loadSteps} settle={work.id === watched} /> : null}
-                  {mine && !working ? <ForwardedText item={item} /> : !working && item.text ? <ReplyText text={item.text} failed={item.failed} /> : null}
-                  {!working && !item.failed ? tweetIds(item.text || "").map(id => <TweetEmbed key={id} id={id} />) : null}
-                  {!working && item.attachments?.length ? <Attachments files={item.attachments} /> : null}
-                  {item.uploads?.length ? <PendingAttachments files={item.uploads} progress={item.pending ? uploadProgress : null} /> : null}
-                  {working ? <AgentProgress line={liveAgentLine(turn && activeAgentTurn(turn) ? turn : null, item.agentWorking ? null : status)} turn={turn && activeAgentTurn(turn) ? turn : null} /> : null}
-                  {queued ? <View style={styles.waitingRow}>
-                    <Text accessibilityLiveRegion="polite" aria-live="polite" style={styles.queuedDetail}>{queued.steerRequested ? "Adding this to the current reply…" : "Sends after the current reply"}</Text>
-                    {!queued.steerRequested ? <IconButton icon="close" label="Remove waiting message" size={14} onPress={() => { void unqueue(queued); }} style={styles.barIcon} /> : null}
-                  </View> : null}
-                  {item.interrupted ? <Text style={styles.typing}>Cut off before it finished</Text> : null}
-                  {item.waitingForAgent ? <Text accessibilityLiveRegion="polite" style={styles.typing}>Sends when the agent is free</Text> : null}
-                </View>
-              </MessageActions>;
-            }}
+            renderItem={renderItem}
           />
         )}
         {forwarding ? <ForwardSheet target={forwarding} onClose={() => setForwarding(null)} /> : null}
@@ -971,6 +966,49 @@ function ChatConversation({ account }: { account: Account }) {
     </MediaGalleryProvider>
   );
 }
+
+// One message in an agent chat. Memoized, and given only what it shows, so a step of the reply in progress,
+// a look at the turns or a keystroke draws the row being written again and no other.
+type ChatRowProps = {
+  item: Row; chatId: string; me: { id: string; name: string }; role: string; canForward: boolean;
+  /** The finished reply's "Worked for" line, eased in when it was watched being written. */
+  work?: AgentTurn; settle: boolean;
+  /** Only for the row being written: the reply in progress and the stream's status. */
+  turn: AgentTurn | null; status: string | null;
+  /** Only for a message whose files are still going up. */
+  uploadProgress: string | null;
+  onForward: (target: ForwardTarget) => void; onUnqueue: (turn: AgentTurn) => void; loadSteps: (turnId: string) => Promise<AgentStep[]>;
+};
+const ChatRow = memo(function ChatRow({ item, chatId, me, role, canForward, work, settle, turn, status, uploadProgress, onForward, onUnqueue, loadSteps }: ChatRowProps) {
+  const styles = useStyles();
+  const mine = item.role === "user";
+  const working = !mine && item.pending;
+  const queued = item.queuedTurn;
+  const timestamp = typeof item.at === "number" ? item.at : item.at ? new Date(item.at).getTime() : NaN;
+  const deviceLabel = messageDeviceLabel(role, item);
+  return <MessageActions item={item} author={mine ? me.name : "Agent"} canForward={!queued && !item.pending && !item.failed && canForward} onForward={onForward} chatId={chatId}
+    label={mine ? `Your message${queued ? (queued.steerRequested ? ", being added to the current reply" : ", waiting for the current reply") : item.pending ? ", not yet received" : deviceLabel ? `, sent from ${deviceLabel}` : ""}` : "Agent response"} style={[styles.message, item.failed && styles.failed, item.pending && mine && styles.unconfirmed, queued && styles.queuedMessage]}>
+    <Avatar name={mine ? me.name : "Agent"} agent={!mine} userId={mine ? me.id : undefined} size={34} />
+    <View style={styles.messageCopy}>
+      <View style={styles.messageMeta}>
+        <Text style={styles.author}>{mine ? me.name : "Agent"}</Text>
+        {Number.isFinite(timestamp) || deviceLabel ? <Text style={styles.time}>{Number.isFinite(timestamp) ? when(timestamp) : null}{deviceLabel ? <Text testID={`message-device-${item.id}`} accessibilityLabel={`Sent from ${deviceLabel}`}>{Number.isFinite(timestamp) ? " · " : ""}{deviceLabel}</Text> : null}</Text> : null}
+      </View>
+      {work ? <AgentWorked turn={work} load={loadSteps} settle={settle} /> : null}
+      {mine && !working ? <ForwardedText item={item} /> : !working && item.text ? <ReplyText text={item.text} failed={item.failed} /> : null}
+      {!working && !item.failed ? tweetIds(item.text || "").map(id => <TweetEmbed key={id} id={id} />) : null}
+      {!working && item.attachments?.length ? <Attachments files={item.attachments} /> : null}
+      {item.uploads?.length ? <PendingAttachments files={item.uploads} progress={uploadProgress} /> : null}
+      {working ? <AgentProgress line={liveAgentLine(turn, status)} turn={turn} /> : null}
+      {queued ? <View style={styles.waitingRow}>
+        <Text accessibilityLiveRegion="polite" aria-live="polite" style={styles.queuedDetail}>{queued.steerRequested ? "Adding this to the current reply…" : "Sends after the current reply"}</Text>
+        {!queued.steerRequested ? <IconButton icon="close" label="Remove waiting message" size={14} onPress={() => onUnqueue(queued)} style={styles.barIcon} /> : null}
+      </View> : null}
+      {item.interrupted ? <Text style={styles.typing}>Cut off before it finished</Text> : null}
+      {item.waitingForAgent ? <Text accessibilityLiveRegion="polite" style={styles.typing}>Sends when the agent is free</Text> : null}
+    </View>
+  </MessageActions>;
+});
 
 // Touch and hold a message (or ••• on the web) to copy it or forward it to a channel or DM.
 function MessageActions({ item, author, chatId, canForward, onForward, label, style, children }: { item: Row; author: string; chatId: string; canForward: boolean; onForward: (t: ForwardTarget) => void; label: string; style: object; children: ReactNode }) {

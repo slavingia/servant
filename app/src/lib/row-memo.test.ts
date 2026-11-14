@@ -53,3 +53,24 @@ for (const file of ["app/c/[id].tsx", "app/thread.tsx"]) {
 test("the conversation's list of rows is built once per change of its messages", () => {
   assert.match(read("app/c/[id].tsx"), /const data = useMemo\(\(\) => groupActivity\(/);
 });
+
+test("an agent chat draws only the row that changed", () => {
+  const source = read("app/chat/[id].tsx");
+  assert.match(source, /const ChatRow = memo\(function ChatRow\(/);
+  const conversation = source.slice(source.indexOf("function ChatConversation("), source.indexOf("const ChatRow = memo("));
+  const list = elements(conversation, "FlatList").filter(item => /renderItem=/.test(item));
+  assert.equal(list.length, 1);
+  assert.match(list[0]!, /renderItem=\{renderItem\}/);
+  assert.match(list[0]!, /keyExtractor=\{rowKey\}/);
+  assert.match(conversation, /const data = useMemo\(\(\) => \{/);
+  // A row that is not being written gets no turn, status or upload progress, so those never draw it again.
+  const row = elements(conversation, "ChatRow");
+  assert.equal(row.length, 1);
+  assert.match(row[0]!, /turn=\{working \? activeTurn : null\} status=\{working && !item\.agentWorking \? status : null\} uploadProgress=\{item\.uploads\?\.length && item\.pending \? uploadProgress : null\}/);
+  assert.doesNotMatch(row[0]!, /=>/);
+  // The look at the turns every few seconds keeps what did not change.
+  assert.match(conversation, /const turns = reuseEqual\(lastTurns\.current, await api\.agentTurns\(account, id\)\);/);
+  assert.match(conversation, /setWorked\(current => sameEntries\(current, workByMessage\(turns\)\)\)/);
+  assert.match(conversation, /const showWaiting = \(\) => setWaiting\(current => reuseEqual\(current, queued\)\);/);
+  assert.doesNotMatch(conversation, /setWaiting\(queued\)/);
+});

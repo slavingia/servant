@@ -36,3 +36,10 @@ export function reuseEqual<T>(previous: T, next: T): T {
   }
   return next;
 }
+
+/** `previous` when `next` has the same keys holding the very same values; `next` otherwise. For maps rebuilt from a list that reuseEqual has already settled. */
+export function sameEntries<K, V>(previous: Map<K, V>, next: Map<K, V>): Map<K, V> {
+  if (previous.size !== next.size) return next;
+  for (const [key, value] of next) if (!previous.has(key) || previous.get(key) !== value) return next;
+  return previous;
+}
