@@ -20,7 +20,7 @@ says what the agent is doing: "Thinking", then a plain line for each step
 ("Reading a file", "Searching the web", "Running a command", "Writing"). A soft
 light passes over the words to show it is alive; with Reduce Motion on, the words
 stay still. For the first minute the line says nothing about time. After that it
-adds how long it has been, in words ("two minutes"). A bare "Thinking" that goes
+adds how long it has been, short ("2 min"; screen readers hear "two minutes"). A bare "Thinking" that goes
 on becomes "Thinking it through" and then "Still working on it"; a line that
 names what the agent is doing is left as it is.
 
@@ -31,7 +31,7 @@ agent every tool is "Working on it" and nothing about what it ran is shown; tool
 names and tool inputs do not leave the worker for those chats.
 
 **When it finishes.** The reply appears whole under a short summary, "Worked for
-12 seconds". The summary opens to the same steps. The turns list that every
+12 sec" (spoken as "12 seconds"). The summary opens to the same steps. The turns list that every
 device polls only counts a finished turn's steps; the steps themselves are
 fetched when the summary is opened, and only by the person whose chat it is.
 

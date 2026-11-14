@@ -17,18 +17,19 @@ export function AgentProgress({ line: current, turn }: { line: string; turn: Age
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 5_000); return () => clearInterval(timer); }, []);
   const steps = readableSteps(turn?.steps ?? []);
   const since = workingFor(turn, now);
+  const sinceSpoken = workingFor(turn, now, true);
   // A bare "Thinking" that has gone on a while says so in friendlier words.
   const line = patientLine(current, now - (turn?.startedAt ?? turn?.steps?.[0]?.at ?? now));
   const words = <>
     <LiveStatus text={line} style={styles.line} announce />
-    {since ? <Text style={styles.since}>· {since}</Text> : null}
+    {since ? <Text accessibilityLabel={sinceSpoken} style={styles.since}>· {since}</Text> : null}
   </>;
   // Nothing to open yet: plain words, not a button that does nothing.
   if (!steps.length) return <View testID="agent-progress" style={[styles.wrap, styles.head]}>{words}</View>;
   return (
     <View style={styles.wrap}>
       <Pressable testID="agent-progress" accessibilityRole="button" accessibilityState={{ expanded: open }} aria-expanded={open}
-        accessibilityLabel={`${line}${since ? `, ${since} so far` : ""}`} accessibilityHint={open ? "Hides the steps" : "Shows what it has done so far"}
+        accessibilityLabel={`${line}${sinceSpoken ? `, ${sinceSpoken} so far` : ""}`} accessibilityHint={open ? "Hides the steps" : "Shows what it has done so far"}
         onPress={() => setOpen(o => !o)} style={({ pressed }) => [styles.head, pressed && styles.pressed]}>
         {words}
         <View style={open && styles.flip}><AppIcon name="chevronDown" size={14} color={colors.muted} /></View>
@@ -48,9 +49,10 @@ export function AgentWorked({ turn, load, settle = false }: { turn: AgentTurn; l
   const [steps, setSteps] = useState<AgentStep[] | null>(null);
   const [failed, setFailed] = useState(false);
   const summary = workedFor(turn);
+  const spoken = workedFor(turn, true) ?? undefined;
   if (!summary) return null;
   const words = settle ? <FadeIn text={summary} still={still} style={styles.summary} /> : <Text style={styles.summary}>{summary}</Text>;
-  if (!turn.stepCount) return <View testID="agent-worked" style={styles.plain}>{words}</View>;
+  if (!turn.stepCount) return <View testID="agent-worked" accessible accessibilityLabel={spoken} style={styles.plain}>{words}</View>;
   const toggle = () => {
     const next = !open;
     setOpen(next);
@@ -61,7 +63,7 @@ export function AgentWorked({ turn, load, settle = false }: { turn: AgentTurn; l
   return (
     <View style={styles.wrap}>
       <Pressable testID="agent-worked" accessibilityRole="button" accessibilityState={{ expanded: open }} aria-expanded={open}
-        accessibilityLabel={summary} accessibilityHint={open ? "Hides the steps" : "Shows what it did"}
+        accessibilityLabel={spoken} accessibilityHint={open ? "Hides the steps" : "Shows what it did"}
         onPress={toggle} style={({ pressed }) => [styles.head, pressed && styles.pressed]}>
         {words}
         <View style={open && styles.flip}><AppIcon name="chevronDown" size={14} color={colors.muted} /></View>

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activeAgentTurn, inOrder, joinsReply, liveAgentLine, patientLine, queuedBelow, parseAgentTurn, readableSteps, splitTurns, spokenDuration, withRead, workByMessage, workedFor, workingFor, type AgentTurn } from './agent-turns.ts';
+import { activeAgentTurn, inOrder, joinsReply, liveAgentLine, patientLine, queuedBelow, parseAgentTurn, readableSteps, splitTurns, shortDuration, spokenDuration, withRead, workByMessage, workedFor, workingFor, type AgentTurn } from './agent-turns.ts';
 import { createAgentEventDecoder, type StreamEvent } from './agent-events.ts';
 
 const turn = { id: 'turn_1', chatId: 'chat_1', status: 'waiting_for_approval', accepted: true, text: 'Prepare notes', assistantText: 'Ready', canStop: true, createdAt: 10, updatedAt: 20 };
@@ -103,6 +103,15 @@ test('time is said the way a person would: one to nine spelled out, seconds drop
   assert.equal(spokenDuration(2 * 3_600_000 + 12 * 60_000), 'two hours and 12 minutes');
 });
 
+test('on screen a length of time is short: sec, min, hr', () => {
+  assert.equal(shortDuration(300), '1 sec');
+  assert.equal(shortDuration(12_000), '12 sec');
+  assert.equal(shortDuration(120_000), '2 min');
+  assert.equal(shortDuration(14 * 60_000), '14 min');
+  assert.equal(shortDuration(3_600_000), '1 hr');
+  assert.equal(shortDuration(3_900_000), '1 hr 5 min');
+});
+
 test('plain Thinking gets more reassuring the longer a task runs; real activity is left alone', () => {
   assert.equal(patientLine('Thinking', 5_000), 'Thinking');
   assert.equal(patientLine('Thinking', 25_000), 'Thinking it through');
@@ -113,17 +122,19 @@ test('plain Thinking gets more reassuring the longer a task runs; real activity 
 test('the live line stays quiet for the first minute, then says how long in whole minutes', () => {
   const running = queuedTurn('a', 'running', 1, { startedAt: 10_000 });
   assert.equal(workingFor(running, 10_000 + 59_000), '');
-  assert.equal(workingFor(running, 10_000 + 60_000), 'one minute');
-  assert.equal(workingFor(running, 10_000 + 179_000), 'two minutes', 'whole minutes so far, never rounded up');
-  assert.equal(workingFor(queuedTurn('a', 'running', 1, { steps: [{ label: 'Thinking', at: 5_000 }] }), 5_000 + 61_000), 'one minute', 'from the first step when the start is unknown');
+  assert.equal(workingFor(running, 10_000 + 60_000), '1 min');
+  assert.equal(workingFor(running, 10_000 + 179_000), '2 min', 'whole minutes so far, never rounded up');
+  assert.equal(workingFor(running, 10_000 + 179_000, true), 'two minutes', 'screen readers hear it in words');
+  assert.equal(workingFor(queuedTurn('a', 'running', 1, { steps: [{ label: 'Thinking', at: 5_000 }] }), 5_000 + 61_000), '1 min', 'from the first step when the start is unknown');
   assert.equal(workingFor(queuedTurn('a', 'running', 1), 9e9), '');
   assert.equal(workingFor(null, 9e9), '');
 });
 
 test('a finished reply says how long the agent worked, and only a finished, timed one does', () => {
   const done = queuedTurn('a', 'completed', 1, { startedAt: 10_000, finishedAt: 22_000, messageId: 'msg_a' });
-  assert.equal(workedFor(done), 'Worked for 12 seconds');
-  assert.equal(workedFor({ ...done, finishedAt: 10_000 + 95_000 }), 'Worked for two minutes');
+  assert.equal(workedFor(done), 'Worked for 12 sec');
+  assert.equal(workedFor(done, true), 'Worked for 12 seconds', 'screen readers hear it in words');
+  assert.equal(workedFor({ ...done, finishedAt: 10_000 + 95_000 }), 'Worked for 2 min');
   assert.equal(workedFor({ ...done, status: 'running', finishedAt: null }), null);
   assert.equal(workedFor({ ...done, status: 'cancelled' }), null, 'a stopped reply already says it was stopped');
   assert.equal(workedFor({ ...done, startedAt: null }), null, 'from before replies were timed');

@@ -79,17 +79,28 @@ export function spokenDuration(ms: number) {
   const hours = Math.floor(minutes / 60), rest = minutes % 60;
   return rest ? `${count(hours, 'hour')} and ${count(rest, 'minute')}` : count(hours, 'hour');
 }
-// Beside the live line once it has been a while: "two minutes". Nothing in the first minute; the line itself
-// shows it is alive, and a ticking counter is the opposite of calm.
-export function workingFor(turn: AgentTurn | null | undefined, now: number) {
+// The same length on screen, short enough to read at a glance: "12 sec", "2 min", "1 hr 5 min". Screen readers
+// get spokenDuration instead.
+export function shortDuration(ms: number) {
+  const seconds = Math.max(1, Math.round(ms / 1000));
+  if (seconds < 60) return `${seconds} sec`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60), rest = minutes % 60;
+  return rest ? `${hours} hr ${rest} min` : `${hours} hr`;
+}
+// Beside the live line once it has been a while: "2 min" ("two minutes" when spoken). Nothing in the first
+// minute; the line itself shows it is alive, and a ticking counter is the opposite of calm.
+export function workingFor(turn: AgentTurn | null | undefined, now: number, spoken = false) {
   const start = turn?.startedAt ?? turn?.steps?.[0]?.at;
   if (!start || now - start < 60_000) return '';
-  return spokenDuration(Math.floor((now - start) / 60_000) * 60_000);
+  return (spoken ? spokenDuration : shortDuration)(Math.floor((now - start) / 60_000) * 60_000);
 }
-// What a finished reply keeps of its work: "Worked for 12 seconds". Null when the server didn't time it.
-export function workedFor(turn: AgentTurn | null | undefined) {
+// What a finished reply keeps of its work: "Worked for 12 sec" ("12 seconds" when spoken). Null when the server
+// didn't time it.
+export function workedFor(turn: AgentTurn | null | undefined, spoken = false) {
   if (!turn || turn.status !== 'completed' || !turn.startedAt || !turn.finishedAt || turn.finishedAt < turn.startedAt) return null;
-  return `Worked for ${spokenDuration(turn.finishedAt - turn.startedAt)}`;
+  return `Worked for ${(spoken ? spokenDuration : shortDuration)(turn.finishedAt - turn.startedAt)}`;
 }
 // Plain "Thinking" gets more reassuring the longer a task runs; real activity lines are left alone.
 export function patientLine(line: string, ms: number) {
