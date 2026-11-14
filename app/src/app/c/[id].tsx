@@ -34,6 +34,7 @@ import { reuseEqual } from "../../lib/reuse-equal";
 import { useSession } from "../../lib/session";
 import { askAgentAbout } from "../../lib/ask-agent";
 import { helpText, parseSlash, resolvePeople, splitDm } from "../../lib/slash-commands";
+import { sendSlashFeedback } from "../../lib/slash-feedback";
 import { conversationHidden, landingHref, useFeatures } from "../../lib/features";
 import { ChannelDetails } from "../channel-info";
 import { useWideLayout } from "../../lib/layout";
@@ -288,6 +289,9 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
         case "browse": router.push("/browse"); return true;
         case "people": router.push("/members"); return true;
         case "help": setError(null); setNote(helpText(isChannel, false, features)); return true;
+        case "feedback":
+          if (!cmd.args) { router.push("/feedback"); return true; }
+          setError(null); setNote(await sendSlashFeedback(account, cmd.args, isChannel ? "channel" : "direct message")); return true;
         case "files": openFiles(); return true;
         case "agent": return cmd.args ? send(`@agent ${cmd.args}`) : need("a question");
         case "shrug": return send(`${cmd.args ? cmd.args + " " : ""}¯\\_(ツ)_/¯`);

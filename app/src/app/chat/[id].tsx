@@ -27,6 +27,7 @@ import { bufferAgentReply } from "../../lib/agent-events";
 import { messageDeviceLabel } from "../../lib/message-device";
 import { estimateCost, formatCost, formatTokens } from "../../lib/token-format";
 import { helpText, parseSlash } from "../../lib/slash-commands";
+import { sendSlashFeedback } from "../../lib/slash-feedback";
 import { PiiDeclined, withPiiConfirm } from "../../lib/pii-warning";
 import { usePiiConfirm } from "../../components/PiiConfirm";
 import { chatLoad, chatTurns, forgetChat, keepChat, keptChat, peekChatLoad, takeChatLoad } from "../../lib/chat-cache";
@@ -701,6 +702,9 @@ function ChatConversation({ account }: { account: Account }) {
         case "browse": router.push("/browse"); return true;
         case "people": router.push("/members"); return true;
         case "help": setCommandNote(helpText(false, true, features)); return true;
+        case "feedback":
+          if (!cmd.args) { router.push("/feedback"); return true; }
+          setCommandNote(await sendSlashFeedback(account, cmd.args, "agent chat")); return true;
       }
     } catch (e) { setActionError(e instanceof Error ? e.message : `Couldn't run /${cmd.name}`); return false; }
     return null;

@@ -34,11 +34,11 @@ test("people resolve by @handle, full name or a unique first name", () => {
 test("every command says where it works, and the lists follow that", () => {
   for (const c of SLASH_COMMANDS) assert.ok(["channel", "talk", "agent", "any"].includes(c.where), c.name);
   const names = (isChannel: boolean, agent: boolean) => slashMatches("/", isChannel, agent)!.map(c => c.name).sort();
-  assert.deepEqual(names(false, true), ["archive", "browse", "help", "new", "people", "queue", "stop"], "an agent chat: only what makes sense there");
+  assert.deepEqual(names(false, true), ["archive", "browse", "feedback", "help", "new", "people", "queue", "stop"], "an agent chat: only what makes sense there");
   assert.ok(!names(true, false).includes("queue") && !names(false, false).includes("queue"), "queue is for agent chats only");
   assert.ok(!names(true, false).includes("stop"), "stop is for agent chats only");
   assert.ok(!names(false, false).includes("invite") && names(true, false).includes("invite"));
-  for (const name of ["archive", "new", "browse", "people", "help"]) {
+  for (const name of ["archive", "new", "browse", "people", "help", "feedback"]) {
     for (const [isChannel, agent] of [[true, false], [false, false], [false, true]] as const) assert.ok(names(isChannel, agent).includes(name), `${name} everywhere`);
   }
 });
@@ -55,7 +55,7 @@ test("the new commands parse in the right places and nowhere else", () => {
 
 test("/help lists exactly the commands that work in that kind of conversation", () => {
   const agentHelp = helpText(false, true).split("\n");
-  assert.equal(agentHelp.length, 7);
+  assert.equal(agentHelp.length, 8);
   assert.ok(agentHelp.includes("/queue message — Send it after the current reply, not into it"));
   assert.ok(agentHelp.some(l => l.startsWith("/stop")) && !agentHelp.some(l => l.startsWith("/invite")));
   const channelHelp = helpText(true).split("\n");
@@ -89,4 +89,27 @@ test("/queue carries a message: the text after it is what gets sent later", () =
   assert.equal(queuedMessage("please /queue this"), null, "only at the start");
   assert.equal(queuedMessage("hello"), null);
   assert.equal(slashMatches("/q", false, true)?.[0]?.name, "queue", "offered as you type it");
+});
+
+test("/feedback works everywhere and sends only the words typed after it", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const read = (file: string) => fs.readFileSync(path.join(import.meta.dirname, "..", file), "utf8");
+  for (const [isChannel, agent] of [[true, false], [false, false], [false, true]] as const) {
+    assert.deepEqual(slashMatches("/fe", isChannel, agent)!.map(c => c.name), ["feedback"]);
+    assert.equal(parseSlash("/feedback the unread dot stays on after I read", isChannel, agent)!.args, "the unread dot stays on after I read");
+    assert.equal(parseSlash("/feedback", isChannel, agent)!.args, "");
+    assert.match(helpText(isChannel, agent), /\/feedback what to fix or add/);
+  }
+  // Both screens: nothing typed opens the Feedback page; words are sent and the box clears.
+  for (const file of ["app/c/[id].tsx", "app/chat/[id].tsx"]) {
+    const screen = read(file);
+    assert.match(screen, /case "feedback":\s*if \(!cmd\.args\) \{ router\.push\("\/feedback"\); return true; \}/, file);
+    assert.match(screen, /await sendSlashFeedback\(account, cmd\.args, /, file);
+  }
+  // What is sent: the words, a kind of screen, the app. No conversation id, title or message.
+  const helper = read("lib/slash-feedback.ts");
+  assert.match(helper, /api\.sendFeedback\(account, \{ text, requestId: [^,]+, context: feedbackContext\(screen\) \}\)/);
+  assert.match(helper, /return \{ screen, platform: app\.platform, version: app\.version, build: app\.build, via: "slash" \};/);
+  assert.doesNotMatch(helper, /conversation(Id)?:|attachments|posts|messages/);
 });
