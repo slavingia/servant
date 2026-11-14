@@ -107,10 +107,13 @@ test("the work log says when a finished to-do was started and whether it was on 
 // The owner on the first board: "odd spacing too much vert at places".
 test("no empty line above the board, and the lines sit close together", () => {
   const style = (source: string, name: string) => source.match(new RegExp(`\\n  ${name}: \\{([^\\n]*)\\},`))?.[1] ?? "";
-  // The options icon is on the board's top line: beside the column picker, or at the end of the last column's heading.
+  // The owner then: "Move that button top right And it'll be in header and then all that space is saved".
   assert.match(component, /\) : board \? \(\s*\/\/[^\n]*\n\s*count \? <Text testID="todo-count" style=\{styles\.boardFilters\}>\{count\}<\/Text> : null/, "no toolbar line of its own");
-  assert.match(component, /<\/View>\s*\{menuButton\}\s*<\/View>\}/, "beside the column picker on a phone");
-  assert.match(component, /\{stage === "done" \? <View style=\{styles\.columnMenu\}>\{menuButton\}<\/View> : null\}/);
+  assert.match(component, /\{board \? <Stack\.Screen options=\{!menuButton \? \{ headerRight: undefined, unstable_headerRightItems: undefined \} : Platform\.OS === "ios"/, "the button is in the screen's header");
+  assert.match(component, /icon: \{ type: "sfSymbol" as const, name: "line\.3\.horizontal\.decrease" \}, tintColor: colors\.blue, hidesSharedBackground: true, onPress: openMenu/, "the system's own button on iOS");
+  assert.match(component, /: \{ headerRight: \(\) => <View style=\{styles\.headerMenu\}>\{menuButton\}<\/View> \}\}/);
+  const boardMarkup = component.slice(component.indexOf('<View testID="todo-board"'), component.indexOf("{menu ? ("));
+  assert.doesNotMatch(boardMarkup, /menuButton/, "and nowhere on the board itself");
   assert.doesNotMatch(style(list, "row"), /padding/, "a line is as tall as its 44-point target, no more");
   assert.match(style(list, "body"), /minHeight: 44/);
   // In the work log, the facts about a finished to-do are one block.

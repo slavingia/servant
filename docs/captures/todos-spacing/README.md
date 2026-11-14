@@ -6,8 +6,8 @@ Actual browser screenshots from running builds, not mockups.
 - **After:** this change, built on that commit.
 - **Phone:** 390 × 844 with touch. **Desktop:** 1280 × 900. Device scale 1, light appearance, English. The same made-up workspace on both sides.
 
-What changed: the board's options icon sits on the board's own top line (beside the column names) instead of on an
-empty line above it; the lines of the list are closer together; and the facts under a finished to-do in the work log
+What changed: the board's filter and options button is in the screen's header, top right, instead of on an empty
+line above the board; the lines of the list are closer together; and the facts under a finished to-do in the work log
 read as one block.
 
 | | Before | After |

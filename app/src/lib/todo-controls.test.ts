@@ -81,7 +81,8 @@ test("the list has one line above it, and one icon for everything about the list
   assert.equal(todoCountLine(0, 0, "Mine"), "Mine", "an empty filtered list still says what is filtered");
   assert.equal(todoFilterSummary({ mine: false, done: false }), "", "everyone's open to-dos is the plain list");
   assert.equal(todoFilterSummary({ mine: true, project: "Example app", release: "Spring release", done: true }), "Mine · Example app · Spring release · With done");
-  assert.match(component, /<IconButton testID="todo-menu" icon="sort" label=\{filters \? "Filter and options" : "Options"\}/);
+  assert.match(component, /const menuLabel = filters \? "Filter and options" : "Options";/);
+  assert.match(component, /<IconButton testID="todo-menu" icon="sort" label=\{menuLabel\} edge=\{board \? undefined : "end"\}/);
   assert.doesNotMatch(component, /Refresh to-dos|Choose several to tag|toolbarActions/, "no row of links above the list");
   // What the icon opens: the screen's filters, then tagging several, sending all, and a refresh.
   const sheet = component.slice(component.indexOf('testID="todo-menu-sheet"'));

@@ -1,6 +1,6 @@
 import { createElement, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from "react";
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
-import { router } from "expo-router";
+import { router, Stack } from "expo-router";
 import { AppIcon } from "./AppIcon";
 import { Button, ButtonGroup, IconButton } from "./Button";
 import { CheckBox } from "./CheckBox";
@@ -255,9 +255,15 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
   const count = board ? filterSummary : todoCountLine(open.length, done.length, filterSummary);
   const canChoose = editableOpen.length > 1;
   const hasMenu = !!filters || canChoose || sendable.length > 1;
-  const menuButton = hasMenu && !selecting ? <IconButton testID="todo-menu" icon="sort" label={filters ? "Filter and options" : "Options"} edge="end" disabled={!!busy} onPress={() => { setActiveId(null); setMenu(true); }} /> : null;
+  const openMenu = () => { setActiveId(null); setMenu(true); };
+  const menuLabel = filters ? "Filter and options" : "Options";
+  const menuButton = hasMenu && !selecting ? <IconButton testID="todo-menu" icon="sort" label={menuLabel} edge={board ? undefined : "end"} disabled={!!busy} onPress={openMenu} /> : null;
   return (
     <View>
+      {/* On the board the options button is in the screen's header: the system's own button on iOS, ours elsewhere. */}
+      {board ? <Stack.Screen options={!menuButton ? { headerRight: undefined, unstable_headerRightItems: undefined } : Platform.OS === "ios"
+        ? { unstable_headerRightItems: () => [{ type: "button" as const, label: menuLabel, accessibilityLabel: menuLabel, icon: { type: "sfSymbol" as const, name: "line.3.horizontal.decrease" }, tintColor: colors.blue, hidesSharedBackground: true, onPress: openMenu }] }
+        : { headerRight: () => <View style={styles.headerMenu}>{menuButton}</View> }} /> : null}
       {selecting ? (
         <View style={styles.bulkBar}>
           <Pressable accessibilityRole="button" disabled={!!busy} onPress={() => setPicked(selected.length === editableOpen.length ? [] : editableOpen.map(t => t.id))} style={styles.linkTarget}><Text style={styles.link}>{selected.length === editableOpen.length ? "Choose none" : "Choose all"}</Text></Pressable>
@@ -267,7 +273,7 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
           </ButtonGroup>
         </View>
       ) : board ? (
-        // The board's options sit on its own top line (beside the column names), not on a line of their own above it.
+        // The board's options are in the screen's header, top right, so nothing but the board is on the screen.
         count ? <Text testID="todo-count" style={styles.boardFilters}>{count}</Text> : null
       ) : count || hasMenu ? (
         <View style={styles.toolbar}>
@@ -291,13 +297,12 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
                 );
               })}
             </View>
-            {menuButton}
           </View>}
           <View style={sideBySide ? styles.board : undefined}>{(sideBySide ? TODO_STAGES : [shown]).map(stage => {
             const items = columns[stage];
             const listed = stage === "done" && !allDone ? items.slice(0, DONE_SHOWN) : items;
             const inside = <>
-              {sideBySide ? <View style={styles.columnHead}><Text accessibilityRole="header" style={styles.columnTitle}>{STAGE_LABEL[stage]}</Text><Text style={styles.columnCount}>{items.length}</Text>{stage === "done" ? <View style={styles.columnMenu}>{menuButton}</View> : null}</View> : null}
+              {sideBySide ? <View style={styles.columnHead}><Text accessibilityRole="header" style={styles.columnTitle}>{STAGE_LABEL[stage]}</Text><Text style={styles.columnCount}>{items.length}</Text></View> : null}
               {stage === "done" ? listed.map(t => row(t)) : !items.length ? null : still ? items.map(t => row(t)) : <ReorderableList items={items} onLift={() => setLifted(true)} onSettle={() => setLifted(false)} onDrop={ids => void drop(ids, items)} renderRow={(t, bind) => row(t, bind)} />}
               {!todos.length && stage === "todo" ? <Text style={styles.empty}>{empty}</Text>
                 : !items.length && !(stage === "todo" && adderLine) ? <Text style={styles.empty}>{EMPTY_COLUMN[stage]}</Text> : null}
@@ -499,7 +504,7 @@ const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create
   board: { flexDirection: "row", alignItems: "stretch", gap: space.xl },
   column: { flex: 1, minWidth: 0 },
   columnHead: { flexDirection: "row", alignItems: "center", gap: space.xs, minHeight: 44, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line, marginBottom: space.xxs },
-  columnMenu: { marginLeft: "auto" },
+  headerMenu: { paddingRight: Platform.OS === "web" ? space.xs : 0 },
   boardBar: { flexDirection: "row", alignItems: "center", gap: space.xs, marginBottom: space.xs },
   boardFilters: { ...typography.caption, color: colors.muted, marginBottom: space.xs },
   columnTitle: { ...typography.label, color: colors.ink },
