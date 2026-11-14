@@ -4,6 +4,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import crypto from 'node:crypto';
 import { sourceDeviceKind } from './source-device.mjs';
+import { usualWork, LONG_REPLY_MS, SAMPLE } from './turn-estimate.mjs';
 
 export const MAX_QUEUED = 5;
 const activeStates = ['queued', 'running', 'waiting_for_approval', 'stopping'];
@@ -60,6 +61,11 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
     if (!columns.has('finished_at')) db.exec('ALTER TABLE private_turns ADD COLUMN finished_at INTEGER');
     // Set by the worker running the reply: its agent can take a message mid-task.
     if (!columns.has('can_steer')) db.exec('ALTER TABLE private_turns ADD COLUMN can_steer INTEGER NOT NULL DEFAULT 0');
+    // How long replies like this one usually work, fixed when it starts (turn-estimate.mjs); null when the history can't say.
+    if (!columns.has('usual_ms')) db.exec('ALTER TABLE private_turns ADD COLUMN usual_ms INTEGER');
+    // Waiting for the person's OK is not work: since when it has been waiting, and how long it has waited in all.
+    if (!columns.has('waiting_since')) db.exec('ALTER TABLE private_turns ADD COLUMN waiting_since INTEGER');
+    if (!columns.has('waited_ms')) db.exec('ALTER TABLE private_turns ADD COLUMN waited_ms INTEGER NOT NULL DEFAULT 0');
     // Unused since conversations stopped closing themselves; kept so older journals open unchanged.
     for (const column of ['closed_by', 'closed_reason']) if (!columns.has(column)) db.exec(`ALTER TABLE private_turns ADD COLUMN ${column} TEXT`);
     for (const column of ['closed_at', 'closer_checked_at']) if (!columns.has(column)) db.exec(`ALTER TABLE private_turns ADD COLUMN ${column} INTEGER`);
@@ -135,8 +141,17 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
     // The steps ride along while the reply runs. Afterwards the list only counts them; detail() has them.
     steps: active(t.status) ? JSON.parse(t.steps || '[]') : [], stepCount: JSON.parse(t.steps || '[]').length,
     startedAt: t.started_at ?? null, finishedAt: active(t.status) || t.status === 'steered' ? null : t.finished_at ?? t.updated_at,
+    // While it runs, and only when the history could say: how long replies like it usually work, and the time
+    // this one has spent waiting for an OK (pausedAt while it waits now), which the app leaves out of the count.
+    ...(active(t.status) && t.usual_ms ? { usualMs: t.usual_ms, pausedMs: t.waited_ms || 0, pausedAt: t.waiting_since ?? null } : {}),
     approval: t.approval ? JSON.parse(t.approval) : null,
     createdAt: t.created_at, updatedAt: t.updated_at });
+  // How long this person's finished replies worked, newest first: ones that ran past the first minute, less the
+  // time they waited for an OK. Only their own replies are read, and only the times.
+  const worked = (where, ...args) => db.prepare(`SELECT finished_at - started_at - waited_ms AS ms FROM private_turns
+    WHERE ${where} AND status='completed' AND finished_at - started_at - waited_ms >= ? ORDER BY seq DESC LIMIT ?`).all(...args, LONG_REPLY_MS, SAMPLE).map(found => found.ms);
+  // This chat's replies, and the same person's on the same agent for a chat that has too few of its own.
+  const usualFor = t => usualWork({ here: worked('chat_id=? AND user_id=?', t.chat_id, t.user_id), mine: worked('user_id=? AND role=?', t.user_id, t.role) });
   // One turn with every step it took, for "Worked for 12 seconds" opened after the reply.
   const detail = t => t && ({ ...view(t), steps: JSON.parse(t.steps || '[]') });
   function tx(fn) {
@@ -163,9 +178,10 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
       }
       if (name === 'sent') db.prepare('UPDATE private_turns SET accepted=1,updated_at=? WHERE id=?').run(clock(), id);
       if (name === 'message') db.prepare('UPDATE private_turns SET assistant_text=?,message_id=?,updated_at=? WHERE id=?').run(payload.text || '', payload.id, clock(), id);
-      if (name === 'approval') db.prepare("UPDATE private_turns SET approval=?,approval_choice=NULL,status='waiting_for_approval',updated_at=? WHERE id=?")
-        .run(JSON.stringify(payload.approval), clock(), id);
-      if (name === 'approval_resolved') db.prepare("UPDATE private_turns SET approval=NULL,approval_choice=NULL,status='running',updated_at=? WHERE id=?").run(clock(), id);
+      // The wait for an OK is timed apart from the work: it starts at the first ask and is added up when answered.
+      if (name === 'approval') db.prepare("UPDATE private_turns SET approval=?,approval_choice=NULL,status='waiting_for_approval',waiting_since=COALESCE(waiting_since,?),updated_at=? WHERE id=?")
+        .run(JSON.stringify(payload.approval), clock(), clock(), id);
+      if (name === 'approval_resolved') db.prepare("UPDATE private_turns SET approval=NULL,approval_choice=NULL,status='running',waited_ms=waited_ms+COALESCE(?-waiting_since,0),waiting_since=NULL,updated_at=? WHERE id=?").run(clock(), clock(), id);
       event(id, name, payload);
       if (name === 'approval' || name === 'approval_resolved') event(id, 'turn', { turn: view(row(id)) });
     });
@@ -180,7 +196,8 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
         const sent = t.payload && t.payload !== '{}' ? (JSON.parse(t.payload).attachments || []).map(a => ({ name: a.name, mime: a.mime, bytes: a.data ? Buffer.from(a.data, 'base64').length : undefined })) : [];
         event(id, 'record_snapshot', { attachments: sent, approval: t.approval ? JSON.parse(t.approval) : null, approvalChoice: t.approval_choice ?? null });
       }
-      db.prepare('UPDATE private_turns SET status=?,payload=\'{}\',approval=NULL,approval_choice=NULL,finished_at=?,updated_at=? WHERE id=?').run(status, clock(), clock(), id);
+      // A reply that ends while it waits (stopped, or cut off) closes that wait too.
+      db.prepare('UPDATE private_turns SET status=?,payload=\'{}\',approval=NULL,approval_choice=NULL,waited_ms=waited_ms+COALESCE(?-waiting_since,0),waiting_since=NULL,finished_at=?,updated_at=? WHERE id=?').run(status, clock(), clock(), clock(), id);
       if (message) event(id, 'error', { message });
       event(id, 'turn', { turn: view(row(id)) });
       event(id, 'done', { status });
@@ -307,7 +324,10 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
         SELECT 1 FROM private_turns r WHERE r.chat_id=q.chat_id AND r.status IN ('running','waiting_for_approval','stopping'))
         ORDER BY q.seq LIMIT 1`).get();
       if (!next) return;
-      db.prepare('UPDATE private_turns SET status=?,started_at=COALESCE(started_at,?),updated_at=? WHERE id=?').run(next.stop_requested ? 'stopping' : next.approval ? 'waiting_for_approval' : 'running', clock(), clock(), next.id);
+      // The estimate is made once, as the reply starts, so it holds still while the reply runs. One picked up
+      // again after a restart keeps the start and the estimate it had.
+      const usual = next.started_at ? next.usual_ms : usualFor(next);
+      db.prepare('UPDATE private_turns SET status=?,started_at=COALESCE(started_at,?),usual_ms=?,updated_at=? WHERE id=?').run(next.stop_requested ? 'stopping' : next.approval ? 'waiting_for_approval' : 'running', clock(), usual ?? null, clock(), next.id);
       event(next.id, 'turn', { turn: view(row(next.id)) });
       return row(next.id);
     });

@@ -300,6 +300,182 @@ test('each progress step is kept on the turn while it runs; afterwards the list 
   } finally { finish.resolve(); await worker.whenIdle(); worker.close(); }
 });
 
+// How long is left (docs/agent-turns.md): a reply that starts with enough history behind it carries how long
+// replies like it usually work. These tests move the clock themselves: each reply works for the next number in
+// `work`, and the turn as it was when it began is read back from the journal.
+const MIN = 60_000;
+const minutes = (...list) => list.map(m => m * MIN);
+const began = (turns, id) => turns.events(id).find(e => e.event === 'turn' && e.payload.turn.status === 'running').payload.turn;
+const ask = (chatId, n, extra = {}) => ({ ...input(chatId), requestId: `request_${chatId}_${n}`, ...extra });
+
+test('a reply carries how long replies like it usually work once the history can say; before that, nothing new', async t => {
+  let now = 1_000_000;
+  // Quick answers come and go between the long ones.
+  const work = [...minutes(4, 0.2, 6, 8, 0.5, 10, 12)];
+  const started = deferred(), finish = deferred();
+  const worker = createAgentTurns({ file: fixture(t), clock: () => now, execute: async () => {
+    if (work.length) { now += work.shift(); return {}; }
+    started.resolve(); await finish.promise; return {};
+  } });
+  try {
+    for (let i = 0; i < 7; i++) {
+      const past = worker.enqueue(ask('chat', i));
+      await worker.processNext();
+      assert.equal('usualMs' in began(worker, past.id), false, 'too little to go on: the turn is what it always was');
+      assert.equal('pausedMs' in began(worker, past.id), false);
+    }
+    const turn = worker.enqueue(ask('chat', 'live'));
+    const run = worker.processNext(); await started.promise;
+    // Of the five that ran past a minute (4, 6, 8, 10 and 12 minutes), three in four finished within 10.
+    assert.deepEqual([worker.get(turn.id).usualMs, worker.get(turn.id).pausedMs, worker.get(turn.id).pausedAt], [10 * MIN, 0, null]);
+    assert.equal(worker.latest('chat')[0].usualMs, 10 * MIN, 'the list every device reads has it');
+    assert.equal(began(worker, turn.id).usualMs, 10 * MIN, 'and so does the stream, from the moment it starts');
+    // Made once, as the reply starts: it holds still however long this one runs.
+    now += 45 * MIN;
+    assert.equal(worker.get(turn.id).usualMs, 10 * MIN);
+    finish.resolve(); await run;
+    assert.equal('usualMs' in worker.get(turn.id), false, 'a finished reply has nothing left to estimate');
+  } finally { finish.resolve(); await worker.whenIdle(); worker.close(); }
+});
+
+test("an estimate is built only from the same person's own replies on the same agent, and only from ones that completed", async t => {
+  let now = 1_000_000;
+  const work = [];
+  const worker = createAgentTurns({ file: fixture(t), clock: () => now, execute: async turn => {
+    now += work.shift() ?? 0;
+    if (turn.text === 'This one fails') throw new Error('upstream went away');
+    return turn.text === 'This one is stopped' ? { status: 'cancelled' } : {};
+  } });
+  const reply = async (request, ms) => { work.push(ms); const turn = worker.enqueue(request); await worker.processNext(); return began(worker, turn.id); };
+  try {
+    // Ana builds prototypes in one chat. A reply that failed after an hour and one she stopped say nothing about how long a reply takes.
+    for (const [i, m] of [4, 6, 8, 10, 12].entries()) await reply(ask('prototype', i), m * MIN);
+    await reply(ask('prototype', 'failed', { text: 'This one fails' }), 60 * MIN);
+    await reply(ask('prototype', 'stopped', { text: 'This one is stopped' }), 90 * MIN);
+    assert.equal((await reply(ask('prototype', 'next'), 5 * MIN)).usualMs, 10 * MIN);
+    // Her new chat has nothing of its own yet, so it goes by her other chats (now 4, 5, 6, 8, 10 and 12 minutes).
+    assert.equal((await reply(ask('fresh', 0), 2 * MIN)).usualMs, 9.5 * MIN);
+    // Jo is on the member agent. Ana's replies say nothing about Jo's, so Jo's estimate waits for Jo's own five
+    // (3, 3, 4, 4 and 5 minutes) and then comes from those.
+    const member = (userId, chatId) => ({ user: { id: userId }, chat: { id: chatId, role: 'member', hermesSessionId: `session_${chatId}` } });
+    for (const [i, m] of [3, 3, 4, 4, 5].entries()) assert.equal('usualMs' in await reply(ask('jo-chat', i, member('jo', 'jo-chat')), m * MIN), false);
+    assert.equal((await reply(ask('jo-chat', 'next', member('jo', 'jo-chat')), 3 * MIN)).usualMs, 4 * MIN);
+    // Cy starts a first chat on the same member agent: Jo's replies are not Cy's to be measured by.
+    assert.equal('usualMs' in await reply(ask('cy-chat', 0, member('cy', 'cy-chat')), 3 * MIN), false);
+    // Ana on the member agent: what the full agent takes her says nothing about this one, and neither does Jo.
+    assert.equal('usualMs' in await reply(ask('restricted', 0, member('owner', 'restricted')), 3 * MIN), false);
+    // Once the new chat has five long replies of its own (2, 2, 3, 3 and 3 minutes) it is judged by those alone.
+    for (const [i, m] of [2, 3, 3, 3].entries()) await reply(ask('fresh', i + 1), m * MIN);
+    assert.equal((await reply(ask('fresh', 'own'), MIN)).usualMs, 3 * MIN);
+  } finally { await worker.whenIdle(); worker.close(); }
+});
+
+test('waiting for an OK is timed apart from the work: while it waits, when it is answered and in the history', async t => {
+  let now = 1_000_000;
+  const work = [...minutes(4, 6, 8, 10, 12)];
+  // Two replies ask for an OK, in this order. Each is held at the ask, and again after the answer.
+  const waits = [1, 2].map(n => ({ n, asked: deferred(), answered: deferred(), resumed: deferred(), finish: deferred() }));
+  let asks = 0;
+  const file = fixture(t);
+  const worker = createAgentTurns({ file, clock: () => now, execute: async (turn, hooks) => {
+    if (work.length) { now += work.shift(); return {}; }
+    if (!turn.text.startsWith('Approve')) return {};
+    const wait = waits[asks++];
+    wait.hooks = hooks;
+    hooks.checkpoint(`run_${wait.n}`);
+    now += 2 * MIN;
+    hooks.emit('approval', { approval: { id: `approval_${wait.n}`, command: 'fixture', choices: ['once', 'deny'] } });
+    wait.asked.resolve(); await wait.answered.promise;
+    if (hooks.controls().stop) return { status: 'cancelled' };
+    hooks.emit('approval_resolved', {});
+    wait.resumed.resolve(); await wait.finish.promise; return {};
+  } });
+  const times = id => { const { status, usualMs, pausedMs, pausedAt } = worker.get(id); return { status, usualMs, pausedMs, pausedAt }; };
+  try {
+    for (let i = 0; i < 5; i++) { worker.enqueue(ask('chat', i)); await worker.processNext(); }
+    const turn = worker.enqueue(ask('chat', 'approve', { text: 'Approve this' }));
+    const run = worker.processNext(); await waits[0].asked.promise;
+    const asked = now;
+    // Two minutes in, it asks. The clock on the wall moves on; the wait is counted from the ask.
+    assert.deepEqual(times(turn.id), { status: 'waiting_for_approval', usualMs: 10 * MIN, pausedMs: 0, pausedAt: asked });
+    now += 3 * MIN;
+    // A stream that reconnects repeats the ask. It is the same wait.
+    waits[0].hooks.emit('approval', { approval: { id: 'approval_1', command: 'fixture', choices: ['once', 'deny'] } });
+    assert.equal(times(turn.id).pausedAt, asked);
+    now += 15 * MIN;
+    waits[0].answered.resolve(); await waits[0].resumed.promise;
+    assert.deepEqual(times(turn.id), { status: 'running', usualMs: 10 * MIN, pausedMs: 18 * MIN, pausedAt: null });
+    now += 3 * MIN;
+    waits[0].finish.resolve(); await run;
+    // 23 minutes passed on the wall and it worked for five of them. The history has the five: with 4, 5, 6, 8, 10
+    // and 12 minutes the usual time is 9.5; had the wait counted it would be 11.5.
+    const next = worker.enqueue(ask('chat', 'after'));
+    await worker.processNext();
+    assert.equal(began(worker, next.id).usualMs, 9.5 * MIN);
+
+    // A reply stopped while it waits closes that wait too.
+    const stopped = worker.enqueue(ask('chat', 'stopped', { text: 'Approve and stop' }));
+    const second = worker.processNext(); await waits[1].asked.promise;
+    now += 7 * MIN;
+    assert.equal(worker.requestStop(stopped.id).status, 'stopping');
+    waits[1].answered.resolve(); await second;
+    assert.equal(worker.get(stopped.id).status, 'cancelled');
+    const db = new DatabaseSync(file);
+    t.after(() => db.close());
+    assert.deepEqual({ ...db.prepare('SELECT waited_ms, waiting_since FROM private_turns WHERE id=?').get(stopped.id) }, { waited_ms: 7 * MIN, waiting_since: null });
+  } finally { for (const wait of waits) { wait.answered.resolve(); wait.finish.resolve(); } await worker.whenIdle(); worker.close(); }
+});
+
+test('a reply picked up again after a restart keeps the start and the estimate it had, or the lack of one', async t => {
+  const file = fixture(t);
+  let now = 1_000_000;
+  const work = [...minutes(4, 6, 8, 10, 12)];
+  const seed = createAgentTurns({ file, clock: () => now, execute: async () => { now += work.shift() ?? 0; return {}; } });
+  for (let i = 0; i < 5; i++) { seed.enqueue(ask('prototype', i)); await seed.processNext(); }
+  const estimated = seed.enqueue(ask('estimated', 0)), unestimated = seed.enqueue(ask('unestimated', 0));
+  await seed.whenIdle(); seed.close();
+  // As a stopped worker leaves them: both running since three minutes ago with a known run. One began with an
+  // estimate of seven minutes; the other began when there was nothing to go on.
+  const startedAt = now - 3 * MIN;
+  const db = new DatabaseSync(file);
+  db.prepare("UPDATE private_turns SET status='running',accepted=1,run_id='run_estimated',started_at=?,usual_ms=? WHERE id=?").run(startedAt, 7 * MIN, estimated.id);
+  db.prepare("UPDATE private_turns SET status='running',accepted=1,run_id='run_unestimated',started_at=? WHERE id=?").run(startedAt, unestimated.id);
+  db.close();
+  const resumed = [], finish = deferred();
+  const replacement = createAgentTurns({ file, clock: () => now, execute: async turn => { resumed.push(turn.run_id); await finish.promise; return {}; } });
+  try {
+    assert.equal(replacement.recoverInterrupted(), 2);
+    const runs = [replacement.processNext(), replacement.processNext()];
+    for (let i = 0; i < 50 && resumed.length < 2; i++) await new Promise(r => setTimeout(r, 5));
+    assert.deepEqual(resumed.sort(), ['run_estimated', 'run_unestimated']);
+    // The history now says ten minutes. A reply already under way is not measured again halfway through.
+    assert.deepEqual([replacement.get(estimated.id).startedAt, replacement.get(estimated.id).usualMs], [startedAt, 7 * MIN]);
+    assert.equal(replacement.get(unestimated.id).startedAt, startedAt);
+    assert.equal('usualMs' in replacement.get(unestimated.id), false);
+    finish.resolve(); await Promise.all(runs);
+  } finally { finish.resolve(); await replacement.whenIdle(); replacement.close(); }
+});
+
+test('a journal from before replies were estimated opens unchanged, and the replies it timed count', async t => {
+  const file = fixture(t);
+  let now = 1_000_000;
+  const work = [...minutes(4, 6, 8, 10, 12)];
+  const execute = async () => { now += work.shift() ?? 0; return {}; };
+  const earlier = createAgentTurns({ file, clock: () => now, execute });
+  for (let i = 0; i < 5; i++) { earlier.enqueue(ask('chat', i)); await earlier.processNext(); }
+  await earlier.whenIdle(); earlier.close();
+  const db = new DatabaseSync(file);
+  for (const column of ['usual_ms', 'waiting_since', 'waited_ms']) db.exec(`ALTER TABLE private_turns DROP COLUMN ${column}`);
+  db.close();
+  const upgraded = createAgentTurns({ file, clock: () => now, execute });
+  try {
+    assert.equal(upgraded.latest('chat').length, 5);
+    const turn = upgraded.enqueue(ask('chat', 'after'));
+    await upgraded.processNext();
+    assert.equal(began(upgraded, turn.id).usualMs, 10 * MIN);
+  } finally { await upgraded.whenIdle(); upgraded.close(); }
+});
+
 test("other people's conversations: unread per reader, from first look, until opened or all marked read", async t => {
   const clockRef = { now: 1000 };
   const worker = createAgentTurns({ file: fixture(t), clock: () => clockRef.now, execute: async (_t, { emit }) => { emit('message', { id: `answer_${_t.id}`, text: 'Done' }); return {}; } });
