@@ -19,6 +19,7 @@ import { type Conversation, type BrowseChannel, type Project } from "../lib/serv
 import { useChannelDiscovery } from "../lib/channel-discovery";
 import { useLiveActions, useLiveList } from "../lib/live";
 import { useSession } from "../lib/session";
+import { openingConversation } from "../lib/conversation-cache";
 import { landingHref, useFeatures } from "../lib/features";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
 
@@ -83,6 +84,8 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
   };
   useFocusEffect(useCallback(() => { void refresh(); if (account) void refreshProjects(account); }, [refresh, account]));
   if (!account) return null;
+  // The conversation's request leaves at the press, before its screen is built (lib/conversation-cache.ts).
+  const openConversation = (c: Conversation) => { openingConversation(account, c.id); router.push({ pathname: "/c/[id]", params: { id: c.id } }); };
 
   const channels = (conversations ?? []).filter(c => c.kind === "channel");
   const activeChannels = sortChannels(withPositions(channels.filter(c => !c.archived), pending), sort);
@@ -178,10 +181,10 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
             onSettle={() => setLifted(false)}
             onDrop={ids => void saveOrder(ids)}
             renderRow={(c, drag) => <SwipeChannelRow {...rowProps(c)} compact drag={unreadOnly ? undefined : drag} reordering={reordering}
-              onPress={() => router.push({ pathname: "/c/[id]", params: { id: c.id } })} />} />;
+              onPress={() => openConversation(c)} />} />;
           if (item.kind === "channel" || item.kind === "dm") {
             const c = item.conversation;
-            return <SwipeChannelRow {...rowProps(c)} compact onPress={() => router.push({ pathname: "/c/[id]", params: { id: c.id } })} />;
+            return <SwipeChannelRow {...rowProps(c)} compact onPress={() => openConversation(c)} />;
           }
           if (item.kind === "project") return <Pressable accessibilityRole="button" accessibilityLabel={item.project.name} onPress={() => { closeRow(); router.push({ pathname: "/project", params: { id: item.project.id } }); }} style={({ pressed }) => [styles.projectRow, pressed && styles.pressed]}>
             <View style={styles.projectIcon}><AppIcon name="project" size={19} color={colors.muted} /></View>

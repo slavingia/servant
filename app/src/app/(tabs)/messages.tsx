@@ -8,6 +8,7 @@ import { Button } from "../../components/Button";
 import { useLiveActions, useLiveList } from "../../lib/live";
 import type { Conversation } from "../../lib/server";
 import { useSession } from "../../lib/session";
+import { openingConversation } from "../../lib/conversation-cache";
 import { landingHref, useFeatures } from "../../lib/features";
 import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 
@@ -88,7 +89,7 @@ export default function Messages() {
             </View>
           )
         }
-        renderItem={({ item }) => <SwipeChannelRow {...rowProps(item)} onPress={() => router.push({ pathname: "/c/[id]", params: { id: item.id } })} />}
+        renderItem={({ item }) => <SwipeChannelRow {...rowProps(item)} onPress={() => { openingConversation(account, item.id); router.push({ pathname: "/c/[id]", params: { id: item.id } }); }} />}
         contentContainerStyle={styles.content}
       />
       {dialog}

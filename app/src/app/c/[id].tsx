@@ -14,6 +14,7 @@ import { mergeReadEvent } from "../../lib/read-receipts";
 import { latestMessageReceipts } from "../../lib/message-status";
 import { canCompactPost, sourceDeviceOf } from "../../lib/message-device";
 import { createOutbox } from "../../lib/outbox";
+import { earlyConversation, fetchConversation, forgetConversation, keepConversation, keptConversation } from "../../lib/conversation-cache";
 import { asDeleted, showChange, undoChange, withReaction } from "../../lib/post-changes";
 import { isDesktop } from "../../lib/desktop";
 import { lastEditableMessage } from "../../lib/edit-last-message";
@@ -24,7 +25,7 @@ import { PiiDeclined, withPiiConfirm } from "../../lib/pii-warning";
 import { usePiiConfirm } from "../../components/PiiConfirm";
 import { api, ServerError, type Account, type Conversation, type Person, type Upload, type Post, type LiveEvent } from "../../lib/server";
 import { useStableCallback } from "../../lib/stable-callback";
-import { useLiveActions } from "../../lib/live";
+import { liveEventCount, useLiveActions } from "../../lib/live";
 import { useSession } from "../../lib/session";
 import { askAgentAbout } from "../../lib/ask-agent";
 import { helpText, parseSlash, resolvePeople, splitDm } from "../../lib/slash-commands";
@@ -78,16 +79,19 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
   const focused = useIsFocused();
   const visible = useRef(focused);
   useEffect(() => { visible.current = focused; }, [focused]);
-  const { subscribe, setOpen, refresh } = useLiveActions();
-  const [conv, setConv] = useState<Conversation | null>(null);
-  const [joined, setJoined] = useState(true);
+  const { subscribe, setOpen, refresh, peek } = useLiveActions();
+  // What this conversation showed the last time it was open (lib/conversation-cache.ts): it is on screen at
+  // once and a fresh copy loads behind it. On a first visit the list already knows the title and the people.
+  const [kept] = useState(() => keptConversation(account, id));
+  const [conv, setConv] = useState<Conversation | null>(() => kept?.conversation ?? peek(id) ?? null);
+  const [joined, setJoined] = useState(kept?.joined ?? true);
   const [calling, setCalling] = useState(false);
-  const [posts, setPosts] = useState<Post[] | null>(null);
+  const [posts, setPosts] = useState<Post[] | null>(kept?.posts ?? null);
   // Messages shown the moment Send is pressed, under the ones the server has (lib/outbox.ts).
   const [outbox] = useState(createOutbox);
   const [sending, setSending] = useState<Post[]>([]);
   const postKey = outbox.key;
-  const [more, setMore] = useState(false);
+  const [more, setMore] = useState(kept?.more ?? false);
   const [error, setError] = useState<string | null>(null);
   // The answer to a command like /help: shown plainly, not as an error. Tap it to dismiss.
   const [note, setNote] = useState<string | null>(null);
@@ -97,6 +101,11 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
   const [unavailable, setUnavailable] = useState(false);
   const loadingOlder = useRef(false);
   const loadSequence = useRef(0);
+  // The first fresh copy replaces what was kept, so the list is what a fresh open would show.
+  const showingKept = useRef(!!kept);
+  // Only a conversation that has loaded is worth keeping: never an empty list left by a failed load.
+  const loaded = useRef(!!kept);
+  const reload = useRef<() => void>(() => {});
   const needsSnapshot = useRef(false);
   const accessDenied = useRef(false);
   const snapshot = useRef<{ sequence: number; replace: boolean; updates: Map<string, Post>; reads: Extract<LiveEvent, { event: "messages.read" }>["data"][] } | null>(null);
@@ -112,12 +121,18 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
 
   const load = useCallback((reset = false): Promise<void> => {
     if (!account || !id) return Promise.resolve();
-    const current = { sequence: ++loadSequence.current, replace: reset || needsSnapshot.current || !!snapshot.current?.replace, updates: new Map<string, Post>(), reads: [] as Extract<LiveEvent, { event: "messages.read" }>["data"][] };
+    const current = { sequence: ++loadSequence.current, replace: reset || needsSnapshot.current || showingKept.current || !!snapshot.current?.replace, updates: new Map<string, Post>(), reads: [] as Extract<LiveEvent, { event: "messages.read" }>["data"][] };
     snapshot.current = current;
-    return Promise.all([api.conversation(account, id), api.posts(account, id)]).then(([c, p]) => {
+    // The row that opened this screen started the request when it was pressed; take that one instead of asking again.
+    const early = reset ? null : earlyConversation(account, id);
+    return (early?.result ?? fetchConversation(account, id)).then(([c, p]) => {
       if (snapshot.current !== current) return;
       needsSnapshot.current = false;
+      showingKept.current = false;
+      loaded.current = true;
       accessDenied.current = false;
+      // That request left before this screen was listening. If anything arrived for the conversation since, look again.
+      if (early && liveEventCount(id) !== early.mark) reload.current();
       setConv(c.conversation);
       setJoined(c.joined);
       const recovered = merge(p.messages, [...current.updates.values()]).map(post => current.reads.reduce(mergeReadEvent, post));
@@ -146,6 +161,12 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
     loadSequence.current++;
     snapshot.current = null;
   }, [account, id]);
+  useEffect(() => { reload.current = () => { void load(); }; }, [load]);
+  // Keep what is on screen for the next visit; a conversation that is gone or closed to you is not kept.
+  useEffect(() => {
+    if (unavailable) forgetConversation(account, id);
+    else if (posts !== null && loaded.current) keepConversation(account, id, { conversation: conv, joined, posts, more });
+  }, [account, id, conv, joined, posts, more, unavailable]);
 
   useEffect(() => {
     void load();

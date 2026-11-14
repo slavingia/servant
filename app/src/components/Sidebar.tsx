@@ -11,6 +11,7 @@ import { refreshMeetings, useMeetings } from "../lib/meetings-store";
 import { sortChannels, withPositions } from "../lib/channel-sort";
 import { useChannelSort } from "../lib/channel-sort-store";
 import { useSession } from "../lib/session";
+import { openingConversation } from "../lib/conversation-cache";
 import { destinationGroups, placeIsOpen } from "../lib/destinations";
 import { useFeatures } from "../lib/features";
 import { useSessionExpiry } from "../lib/session-expiry";
@@ -85,7 +86,7 @@ export function Sidebar() {
   const dms = active.filter(c => c.kind === "dm").sort((a, b) => b.updatedAt - a.updatedAt);
   const archivedCount = (conversations ?? []).filter(c => c.archived).length;
   // Opening a channel or DM from the sidebar puts the cursor in its message box, ready to type.
-  const open = (c: Conversation) => go(pathname, { pathname: "/c/[id]", params: { id: c.id, compose: "1" } });
+  const open = (c: Conversation) => { if (account) openingConversation(account, c.id); go(pathname, { pathname: "/c/[id]", params: { id: c.id, compose: "1" } }); };
 
   return (
     <View style={styles.root}>

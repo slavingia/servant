@@ -20,6 +20,9 @@ type LiveActions = {
   setOpen: (id: string | null) => void;
   // Re-count unread agent replies (after reading a chat, or with a fresh list).
   refreshAgent: (chats?: { unread?: number; archived?: boolean }[]) => void;
+  // A conversation as the list has it right now, read once without following the list: an opening
+  // conversation shows its title at once instead of waiting for its own copy.
+  peek: (id: string) => Conversation | undefined;
 };
 type LiveList = { conversations: Conversation[] | null; error: string | null; connected: boolean };
 type LivePresence = { presence: Record<string, Presence>; connected: boolean };
@@ -30,6 +33,19 @@ const ActionsCtx = createContext<LiveActions | null>(null);
 const ListCtx = createContext<LiveList | null>(null);
 const PresenceCtx = createContext<LivePresence | null>(null);
 const UnreadCtx = createContext<LiveUnread | null>(null);
+
+// How many live events have touched each conversation, and how many times the stream started over.
+// A request made a moment before its screen was listening compares the number before and after: if
+// it moved, something may have been missed and the screen looks again (lib/conversation-cache.ts).
+const touched = new Map<string, number>();
+let restarts = 0;
+export const liveEventCount = (conversationId: string) => restarts * 1_000_000 + (touched.get(conversationId) ?? 0);
+function countLiveEvent(e: LiveEvent) {
+  if (e.event === "ready") { if (e.data.reset !== false) { restarts++; touched.clear(); } return; }
+  const id = e.event === "message.created" || e.event === "message.updated" || e.event === "messages.read" ? e.data.conversationId
+    : e.event === "conversation.updated" || e.event === "conversation.read" ? e.data.id : null;
+  if (id) touched.set(id, (touched.get(id) ?? 0) + 1);
+}
 
 export function LiveProvider({ children }: { children: ReactNode }) {
   const { account, setAccount, signOut, learnDeepWork } = useSession();
@@ -183,6 +199,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
             (e) => {
               if (stopped) return;
               if (e.event === "checkpoint") return;
+              countLiveEvent(e);
               if (e.event === "ready") {
                 setConnected(true);
                 delay = 1000;
@@ -262,6 +279,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
 
   // After sign-out, never show the previous person's conversations.
   const shown = account ? conversations : null;
+  const latest = useRef(shown);
+  useEffect(() => { latest.current = shown; }, [shown]);
+  const peek = useCallback((id: string) => latest.current?.find(c => c.id === id), []);
   const presence = useMemo(() => presenceState.identity === identity ? presenceState.people : {}, [presenceState, identity]);
   const counted = useMemo(() => {
     const u = { channels: 0, messages: 0 };
@@ -274,7 +294,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   // The badges are numbers: the same numbers from a new list are the same badges.
   const unread = useMemo(() => ({ channels: counted.channels, messages: counted.messages, agent }), [counted.channels, counted.messages, agent]);
 
-  const actions = useMemo(() => ({ refresh, subscribe, setOpen, refreshAgent }), [refresh, subscribe, setOpen, refreshAgent]);
+  const actions = useMemo(() => ({ refresh, subscribe, setOpen, refreshAgent, peek }), [refresh, subscribe, setOpen, refreshAgent, peek]);
   const list = useMemo(() => ({ conversations: shown, error, connected }), [shown, error, connected]);
   const people = useMemo(() => ({ presence, connected }), [presence, connected]);
   return (

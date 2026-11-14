@@ -5,6 +5,7 @@ import { accountId, activateAccount, loadAccounts, removeAccount, saveAccount, s
 import { leaveCall } from "./active-call";
 import { setPendingOrder } from "./channel-sort-store";
 import { clearDrafts, migrateDrafts } from "./drafts";
+import { clearScreenCaches } from "./screen-cache";
 import { resetEmailNudge } from "./email-nudge";
 import { ALL_FEATURES, FeaturesContext, landingHref, normalizeFeatures, withDeepWork } from "./features.ts";
 import { deepWorkFromServer, normalizeMissed, type MissedCall } from "./deep-work.ts";
@@ -55,6 +56,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         void leaveCall();
         setPendingOrder(null);
         void resetEmailNudge();
+        // What screens kept in memory belongs to the account that was signed in.
+        clearScreenCaches();
       }
       selectSessionAccount(selected ? `${accountId(selected)}:${selected.token}` : null);
       savedRef.current = value;
