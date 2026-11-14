@@ -9,6 +9,10 @@ const all = new Set<Clearable>();
 export function clearScreenCaches() {
   for (const cache of all) cache.clear();
 }
+/** Something else that holds one account's data in memory (a queue of loads): cleared with the caches. */
+export function clearWithScreenCaches(store: Clearable) {
+  all.add(store);
+}
 
 /** A small most-recently-used store: the screens a person goes back to are the ones kept. */
 export function createScreenCache<T>(limit = 30) {
@@ -22,11 +26,15 @@ export function createScreenCache<T>(limit = 30) {
       entries.set(key, value);
       return value;
     },
+    /** What is kept for `key`, without counting as a visit. */
+    peek(key: string): T | undefined { return entries.get(key); },
     set(key: string, value: T) {
       entries.delete(key);
       entries.set(key, value);
       while (entries.size > limit) entries.delete(entries.keys().next().value!);
     },
+    /** A newer value for something already kept (a message arrived for it). Not a visit; does nothing when it is not kept. */
+    update(key: string, value: T) { if (entries.has(key)) entries.set(key, value); },
     delete(key: string) { entries.delete(key); },
     clear() { entries.clear(); },
     get size() { return entries.size; },

@@ -11,6 +11,9 @@ import { agentUnreadTotal } from "./agent-unread";
 import { reuseEqual } from "./reuse-equal";
 import { setRowChange, withRowChanges, type RowChange, type RowChanges } from "./row-changes";
 import { createSharedRequest } from "./shared-request";
+import { countLiveEvent } from "./live-counts";
+import { followLive, warmConversations } from "./conversation-cache";
+import { warmChats } from "./chat-cache";
 
 // What a screen can ask the connection to do. These never change while you stay signed in, so a
 // screen that only listens or refreshes (an open conversation, a thread) is not re-rendered when
@@ -39,18 +42,6 @@ const ListCtx = createContext<LiveList | null>(null);
 const PresenceCtx = createContext<LivePresence | null>(null);
 const UnreadCtx = createContext<LiveUnread | null>(null);
 
-// How many live events have touched each conversation, and how many times the stream started over.
-// A request made a moment before its screen was listening compares the number before and after: if
-// it moved, something may have been missed and the screen looks again (lib/conversation-cache.ts).
-const touched = new Map<string, number>();
-let restarts = 0;
-export const liveEventCount = (conversationId: string) => restarts * 1_000_000 + (touched.get(conversationId) ?? 0);
-function countLiveEvent(e: LiveEvent) {
-  if (e.event === "ready") { if (e.data.reset !== false) { restarts++; touched.clear(); } return; }
-  const id = e.event === "message.created" || e.event === "message.updated" || e.event === "messages.read" ? e.data.conversationId
-    : e.event === "conversation.updated" || e.event === "conversation.read" ? e.data.id : null;
-  if (id) touched.set(id, (touched.get(id) ?? 0) + 1);
-}
 
 export function LiveProvider({ children }: { children: ReactNode }) {
   const { account, setAccount, signOut, learnDeepWork } = useSession();
@@ -80,7 +71,12 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     const count = (total: number) => setAgentUnread(current => current.identity === id && current.count === total ? current : { identity: id, count: total });
     if (chats) return void count(agentUnreadTotal(chats));
     api.chats(account, setAccount)
-      .then(list => { if (version === agentVersion.current && Array.isArray(list)) count(agentUnreadTotal(list)); })
+      .then(list => {
+        if (version !== agentVersion.current || !Array.isArray(list)) return;
+        count(agentUnreadTotal(list));
+        // The chats most likely to be opened next are loaded quietly, so opening one shows it at once.
+        warmChats(account, list);
+      })
       .catch(() => { /* Keep the last count; a failed refresh never clears it. */ });
   }, [account, setAccount]);
   useEffect(() => {
@@ -217,6 +213,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
               if (stopped) return;
               if (e.event === "checkpoint") return;
               countLiveEvent(e);
+              // A conversation kept in memory takes in the messages that arrive for it, so it is current when it is opened.
+              followLive(account, e);
               if (e.event === "ready") {
                 setConnected(true);
                 delay = 1000;
@@ -300,6 +298,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const shown = useMemo(() => account && conversations ? withRowChanges(conversations, changes) : null, [account, conversations, changes]);
   const latest = useRef(shown);
   useEffect(() => { latest.current = shown; }, [shown]);
+  // The conversations most likely to be opened next (unread first) are loaded quietly, one at a time, so
+  // opening one shows its messages at once instead of a spinner (lib/conversation-cache.ts).
+  useEffect(() => { if (account && shown) warmConversations(account, shown); }, [account, shown]);
   const peek = useCallback((id: string) => latest.current?.find(c => c.id === id), []);
   const presence = useMemo(() => presenceState.identity === identity ? presenceState.people : {}, [presenceState, identity]);
   const counted = useMemo(() => {

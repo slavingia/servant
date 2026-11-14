@@ -14,7 +14,7 @@ import { isSessionExpired, isSignedOut } from "../../lib/session-expiry-rules";
 import { api, ServerError, type Chat } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { useLiveActions } from "../../lib/live";
-import { openingChat } from "../../lib/chat-cache";
+import { openingChat, warmChats } from "../../lib/chat-cache";
 import { reuseEqual } from "../../lib/reuse-equal";
 import { setRowChange, withRowChanges, type RowChanges } from "../../lib/row-changes";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../../lib/theme";
@@ -67,6 +67,7 @@ export default function Chats() {
       // The list is read every five seconds. What did not change is kept, so a look that finds nothing new draws nothing.
       setChats(current => reuseEqual(current, mine));
       refreshAgent(mine);
+      warmChats(account, mine);
       setShared(current => reuseEqual(current, others));
       void refreshProjects(account);
       setError(null);

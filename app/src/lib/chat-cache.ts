@@ -2,9 +2,11 @@
 // messages at once while a fresh copy loads behind them. Opening a chat also asks for everything it needs
 // in one go (whose chat it is, its messages and the agent's turns), started when its row is pressed, so the
 // screen never waits for one answer before asking the next.
+import { AppState } from "react-native";
 import { accountId, api, ServerError, type Account, type Chat, type Message } from "./server";
-import type { AgentTurn } from "./agent-turns";
-import { createEarlyRequests, createScreenCache } from "./screen-cache";
+import { activeAgentTurn, type AgentTurn } from "./agent-turns";
+import { clearWithScreenCaches, createEarlyRequests, createScreenCache } from "./screen-cache";
+import { createWarmQueue, likelyNext } from "./likely-next";
 
 export type ChatSnapshot = { info: Chat | null; messages: Message[]; turns: AgentTurn[] };
 export type ChatLoad = { info: Promise<Chat>; messages: Promise<Message[]>; turns: Promise<AgentTurn[]> };
@@ -30,6 +32,29 @@ function fetchChat(account: Account, id: string, readOnly: boolean): ChatLoad {
 export const keptChat = (account: Account, id: string) => kept.get(key(account, id));
 export const keepChat = (account: Account, id: string, snapshot: ChatSnapshot) => kept.set(key(account, id), snapshot);
 export const forgetChat = (account: Account, id: string) => kept.delete(key(account, id));
+
+// Your own chats most likely to be opened next (an unread reply first), loaded ahead of time: two at most,
+// one at a time, only while the app is in front, and never while the agent is still writing in one. A chat
+// is loaded again once when it has moved on since. Nothing is marked read by this.
+const WARM = 2;
+const warm = createWarmQueue({ idle: () => AppState.currentState === "active" });
+clearWithScreenCaches(warm);
+
+export function warmChats(account: Account, chats: readonly Chat[]) {
+  const mine = chats.filter(chat => !chat.readOnly && !(chat.latestTurn && activeAgentTurn(chat.latestTurn)));
+  for (const chat of likelyNext(mine, WARM)) {
+    const id = key(account, chat.id);
+    const have = kept.peek(id);
+    if (have?.info && have.info.updatedAt >= chat.updatedAt) continue;
+    warm.add(`${id}:${chat.updatedAt}`, async () => {
+      const load = fetchChat(account, chat.id, false);
+      const [info, messages, turns] = await Promise.all([load.info, load.messages, load.turns]);
+      // A reply being written is never kept: it shows when the server says there is one.
+      if (messages.some(message => message.pending)) return;
+      keepChat(account, chat.id, { info, messages, turns });
+    });
+  }
+}
 
 /** Call when a chat's row is pressed, before navigating: its requests leave now. */
 export function openingChat(account: Account, id: string, readOnly = false) {

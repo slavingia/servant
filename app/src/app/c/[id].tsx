@@ -26,7 +26,9 @@ import { PiiDeclined, withPiiConfirm } from "../../lib/pii-warning";
 import { usePiiConfirm } from "../../components/PiiConfirm";
 import { api, ServerError, type Account, type Conversation, type Person, type Upload, type Post, type LiveEvent } from "../../lib/server";
 import { useStableCallback } from "../../lib/stable-callback";
-import { liveEventCount, useLiveActions } from "../../lib/live";
+import { useLiveActions } from "../../lib/live";
+import { liveEventCount } from "../../lib/live-counts";
+import { mergePosts as merge } from "../../lib/post-list";
 import { useSession } from "../../lib/session";
 import { askAgentAbout } from "../../lib/ask-agent";
 import { helpText, parseSlash, resolvePeople, splitDm } from "../../lib/slash-commands";
@@ -40,13 +42,6 @@ import { channelVisibility } from "../../lib/channel-visibility";
 import { groupActivity } from "../../lib/activity-groups";
 
 const errorText = (e: unknown, fallback: string) => (e instanceof ServerError ? e.message : fallback);
-
-// Merge posts by id, keeping order by id (ids are increasing numbers).
-function merge(list: Post[], incoming: Post[]) {
-  const map = new Map(list.map((p) => [p.id, p]));
-  for (const p of incoming) map.set(p.id, p);
-  return [...map.values()].sort((a, b) => Number(a.id) - Number(b.id));
-}
 
 export default function ConversationScreen() {
   const { id, compose } = useLocalSearchParams<{ id: string; compose?: string }>();

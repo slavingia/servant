@@ -2,7 +2,7 @@
 // replies at once while a fresh copy loads behind them, and opening one starts its request when
 // "Reply in thread" or the reply count is pressed, before the screen has been built.
 import { accountId, api, type Account, type Conversation, type Post } from "./server";
-import { liveEventCount } from "./live";
+import { liveEventCount } from "./live-counts";
 import { createEarlyRequests, createScreenCache } from "./screen-cache";
 import { threadStart, type ThreadSnapshot } from "./thread-start";
 

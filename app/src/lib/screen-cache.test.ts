@@ -151,3 +151,19 @@ test("a thread starts from what it last showed, and its request leaves when it i
   assert.ok(open.indexOf("openingThread(account, id, p.id);") < open.indexOf('pathname: "/thread"'), "the request starts before navigating");
   assert.doesNotMatch(await read("lib/thread-cache.ts"), /setItem|SecureStore|localStorage|AsyncStorage/);
 });
+
+test("a kept screen can be looked at and brought up to date without counting as a visit", () => {
+  const cache = createScreenCache<string>(2);
+  cache.set("old", "first");
+  cache.set("new", "second");
+  // A message arrives for the older one: it is updated where it is, not moved to the front.
+  assert.equal(cache.peek("old"), "first");
+  cache.update("old", "first, with the new message");
+  cache.set("third", "third");
+  assert.equal(cache.peek("old"), undefined, "the one visited longest ago still goes first");
+  assert.equal(cache.peek("new"), "second");
+  // Nothing is kept for a conversation that was never opened or loaded: an update does not start keeping it.
+  cache.update("never", "x");
+  assert.equal(cache.peek("never"), undefined);
+  assert.equal(cache.size, 2);
+});
