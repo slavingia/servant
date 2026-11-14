@@ -45,9 +45,29 @@ function mergeRanges(ranges: Range[]): Range[] {
   return merged;
 }
 
-// Replacement text is final output, even when it contains another shortcut.
-// Keep legacy "Full Name (ABBR)" drafts intact as well.
-function replacementRanges(text: string, entries: readonly GlossaryEntry[]): Range[] {
+// The glossary changes rarely, and text is matched against it constantly: every part of every message row asks.
+// What depends on the glossary alone (its terms grouped by their normal form, and the patterns made from every
+// term and every full name) was rebuilt on each of those calls, three patterns compiled per piece of text. It
+// is now built once per list of entries and kept for as long as that list is. A list is never changed in place:
+// a new glossary is a new list.
+const longestFirst = (values: Iterable<string>, flags: string) => new RegExp([...values].sort((a, b) => b.length - a.length).map(escapePattern).join("|"), flags);
+
+/** Every match of a kept pattern, in order. A kept pattern remembers where it stopped, so it starts from the top each time. */
+function every(pattern: RegExp, text: string): RegExpExecArray[] {
+  const found: RegExpExecArray[] = [];
+  pattern.lastIndex = 0;
+  for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+    found.push(match);
+    if (match[0] === "") pattern.lastIndex++;
+  }
+  return found;
+}
+
+type Replacements = { replacements: RegExp; legacy: RegExp } | null;
+const keptReplacements = new WeakMap<readonly GlossaryEntry[], { made: Replacements }>();
+function replacementsOf(entries: readonly GlossaryEntry[]): Replacements {
+  const kept = keptReplacements.get(entries);
+  if (kept) return kept.made;
   const replacements = new Set<string>();
   const legacy = new Set<string>();
   for (const entry of entries) {
@@ -55,16 +75,24 @@ function replacementRanges(text: string, entries: readonly GlossaryEntry[]): Ran
     replacements.add(entry.fullName);
     legacy.add(`${entry.fullName.trim()} (${entry.abbreviation.trim()})`);
   }
-  if (!text || !replacements.size) return [];
+  const made = replacements.size ? { replacements: longestFirst(replacements, "gu"), legacy: longestFirst(legacy, "giu") } : null;
+  keptReplacements.set(entries, { made });
+  return made;
+}
+
+// Replacement text is final output, even when it contains another shortcut.
+// Keep legacy "Full Name (ABBR)" drafts intact as well.
+function replacementRanges(text: string, entries: readonly GlossaryEntry[]): Range[] {
+  const patterns = replacementsOf(entries);
+  if (!text || !patterns) return [];
   const ranges: Range[] = [];
-  const pattern = (values: Set<string>, flags: string) => new RegExp([...values].sort((a, b) => b.length - a.length).map(escapePattern).join("|"), flags);
-  for (const match of text.matchAll(pattern(replacements, "gu"))) {
+  for (const match of every(patterns.replacements, text)) {
     const start = match.index, end = start + match[0].length;
     const leading = match[0].length - match[0].trimStart().length;
     const trailing = match[0].length - match[0].trimEnd().length;
     if (wholeToken(text, start + leading, end - trailing)) ranges.push({ start, end });
   }
-  for (const match of text.matchAll(pattern(legacy, "giu"))) ranges.push({ start: match.index, end: match.index + match[0].length });
+  for (const match of every(patterns.legacy, text)) ranges.push({ start: match.index, end: match.index + match[0].length });
   return ranges;
 }
 
@@ -176,8 +204,11 @@ function protectedRanges(text: string, entries: readonly GlossaryEntry[]): Range
   return mergeRanges(ranges);
 }
 
-/** Find complete terms in prose. Ambiguous terms retain every possible meaning. */
-export function findAbbreviations(text: string, entries: readonly GlossaryEntry[]): AbbreviationMatch[] {
+type Terms = { groups: Map<string, GlossaryEntry[]>; defined: GlossaryEntry[]; pattern: RegExp | null };
+const keptTerms = new WeakMap<readonly GlossaryEntry[], Terms>();
+function termsOf(entries: readonly GlossaryEntry[]): Terms {
+  const kept = keptTerms.get(entries);
+  if (kept) return kept;
   const groups = new Map<string, GlossaryEntry[]>();
   for (const entry of entries) {
     const key = normalizeAbbreviation(entry.abbreviation);
@@ -186,13 +217,20 @@ export function findAbbreviations(text: string, entries: readonly GlossaryEntry[
     if (!group.some(existing => existing.id === entry.id)) group.push(entry);
     groups.set(key, group);
   }
-  if (!text || !groups.size) return [];
   // Longest first avoids matching the shorter term inside e.g. ABC/DEF.
-  const pattern = new RegExp([...groups.keys()].sort((a, b) => b.length - a.length).map(escapePattern).join("|"), "giu");
-  const protectedText = protectedRanges(text, [...groups.values()].flat());
+  const made = { groups, defined: [...groups.values()].flat(), pattern: groups.size ? longestFirst(groups.keys(), "giu") : null };
+  keptTerms.set(entries, made);
+  return made;
+}
+
+/** Find complete terms in prose. Ambiguous terms retain every possible meaning. */
+export function findAbbreviations(text: string, entries: readonly GlossaryEntry[]): AbbreviationMatch[] {
+  const { groups, defined, pattern } = termsOf(entries);
+  if (!text || !pattern) return [];
+  const protectedText = protectedRanges(text, defined);
   const matches: AbbreviationMatch[] = [];
   let rangeIndex = 0;
-  for (const match of text.matchAll(pattern)) {
+  for (const match of every(pattern, text)) {
     const start = match.index;
     const end = start + match[0].length;
     if (!wholeToken(text, start, end)) continue;

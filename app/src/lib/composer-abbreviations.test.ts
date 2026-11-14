@@ -46,3 +46,22 @@ test("messages underline abbreviations with a dotted line and a hover title", ()
   assert.match(composer, /withAbbreviations\(p, abbreviations\)/, "people's messages");
   assert.match(read("components/MessageText.tsx"), /part\.code \? part\.text : withAbbreviations\(part\.text, abbreviations\)/, "agent replies and the wiki, never code");
 });
+
+test("a message drawn again is not marked again: the same words and glossary give back the same parts", () => {
+  const entries = [entry("API", "Application programming interface"), entry("QA", "Quality assurance")];
+  const text = "Ship the API to QA, then api docs";
+  const first = abbreviationParts(text, entries);
+  // Opening the conversation again, or scrolling back to the message, asks again.
+  assert.equal(abbreviationParts(text, entries), first);
+  assert.equal(first.map(part => part.text).join(""), text);
+  // Other words are worked out on their own, and a new glossary (a new list) starts over.
+  assert.notEqual(abbreviationParts("Ship the API", entries), first);
+  const wider = [...entries, entry("DOCS", "Documentation")];
+  const again = abbreviationParts(text, wider);
+  assert.notEqual(again, first);
+  assert.deepEqual(again.filter(part => part.title).map(part => part.text), ["API", "QA", "api", "docs"]);
+  assert.deepEqual(abbreviationParts(text, entries).filter(part => part.title).map(part => part.text), ["API", "QA", "api"], "the first glossary still answers as it did");
+  // What is kept is bounded: after many different messages the answers are still right.
+  for (let i = 0; i < 2100; i++) abbreviationParts(`message ${i} about the API`, entries);
+  assert.deepEqual(abbreviationParts(text, entries).map(part => part.text).join(""), text);
+});

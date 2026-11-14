@@ -177,3 +177,35 @@ test("the shared lexicon limit scans a moderate draft without dropping trailing 
   assert.deepEqual(findUnknownAbbreviations(text, entries), ["MYSTERY"]);
   assert.ok(performance.now() - start < 3000, "A 2,000-entry lexicon and 50,000-character draft should remain interactive");
 });
+
+// Every part of every message row is matched against the glossary. What is made from the glossary alone used
+// to be made again on each call: three patterns compiled per piece of text, 0.66 ms a call with a hundred terms
+// on the engine the phones run.
+test("the glossary's patterns are built once per list of entries, not once per piece of text", t => {
+  const glossary = Array.from({ length: 60 }, (_, i) => entry(i < 2 ? ["API", "QA"][i]! : `T${i}X`, `Full name number ${i}`, `id${i}`));
+  const texts = ["The API is ready for QA, and T7X is next.", "Nothing to mark here.", "QA first, then the Full name number 9 (T9X) review."];
+  // The answers, from lists that have never been seen before (nothing kept for them).
+  const expected = texts.map(text => JSON.stringify(findAbbreviations(text, [...glossary])));
+  const unknown = texts.map(text => findUnknownAbbreviations(`${text} ZQXV`, [...glossary]));
+  const built = t.mock.method(globalThis, "RegExp");
+  for (let round = 0; round < 50; round++) {
+    texts.forEach((text, i) => {
+      assert.equal(JSON.stringify(findAbbreviations(text, glossary)), expected[i], "a kept pattern starts from the top of each text");
+      assert.deepEqual(findUnknownAbbreviations(`${text} ZQXV`, glossary), unknown[i]);
+    });
+  }
+  // 300 calls: the terms once, and the full names and the older "Full Name (ABBR)" form once for each of the two
+  // lists that are protected (the defined entries, and the list as given).
+  assert.ok(built.mock.callCount() <= 5, `${built.mock.callCount()} patterns were built`);
+});
+
+test("a new glossary is a new list, and is matched as soon as it arrives", () => {
+  const before = [api];
+  assert.deepEqual(findAbbreviations("API and QA", before).map(match => match.token), ["API"]);
+  // Someone defines QA: the store hands out a new list.
+  const after = [...before, qa];
+  assert.deepEqual(findAbbreviations("API and QA", after).map(match => match.token), ["API", "QA"]);
+  assert.deepEqual(findAbbreviations("API and QA", before).map(match => match.token), ["API"], "the old list still answers as it did");
+  assert.deepEqual(findAbbreviations("API and QA", []), []);
+  assert.deepEqual(findUnknownAbbreviations("API and ZQXV", after), ["ZQXV"]);
+});
