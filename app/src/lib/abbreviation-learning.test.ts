@@ -55,3 +55,11 @@ test("Send does not wait for the abbreviation list: the box clears and the messa
   // An edit teaches nothing, so it does not read the list at all.
   assert.match(before, /if \(body && glossaryAccount && !command && !onCancel\) \{/);
 });
+
+test("a composer does not ask for the abbreviation list when it appears, only when a message is sent", () => {
+  const hook = read("lib/use-project-glossary.ts");
+  // No effect asks on mount; the list is read by getEntries, which the composer calls beside a send.
+  assert.doesNotMatch(hook, /useEffect\(/);
+  assert.match(hook, /const getEntries = useCallback\(async \(fresh = false\)/);
+  assert.match(read("components/Messaging.tsx"), /findUnknownAbbreviations\(body, await getEntries\(\)\)/);
+});

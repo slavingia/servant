@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { Account } from "./server";
 import { mergeGlossaryEntries, type GlossaryEntry } from "./abbreviations";
 import { glossaryApi } from "./glossary-api";
@@ -80,7 +80,8 @@ export function useProjectGlossary(account: Account | null, projectId?: string |
     scope.result = next; setResult(next);
   }, [key]);
 
-  useEffect(() => { void getEntries().catch(() => {}); }, [getEntries]);
+  // The list is read when it is first needed (a message is sent), not every time a composer appears: opening a
+  // conversation, a thread or a chat used to ask for it each time, for nothing unless something was then sent.
   const current = account && result?.key === key ? result : null;
-  return { entries: current?.entries ?? EMPTY, error: current?.error ?? "", loading: !!account && !current, refresh, getEntries, rememberEntry };
+  return { entries: current?.entries ?? EMPTY, error: current?.error ?? "", refresh, getEntries, rememberEntry };
 }
