@@ -684,6 +684,9 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
       memberCount: memberIds.length,
       members: includeMembers || c.kind === "dm" || memberIds.length <= 50 ? memberIds.map(person) : undefined,
       unread: c.unread ?? 0,
+      // How far this person has read here (a message id). The app draws its "New" line above the first
+      // message after it. Someone previewing a channel they have not joined has no place.
+      ...(membership ? { readThrough: String(membership.last_read_seq) } : {}),
       ...(isAgentDm(c) ? { agentDm: true } : {}),
       lastMessage: last ? msgView(last, !!st.member.get(c.id, me), me) : null,
       updatedAt: last ? last.created_at : c.created_at,
