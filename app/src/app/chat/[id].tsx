@@ -7,6 +7,8 @@ import { randomUUID } from "expo-crypto";
 import { ConversationKeyboardView } from "../../components/ConversationKeyboardView";
 import { Avatar, Composer, when } from "../../components/Messaging";
 import { ProjectSheet } from "../../components/ProjectSheet";
+import { PeopleSheet } from "../../components/PeopleSheet";
+import { historyLabel, peopleSummary, type ChatHistory, type ChatMember } from "../../lib/chat-members";
 import { Attachments, documentReader, PendingAttachments } from "../../components/Attachments";
 import { uploadDocument, UploadError } from "../../lib/document-upload";
 import { MediaGalleryProvider } from "../../components/MediaGallery";
@@ -258,7 +260,7 @@ function ReplyText({ text, failed }: { text: string; failed?: boolean }) {
 }
 
 // Header "•••": chat options. Your own chat is private until you choose to share it with the server; Files lives here too.
-function OptionsSheet({ id, title, shared, projectId, projectShared, onProject, onProjectShared, onChange, onClose }: { id: string; title: string; shared: boolean | null; projectId: string | null; projectShared: boolean; onProject: (projectId: string | null) => void; onProjectShared: (shared: boolean) => void; onChange: (shared: boolean) => void; onClose: () => void }) {
+function OptionsSheet({ id, title, shared, projectId, projectShared, onProject, onProjectShared, onChange, onClose, members, onInvite, onUninvite }: { members: ChatMember[] | null; onInvite: () => void; onUninvite: (userId: string) => void; id: string; title: string; shared: boolean | null; projectId: string | null; projectShared: boolean; onProject: (projectId: string | null) => void; onProjectShared: (shared: boolean) => void; onChange: (shared: boolean) => void; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const { account } = useSession();
@@ -322,6 +324,17 @@ function OptionsSheet({ id, title, shared, projectId, projectShared, onProject, 
             </Radio>)}
           </View> : null}
         </> : null}
+        {members ? <>
+          {members.map(m => <View key={m.id} style={styles.shareRow}>
+            <Avatar name={m.name} userId={m.id} size={28} />
+            <View style={styles.turnCopy}>
+              <Text style={styles.turnLabel}>{m.name}</Text>
+              <Text style={styles.turnDetail}>{historyLabel(m)}</Text>
+            </View>
+            <Button label="Remove" accessibilityLabel={`Remove ${m.name} from this chat`} kind="danger" compact onPress={() => onUninvite(m.id)} />
+          </View>)}
+          <Pressable testID="add-people" accessibilityRole="button" onPress={onInvite} style={styles.menuAction}><Text style={styles.menuActionText}>Add people</Text></Pressable>
+        </> : null}
         <Pressable testID="open-files" accessibilityRole="button" onPress={() => { onClose(); router.push({ pathname: "/files", params: { kind: "chat", id, title } }); }} style={styles.menuAction}><Text style={styles.menuActionText}>Files</Text></Pressable>
         <Pressable accessibilityRole="button" onPress={onClose} style={styles.menuAction}><Text style={styles.menuActionText}>Done</Text></Pressable>
       </Pressable>
@@ -378,6 +391,13 @@ function ChatConversation() {
   const [choosing, setChoosing] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [aboutError, setAboutError] = useState<string | null>(null);
+  // People invited to read this chat. Before anything is sent the pill beside About adds them with all
+  // of it; later, Chat options asks how much of what came before they see.
+  const [members, setMembers] = useState<ChatMember[]>([]);
+  const [readOnly, setReadOnly] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
   const { width: winWidth } = useWindowDimensions();
   // Portrait phones stack the preview above the chat; folds, tablets, landscape and wide windows put it beside.
   const stacked = winWidth < 600;
@@ -395,6 +415,8 @@ function ChatConversation() {
       setShared(c.shared !== false);
       setProjectId(c.projectId ?? null);
       setProjectShared(c.projectShared === true);
+      setMembers(c.members ?? []);
+      setReadOnly(c.readOnly === true);
       setPreviewUrl(c.mode === "vibe" && c.previewUrl ? c.previewUrl : null);
       setVibe(c.mode === "vibe");
     }).catch(() => {});
@@ -843,6 +865,17 @@ function ChatConversation() {
   // Nothing sent yet: the choice sits right above the message box, and goes once the first message is on its way.
   const fresh = messages !== null && messages.length === 0 && !loadError && !firstRow && !turn && waiting.length === 0;
   const showAbout = fresh && !!projects && !projects.vibeCoder;
+  const invite = async (userIds: string[], history: ChatHistory) => {
+    setInviteBusy(true); setInviteError(null);
+    try { setMembers((await api.addChatMembers(account, String(id), userIds, history)).members ?? []); setInviting(false); }
+    catch (e) { setInviteError(e instanceof ServerError ? e.message : "Couldn't add them. Try again."); }
+    finally { setInviteBusy(false); }
+  };
+  const uninvite = async (userId: string) => {
+    setMembers(list => list.filter(m => m.id !== userId));
+    try { setMembers((await api.removeChatMember(account, String(id), userId)).members ?? []); }
+    catch { api.chat(account, String(id)).then(c => setMembers(c.members ?? [])).catch(() => {}); }
+  };
   const pickAbout = async (choice: string | null) => {
     setChoosing(false);
     const next = canonical(projects, choice);
@@ -876,7 +909,10 @@ function ChatConversation() {
     <View style={styles.root}>
       <Stack.Screen options={{ title: heading, headerTitle: titleButton(showTitle, setShowTitle, headerLinks.length), ...filesHeader(String(id), heading, colors.blue, headerLinks, false) }} />
       {showTitle ? <FullTitle title={heading} onClose={() => setShowTitle(false)} /> : null}
-      {sharing ? <OptionsSheet id={String(id)} title={heading} shared={shared} projectId={projectId} projectShared={projectShared} onProject={setProjectId} onProjectShared={setProjectShared} onChange={setShared} onClose={() => setSharing(false)} /> : null}
+      {sharing ? <OptionsSheet id={String(id)} title={heading} shared={shared} projectId={projectId} projectShared={projectShared} onProject={setProjectId} onProjectShared={setProjectShared} onChange={setShared} onClose={() => setSharing(false)}
+        members={readOnly ? null : members} onInvite={() => { setSharing(false); setInviteError(null); setInviting(true); }} onUninvite={userId => { void uninvite(userId); }} /> : null}
+      {inviting ? <PeopleSheet title={fresh ? "Invite to this chat" : "Add people"} exclude={members.map(m => m.id)} withHistory={!fresh} busy={inviteBusy} error={inviteError}
+        onDone={(userIds, history) => { void invite(userIds, history); }} onClose={() => setInviting(false)} /> : null}
       {choosing && projects ? <ProjectSheet visible projects={pickable(projects)} vibe={projects.vibe !== false} vibeLinks={projects.vibeLinks} selected={about} title="This chat is about" onPick={project => { void pickAbout(project); }} onClose={() => setChoosing(false)} /> : null}
       <View style={[styles.split, stacked && previewOpen && styles.splitStacked]}>
       <View style={[styles.chatColumn, stacked && previewOpen && styles.chatColumnStacked]}>
@@ -947,6 +983,7 @@ function ChatConversation() {
           <IconButton icon="close" label="Don't forward this message" onPress={() => setPendingForward(null)} />
         </View> : null}
         {showAbout ? <View style={styles.aboutRow}>
+          <View style={styles.pills}>
           <Pressable testID="chat-about" accessibilityRole="button" accessibilityLabel={`About: ${aboutName}`} accessibilityHint="Change what this chat is about: a project, prototyping or just the agent"
             accessibilityState={{ busy: switching, expanded: choosing }} aria-expanded={choosing} disabled={switching} onPress={() => setChoosing(true)}
             style={({ pressed }) => [styles.aboutTarget, pressed && { opacity: 0.7 }]}>
@@ -956,6 +993,16 @@ function ChatConversation() {
               {switching ? <ActivityIndicator size="small" color={colors.blueDark} /> : <AppIcon name="chevronDown" size={16} color={colors.blueDark} />}
             </View>
           </Pressable>
+          <Pressable testID="chat-people" accessibilityRole="button" accessibilityLabel={`People: ${peopleSummary(members.map(m => m.name))}`} accessibilityHint="Invite people to read this chat"
+            accessibilityState={{ expanded: inviting }} aria-expanded={inviting} onPress={() => { setInviteError(null); setInviting(true); }}
+            style={({ pressed }) => [styles.aboutTarget, pressed && { opacity: 0.7 }]}>
+            <View style={styles.about}>
+              <Text style={styles.aboutLabel}>People</Text>
+              <Text style={styles.aboutValue}>{peopleSummary(members.map(m => m.name))}</Text>
+              <AppIcon name="chevronDown" size={16} color={colors.blueDark} />
+            </View>
+          </Pressable>
+          </View>
           {aboutError ? <Text accessibilityRole="alert" style={styles.aboutError}>{aboutError}</Text> : null}
         </View> : null}
         {messages !== null && !loadError ? <Composer projectId={projectId} draftKey={`chat:${id}`} autoFocus={compose === "1"} commands={{ channel: false, agent: true }} placeholder={pendingForward ? "Message (optional)" : "Message the agent"} onSend={send} allowFileAttachments={false} allowDocuments canSendEmpty={!!pendingForward}
@@ -1094,6 +1141,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   // "About: <choice>" above the message box of a chat with nothing sent yet.
   // The pill is 32 points; the control around it is 44, which is also the row's height.
   aboutRow: { paddingHorizontal: space.side },
+  pills: { flexDirection: "row", flexWrap: "wrap", columnGap: space.xs },
   aboutTarget: { alignSelf: "flex-start", maxWidth: "100%", minHeight: 44, justifyContent: "center" },
   about: { maxWidth: "100%", minHeight: 32, flexDirection: "row", alignItems: "center", gap: space.xs, paddingLeft: space.sm, paddingRight: space.xs, borderRadius: radius.pill, backgroundColor: colors.blueSoft },
   aboutLabel: { ...typography.caption, color: colors.muted },

@@ -595,6 +595,62 @@ test("deleting an agent chat removes its prompts, replies and streamed events fr
   } finally { db.close(); }
 });
 
+test("agent chats: invite people at the start or later, choosing how much history they see", async () => {
+  const token = await pair("member", "Pat Tester");
+  const jo = await pair("member", "Jo Park");
+  const ana = await pair("member", "Ana Ruiz");
+  const stranger = await pair("member", "Invite Stranger");
+  const idOf = async who => (await api("GET", "/v1/people", { token: who })).json.me;
+  const joId = await idOf(jo), anaId = await idOf(ana);
+  const texts = async who => (await api("GET", `/v1/chats/${chat.id}/messages`, { token: who })).json.messages.map(m => m.text).join("\n");
+
+  // At the start: invited people see the whole chat, read only, and it lists for them.
+  const started = await api("POST", "/v1/chats", { token, body: { memberIds: [joId] } });
+  assert.equal(started.status, 201);
+  const chat = started.json.chat;
+  assert.deepEqual(chat.members.map(m => m.id), [joId]);
+  assert.equal(chat.members[0].since, 0, "invited at the start: everything");
+  assert.equal(chat.shared, false, "inviting is not sharing with the server");
+  await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "early question" } });
+  await api("GET", `/v1/chats/${chat.id}/messages`, { token });
+  assert.match(await texts(jo), /early question/);
+  assert.ok((await api("GET", "/v1/chats?scope=org", { token: jo })).json.orgChats.some(c => c.id === chat.id), "listed for the person invited");
+  assert.equal((await api("GET", "/v1/chats?scope=org", { token: stranger })).json.orgChats.some(c => c.id === chat.id), false, "not for anyone else");
+  assert.equal((await api("GET", `/v1/chats/${chat.id}/messages`, { token: stranger })).status, 404);
+  assert.equal((await api("POST", `/v1/chats/${chat.id}/messages`, { token: jo, body: { text: "hi" } })).status, 403, "invited people read; only the author writes");
+  assert.equal((await api("POST", `/v1/chats/${chat.id}/members`, { token: jo, body: { userIds: [anaId] } })).status, 403, "only the author invites");
+
+  // During the chat with no history: only what comes after.
+  await new Promise(r => setTimeout(r, 15));
+  const added = await api("POST", `/v1/chats/${chat.id}/members`, { token, body: { userIds: [anaId], history: "none" } });
+  assert.equal(added.status, 200);
+  const ana1 = added.json.chat.members.find(m => m.id === anaId);
+  assert.equal(ana1.since, ana1.invitedAt);
+  await new Promise(r => setTimeout(r, 15));
+  await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text: "later question" } });
+  await api("GET", `/v1/chats/${chat.id}/messages`, { token });
+  const seen = await texts(ana);
+  assert.match(seen, /later question/);
+  assert.doesNotMatch(seen, /early question/, "earlier messages are hidden from her");
+  assert.match(await texts(token), /early question/, "and still there for the author: hidden, never removed");
+  assert.match(await texts(jo), /early question/);
+
+  // The last day / week reaches back that far; all is everything.
+  const day = (await api("POST", `/v1/chats/${chat.id}/members`, { token, body: { userIds: [anaId], history: "day" } })).json.chat.members.find(m => m.id === anaId);
+  assert.equal(day.invitedAt - day.since, 86_400_000);
+  assert.match(await texts(ana), /early question/);
+  const week = (await api("POST", `/v1/chats/${chat.id}/members`, { token, body: { userIds: [anaId], history: "week" } })).json.chat.members.find(m => m.id === anaId);
+  assert.equal(week.invitedAt - week.since, 7 * 86_400_000);
+  assert.equal((await api("POST", `/v1/chats/${chat.id}/members`, { token, body: { userIds: [anaId], history: "month" } })).status, 400);
+  assert.equal((await api("POST", `/v1/chats/${chat.id}/members`, { token, body: { userIds: ["usr_nobody"] } })).status, 404);
+  assert.equal((await api("POST", "/v1/chats", { token, body: { memberIds: ["usr_nobody"] } })).status, 404);
+
+  // Removing someone takes the chat away from them.
+  const removed = await api("DELETE", `/v1/chats/${chat.id}/members/${anaId}`, { token });
+  assert.deepEqual(removed.json.chat.members.map(m => m.id), [joId]);
+  assert.equal((await api("GET", `/v1/chats/${chat.id}/messages`, { token: ana })).status, 404);
+});
+
 test("agent chats: swipe to archive, restore, and a new message un-archives; only the owner can", async () => {
   const token = await pair("member", "Arlo");
   const other = await pair("member", "Bea");
