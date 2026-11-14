@@ -56,6 +56,25 @@ When you open a channel or a direct message with unread messages, a line marked 
 
 The place comes from the server: each conversation carries `readThrough`, the id of the last message you have read there, in `GET /v1/conversations` and `GET /v1/conversations/:id`. It is your own place and is sent only to you. An older server sends none and shows no line; older app builds ignore it. Threads and agent chats have no line.
 
+## Search
+
+Search (the field at the top of the sidebar, ⌘K or Ctrl+K, or the search icon on a phone) finds channels, people, agent chat titles and messages. Messages are matched by whole words and by their stem, in any order: `renewal approve` finds "The permit renewals were approved". The last word may be the start of one, and words in quotes must appear together. Part of a word, or text that is not words, is still found as typed when nothing else matches. Results are the 20 newest, from conversations you are in; the box says when there are more.
+
+Filters narrow messages, alone or with words:
+
+- `in:#general` only that channel (its name, with or without `#`)
+- `from:@Jo-Park` only what that person wrote (their @name, a first name nobody shares, or `me`)
+- `has:link` only messages with a link; `has:file` only messages with something attached
+- `is:thread` only replies in threads and the messages they answer
+
+With a filter typed, only messages are listed. A filter that names no channel or person finds nothing rather than everything, and no filter reaches past what you can read.
+
+The server keeps a full-text index of message text in `messages.db` (SQLite's own FTS5, so there is still nothing to install). The database keeps it in step inside the same transaction as every post, edit and delete, so an edited or deleted message's old words are never found; a server that already has messages indexes them once when it is first updated. Agent chats are searched by title only. `/feedback` (below) and other commands are not indexed.
+
+## Formatting and commands
+
+A person's message is formatted as they type it: `*bold*` or `**bold**`, `_italics_`, `~~strikethrough~~`, `` `code` ``, fenced code, `>` quotes and lists. Typing `/` at the start of a message lists commands; `/help` says what each does. `/feedback what to fix or add` sends feedback about Servant from wherever you are typing and says it was sent; `/feedback` alone opens the Feedback page. Only the words after the command are sent, with the kind of screen, the app build and the platform: nothing from the conversation is attached.
+
 ## Saved messages
 
 Touch and hold a channel message, direct message, or thread reply (or open its **•••** menu on the web or Mac) and choose **Save for later**. Open **Saved** in the sidebar, **You → Saved** on a phone, or search for “saved” in the search bar. Your private task list has **In progress**, **Completed**, and **Work log** views. Tick an item off, undo or reopen it, remove it from the list, or use **Open message** to return to the highlighted original and its thread. Before checking it off, **Add work note** can record the result, decisions, or links to what you finished.

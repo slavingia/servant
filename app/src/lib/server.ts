@@ -222,7 +222,8 @@ export type SearchMessage = {
   user: Person;
   createdAt: number;
 };
-export type SearchResults = { channels: SearchChannel[]; people: Person[]; messages: SearchMessage[] };
+/** `more`: there are more matching messages than the page that came back (absent on an older server). */
+export type SearchResults = { channels: SearchChannel[]; people: Person[]; messages: SearchMessage[]; more?: boolean };
 export type LiveEvent =
   | { event: "message.created" | "message.updated"; data: Post }
   | { event: "conversation.updated" | "conversation.read"; data: { id: string } }

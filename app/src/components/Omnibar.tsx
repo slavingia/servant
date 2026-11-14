@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, ServerError, type Account, type Chat, type Conversation, type Person, type SearchResults } from "../lib/server";
 import { useSession } from "../lib/session";
 import { useFeatures } from "../lib/features";
-import { matchesQuery, omnibarShortcuts, searchExcerpt } from "../lib/omnibar";
+import { matchesQuery, omnibarShortcuts, searchExcerpt, SEARCH_FILTERS_HINT, splitSearch } from "../lib/omnibar";
 import { onBrandTint, radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
 import { Button } from "./Button";
 import { AppIcon, type AppIconName } from "./AppIcon";
@@ -124,7 +124,9 @@ function SearchBar({ account, variant }: { account: Account; variant: "bar" | "s
   }, [account, attempt, searchQuery, visible]);
 
   const groups = useMemo((): Group[] => {
-    const existing = conversations ?? [];
+    // With a filter typed (in:, from:, has:, is:) only messages are listed; the words alone find the rest.
+    const { words, filtered } = splitSearch(searchQuery);
+    const existing = filtered ? [] : conversations ?? [];
     const matches = existing.filter(c => (searchQuery || !c.archived) && matchesQuery(searchQuery, c.title))
       .sort((a, b) => Number(a.archived) - Number(b.archived) || b.updatedAt - a.updatedAt);
     const conversationResult = (c: (typeof existing)[number]): Result => ({
@@ -133,7 +135,7 @@ function SearchBar({ account, variant }: { account: Account; variant: "bar" | "s
       glyph: c.kind === "channel" ? "#" : "@", archived: c.archived,
       href: { pathname: "/c/[id]", params: { id: c.id } },
     });
-    const actions: Result[] = omnibarShortcuts(searchQuery, account.user.role === "owner", features, surveyPermissions.canView).map(action => ({
+    const actions: Result[] = filtered ? [] : omnibarShortcuts(searchQuery, account.user.role === "owner", features, surveyPermissions.canView).map(action => ({
       id: `action:${action.id}`, title: action.title, detail: action.detail, glyph: "↗", href: action.path as Href,
     }));
     if (!searchQuery) return [
@@ -150,10 +152,10 @@ function SearchBar({ account, variant }: { account: Account; variant: "bar" | "s
       { title: "Chats", items: matches.filter(c => c.kind === "dm").slice(0, 6).map(conversationResult) },
       // A person here opens a direct message, so the group only shows where DMs exist.
       { title: "People", items: features.directMessages ? (currentResponse?.data?.people ?? []).map(person => ({ id: `person:${person.id}`, title: person.name, detail: "Open a direct message", glyph: "@", person })) : [] },
-      { title: "Agent chats", items: chats.filter(c => matchesQuery(searchQuery, c.title)).slice(0, 6).map(chat => ({ id: `chat:${chat.id}`, title: chat.title, detail: "Private agent chat", glyph: "✦", href: { pathname: "/chat/[id]", params: { id: chat.id, title: chat.title } } })) },
+      { title: "Agent chats", items: (filtered ? [] : chats).filter(c => matchesQuery(searchQuery, c.title)).slice(0, 6).map(chat => ({ id: `chat:${chat.id}`, title: chat.title, detail: "Private agent chat", glyph: "✦", href: { pathname: "/chat/[id]", params: { id: chat.id, title: chat.title } } })) },
       { title: "Messages", items: (currentResponse?.data?.messages ?? []).map(message => ({
         id: `message:${message.id}`, title: `${message.user.name} · ${message.conversationKind === "channel" ? "#" : ""}${message.conversationTitle}`,
-        detail: searchExcerpt(message.text, searchQuery), glyph: "↳",
+        detail: searchExcerpt(message.text, words), glyph: "↳",
         href: { pathname: "/thread", params: { conv: message.conversationId, root: message.threadRoot ?? message.id, focus: message.id, title: `${message.conversationKind === "channel" ? "#" : ""}${message.conversationTitle}` } },
       })) },
       { title: "Quick actions", items: actions },
@@ -228,6 +230,8 @@ function SearchBar({ account, variant }: { account: Account; variant: "bar" | "s
               {searching ? <ActivityIndicator accessibilityLabel="Searching" size="small" color={colors.blue} /> : null}
             </View>
             {searchQuery.length === 1 ? <Text style={styles.hint}>Enter at least 2 characters.</Text> : null}
+            {searchQuery.length !== 1 && features.channels ? <Text style={styles.hint}>{SEARCH_FILTERS_HINT}</Text> : null}
+            {currentResponse?.data?.more ? <Text style={styles.hint}>Showing the 20 newest messages. Add a word or a filter to narrow them.</Text> : null}
             {currentResponse?.error ? <View style={styles.notice}><Text accessibilityRole="alert" style={styles.error}>{currentResponse.error}</Text><Button label="Retry search" compact kind="link" onPress={() => setAttempt(n => n + 1)} /></View> : null}
             {actionError ? <Text accessibilityRole="alert" style={styles.actionError}>{actionError}</Text> : null}
             <FlatList ref={list} nativeID="servant-search-results" accessibilityRole={Platform.OS === "web" ? "listbox" : undefined} accessibilityLabel="Search results" data={rows} keyExtractor={row => row.id} extraData={{ selected, opening }} keyboardShouldPersistTaps="handled" style={[styles.results, mobile && styles.mobileResults]} contentContainerStyle={styles.resultContent}

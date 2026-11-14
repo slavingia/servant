@@ -1,4 +1,5 @@
 import { agentTierOf, TIER_TOKEN_LIMITS } from "./usage.mjs";
+import { ftsQuery, parseSearch, SEARCH_SCHEMA } from "./search.mjs";
 import { featureForKind, featureOffMessage } from "./features.mjs";
 import { deepWorkFields, inDeepWork } from "./deep-work.mjs";
 // Channels, direct messages and threads. People talk to each other here; the
@@ -300,6 +301,11 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
       migrateCompletion.run(id, saved.user_id, saved.message_seq, saved.saved_at, saved.completed_at);
       linkCompletion.run(id, saved.user_id, saved.message_seq);
     }
+    // The full-text index for search (search.mjs). Made once and filled from the messages already here;
+    // from then on the database keeps it in step with every post, edit and delete.
+    const indexed = db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'messages_search'").get();
+    db.exec(SEARCH_SCHEMA);
+    if (!indexed) db.exec("INSERT INTO messages_search(messages_search) VALUES ('rebuild')");
     if (!db.prepare("PRAGMA table_info(members)").all().some(column => column.name === "archived_at")) {
       db.exec("ALTER TABLE members ADD COLUMN archived_at INTEGER");
     }
@@ -324,6 +330,41 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
   // consistently for channels, names, and messages; %, _, and quotes stay text.
   const searchText = value => String(value ?? "").normalize("NFKC").toLowerCase();
   db.function("search_contains", { deterministic: true }, (text, query) => searchText(text).includes(query) ? 1 : 0);
+
+  // Messages for a search (search.mjs), newest first, only from conversations this person is in. One more
+  // than a page is read, to say whether there are more.
+  const SEARCH_PAGE = 20;
+  function findMessages(userId, asked, plainQuery) {
+    const { filters, terms } = asked;
+    const where = ["c.archived_at IS NULL", "x.deleted_at IS NULL", "x.pending = 0", "x.activity IS NULL"], values = [userId];
+    const match = ftsQuery(terms);
+    if (terms.length && !match) return plainQuery.length >= 2 && !asked.filtered ? st.searchMessages.all(userId, plainQuery) : [];
+    if (match) { where.push("x.seq IN (SELECT rowid FROM messages_search WHERE messages_search MATCH ?)"); values.push(match); }
+    if (filters.in) {
+      const wanted = searchText(filters.in);
+      const conv = /^(ch|dm)_[a-z0-9_-]+$/i.test(filters.in) ? st.conv.get(filters.in) : db.prepare("SELECT * FROM conversations WHERE kind = 'channel'").all().find(c => searchText(c.name) === wanted);
+      if (!conv) return [];
+      where.push("x.conversation_id = ?"); values.push(conv.id);
+    }
+    if (filters.from) {
+      const wanted = searchText(filters.from);
+      const forms = u => [u.id, u.name, u.name?.replace(/\s+/g, "-"), u.name?.split(/\s+/)[0]].filter(Boolean).map(searchText);
+      const people = wanted === "me" ? [{ id: userId }] : Object.values(users()).filter(u => forms(u).includes(wanted));
+      // A first name two people share finds neither: the full @name says which.
+      const exact = people.filter(u => searchText(u.name?.replace(/\s+/g, "-") ?? "") === wanted || u.id === filters.from);
+      const who = people.length === 1 ? people[0] : exact.length === 1 ? exact[0] : null;
+      if (!who) return [];
+      where.push("x.user_id = ?"); values.push(who.id);
+    }
+    if (filters.thread) where.push("(x.thread_root IS NOT NULL OR x.reply_count > 0)");
+    if (filters.link) where.push("(x.text LIKE '%http://%' OR x.text LIKE '%https://%')");
+    if (filters.file) where.push("EXISTS (SELECT 1 FROM attachments a WHERE a.message_seq = x.seq)");
+    const rows = db.prepare(`SELECT x.*, c.kind AS conversation_kind, c.name AS conversation_name
+      FROM messages x JOIN conversations c ON c.id = x.conversation_id JOIN members m ON m.conversation_id = c.id AND m.user_id = ?
+      WHERE ${where.join(" AND ")} ORDER BY x.seq DESC LIMIT ${SEARCH_PAGE + 1}`).all(...values);
+    // Words the index has no whole match for (part of a word, a code with punctuation): look for the text as typed.
+    return rows.length || asked.filtered || plainQuery.length < 2 ? rows : st.searchMessages.all(userId, plainQuery);
+  }
 
   let inTransaction = false;
   let committedCallbacks = [];
@@ -1345,18 +1386,22 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
       if (input.length > 100) return fail(res, 400, "bad_query", "Search with up to 100 characters"), true;
       res.setHeader("Cache-Control", "no-store");
       if (input.length < 2) return send(res, 200, { channels: [], people: [], messages: [] }), true;
-      const query = searchText(input);
-      const channels = featureOff("channels") ? [] : st.searchChannels.all(user.id, query, query).map(c => ({
+      // Filters (in:, from:, has:, is:) narrow messages; channels and people are found by the words alone.
+      const asked = parseSearch(input);
+      const query = searchText(asked.words);
+      const named = !asked.filtered && query.length >= 2;
+      const channels = featureOff("channels") || !named ? [] : st.searchChannels.all(user.id, query, query).map(c => ({
         id: c.id, name: c.name, topic: c.topic, memberCount: c.member_count,
         archived: !!c.member_archived_at, joined: !!c.joined_user, private: !!c.private,
       }));
-      const people = Object.values(users())
+      const people = !named ? [] : Object.values(users())
         .filter(u => u.id !== user.id && searchText(u.name).includes(query))
         .sort((a, b) => a.name.localeCompare(b.name))
         .slice(0, 10)
         .map(u => ({ ...person(u.id), owner: u.role === "owner" }));
       const titles = new Map();
-      const messages = st.searchMessages.all(user.id, query).filter(m => !hidden({ kind: m.conversation_kind })).map(m => {
+      const found = findMessages(user.id, asked, query).filter(m => !hidden({ kind: m.conversation_kind }));
+      const messages = found.slice(0, SEARCH_PAGE).map(m => {
         if (!titles.has(m.conversation_id)) titles.set(m.conversation_id,
           m.conversation_kind === "channel" ? m.conversation_name : convView(st.conv.get(m.conversation_id), user.id).title);
         return {
@@ -1367,7 +1412,7 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
           ...(!m.activity && m.user_id !== AGENT_ID ? sourceDeviceFields(m.source_device_kind, users()[user.id]) : {}),
         };
       });
-      send(res, 200, { channels, people, messages });
+      send(res, 200, { channels, people, messages, more: found.length > SEARCH_PAGE });
       return true;
     }
 

@@ -35,6 +35,16 @@ export function omnibarShortcuts(query: string, owner: boolean, features: Featur
   return shortcuts.filter(item => (!item.owner || owner) && (!item.surveys || canViewSurveys) && offered(item, features) && matchesQuery(query, item.title, item.detail, item.keywords));
 }
 
+// Filters the server understands (server/search.mjs): they narrow messages, so with one typed only messages
+// are listed. `words` is what is left to find.
+const SEARCH_FILTER = /^(?:in|from):.+$|^has:(?:links?|files?|attachments?)$|^is:threads?$/i;
+export const SEARCH_FILTERS_HINT = "Narrow messages with in:#channel, from:@name, has:link, has:file or is:thread.";
+export function splitSearch(query: string): { words: string; filtered: boolean } {
+  const parts = query.normalize("NFKC").match(/"[^"]*"|\S+/g) ?? [];
+  const words = parts.filter(part => !SEARCH_FILTER.test(part));
+  return { words: words.join(" ").replace(/"/g, "").trim(), filtered: words.length !== parts.length };
+}
+
 // Keep the match visible even when a message is longer than the result preview.
 export function searchExcerpt(text: string, query: string, length = 160) {
   const flattened = text.replace(/\s+/g, " ").trim();

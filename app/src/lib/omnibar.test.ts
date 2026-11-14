@@ -68,3 +68,20 @@ test("survey shortcuts require explicit server view permission for every role", 
     }
   }
 });
+
+test("filters are told from words, so only messages are listed and the excerpt follows the words", async () => {
+  const { splitSearch, SEARCH_FILTERS_HINT } = await import("./omnibar.ts");
+  assert.deepEqual(splitSearch("budget review in:#general from:@Jo-Park has:link is:thread"), { words: "budget review", filtered: true });
+  assert.deepEqual(splitSearch("in:general"), { words: "", filtered: true });
+  assert.deepEqual(splitSearch("budget review"), { words: "budget review", filtered: false });
+  // Not filters: a time, a link, an unknown has:.
+  assert.deepEqual(splitSearch("10:30 https://example.gov has:cheese"), { words: "10:30 https://example.gov has:cheese", filtered: false });
+  assert.deepEqual(splitSearch('"came in already" has:file'), { words: "came in already", filtered: true });
+  assert.match(SEARCH_FILTERS_HINT, /in:#channel, from:@name, has:link, has:file or is:thread/);
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const box = fs.readFileSync(path.join(import.meta.dirname, "../components/Omnibar.tsx"), "utf8");
+  assert.match(box, /const existing = filtered \? \[\] : conversations \?\? \[\];/);
+  assert.match(box, /detail: searchExcerpt\(message\.text, words\)/);
+  assert.match(box, /<Text style=\{styles\.hint\}>\{SEARCH_FILTERS_HINT\}<\/Text>/);
+});
