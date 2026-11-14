@@ -1,0 +1,13 @@
+flowchart TB
+  J["Someone joins with an invite or team link"] --> T0["Tier 0: no agent<br/>default for every new member"]
+  T0 -- "@agent" --> R["Refused: 'You don't have agent access yet'<br/>no model call, no tokens"]
+  T0 -- "owner turns it on, per person" --> T["Tier 1 to 5 granted"]
+  T --> L{"agentAccess setting"}
+  L -- "limited" --> MB["Member agent: no tools at all<br/>(researcher: web and read-only, no shell or files)"]
+  L -- "full (current)" --> FA["Owner's full Hermes: files, terminal,<br/>web, memory, connected services, no approvals"]
+  MB --> C["Daily token cap per tier<br/>1M / 5M / 20M, owner can raise or lift"]
+  FA --> C
+  C --> M["Agency model endpoint (Claude)"]
+  classDef risk fill:#fde8e8,stroke:#D11242,color:#000;
+  classDef safe fill:#e6f4ea,stroke:#1e7e34,color:#000;
+  class FA risk; class T0,R,MB safe;

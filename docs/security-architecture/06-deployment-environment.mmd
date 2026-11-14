@@ -1,0 +1,15 @@
+flowchart LR
+  subgraph OFF["Agency office"]
+    subgraph NET["Agency guest Wi-Fi (not the internal network)"]
+      subgraph MAC["Agency-issued Mac: the only place plaintext lives"]
+        S["Servant server<br/>loopback + encrypted API"]
+        H["Hermes agent<br/>localhost only"]
+        S -- "agent turn, only if the person has a tier above 0" --> H
+      end
+    end
+  end
+  P["Phones and Mac app<br/>(members)"] -- "end-to-end encrypted to the Mac" --> CF["Cloudflare tunnel<br/>sees ciphertext only"] --> S
+  H -- "TLS, prompts and replies" --> M["Agency model endpoint (Claude)<br/>the only model provider"]
+  H -. "full tier only: web, terminal, files,<br/>connected services as the owner" .-> X["Internet and owner's accounts"]
+  classDef risk fill:#fde8e8,stroke:#D11242,color:#000;
+  class X risk;

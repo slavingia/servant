@@ -1,6 +1,6 @@
 # Servant security architecture (for cyber review)
 
-Five diagrams of how Servant works, written for an ATO or cyber reviewer. Each one has a Mermaid source (`.mmd`) you can edit, plus rendered `.png` and `.svg` files. The diagrams summarize the detailed docs linked at the end. Where they disagree, the linked docs and the code win.
+Seven diagrams of how Servant works, written for an ATO or cyber reviewer. Each one has a Mermaid source (`.mmd`) you can edit, plus rendered `.png` and `.svg` files. The diagrams summarize the detailed docs linked at the end. Where they disagree, the linked docs and the code win.
 
 Known gaps, stated up front:
 
@@ -50,6 +50,21 @@ Details: [encryption.md](../encryption.md).
 ![Records preservation](05-data-and-records.png)
 
 When `recordsPreservation` is on, edits and deletes first copy the earlier version into the archive. If that copy fails, the change is refused. The archive is append-only: SQL triggers block changes, and a hash chain makes tampering detectable but not impossible. Servant has no disposition path; the agency decides retention. Details: [records-management.md](../records-management.md).
+
+## 6. Deployment environment
+
+![Deployment environment](06-deployment-environment.png)
+
+The reference deployment runs the server and Hermes on one agency-issued Mac. The Mac sits on the office's guest Wi-Fi, not the agency's internal network, so it cannot reach internal systems. Hermes uses the agency's own Claude endpoint as its only model provider. Plaintext exists only on that Mac.
+
+## 7. Agent and model gating
+
+![Agent and model gating](07-agent-and-model-gating.png)
+
+Two concerns reviewers raise, and how they're handled:
+
+- **Hermes might cause an issue.** Every new member starts at tier 0: no agent. An `@agent` from them is refused before any model call (`no_agent`), and only an owner can grant a tier, one person at a time. When a tier is granted, the `agentAccess` setting decides what the agent can do. `limited` gives members an agent with no tools; the researcher tier gets web and read-only skills but no shell or files. Both are checked before every turn. `full`, the current setting, gives granted members the owner's Hermes on the owner's Mac, so set `"agentAccess": "limited"` for a review deployment.
+- **Unfettered model access.** Hermes has one configured model provider, and only the server can reach Hermes, since its API listens on localhost. Each tier has a daily token cap (1M, 5M or 20M), and `usage.db` records token counts per person but never prompt text. The owner can raise or lift a person's cap, and that exemption is the thing to audit.
 
 ## Source documents
 
