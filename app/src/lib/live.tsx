@@ -10,6 +10,7 @@ import { usePhotos } from "./photos";
 import { agentUnreadTotal } from "./agent-unread";
 import { reuseEqual } from "./reuse-equal";
 import { setRowChange, withRowChanges, type RowChange, type RowChanges } from "./row-changes";
+import { createSharedRequest } from "./shared-request";
 
 // What a screen can ask the connection to do. These never change while you stay signed in, so a
 // screen that only listens or refreshes (an open conversation, a thread) is not re-rendered when
@@ -91,7 +92,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     return () => { clearTimeout(first); clearInterval(timer); state.remove(); version.current++; };
   }, [account, refreshAgent]);
 
-  const refresh = useCallback(async () => {
+  const fetchList = useCallback(async () => {
     if (!account?.serverKey) return;
     const version = ++refreshVersion.current;
     try {
@@ -109,6 +110,18 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       setError(e instanceof ServerError ? e.message : "Couldn't load conversations");
     }
   }, [account, setAccount, signOut]);
+  // Leaving a conversation asks for the list, and Home coming back into view asks in the same moment: calls
+  // that land together share one request (lib/shared-request.ts).
+  const sharing = useRef<{ start: () => Promise<void>; shared: ReturnType<typeof createSharedRequest> } | null>(null);
+  const refresh = useCallback(() => {
+    if (sharing.current?.start !== fetchList) sharing.current = { start: fetchList, shared: createSharedRequest(fetchList) };
+    return sharing.current.shared.request();
+  }, [fetchList]);
+  useEffect(() => () => {
+    // A request that has not left yet belonged to the account that was signed in.
+    sharing.current?.shared.cancel();
+    sharing.current = null;
+  }, [fetchList]);
 
   useEffect(() => () => {
     refreshVersion.current++;
