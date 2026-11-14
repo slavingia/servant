@@ -37,12 +37,12 @@ test("only vibe mode needs a fresh chat", () => {
 
 test("prototyping and its project are one choice: listed once, old picks of the project mean Prototyping", () => {
   const p = (id: string, name: string) => ({ id, name }) as unknown as Projects["list"][number];
-  const projects: Projects = { list: [p("servant", "Servant"), p("design-prototypes", "Design prototypes")], vibeCoder: false, vibe: true, vibeProject: "design-prototypes" };
+  const projects: Projects = { list: [p("servant", "Servant"), p("prototypes", "Prototypes")], vibeCoder: false, vibe: true, vibeProject: "prototypes" };
   assert.deepEqual(pickable(projects).map(x => x.id), ["servant"]);
-  assert.equal(canonical(projects, "design-prototypes"), VIBE_CHOICE);
-  assert.equal(choiceName(projects, "design-prototypes"), "Prototyping");
-  assert.equal(offered(projects, "design-prototypes"), true);
+  assert.equal(canonical(projects, "prototypes"), VIBE_CHOICE);
+  assert.equal(choiceName(projects, "prototypes"), "Prototyping");
+  assert.equal(offered(projects, "prototypes"), true);
   const off: Projects = { ...projects, vibe: false };
-  assert.deepEqual(pickable(off).map(x => x.id), ["servant", "design-prototypes"]);
-  assert.equal(canonical(off, "design-prototypes"), "design-prototypes");
+  assert.deepEqual(pickable(off).map(x => x.id), ["servant", "prototypes"]);
+  assert.equal(canonical(off, "prototypes"), "prototypes");
 });
