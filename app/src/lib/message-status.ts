@@ -1,5 +1,6 @@
 import type { Person, Post } from "./server";
 import { dayLabel } from "./time-label.ts";
+import { localFormat } from "./local-format.ts";
 
 export type PresenceStatus = { online?: boolean; lastSeenAt?: number | null; deepWork?: boolean };
 
@@ -9,7 +10,7 @@ const validTime = (value: number | null | undefined): value is number =>
 export function statusTime(at: number, now = Date.now()) {
   const date = new Date(at);
   const today = new Date(now);
-  const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const time = localFormat("time", date);
   if (date.toDateString() === today.toDateString()) return time;
   const day = dayLabel(at, now);
   return `${day}, ${time}`;

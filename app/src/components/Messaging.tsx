@@ -23,6 +23,7 @@ import { useFeatures } from "../lib/features";
 import { usePhotos } from "../lib/photos";
 import { useWideLayout } from "../lib/layout";
 import { shortTime } from "../lib/time-label";
+import { localFormat } from "../lib/local-format";
 import { validateAttachmentSelection } from "../lib/media";
 import { getDraft, loadDrafts, setDraft } from "../lib/drafts";
 import { shouldEditLastMessage } from "../lib/edit-last-message";
@@ -134,8 +135,8 @@ export function MessageDate({ at }: { at: number }) {
   const ago = Math.round((new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() - new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()) / 86_400_000);
   const label = ago === 0 ? "Today"
     : ago === 1 ? "Yesterday"
-    : ago > 1 && ago < 7 ? date.toLocaleDateString([], { weekday: "long" })
-    : date.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric", ...(date.getFullYear() !== today.getFullYear() ? { year: "numeric" as const } : {}) });
+    : ago > 1 && ago < 7 ? localFormat("weekday", date)
+    : localFormat(date.getFullYear() !== today.getFullYear() ? "weekdayMonthDayYear" : "weekdayMonthDay", date);
   return <View accessibilityRole="header" style={styles.dateSeparator}>
     <View style={styles.dateLine} />
     <Text style={styles.dateLabel}>{label}</Text>

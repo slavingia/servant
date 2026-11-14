@@ -1,3 +1,5 @@
+import { localFormat } from "./local-format.ts";
+
 const RECENT_MS = 24 * 60 * 60_000;
 const DAY_MS = 24 * 60 * 60_000;
 
@@ -15,8 +17,8 @@ export function dayLabel(at: number, now = Date.now()) {
   const ago = daysAgo(date, today);
   if (ago === 0) return "Today";
   if (ago === 1) return "Yesterday";
-  if (ago > 1 && ago < 7) return date.toLocaleDateString([], { weekday: "long" });
-  return date.toLocaleDateString([], { month: "short", day: "numeric", ...(date.getFullYear() !== today.getFullYear() ? { year: "numeric" as const } : {}) });
+  if (ago > 1 && ago < 7) return localFormat("weekday", date);
+  return localFormat(date.getFullYear() !== today.getFullYear() ? "monthDayYear" : "monthDay", date);
 }
 
 // Short list/message timestamp. Anything from today, or from the last 24 hours,
@@ -25,7 +27,7 @@ export function shortTime(at: number, now = Date.now()) {
   const date = new Date(at);
   const today = new Date(now);
   if (date.toDateString() === today.toDateString() || Math.abs(now - at) < RECENT_MS) {
-    return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    return localFormat("time", date);
   }
   return dayLabel(at, now);
 }
