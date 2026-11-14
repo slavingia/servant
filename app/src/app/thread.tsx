@@ -316,11 +316,14 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
     </View>;
   }, [shown, root, focus, matchLabel, title, receipts, me, role, replyCount, styles, onReact, onAskAgent, onDelete]);
 
+  // Told to the navigator once, not again on every render.
+  const header = useMemo(() => ({ title: title ? `Thread · ${title}` : "Thread" }), [title]);
+
   return (
     <MediaGalleryProvider key={`${conv}:${unavailable}`} scope={{ kind: "conversation", id: conv }} items={media}>
     {piiDialog}
     <View style={styles.root}>
-      <Stack.Screen options={{ title: title ? `Thread · ${title}` : "Thread" }} />
+      <Stack.Screen options={header} />
       <ConversationKeyboardView>
         {head === null && replies !== null && replies.length === 0 && error ? (
           // The thread itself is gone or out of reach: say so and offer a way out.

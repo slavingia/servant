@@ -74,3 +74,17 @@ test("an agent chat draws only the row that changed", () => {
   assert.match(conversation, /const showWaiting = \(\) => setWaiting\(current => reuseEqual\(current, queued\)\);/);
   assert.doesNotMatch(conversation, /setWaiting\(queued\)/);
 });
+
+test("a conversation and a thread tell the navigator their header only when it changes", () => {
+  // <Stack.Screen options={{…}}> with an object written in place is a new object on every render, and each one
+  // re-renders the navigator and rebuilds the header's buttons: once per message that arrived.
+  for (const file of ["app/c/[id].tsx", "app/thread.tsx"]) {
+    const source = read(file);
+    assert.match(source, /<Stack\.Screen options=\{header\} \/>/, file);
+    assert.doesNotMatch(source, /<Stack\.Screen\s+options=\{\{/, file);
+    assert.match(source, /const header = useMemo\(\(\) => /, file);
+  }
+  // The header's buttons call handlers that stay the same and still do what the screen does now.
+  const conversation = read("app/c/[id].tsx");
+  for (const handler of ["onCall", "onFiles", "onDetails"]) assert.match(conversation, new RegExp(`const ${handler} = useStableCallback\\(`), handler);
+});

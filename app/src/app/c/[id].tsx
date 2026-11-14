@@ -416,39 +416,46 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
     } catch (e) { setError(callErrorText(e, "start")); }
     finally { setCalling(false); }
   };
-  const headerButton = { type: "button" as const, tintColor: colors.blue, labelStyle: { color: colors.blue, fontSize: typography.label.fontSize, fontWeight: "600" as const }, hidesSharedBackground: true };
+  const onCall = useStableCallback(() => { void startCall(); });
+  const onFiles = useStableCallback(openFiles);
+  const onDetails = useStableCallback(openDetails);
+  const loadedConversation = !!conv;
+  // The header is told what to show only when that changes. Told again on every render, the whole navigator
+  // re-rendered and the header's buttons were rebuilt each time a message arrived.
+  const header = useMemo(() => {
+    const headerButton = { type: "button" as const, tintColor: colors.blue, labelStyle: { color: colors.blue, fontSize: typography.label.fontSize, fontWeight: "600" as const }, hidesSharedBackground: true };
+    return {
+      title,
+      // Keep channel management quiet beside the conversation title.
+      unstable_headerRightItems:
+        loadedConversation && Platform.OS === "ios"
+          ? () => [...(canCall ? [{ ...headerButton, label: callLabel, onPress: onCall }] : []), { ...headerButton, label: "Files", onPress: onFiles }, ...(isChannel ? [{ ...headerButton, label: "Details", onPress: onDetails }] : [])]
+          : undefined,
+      headerRight:
+        loadedConversation && Platform.OS !== "ios"
+          ? () => (
+              <View style={styles.headerActions}>
+                {canCall ? <Pressable testID="start-call" accessibilityRole="button" accessibilityLabel={callLabel === "Call" ? "Start a call" : callLabel} disabled={calling} onPress={onCall} style={styles.headerAction}>
+                  <Text style={styles.headerLink}>{callLabel}</Text>
+                </Pressable> : null}
+                <Pressable testID="open-files" accessibilityRole="button" onPress={onFiles} style={styles.headerAction}>
+                  <Text style={styles.headerLink}>Files</Text>
+                </Pressable>
+                {isChannel ? <Pressable accessibilityRole="button" onPress={onDetails} style={styles.headerAction}>
+                  <Text style={styles.headerLink}>Details</Text>
+                </Pressable> : null}
+              </View>
+            )
+          : undefined,
+    };
+  }, [title, loadedConversation, canCall, callLabel, isChannel, calling, colors.blue, styles, onCall, onFiles, onDetails]);
 
   return (
     <MediaGalleryProvider key={`${id}:${unavailable}`} scope={{ kind: "conversation", id }} items={media}>
     {piiDialog}
     <View style={[styles.root, wide && styles.row]}>
       <View style={styles.root}>
-      <Stack.Screen
-        options={{
-          title,
-          // Keep channel management quiet beside the conversation title.
-          unstable_headerRightItems:
-            conv && Platform.OS === "ios"
-              ? () => [...(canCall ? [{ ...headerButton, label: callLabel, onPress: startCall }] : []), { ...headerButton, label: "Files", onPress: openFiles }, ...(isChannel ? [{ ...headerButton, label: "Details", onPress: openDetails }] : [])]
-              : undefined,
-          headerRight:
-            conv && Platform.OS !== "ios"
-              ? () => (
-                  <View style={styles.headerActions}>
-                    {canCall ? <Pressable testID="start-call" accessibilityRole="button" accessibilityLabel={callLabel === "Call" ? "Start a call" : callLabel} disabled={calling} onPress={startCall} style={styles.headerAction}>
-                      <Text style={styles.headerLink}>{callLabel}</Text>
-                    </Pressable> : null}
-                    <Pressable testID="open-files" accessibilityRole="button" onPress={openFiles} style={styles.headerAction}>
-                      <Text style={styles.headerLink}>Files</Text>
-                    </Pressable>
-                    {isChannel ? <Pressable accessibilityRole="button" onPress={openDetails} style={styles.headerAction}>
-                      <Text style={styles.headerLink}>Details</Text>
-                    </Pressable> : null}
-                  </View>
-                )
-              : undefined,
-        }}
-      />
+      <Stack.Screen options={header} />
       <PeerPresence peers={peers} />
       <ConversationKeyboardView>
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
