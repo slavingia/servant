@@ -37,8 +37,9 @@ test("everything a chat needs is asked for at once, and the screen's first load 
 test("your own list opens a chat as yours and starts its requests at the press", () => {
   const tab = read("app/(tabs)/agent.tsx");
   const open = tab.slice(tab.indexOf("const openChat = "), tab.indexOf("const act = async"));
-  assert.ok(open.indexOf("openingChat(account, chat.id);") < open.indexOf("router.push("), "the requests leave before navigating");
-  assert.match(open, /params: \{ id: chat\.id, title: chat\.title, mine: "1", \.\.\.extra \}/);
+  assert.ok(open.indexOf("openingChat(account, chat.id, chat.readOnly === true);") < open.indexOf("router.push("), "the requests leave before navigating");
+  // Yours unless the list itself says it is someone else's.
+  assert.match(open, /\.\.\.\(chat\.readOnly \? \{ readOnly: "1", author: chat\.author\?\.name \?\? "" \} : \{ mine: "1" \}\)/);
   // Someone else's chat is opened read-only, without asking for turns it has no right to.
   assert.match(tab, /openingChat\(account, item\.id, true\);\n\s+router\.push\(\{ pathname: "\/chat\/\[id\]", params: \{ id: item\.id, title: item\.title, readOnly: "1"/);
 });

@@ -93,11 +93,11 @@ export default function Chats() {
   );
 
   if (!account) return null;
-  // One of your own chats: the screen is told so (it need not ask whose it is) and its requests leave at the
-  // press, before the screen has been built (lib/chat-cache.ts).
+  // A chat from your own list: the screen is told whose it is (it need not ask) and its requests leave at the
+  // press, before the screen has been built (lib/chat-cache.ts). The list says when a chat is someone else's.
   const openChat = (chat: Chat, extra: { compose?: string } = {}) => {
-    openingChat(account, chat.id);
-    router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, mine: "1", ...extra } });
+    openingChat(account, chat.id, chat.readOnly === true);
+    router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, ...(chat.readOnly ? { readOnly: "1", author: chat.author?.name ?? "" } : { mine: "1" }), ...extra } });
   };
 
   const act = async (chat: Chat, remove = false) => {
