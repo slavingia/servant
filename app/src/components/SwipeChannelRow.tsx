@@ -126,6 +126,9 @@ export function SwipeRow({ name, kind, archived, open, busy, canDelete, locked =
   const [x] = useState(() => new Animated.Value(0));
   const width = canDelete ? 184 : 96;
   const archiveLabel = archived ? "Restore" : "Archive";
+  // The buttons are invisible unless the row has moved, so a closed row never
+  // shows them, whatever happens to the row on top.
+  const actionsOpacity = useMemo(() => x.interpolate({ inputRange: [-1, 0], outputRange: [1, 0], extrapolate: "clamp" }), [x]);
   useEffect(() => {
     const animation = Animated.timing(x, { toValue: open ? -width : 0, duration: 180, useNativeDriver: true });
     animation.start();
@@ -158,17 +161,19 @@ export function SwipeRow({ name, kind, archived, open, busy, canDelete, locked =
   };
   return (
     <View style={styles.root}>
-      <Animated.View {...pan.panHandlers} style={{ zIndex: 1, backgroundColor: colors.background, transform: [{ translateX: x }], opacity: busy ? 0.5 : 1 }}>
+      {/* Only the row being acted on dims. Dimming every row let the action
+          buttons behind each one show through the whole list. */}
+      <Animated.View {...pan.panHandlers} style={{ zIndex: 1, backgroundColor: colors.background, transform: [{ translateX: x }], opacity: busy && open ? 0.5 : 1 }}>
         {children(bind)}
       </Animated.View>
-      <View style={[styles.actions, { width }]} {...(Platform.OS === "web" ? { "aria-hidden": !open } : { accessibilityElementsHidden: !open, importantForAccessibility: open ? "auto" as const : "no-hide-descendants" as const })} pointerEvents={open && !busy ? "auto" : "none"}>
+      <Animated.View style={[styles.actions, { width, opacity: actionsOpacity }]} {...(Platform.OS === "web" ? { "aria-hidden": !open } : { accessibilityElementsHidden: !open, importantForAccessibility: open ? "auto" as const : "no-hide-descendants" as const })} pointerEvents={open && !busy ? "auto" : "none"}>
         <Pressable disabled={!open || busy} accessibilityRole="button" accessibilityLabel={`${archiveLabel} ${name}`} onPress={onArchive} style={[styles.action, styles.archive]}>
           <Text style={styles.label}>{archiveLabel}</Text>
         </Pressable>
         {canDelete ? <Pressable disabled={!open || busy} accessibilityRole="button" accessibilityLabel={`Delete ${name}`} onPress={onDelete} style={[styles.action, styles.delete]}>
           <Text style={styles.label}>Delete</Text>
         </Pressable> : null}
-      </View>
+      </Animated.View>
     </View>
   );
 }
