@@ -1,7 +1,8 @@
 import { useCallback, useRef, useState } from "react";
 import { SkeletonRows } from "../../components/Skeleton";
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
-import { Redirect, router, useFocusEffect, useScrollToTop } from "expo-router";
+import { Redirect, router, useFocusEffect, useIsFocused, useScrollToTop } from "expo-router";
+import { useSettled, WhileFocused } from "../../components/WhileFocused";
 import { AppIcon } from "../../components/AppIcon";
 import { SwipeChannelRow, useConversationActions } from "../../components/SwipeChannelRow";
 import { Button } from "../../components/Button";
@@ -19,7 +20,9 @@ export default function Messages() {
   useScrollToTop(scrollRef);
   const { colors } = useTheme();
   const { account } = useSession();
+  const focused = useIsFocused();
   const { conversations, error, connected } = useLiveList();
+  const settled = useSettled(focused, conversations);
   const { refresh } = useLiveActions();
   const reconnecting = !connected && conversations !== null;
   const [refreshing, setRefreshing] = useState(false);
@@ -47,6 +50,8 @@ export default function Messages() {
   const list = dms.filter(c => !unreadOnly || c.unread > 0);
   return (
     <View style={styles.root}>
+      {/* Under another screen the list waits for the changes to pause, then catches up once; in front it draws every change. */}
+      <WhileFocused focused={focused} settled={settled}>
       <FlatList ref={scrollRef} contentInsetAdjustmentBehavior="automatic"
         data={list}
         keyExtractor={(c) => c.id}
@@ -93,6 +98,7 @@ export default function Messages() {
         contentContainerStyle={styles.content}
       />
       {dialog}
+      </WhileFocused>
     </View>
   );
 }
