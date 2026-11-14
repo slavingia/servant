@@ -16,7 +16,7 @@ import { mergeReadEvent } from "../lib/read-receipts";
 import { latestMessageReceipts } from "../lib/message-status";
 import { canCompactPost } from "../lib/message-device";
 import { lastEditableMessage } from "../lib/edit-last-message";
-import { useLive } from "../lib/live";
+import { useLiveActions } from "../lib/live";
 import { useSession } from "../lib/session";
 import { conversationHidden, landingHref, useFeatures } from "../lib/features";
 import { askAgentAbout } from "../lib/ask-agent";
@@ -31,7 +31,7 @@ export default function ThreadScreen() {
   const matchLabel = from === "push" ? null : from === "saved" ? "Saved message" : "Search match";
   const { account } = useSession();
   const focused = useIsFocused();
-  const { subscribe } = useLive();
+  const { subscribe } = useLiveActions();
   const list = useRef<FlatList<Post>>(null);
   const searchFocus = useRef({ target: focus, pending: !!focus, holding: !!focus, retries: 0 });
   const focusRetry = useRef<ReturnType<typeof setTimeout> | null>(null);

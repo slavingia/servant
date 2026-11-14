@@ -9,7 +9,7 @@ import { CallVideo } from "../../components/CallVideo";
 import { AppIcon } from "../../components/AppIcon";
 import { CALL_DARK, CALL_MUTED_TEXT, CALL_PANEL, CALL_CONTROL, CallChip, CallControl, CallPrimaryButton, CallTextButton } from "../../components/CallControls";
 import { PreCall } from "../../components/PreCall";
-import { useLive } from "../../lib/live";
+import { useLiveList } from "../../lib/live";
 import { NoiseToggle } from "../../components/NoiseToggle";
 import { OtherDeviceNote } from "../../components/OtherDeviceNote";
 import { GuestInvite } from "../../components/GuestInvite";
@@ -52,7 +52,7 @@ function Meeting({ preset }: { preset?: CallPreset }) {
   // The screen stays on for the whole call; it sleeps normally again when you leave.
   useCallAwake();
   const { account } = useSession();
-  const { conversations } = useLive();
+  const { conversations } = useLiveList();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   // Measured size of the tile area, so every tile fits on screen without relying on the ScrollView re-measuring (it didn't on Android until you minimized and came back).

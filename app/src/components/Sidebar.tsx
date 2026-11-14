@@ -4,7 +4,7 @@ import { router, useGlobalSearchParams, usePathname, type Href } from "expo-rout
 import { api, type Conversation } from "../lib/server";
 import * as Clipboard from "expo-clipboard";
 import { isDesktop } from "../lib/desktop";
-import { useLive } from "../lib/live";
+import { useLiveList, useLivePresence, useLiveUnread } from "../lib/live";
 import { groupPresenceDot } from "../lib/message-status";
 import { refreshProjects, useProjects } from "../lib/projects-store";
 import { refreshMeetings, useMeetings } from "../lib/meetings-store";
@@ -55,7 +55,8 @@ export function Sidebar() {
   const styles = useStyles();
   const colors = useSidebarColors();
   const { account, deepWork, surveyPermissions } = useSession();
-  const { conversations, unread, connected } = useLive();
+  const { conversations, connected } = useLiveList();
+  const unread = useLiveUnread();
   const { expired: sessionExpired } = useSessionExpiry();
   const { sort, pending } = useChannelSort();
   const pathname = usePathname();
@@ -175,7 +176,7 @@ function NavItem({ icon, label, selected = false, quiet = false, count = 0, coun
 function ConversationItem({ c, selected, onPress }: { c: Conversation; selected: boolean; onPress: () => void }) {
   const styles = useStyles();
   const colors = useSidebarColors();
-  const { presence } = useLive();
+  const { presence } = useLivePresence();
   const { account } = useSession();
   const bold = c.unread > 0;
   // The other people in a direct message: a green dot when one is available, the moon when one is in deep work (deep-work.ts).

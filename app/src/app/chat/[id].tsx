@@ -28,7 +28,7 @@ import { usePiiConfirm } from "../../components/PiiConfirm";
 import { api, sendMessage, ServerError, uploadPost, type Chat, type Project, type Message, type Upload } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { anyTalk, useFeatures } from "../../lib/features";
-import { useLive } from "../../lib/live";
+import { useLiveActions } from "../../lib/live";
 import { useProjects } from "../../lib/projects-store";
 import { VIBE_CHOICE, canonical, choiceKey, lastChatKey, choiceName, needsNewChat, newChatOptions, pickable } from "../../lib/new-chat-choice";
 import { setItem } from "../../lib/storage";
@@ -308,7 +308,7 @@ function ChatConversation() {
   const { colors } = useTheme();
   const { id, title, compose, forward, forwardAuthor, forwardWhere, forwardText, forwardFiles } = useLocalSearchParams<{ id: string; title?: string; compose?: string; forward?: string; forwardAuthor?: string; forwardWhere?: string; forwardText?: string; forwardFiles?: string }>();
   const { account, setAccount } = useSession();
-  const { refreshAgent } = useLive();
+  const { refreshAgent } = useLiveActions();
   // A message brought here with "Ask the agent", until it's sent or removed.
   const [pendingForward, setPendingForward] = useState<string | null>(forward || null);
   const forwardFileCount = Number(forwardFiles) || 0;

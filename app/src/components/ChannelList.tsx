@@ -17,7 +17,7 @@ import { refreshProjects, useProjects } from "../lib/projects-store";
 import { api } from "../lib/server";
 import { type Conversation, type BrowseChannel, type Project } from "../lib/server";
 import { useChannelDiscovery } from "../lib/channel-discovery";
-import { useLive } from "../lib/live";
+import { useLiveActions, useLiveList } from "../lib/live";
 import { useSession } from "../lib/session";
 import { landingHref, useFeatures } from "../lib/features";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
@@ -39,7 +39,8 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
   useScrollToTop(scrollRef);
   const { colors } = useTheme();
   const { account } = useSession();
-  const { conversations, error, refresh, connected } = useLive();
+  const { conversations, error, connected } = useLiveList();
+  const { refresh } = useLiveActions();
   const reconnecting = !connected && conversations !== null;
   const [refreshing, setRefreshing] = useState(false);
   const [unreadOnly, setUnreadOnly] = useState(false);

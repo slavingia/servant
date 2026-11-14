@@ -6,7 +6,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Avatar } from "../components/Messaging";
 import { AppIcon } from "../components/AppIcon";
 import { api, ServerError, type Conversation, type Person } from "../lib/server";
-import { useLive } from "../lib/live";
+import { useLiveActions } from "../lib/live";
 import { useSession } from "../lib/session";
 import { landingHref, useFeatures } from "../lib/features";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
@@ -21,7 +21,7 @@ export function ChannelDetails({ id, panel = false, onClose }: { id: string; pan
   const styles = useStyles();
   const { colors } = useTheme();
   const { account } = useSession();
-  const { refresh } = useLive();
+  const { refresh } = useLiveActions();
   const landing = landingHref(useFeatures());
   const [conv, setConv] = useState<Conversation | null>(null);
   const [everyone, setEveryone] = useState<Person[]>([]);

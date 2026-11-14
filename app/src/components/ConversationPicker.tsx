@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLive } from "../lib/live";
+import { useLiveList } from "../lib/live";
 import { useSession } from "../lib/session";
 import { type Conversation } from "../lib/server";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
@@ -15,7 +15,7 @@ export function ConversationPicker({ title, hint, busyId, error, onPick, onClose
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { account } = useSession();
-  const { conversations } = useLive();
+  const { conversations } = useLiveList();
   const [query, setQuery] = useState("");
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();

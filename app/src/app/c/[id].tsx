@@ -20,7 +20,7 @@ import { callErrorText, callsSupported } from "../../lib/meeting-call";
 import { PiiDeclined, withPiiConfirm } from "../../lib/pii-warning";
 import { usePiiConfirm } from "../../components/PiiConfirm";
 import { api, ServerError, type Conversation, type Upload, type Post, type LiveEvent } from "../../lib/server";
-import { useLive } from "../../lib/live";
+import { useLiveActions } from "../../lib/live";
 import { useSession } from "../../lib/session";
 import { askAgentAbout } from "../../lib/ask-agent";
 import { helpText, parseSlash, resolvePeople, splitDm } from "../../lib/slash-commands";
@@ -51,7 +51,7 @@ export default function ConversationScreen() {
   const focused = useIsFocused();
   const visible = useRef(focused);
   useEffect(() => { visible.current = focused; }, [focused]);
-  const { subscribe, setOpen, refresh } = useLive();
+  const { subscribe, setOpen, refresh } = useLiveActions();
   const [conv, setConv] = useState<Conversation | null>(null);
   const [joined, setJoined] = useState(true);
   const [calling, setCalling] = useState(false);

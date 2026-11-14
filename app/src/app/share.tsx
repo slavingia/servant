@@ -11,7 +11,7 @@ import { DraftVideoPreview } from "../components/VideoMedia";
 import { uploadDocument } from "../lib/document-upload";
 import { landingHref, useFeatures } from "../lib/features";
 import { claimShareRoute, clearPendingShare, pendingSharePayloads, resolvePendingShare } from "../lib/incoming-share";
-import { useLive } from "../lib/live";
+import { useLiveActions } from "../lib/live";
 import { formatFileSize } from "../lib/media";
 import { choiceKey, lastChatKey } from "../lib/new-chat-choice";
 import { useProjects } from "../lib/projects-store";
@@ -37,7 +37,7 @@ export default function ShareScreen() {
   const styles = useStyles();
   const { colors } = useTheme();
   const { account, setAccount } = useSession();
-  const { refreshAgent } = useLive();
+  const { refreshAgent } = useLiveActions();
   const landing = landingHref(useFeatures());
   const { sample } = useLocalSearchParams<{ sample?: string }>();
   const projects = useProjects();

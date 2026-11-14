@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { api, type Account } from "./server";
-import { useLive } from "./live";
+import { useLiveActions } from "./live";
 import { createThemedStyles, typography } from "./theme";
 import { AGENT_NAME, typingText } from "./typing-text.ts";
 
@@ -15,7 +15,7 @@ const AGENT_MAX_MS = 10 * 60 * 1000;
 
 /** Who is typing here. `threadRoot` null = the main conversation, not its threads. */
 export function useTyping(conversationId: string, threadRoot: string | null, me: string) {
-  const { subscribe } = useLive();
+  const { subscribe } = useLiveActions();
   const [typing, setTyping] = useState<Record<string, { name: string; until: number }>>({});
   // Agent replies being written, by message id. Shown from the placeholder until
   // the reply finishes, is deleted, or the long backstop runs out.

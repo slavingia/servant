@@ -4,7 +4,7 @@ import { NativeTabs } from "expo-router/native-tabs";
 import { Platform } from "react-native";
 import { WebTabs } from "../../components/WebTabBar";
 import { useWideLayout } from "../../lib/layout";
-import { useLive } from "../../lib/live";
+import { useLiveUnread } from "../../lib/live";
 import { badgeText as badge } from "../../lib/agent-unread";
 import { tabsFor, useFeatures, type TabName } from "../../lib/features";
 import { useTheme } from "../../lib/theme";
@@ -22,7 +22,7 @@ const TABS: Record<TabName, { sf: SfIcon; src: number; label: string; badge?: "c
 };
 
 export default function TabsLayout() {
-  const { unread } = useLive();
+  const unread = useLiveUnread();
   const { colors } = useTheme();
   const wide = useWideLayout();
   const tabs = tabsFor(useFeatures());

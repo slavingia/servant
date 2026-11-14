@@ -9,7 +9,7 @@ import { AppIcon } from "../components/AppIcon";
 import { Button } from "../components/Button";
 import { SavedTaskRow } from "../components/SavedTaskRow";
 import { useFeatures } from "../lib/features";
-import { useLive } from "../lib/live";
+import { useLiveActions } from "../lib/live";
 import { durationText } from "../lib/meetings";
 import { applySavedCompletion, savedMessagePreview, savedMessagesFor, visibleSavedMessages } from "../lib/saved-messages";
 import { buildWorkLogReport, filterWorkLog, savedWorkLabel, type SavedReportPeriod } from "../lib/saved-report";
@@ -30,7 +30,7 @@ function SavedTasks({ account }: { account: Account }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const features = useFeatures();
-  const { subscribe } = useLive();
+  const { subscribe } = useLiveActions();
   const [data, setData] = useState<Snapshot | null>(null);
   const [view, setView] = useState<"open" | "completed" | "history">("open");
   const [error, setError] = useState<string | null>(null);

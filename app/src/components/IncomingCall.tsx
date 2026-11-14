@@ -3,7 +3,7 @@ import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import { router, usePathname } from "expo-router";
 import { CallPulse } from "./CallPulse";
-import { useLive } from "../lib/live";
+import { useLiveActions, useLiveList } from "../lib/live";
 import { useSession } from "../lib/session";
 import { api } from "../lib/server";
 import { systemCalls } from "../lib/servant-call";
@@ -19,7 +19,8 @@ type Ring = { id: string; name: string; conversation: string; until: number };
 export function IncomingCall() {
   const { colors } = useTheme();
   const { account } = useSession();
-  const { subscribe, conversations } = useLive();
+  const { subscribe } = useLiveActions();
+  const { conversations } = useLiveList();
   const pathname = usePathname();
   const [ring, setRing] = useState<Ring | null>(null);
   const dismissed = useRef(new Set<string>());

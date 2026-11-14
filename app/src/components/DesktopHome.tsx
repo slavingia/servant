@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View, type PressableStateCallbackType } from "react-native";
 import { router, useFocusEffect, type Href } from "expo-router";
-import { useLive } from "../lib/live";
+import { useLiveActions, useLiveList } from "../lib/live";
 import { useSession } from "../lib/session";
 import { useFeatures } from "../lib/features";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
@@ -14,7 +14,8 @@ const hovered = (state: PressableStateCallbackType) => (state as PressableStateC
 export function DesktopHome() {
   const styles = useStyles();
   const { account } = useSession();
-  const { conversations, refresh } = useLive();
+  const { conversations } = useLiveList();
+  const { refresh } = useLiveActions();
   const features = useFeatures();
   useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
   if (!account) return null;

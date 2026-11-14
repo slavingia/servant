@@ -4,7 +4,7 @@ import { Redirect, router } from "expo-router";
 import { Button } from "../components/Button";
 import { AppIcon } from "../components/AppIcon";
 import { api, ServerError } from "../lib/server";
-import { useLive } from "../lib/live";
+import { useLiveActions } from "../lib/live";
 import { useSession } from "../lib/session";
 import { landingHref, useFeatures } from "../lib/features";
 import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
@@ -16,7 +16,7 @@ export default function NewChannel() {
   const styles = useStyles();
   const { colors } = useTheme();
   const { account } = useSession();
-  const { refresh } = useLive();
+  const { refresh } = useLiveActions();
   const [name, setName] = useState("");
   const [nameFocused, setNameFocused] = useState(false);
   const [priv, setPriv] = useState(false);

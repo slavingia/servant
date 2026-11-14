@@ -5,7 +5,7 @@ import { Redirect, router, useFocusEffect, useScrollToTop } from "expo-router";
 import { AppIcon } from "../../components/AppIcon";
 import { SwipeChannelRow, useConversationActions } from "../../components/SwipeChannelRow";
 import { Button } from "../../components/Button";
-import { useLive } from "../../lib/live";
+import { useLiveActions, useLiveList } from "../../lib/live";
 import type { Conversation } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { landingHref, useFeatures } from "../../lib/features";
@@ -18,7 +18,8 @@ export default function Messages() {
   useScrollToTop(scrollRef);
   const { colors } = useTheme();
   const { account } = useSession();
-  const { conversations, error, refresh, connected } = useLive();
+  const { conversations, error, connected } = useLiveList();
+  const { refresh } = useLiveActions();
   const reconnecting = !connected && conversations !== null;
   const [refreshing, setRefreshing] = useState(false);
   const [unreadOnly, setUnreadOnly] = useState(false);

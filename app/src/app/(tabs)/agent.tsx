@@ -13,7 +13,7 @@ import { refreshProjects, useProjects } from "../../lib/projects-store";
 import { isSessionExpired, isSignedOut } from "../../lib/session-expiry-rules";
 import { api, ServerError, type Chat } from "../../lib/server";
 import { useSession } from "../../lib/session";
-import { useLive } from "../../lib/live";
+import { useLiveActions } from "../../lib/live";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../../lib/theme";
 import { activeAgentTurn, agentTurnLabel, liveAgentLine } from '../../lib/agent-turns';
 import { LiveStatus } from "../../components/LiveStatus";
@@ -34,7 +34,7 @@ export default function Chats() {
   useScrollToTop(scrollRef);
   const { colors } = useTheme();
   const { account, setAccount, signOut } = useSession();
-  const { refreshAgent } = useLive();
+  const { refreshAgent } = useLiveActions();
   const [chats, setChats] = useState<Chat[] | null>(null);
   const [shared, setShared] = useState<Chat[]>([]);
   const [error, setError] = useState<string | null>(null);

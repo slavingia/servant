@@ -6,7 +6,7 @@ import { Button } from "../../components/Button";
 import { ConversationPicker } from "../../components/ConversationPicker";
 import { MeetingRecorder } from "../../components/MeetingRecorder";
 import { useActiveCall } from "../../lib/active-call";
-import { useLive } from "../../lib/live";
+import { useLiveList } from "../../lib/live";
 import { callErrorText, callsSupported } from "../../lib/meeting-call";
 import { anyBusy, durationText, meetingBusy, peopleText, statusLabel } from "../../lib/meetings";
 import { refreshMeetings, useMeetings } from "../../lib/meetings-store";
@@ -25,7 +25,7 @@ export default function Meetings() {
   const { account, setAccount } = useSession();
   const { list, error } = useMeetings();
   const active = useActiveCall();
-  const { conversations } = useLive();
+  const { conversations } = useLiveList();
   const [refreshing, setRefreshing] = useState(false);
   const [recording, setRecording] = useState(false);
   const [picking, setPicking] = useState(false);

@@ -2,7 +2,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { TabList, TabSlot, TabTrigger, Tabs, type TabTriggerSlotProps } from "expo-router/ui";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppIcon, type AppIconName } from "./AppIcon";
-import { useLive } from "../lib/live";
+import { useLiveUnread } from "../lib/live";
 import { TAB_HREF, tabsFor, useFeatures, type TabName } from "../lib/features";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 
@@ -36,7 +36,7 @@ function TabButton({ label, icon, count, isFocused, ref, ...props }: ButtonProps
 
 export function WebTabs() {
   const styles = useStyles();
-  const { unread } = useLive();
+  const unread = useLiveUnread();
   const insets = useSafeAreaInsets();
   const tabs = tabsFor(useFeatures());
   return <Tabs style={styles.root}>

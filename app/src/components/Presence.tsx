@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { StyleSheet, Text, View, type StyleProp, type TextStyle, type ViewStyle } from "react-native";
-import { useLive } from "../lib/live";
+import { useLivePresence } from "../lib/live";
 import { presenceLabel, type PresenceDotState } from "../lib/message-status";
 import type { Person } from "../lib/server";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
@@ -17,7 +17,7 @@ export function useStatusNow() {
 
 /** The people whose presence has something to say; a bar above a DM hides when nobody's does. */
 export function usePresentPeers(people: readonly Person[]) {
-  const { presence, connected } = useLive();
+  const { presence, connected } = useLivePresence();
   const now = useStatusNow();
   return people.filter(person => !person.agent && presenceLabel(presence[person.id] ?? { ...person, online: false }, now, connected));
 }
@@ -48,7 +48,7 @@ export function PresenceDot({ status, size = 8, ring, disc, glyph, offColor, sty
 export function PresenceLine({ person, style }: { person: Person; style?: StyleProp<TextStyle> }) {
   const styles = useStyles();
   const { colors } = useTheme();
-  const { presence, connected } = useLive();
+  const { presence, connected } = useLivePresence();
   const now = useStatusNow();
   if (person.agent) return null;
   const label = presenceLabel(presence[person.id] ?? { ...person, online: false }, now, connected) ;

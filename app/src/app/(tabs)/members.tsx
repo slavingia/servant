@@ -8,7 +8,7 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { AppIcon } from "../../components/AppIcon";
 import { PresenceDot, useStatusNow } from "../../components/Presence";
 import { api, ServerError, type Person } from "../../lib/server";
-import { useLive } from "../../lib/live";
+import { useLivePresence } from "../../lib/live";
 import { presenceDot, presenceLabel } from "../../lib/message-status";
 import { useSession } from "../../lib/session";
 import { useFeature } from "../../lib/features";
@@ -54,7 +54,7 @@ export default function Members() {
   const { account, deepWork } = useSession();
   // Tapping a person opens a direct message; on a server without DMs the row is just a listing.
   const dms = useFeature("directMessages");
-  const { presence, connected } = useLive();
+  const { presence, connected } = useLivePresence();
   const now = useStatusNow();
   const [directory, setDirectory] = useState<{ token: string; people: Person[]; emailChecks?: boolean; roleLimits?: RoleLimits; roleCosts?: RoleCosts } | null>(null);
   const [refreshing, setRefreshing] = useState(false);

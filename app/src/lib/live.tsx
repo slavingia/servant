@@ -1,6 +1,6 @@
 // One live connection to the server for the whole app. Screens subscribe to the
 // events they care about; the conversation list and unread badges live here.
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type Context, type ReactNode } from "react";
 import { AppState, Platform } from "react-native";
 import { api, listen, relocate, ServerError, type Conversation, type LiveEvent, type Presence } from "./server";
 import { useSession } from "./session";
@@ -8,22 +8,28 @@ import { useSessionExpiry } from "./session-expiry";
 import { isSessionExpired, isSignedOut } from "./session-expiry-rules";
 import { usePhotos } from "./photos";
 import { agentUnreadTotal } from "./agent-unread";
+import { reuseEqual } from "./reuse-equal";
 
-type Live = {
-  conversations: Conversation[] | null;
-  error: string | null;
-  connected: boolean;
-  presence: Record<string, Presence>;
+// What a screen can ask the connection to do. These never change while you stay signed in, so a
+// screen that only listens or refreshes (an open conversation, a thread) is not re-rendered when
+// the list, the badges or someone's presence change.
+type LiveActions = {
   refresh: () => Promise<void>;
   subscribe: (fn: (e: LiveEvent) => void) => () => void;
   // Called by an open conversation so its unread count stays at zero.
   setOpen: (id: string | null) => void;
-  unread: { channels: number; messages: number; agent: number };
   // Re-count unread agent replies (after reading a chat, or with a fresh list).
   refreshAgent: (chats?: { unread?: number; archived?: boolean }[]) => void;
 };
+type LiveList = { conversations: Conversation[] | null; error: string | null; connected: boolean };
+type LivePresence = { presence: Record<string, Presence>; connected: boolean };
+type LiveUnread = { channels: number; messages: number; agent: number };
 
-const Ctx = createContext<Live | null>(null);
+// One context per kind of change: each screen re-renders only for what it reads.
+const ActionsCtx = createContext<LiveActions | null>(null);
+const ListCtx = createContext<LiveList | null>(null);
+const PresenceCtx = createContext<LivePresence | null>(null);
+const UnreadCtx = createContext<LiveUnread | null>(null);
 
 export function LiveProvider({ children }: { children: ReactNode }) {
   const { account, setAccount, signOut, learnDeepWork } = useSession();
@@ -49,9 +55,11 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     if (!account?.serverKey) return;
     const version = ++agentVersion.current;
     const id = JSON.stringify([account.serverKey, account.token, account.user.id]);
-    if (chats) return void setAgentUnread({ identity: id, count: agentUnreadTotal(chats) });
+    // The count is polled; the same count again changes nothing and re-renders nothing.
+    const count = (total: number) => setAgentUnread(current => current.identity === id && current.count === total ? current : { identity: id, count: total });
+    if (chats) return void count(agentUnreadTotal(chats));
     api.chats(account, setAccount)
-      .then(list => { if (version === agentVersion.current && Array.isArray(list)) setAgentUnread({ identity: id, count: agentUnreadTotal(list) }); })
+      .then(list => { if (version === agentVersion.current && Array.isArray(list)) count(agentUnreadTotal(list)); })
       .catch(() => { /* Keep the last count; a failed refresh never clears it. */ });
   }, [account, setAccount]);
   useEffect(() => {
@@ -69,7 +77,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     try {
       const list = await api.conversations(account, setAccount);
       if (version !== refreshVersion.current) return;
-      setConversations(list.map((c) => (c.id === open.current && AppState.currentState === "active" ? { ...c, unread: 0 } : c)));
+      // The list is refetched after every message and on every visit. Keep what did not change, so
+      // only the rows that did are drawn again (and nothing is when the list says the same thing).
+      setConversations(current => reuseEqual(current, list.map((c) => (c.id === open.current && AppState.currentState === "active" ? { ...c, unread: 0 } : c))));
       setError(null);
     } catch (e) {
       if (version !== refreshVersion.current) return;
@@ -144,9 +154,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     let delay = 1000;
     const disconnected = () => {
       setConnected(false);
-      setPresenceState(current => current.identity !== identity ? current : {
+      setPresenceState(current => current.identity !== identity ? current : reuseEqual(current, {
         ...current, people: Object.fromEntries(Object.entries(current.people).map(([id, person]) => [id, { ...person, online: false }])),
-      });
+      }));
     };
     let presenceSnapshot: Map<string, Presence> | null = null;
     const refreshPresence = async () => {
@@ -160,7 +170,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
           userId: person.id, online: person.online === true, lastSeenAt: person.lastSeenAt ?? null, ...(person.deepWork === true ? { deepWork: true } : {}),
         }]));
         for (const [id, value] of updates) snapshot[id] = value;
-        setPresenceState({ identity, people: snapshot });
+        setPresenceState(current => reuseEqual(current, { identity, people: snapshot }));
       } catch { /* Member/conversation snapshots remain available offline. */ }
       finally { if (presenceSnapshot === updates) presenceSnapshot = null; }
     };
@@ -187,7 +197,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                 // Your own presence carries your deep work switch: a flip on another device lands here (deep-work.ts).
                 if (e.data.userId === account.user.id) learnDeepWork(e.data.deepWork === true);
                 presenceSnapshot?.set(e.data.userId, e.data);
-                setPresenceState(current => ({ identity, people: {
+                setPresenceState(current => reuseEqual(current, { identity, people: {
                   ...(current.identity === identity ? current.people : {}), [e.data.userId]: e.data,
                 } }));
               }
@@ -247,29 +257,45 @@ export function LiveProvider({ children }: { children: ReactNode }) {
 
   const setOpen = useCallback((id: string | null) => {
     open.current = id;
-    if (id) setConversations((list) => list && list.map((c) => (c.id === id ? { ...c, unread: 0 } : c)));
+    if (id) setConversations((list) => list && list.some(c => c.id === id && c.unread) ? list.map((c) => (c.id === id ? { ...c, unread: 0 } : c)) : list);
   }, []);
 
   // After sign-out, never show the previous person's conversations.
   const shown = account ? conversations : null;
   const presence = useMemo(() => presenceState.identity === identity ? presenceState.people : {}, [presenceState, identity]);
-  const unread = useMemo(() => {
-    const u = { channels: 0, messages: 0, agent: agentUnread.identity === identity ? agentUnread.count : 0 };
+  const counted = useMemo(() => {
+    const u = { channels: 0, messages: 0 };
     for (const c of shown ?? []) {
       if (!c.archived) u[c.kind === "channel" ? "channels" : "messages"] += c.unread;
     }
     return u;
-  }, [shown, agentUnread, identity]);
+  }, [shown]);
+  const agent = agentUnread.identity === identity ? agentUnread.count : 0;
+  // The badges are numbers: the same numbers from a new list are the same badges.
+  const unread = useMemo(() => ({ channels: counted.channels, messages: counted.messages, agent }), [counted.channels, counted.messages, agent]);
 
-  const value = useMemo(
-    () => ({ conversations: shown, error, connected, presence, refresh, subscribe, setOpen, unread, refreshAgent }),
-    [shown, error, connected, presence, refresh, subscribe, setOpen, unread, refreshAgent],
+  const actions = useMemo(() => ({ refresh, subscribe, setOpen, refreshAgent }), [refresh, subscribe, setOpen, refreshAgent]);
+  const list = useMemo(() => ({ conversations: shown, error, connected }), [shown, error, connected]);
+  const people = useMemo(() => ({ presence, connected }), [presence, connected]);
+  return (
+    <ActionsCtx.Provider value={actions}><ListCtx.Provider value={list}><PresenceCtx.Provider value={people}><UnreadCtx.Provider value={unread}>
+      {children}
+    </UnreadCtx.Provider></PresenceCtx.Provider></ListCtx.Provider></ActionsCtx.Provider>
   );
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
-export function useLive() {
-  const v = useContext(Ctx);
-  if (!v) throw new Error("useLive outside LiveProvider");
-  return v;
+function useLivePart<T>(context: Context<T | null>, name: string): T {
+  const value = useContext(context);
+  if (!value) throw new Error(`${name} outside LiveProvider`);
+  return value;
 }
+
+/** Refresh, listen and mark open. Never causes a re-render: use it where a screen reads nothing else from the connection. */
+export const useLiveActions = () => useLivePart(ActionsCtx, "useLiveActions");
+/** The conversation list, its error and whether the connection is up. */
+export const useLiveList = () => useLivePart(ListCtx, "useLiveList");
+/** Who is online or in deep work. */
+export const useLivePresence = () => useLivePart(PresenceCtx, "useLivePresence");
+/** The unread badges. */
+export const useLiveUnread = () => useLivePart(UnreadCtx, "useLiveUnread");
+
