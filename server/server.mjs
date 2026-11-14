@@ -15,7 +15,7 @@
 //   node server/server.mjs release <build> <notes.md>   post a build's notes to #whats-new
 
 import { joinPage } from "./join-page.mjs";
-import { newFolder, removePrototype, servePrototype } from "./prototypes.mjs";
+import { newFolder, removePrototype, savePrototypePage, servePrototype } from "./prototypes.mjs";
 import { privacyPage } from "./privacy-page.mjs";
 import { landingPage, supportPage } from "./public-page.mjs";
 import { termsPage } from "./terms-page.mjs";
@@ -641,8 +641,19 @@ async function forwardChatMessage(req, res, { chat, author, user, device, messag
 }
 
 function canReadChat(chat, viewer) {
-  return !!chat && !chat.deletedAt && !!viewer && (chat.userId === viewer.id || viewer.role === "owner" || chatShared(chat) || projectSharedWith(projects().read(), readState().users, chat, viewer));
+  return !!chat && !chat.deletedAt && !!viewer && (chat.userId === viewer.id || viewer.role === "owner" || chatShared(chat) || !!chatMember(chat, viewer) || projectSharedWith(projects().read(), readState().users, chat, viewer));
 }
+// People the author invited into one agent chat, Teams style. Each sees the chat read only, from
+// \`since\` on: earlier messages are hidden from them, never removed.
+const chatMember = (chat, viewer) => (Array.isArray(chat?.members) && viewer ? chat.members.find(m => m.userId === viewer.id) : null) || null;
+const CHAT_HISTORY = { none: null, day: 86_400_000, week: 7 * 86_400_000, all: Infinity };
+// The earliest message this person may see: 0 for anyone who can read the whole chat another way.
+function chatVisibleFrom(chat, viewer) {
+  if (!viewer || chat.userId === viewer.id || viewer.role === "owner" || chatShared(chat) || projectSharedWith(projects().read(), readState().users, chat, viewer)) return 0;
+  return chatMember(chat, viewer)?.since ?? Infinity;
+}
+// Lists show a chat to the people it's shared with or who were invited into it.
+const chatListedFor = (chat, viewer) => viewer.role === "owner" || chatShared(chat) || !!chatMember(chat, viewer);
 // A chat shows in lists only once someone has sent something in it. Tapping
 // New chat and backing out leaves nothing behind in the list.
 function chatStarted(chat, latestTurn) {
@@ -677,6 +688,10 @@ function chatView(chat, viewer, users = {}) {
   try { const u = usageStore().chatTotals(chat.id); if (u.turns) view.usage = u; } catch { /* stats never block a chat */ }
   if (viewer && chat.userId === viewer.id) {
     view.archived = !!chat.archivedAt;
+    if (chat.members?.length) {
+      const people = users[chat.userId] ? users : readState().users;
+      view.members = chat.members.filter(m => !isRemoved(people[m.userId])).map(m => ({ id: m.userId, name: people[m.userId]?.name || "Former member", since: m.since, invitedAt: m.invitedAt }));
+    }
   }
   if (viewer && chat.userId !== viewer.id) {
     const author = users[chat.userId];
@@ -1724,7 +1739,7 @@ async function handle(req, res, cfg) {
   if (method === "GET" && parts.length === 2) {
     const viewer = currentState.users[user.id] || user;
     const others = url.searchParams.get("scope") === "org"
-      ? Object.values(currentState.chats).filter(c => c.userId !== user.id && canReadChat(c, viewer) && (viewer.role === "owner" || chatShared(c)))
+      ? Object.values(currentState.chats).filter(c => c.userId !== user.id && canReadChat(c, viewer) && chatListedFor(c, viewer))
       : [];
     // A chat's time is its last activity. The chat record only moves when a
     // message is sent or a turn ends, so a reply that streams for an hour
@@ -1759,7 +1774,7 @@ async function handle(req, res, cfg) {
   if (method === "POST" && parts[2] === "read-all" && parts.length === 3) {
     requireAuth(req, readState());
     const viewer = currentState.users[user.id] || user;
-    const seen = Object.values(currentState.chats).filter(c => c.userId !== user.id && !c.deletedAt && canReadChat(c, viewer) && (viewer.role === "owner" || chatShared(c)));
+    const seen = Object.values(currentState.chats).filter(c => c.userId !== user.id && !c.deletedAt && canReadChat(c, viewer) && chatListedFor(c, viewer));
     agentTurns.markAllChatsRead(user.id);
     agentTurns.markViewed(user.id, seen.map(c => c.id));
     return send(res, 200, { ok: true });
@@ -1783,6 +1798,10 @@ async function handle(req, res, cfg) {
     const wanted = lane === "researcher" ? null : (body.projectId ?? body.folderId ?? (projects().byId(body.project) ? body.project : null));
     if (!vibe && wanted != null && !projectFor(creator, wanted)) return fail(res, 404, "not_found", "No such project");
     const projectId = vibe ? VIBE_PROJECT : wanted;
+    // People invited from the start see the whole chat. Unknown or removed people are refused before the agent is asked.
+    const invitees = [...new Set(Array.isArray(body.memberIds) ? body.memberIds : [])].filter(v => v !== creator.id);
+    if (invitees.some(v => typeof v !== "string")) return fail(res, 400, "bad_request", "memberIds must be people's ids");
+    { const people = readState().users; if (invitees.some(v => !people[v] || isRemoved(people[v]))) return fail(res, 404, "not_found", "That person isn't on this server"); }
     const hermesSessionId = `servant_${creator.id}_${chatId}`;
     const r = await hermes(creationUp, "POST", "/api/sessions", { id: hermesSessionId, title: `Servant · ${creator.name} · ${chatId.slice(-6)}` });
     if (!r.ok) return fail(res, 502, "agent_error", `The agent didn't start a chat (${r.status})`);
@@ -1795,6 +1814,7 @@ async function handle(req, res, cfg) {
       // Always private to start. Sharing with the server or the project is a later choice, per chat.
       shared: false,
       ...(projectId ? { projectId } : {}),
+      ...(invitees.length ? { members: invitees.map(userId => ({ userId, since: 0, invitedAt: now(), invitedBy: creator.id })) } : {}),
       ...(vibe ? { mode: "vibe", vibeFolder: newFolder(), hosted: "server" } : {}),
       createdAt: now(),
       updatedAt: now(),
@@ -1810,7 +1830,7 @@ async function handle(req, res, cfg) {
       void hermes(creationUp, "DELETE", `/api/sessions/${encodeURIComponent(hermesSessionId)}`).catch(() => {});
       throw error;
     }
-    return send(res, 201, { chat: chatView(chat, creator) });
+    return send(res, 201, { chat: chatView(chat, creator, readState().users) });
   }
 
   const viewer = currentState.users[user.id] || user;
@@ -1824,11 +1844,14 @@ async function handle(req, res, cfg) {
     if (method !== "GET" || !["messages", "media", undefined].includes(parts[3]) || parts.length > 4) {
       return fail(res, 403, "read_only", "Only the person who started this chat can do that");
     }
-    const history = chatMediaStore().history(visible.id);
+    // Someone invited in sees only from the point the author chose; the rest stays, just not for them.
+    const from = chatVisibleFrom(visible, viewer);
+    const history = chatMediaStore().history(visible.id).filter(m => (m.at || 0) >= from);
     if (parts.length === 3) return send(res, 200, { chat: chatView(visible, viewer, currentState.users) });
     if (parts[3] === "media") {
       const author = currentState.users[visible.userId];
-      return send(res, 200, mediaPage(chatMediaStore().media(visible.id, { id: visible.userId, name: author?.name || "Former member" }, cfg.agentName || "Agent"), url.searchParams));
+      const items = chatMediaStore().media(visible.id, { id: visible.userId, name: author?.name || "Former member" }, cfg.agentName || "Agent").filter(m => (m.createdAt || 0) >= from);
+      return send(res, 200, mediaPage(items, url.searchParams));
     }
     const sources = agentTurns.messageSources(visible.id);
     agentTurns.markViewed(user.id, [visible.id]);
@@ -1871,6 +1894,51 @@ async function handle(req, res, cfg) {
     });
     return send(res, 200, { chat: chatView(updated, user) });
   }
+  // Edit mode in the preview: the app hands over the tweaks someone made (words, color, size, spacing) and they go
+  // into the page's source, so the agent and everyone with the link see them. Only the chat's own person, only its pages.
+  if (method === "POST" && parts[3] === "prototype" && parts.length === 4) {
+    if (chat.mode !== "vibe" || chat.hosted !== "server" || !chat.vibeFolder) return fail(res, 404, "not_found", "This chat has no prototype to edit");
+    const body = await readAuthorizedBody(req, 512 * 1024);
+    try { return send(res, 200, { ok: true, ...savePrototypePage(PROTOTYPES_DIR, chat.vibeFolder, body.path, { edits: body.edits, styles: body.styles }) }); }
+    catch (e) { return fail(res, e.status || 500, e.status === 404 ? "not_found" : "bad_request", e.message || "Couldn't save the page"); }
+  }
+  // Invite people into the chat (read only), with how much of what came before they see:
+  // none, the last day, the last week or all of it. Only the author invites or removes.
+  if (method === "POST" && parts[3] === "members" && parts.length === 4) {
+    const body = await readAuthorizedBody(req);
+    const ids = Array.isArray(body.userIds) ? body.userIds : body.userId ? [body.userId] : null;
+    if (!ids || !ids.length || ids.some(v => typeof v !== "string")) return fail(res, 400, "bad_request", "Choose who to add");
+    const history = body.history ?? "all";
+    if (!Object.hasOwn(CHAT_HISTORY, history)) return fail(res, 400, "bad_request", "history must be none, day, week or all");
+    const updated = mutateAuthenticated(req, (state, current) => {
+      const active = requireChat(state, current.user.id, chat.id);
+      if (active.privateForward) throw requestError(409, "forward_private", "This chat includes a message from a private conversation, so it stays private");
+      const at = now(), span = CHAT_HISTORY[history];
+      const since = span === Infinity ? 0 : span === null ? at : at - span;
+      const members = [...(active.members || [])];
+      for (const userId of new Set(ids)) {
+        if (userId === active.userId) continue;
+        const person = state.users[userId];
+        if (!person || isRemoved(person)) throw requestError(404, "not_found", "That person isn't on this server");
+        const existing = members.findIndex(m => m.userId === userId);
+        const entry = { userId, since, invitedAt: at, invitedBy: current.user.id };
+        if (existing >= 0) members[existing] = entry; else members.push(entry);
+      }
+      active.members = members;
+      return { chat: { ...active }, users: state.users };
+    });
+    return send(res, 200, { chat: chatView(updated.chat, user, updated.users) });
+  }
+  if (method === "DELETE" && parts[3] === "members" && parts.length === 5) {
+    const updated = mutateAuthenticated(req, (state, current) => {
+      const active = requireChat(state, current.user.id, chat.id);
+      active.members = (active.members || []).filter(m => m.userId !== parts[4]);
+      if (!active.members.length) delete active.members;
+      return { chat: { ...active }, users: state.users };
+    });
+    return send(res, 200, { chat: chatView(updated.chat, user, updated.users) });
+  }
+
   // A member promoted to owner (or the reverse) keeps old chats on the old agent.
   const chatUp = cfg.upstreams[agentRole(chat.role, cfg)];
 
@@ -2049,7 +2117,7 @@ async function handle(req, res, cfg) {
     await syncChatHistory();
     const turn = mutateAuthenticated(req, (state, current) => {
       const active = requireChat(state, current.user.id, chat.id);
-      if (privateForward && (chatShared(active) || active.projectShared)) throw requestError(409, "forward_private", "Messages from private conversations go into a private chat");
+      if (privateForward && (chatShared(active) || active.projectShared || active.members?.length)) throw requestError(409, "forward_private", "Messages from private conversations go into a private chat");
       const queued = agentTurns.enqueue({ chat: active, user: current.user, device: current.device, text, attachments, requestId: body.requestId });
       if (privateForward) active.privateForward = true;
       if (active.title === "New chat") active.title = (ownText || (body.forward != null ? `About: ${text.split("\n")[1]?.replace(/^> /, "") || "a message"}` : "") || text || attachments[0].name).replace(/\s+/g, " ").slice(0, 60);

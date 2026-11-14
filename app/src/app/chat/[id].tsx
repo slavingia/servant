@@ -7,6 +7,8 @@ import { randomUUID } from "expo-crypto";
 import { ConversationKeyboardView } from "../../components/ConversationKeyboardView";
 import { Avatar, Composer, when } from "../../components/Messaging";
 import { ProjectSheet } from "../../components/ProjectSheet";
+import { PeopleSheet } from "../../components/PeopleSheet";
+import { historyLabel, peopleSummary, type ChatHistory, type ChatMember } from "../../lib/chat-members";
 import { Attachments, documentReader, PendingAttachments } from "../../components/Attachments";
 import { uploadDocument, UploadError } from "../../lib/document-upload";
 import { MediaGalleryProvider } from "../../components/MediaGallery";
@@ -28,7 +30,7 @@ import { helpText, parseSlash } from "../../lib/slash-commands";
 import { PiiDeclined, withPiiConfirm } from "../../lib/pii-warning";
 import { usePiiConfirm } from "../../components/PiiConfirm";
 import { chatLoad, chatTurns, forgetChat, keepChat, keptChat, peekChatLoad, takeChatLoad } from "../../lib/chat-cache";
-import { api, sendMessage, ServerError, uploadPost, type Account, type Chat, type Project, type Message, type Upload } from "../../lib/server";
+import { api, sendMessage, ServerError, uploadPost, type Account, type Chat, type Project, type Message, type PrototypeChanges, type Upload } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { anyTalk, useFeatures } from "../../lib/features";
 import { useLiveActions } from "../../lib/live";
@@ -217,13 +219,40 @@ let NativeWebView: any = null;
 if (Platform.OS !== "web") { try { NativeWebView = require("react-native-webview").WebView; } catch { NativeWebView = null; } }
 export const canSplitPreview = Platform.OS === "web" || !!NativeWebView;
 
-function PreviewPane({ url, version, stacked, onClose }: { url: string; version: number; stacked: boolean; onClose: () => void }) {
+// Edit mode: the page gets a small editor (tap text to change it; color, size, spacing; undo; save). The page is
+// sandboxed, so it hands its changes (words before and after, styles per element) to us and we save it through the signed-in API.
+export const editUrl = (url: string, version: number, editing: boolean) => `${url}${url.includes("?") ? "&" : "?"}v=${version}${editing ? "&edit=1" : ""}`;
+
+function PreviewPane({ url, version, stacked, onClose, onSave }: { url: string; version: number; stacked: boolean; onClose: () => void; onSave?: (path: string, changes: PrototypeChanges) => Promise<{ missed?: string[] }> }) {
   const styles = useStyles();
   const { colors } = useTheme();
-  const src = `${url}${url.includes("?") ? "&" : "?"}v=${version}`;
+  const [editing, setEditing] = useState(false);
+  // A state ref (not useRef): the frame is set once it mounts and read only in handlers.
+  const [frame, setFrame] = useState<any>(null);
+  const src = editUrl(url, version, editing);
+  const reply = useCallback((result: { ok: boolean; message?: string; missed?: string[] }) => {
+    const msg = { servant: "prototype-saved", ...result };
+    if (Platform.OS === "web") frame?.contentWindow?.postMessage(JSON.stringify(msg), "*");
+    else frame?.injectJavaScript(`window.__servantSaved && window.__servantSaved(${JSON.stringify(msg)}); true;`);
+  }, [frame]);
+  const handle = useCallback((raw: unknown) => {
+    let d: any = raw;
+    try { d = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { return; }
+    if (!d || d.servant !== "prototype-save" || !onSave) return;
+    onSave(String(d.path || ""), { edits: Array.isArray(d.edits) ? d.edits : [], styles: Array.isArray(d.styles) ? d.styles : [] }).then((r) => reply({ ok: true, missed: r.missed }), (e) => reply({ ok: false, message: e instanceof ServerError ? e.message : "Couldn't save. Try again" }));
+  }, [onSave, reply]);
+  useEffect(() => {
+    if (Platform.OS !== "web" || !editing) return;
+    const listen = (e: MessageEvent) => { if (e.source && e.source === frame?.contentWindow) handle(e.data); };
+    window.addEventListener("message", listen);
+    return () => window.removeEventListener("message", listen);
+  }, [editing, handle, frame]);
   return <View testID="preview-pane" style={[styles.previewPane, stacked && styles.previewPaneStacked]}>
     <View style={styles.previewBar}>
-      <Text accessibilityRole="header" style={[styles.turnLabel, styles.turnCopy]}>Preview</Text>
+      <Text accessibilityRole="header" style={[styles.turnLabel, styles.turnCopy]}>{editing ? "Editing" : "Preview"}</Text>
+      {onSave ? <Pressable testID="edit-preview" accessibilityRole="button" accessibilityLabel={editing ? "Done editing" : "Edit the words and styles"} onPress={() => setEditing(e => !e)} style={styles.previewBarLink}>
+        <Text style={styles.headerLinkText}>{editing ? "Done" : "Edit"}</Text>
+      </Pressable> : null}
       <Pressable accessibilityRole="button" accessibilityLabel={Platform.OS === "web" ? "Open preview in a new tab" : "Open preview full screen"} onPress={() => openPreview(url)} style={styles.previewBarLink}>
         <Text style={styles.headerLinkText}>{Platform.OS === "web" ? "Open" : "Full screen"}</Text>
       </Pressable>
@@ -231,8 +260,8 @@ function PreviewPane({ url, version, stacked, onClose }: { url: string; version:
         <AppIcon name="close" size={16} color={colors.muted} />
       </Pressable>
     </View>
-    {Platform.OS !== "web" ? <NativeWebView key={src} source={{ uri: src }} style={{ flex: 1, backgroundColor: "#FFFFFF" }} startInLoadingState setSupportMultipleWindows={false} />
-    : createElement("iframe", { key: src, src, title: "Preview", style: { flex: 1, width: "100%", height: "100%", border: 0, backgroundColor: "#FFFFFF" }, sandbox: "allow-scripts allow-same-origin allow-forms allow-popups" })}
+    {Platform.OS !== "web" ? <NativeWebView ref={setFrame} key={src} source={{ uri: src }} style={{ flex: 1, backgroundColor: "#FFFFFF" }} startInLoadingState setSupportMultipleWindows={false} onMessage={(e: { nativeEvent: { data: string } }) => handle(e.nativeEvent.data)} />
+    : createElement("iframe", { ref: setFrame, key: src, src, title: "Preview", style: { flex: 1, width: "100%", height: "100%", border: 0, backgroundColor: "#FFFFFF" }, sandbox: "allow-scripts allow-same-origin allow-forms allow-popups" })}
   </View>;
 }
 
@@ -249,7 +278,7 @@ function ReplyText({ text, failed }: { text: string; failed?: boolean }) {
 }
 
 // Header "•••": chat options. Your own chat is private until you choose to share it with the server; Files lives here too.
-function OptionsSheet({ id, title, shared, projectId, projectShared, onProject, onProjectShared, onChange, onClose }: { id: string; title: string; shared: boolean | null; projectId: string | null; projectShared: boolean; onProject: (projectId: string | null) => void; onProjectShared: (shared: boolean) => void; onChange: (shared: boolean) => void; onClose: () => void }) {
+function OptionsSheet({ id, title, shared, projectId, projectShared, onProject, onProjectShared, onChange, onClose, members, onInvite, onUninvite }: { members: ChatMember[] | null; onInvite: () => void; onUninvite: (userId: string) => void; id: string; title: string; shared: boolean | null; projectId: string | null; projectShared: boolean; onProject: (projectId: string | null) => void; onProjectShared: (shared: boolean) => void; onChange: (shared: boolean) => void; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const { account } = useSession();
@@ -312,6 +341,17 @@ function OptionsSheet({ id, title, shared, projectId, projectShared, onProject, 
               {f.id === projectId ? <AppIcon name="check" size={16} color={colors.blue} /> : null}
             </Radio>)}
           </View> : null}
+        </> : null}
+        {members ? <>
+          {members.map(m => <View key={m.id} style={styles.shareRow}>
+            <Avatar name={m.name} userId={m.id} size={28} />
+            <View style={styles.turnCopy}>
+              <Text style={styles.turnLabel}>{m.name}</Text>
+              <Text style={styles.turnDetail}>{historyLabel(m)}</Text>
+            </View>
+            <Button label="Remove" accessibilityLabel={`Remove ${m.name} from this chat`} kind="danger" compact onPress={() => onUninvite(m.id)} />
+          </View>)}
+          <Pressable testID="add-people" accessibilityRole="button" onPress={onInvite} style={styles.menuAction}><Text style={styles.menuActionText}>Add people</Text></Pressable>
         </> : null}
         <Pressable testID="open-files" accessibilityRole="button" onPress={() => { onClose(); router.push({ pathname: "/files", params: { kind: "chat", id, title } }); }} style={styles.menuAction}><Text style={styles.menuActionText}>Files</Text></Pressable>
         <Pressable accessibilityRole="button" onPress={onClose} style={styles.menuAction}><Text style={styles.menuActionText}>Done</Text></Pressable>
@@ -377,10 +417,18 @@ function ChatConversation({ account }: { account: Account }) {
   const [choosing, setChoosing] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [aboutError, setAboutError] = useState<string | null>(null);
+  // People invited to read this chat. Before anything is sent the pill beside About adds them with all
+  // of it; later, Chat options asks how much of what came before they see.
+  const [members, setMembers] = useState<ChatMember[]>([]);
+  const [readOnly, setReadOnly] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
   const { width: winWidth } = useWindowDimensions();
   // Portrait phones stack the preview above the chat; folds, tablets, landscape and wide windows put it beside.
   const stacked = winWidth < 600;
-  const [previewOpen, setPreviewOpen] = useState(false);
+  // The preview is open by default once there is something to see (the agent has replied); closing it sticks for this visit.
+  const [previewClosed, setPreviewClosed] = useState(false);
   const [previewVersion, setPreviewVersion] = useState(0);
   // Links, pushes and the sidebar may open a chat without its title: read it from the server.
   useEffect(() => {
@@ -395,6 +443,8 @@ function ChatConversation({ account }: { account: Account }) {
       setShared(c.shared !== false);
       setProjectId(c.projectId ?? null);
       setProjectShared(c.projectShared === true);
+      setMembers(c.members ?? []);
+      setReadOnly(c.readOnly === true);
       setPreviewUrl(c.mode === "vibe" && c.previewUrl ? c.previewUrl : null);
       setVibe(c.mode === "vibe");
     }).catch(() => {});
@@ -835,12 +885,14 @@ function ChatConversation({ account }: { account: Account }) {
   // ones held for after it sit below.
   const sentMeanwhile = useMemo(() => queuedBelow(waiting, [unstarted, turn]), [waiting, unstarted, turn]);
   // A finished reply's steps, fetched when its summary is opened.
+  const previewOpen = !!previewUrl && canSplitPreview && !previewClosed && (messages ?? []).some(m => m.role === "assistant" && !m.pending);
+  const savePrototype = (path: string, changes: PrototypeChanges) => api.savePrototype(account, String(id), path, changes);
   const loadSteps = useStableCallback((turnId: string) => api.agentTurn(account, String(id), turnId).then(found => found?.steps ?? []));
   const showPreview = () => {
     if (!previewUrl) return;
     if (!canSplitPreview) { openPreview(previewUrl); return; }
     if (!previewOpen) setPreviewVersion(v => v + 1);
-    setPreviewOpen(!previewOpen);
+    setPreviewClosed(previewOpen);
   };
   const headerLinks: HeaderLink[] = [
     ...(previewUrl ? [{ label: "Preview", testID: "open-preview", accessibilityLabel: previewOpen ? "Hide preview" : "Open preview", onPress: showPreview }] : []),
@@ -872,6 +924,17 @@ function ChatConversation({ account }: { account: Account }) {
   // Nothing sent yet: the choice sits right above the message box, and goes once the first message is on its way.
   const fresh = messages !== null && messages.length === 0 && !loadError && !firstRow && !turn && waiting.length === 0;
   const showAbout = fresh && !!projects && !projects.vibeCoder;
+  const invite = async (userIds: string[], history: ChatHistory) => {
+    setInviteBusy(true); setInviteError(null);
+    try { setMembers((await api.addChatMembers(account, String(id), userIds, history)).members ?? []); setInviting(false); }
+    catch (e) { setInviteError(e instanceof ServerError ? e.message : "Couldn't add them. Try again."); }
+    finally { setInviteBusy(false); }
+  };
+  const uninvite = async (userId: string) => {
+    setMembers(list => list.filter(m => m.id !== userId));
+    try { setMembers((await api.removeChatMember(account, String(id), userId)).members ?? []); }
+    catch { api.chat(account, String(id)).then(c => setMembers(c.members ?? [])).catch(() => {}); }
+  };
   const pickAbout = async (choice: string | null) => {
     setChoosing(false);
     const next = canonical(projects, choice);
@@ -905,7 +968,10 @@ function ChatConversation({ account }: { account: Account }) {
     <View style={styles.root}>
       <Stack.Screen options={{ title: heading, headerTitle: titleButton(showTitle, setShowTitle, headerLinks.length), ...filesHeader(String(id), heading, colors.blue, headerLinks, false) }} />
       {showTitle ? <FullTitle title={heading} onClose={() => setShowTitle(false)} /> : null}
-      {sharing ? <OptionsSheet id={String(id)} title={heading} shared={shared} projectId={projectId} projectShared={projectShared} onProject={setProjectId} onProjectShared={setProjectShared} onChange={setShared} onClose={() => setSharing(false)} /> : null}
+      {sharing ? <OptionsSheet id={String(id)} title={heading} shared={shared} projectId={projectId} projectShared={projectShared} onProject={setProjectId} onProjectShared={setProjectShared} onChange={setShared} onClose={() => setSharing(false)}
+        members={readOnly ? null : members} onInvite={() => { setSharing(false); setInviteError(null); setInviting(true); }} onUninvite={userId => { void uninvite(userId); }} /> : null}
+      {inviting ? <PeopleSheet title={fresh ? "Invite to this chat" : "Add people"} exclude={members.map(m => m.id)} withHistory={!fresh} busy={inviteBusy} error={inviteError}
+        onDone={(userIds, history) => { void invite(userIds, history); }} onClose={() => setInviting(false)} /> : null}
       {choosing && projects ? <ProjectSheet visible projects={pickable(projects)} vibe={projects.vibe !== false} vibeLinks={projects.vibeLinks} selected={about} title="This chat is about" onPick={project => { void pickAbout(project); }} onClose={() => setChoosing(false)} /> : null}
       <View style={[styles.split, stacked && previewOpen && styles.splitStacked]}>
       <View style={[styles.chatColumn, stacked && previewOpen && styles.chatColumnStacked]}>
@@ -946,6 +1012,7 @@ function ChatConversation({ account }: { account: Account }) {
           <IconButton icon="close" label="Don't forward this message" onPress={() => setPendingForward(null)} />
         </View> : null}
         {showAbout ? <View style={styles.aboutRow}>
+          <View style={styles.pills}>
           <Pressable testID="chat-about" accessibilityRole="button" accessibilityLabel={`About: ${aboutName}`} accessibilityHint="Change what this chat is about: a project, prototyping or just the agent"
             accessibilityState={{ busy: switching, expanded: choosing }} aria-expanded={choosing} disabled={switching} onPress={() => setChoosing(true)}
             style={({ pressed }) => [styles.aboutTarget, pressed && { opacity: 0.7 }]}>
@@ -955,13 +1022,23 @@ function ChatConversation({ account }: { account: Account }) {
               {switching ? <ActivityIndicator size="small" color={colors.blueDark} /> : <AppIcon name="chevronDown" size={16} color={colors.blueDark} />}
             </View>
           </Pressable>
+          <Pressable testID="chat-people" accessibilityRole="button" accessibilityLabel={`People: ${peopleSummary(members.map(m => m.name))}`} accessibilityHint="Invite people to read this chat"
+            accessibilityState={{ expanded: inviting }} aria-expanded={inviting} onPress={() => { setInviteError(null); setInviting(true); }}
+            style={({ pressed }) => [styles.aboutTarget, pressed && { opacity: 0.7 }]}>
+            <View style={styles.about}>
+              <Text style={styles.aboutLabel}>People</Text>
+              <Text style={styles.aboutValue}>{peopleSummary(members.map(m => m.name))}</Text>
+              <AppIcon name="chevronDown" size={16} color={colors.blueDark} />
+            </View>
+          </Pressable>
+          </View>
           {aboutError ? <Text accessibilityRole="alert" style={styles.aboutError}>{aboutError}</Text> : null}
         </View> : null}
         {messages !== null && !loadError ? <Composer projectId={projectId} draftKey={`chat:${id}`} autoFocus={compose === "1"} commands={{ channel: false, agent: true }} placeholder={pendingForward ? "Message (optional)" : "Message the agent"} onSend={send} allowFileAttachments={false} allowDocuments canSendEmpty={!!pendingForward}
           holdToQueue={busy || activeAgentTurn(turn)} onStop={stoppable ? () => { void stop(); } : undefined} /> : null}
       </ConversationKeyboardView>
       </View>
-      {previewOpen && previewUrl && canSplitPreview ? <PreviewPane url={previewUrl} version={previewVersion} stacked={stacked} onClose={() => setPreviewOpen(false)} /> : null}
+      {previewOpen && previewUrl && canSplitPreview ? <PreviewPane url={previewUrl} version={previewVersion} stacked={stacked} onClose={() => setPreviewClosed(true)} onSave={savePrototype} /> : null}
       </View>
     </View>
     </MediaGalleryProvider>
@@ -1136,6 +1213,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   // "About: <choice>" above the message box of a chat with nothing sent yet.
   // The pill is 32 points; the control around it is 44, which is also the row's height.
   aboutRow: { paddingHorizontal: space.side },
+  pills: { flexDirection: "row", flexWrap: "wrap", columnGap: space.xs },
   aboutTarget: { alignSelf: "flex-start", maxWidth: "100%", minHeight: 44, justifyContent: "center" },
   about: { maxWidth: "100%", minHeight: 32, flexDirection: "row", alignItems: "center", gap: space.xs, paddingLeft: space.sm, paddingRight: space.xs, borderRadius: radius.pill, backgroundColor: colors.blueSoft },
   aboutLabel: { ...typography.caption, color: colors.muted },

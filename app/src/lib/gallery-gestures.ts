@@ -11,3 +11,8 @@ export function shouldDismissGallery({ dx, dy, vy }: Drag & { vy: number }, heig
   const distance = Math.min(120, Math.max(72, height * 0.18));
   return dy >= distance || (dy >= 36 && vy >= 0.7);
 }
+
+/** Pinch zoom is always available; only a scale meaningfully past fit locks paging and dismissal. */
+export function isZoomedIn(zoomScale: number | undefined): boolean {
+  return typeof zoomScale === "number" && zoomScale > 1.01;
+}

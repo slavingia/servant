@@ -240,7 +240,6 @@ export default function Chats() {
                   router.push({ pathname: "/chat/[id]", params: { id: item.id, title: item.title, readOnly: "1", author: item.author?.name ?? "" } });
                 }}
                 style={({ pressed }) => [styles.row, styles.rowWrap, pressed && { backgroundColor: colors.surface }]}>
-                <View style={styles.agentIcon}><AppIcon name="sparkles" size={19} color={colors.blueDark} /></View>
                 <View style={styles.rowCopy}>
                   <View style={styles.rowTop}>
                     <Text style={[styles.rowTitle, styles.readTitle, unread > 0 && styles.unreadTitle]}>{title}</Text>
@@ -275,7 +274,6 @@ export default function Chats() {
                   onAccessibilityAction={bind.onAccessibilityAction}
                   style={({ pressed }) => [styles.row, bind.trailing ? styles.rowWithTrailing : null, pressed && { backgroundColor: colors.surface }]}
                 >
-                  <View style={styles.agentIcon}><AppIcon name={item.mode === "vibe" ? "code" : "sparkles"} size={19} color={colors.blueDark} /></View>
                   <View style={styles.rowCopy}>
                     <View style={styles.rowTop}>
                       <Text style={[styles.rowTitle, styles.readTitle, unread > 0 && styles.unreadTitle]}>{title}</Text>
@@ -324,6 +322,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   sectionTitle: { ...typography.label, color: colors.muted, paddingHorizontal: space.side, paddingTop: space.sm, paddingBottom: space.xs, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   retry: { marginHorizontal: space.side },
   rowWrap: { flexDirection: "row", alignItems: "center", backgroundColor: colors.background, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  // No icon: every row here is an agent chat, so the title gets the width.
   row: {
     flex: 1,
     minWidth: 0,
@@ -335,7 +334,6 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   },
   // Same as the DM rows: the ••• button beside the row supplies the right inset.
   rowWithTrailing: { paddingRight: space.xs },
-  agentIcon: { width: 36, height: 36, marginRight: space.sm, alignItems: "center", justifyContent: "center", backgroundColor: colors.blueSoft, borderRadius: radius.sm },
   projectTag: { ...typography.meta, color: colors.blueDark, marginTop: 1 },
   rowTitle: { ...typography.bodyStrong, flex: 1, color: colors.ink, marginRight: space.sm },
   rowWhen: { ...typography.caption, color: colors.muted },

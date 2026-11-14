@@ -1,3 +1,4 @@
+import type { ChatHistory, ChatMember } from "./chat-members";
 import { termsAcceptance, type TermsAcceptance } from "./terms";
 import { piiFlags, type PiiChoice } from "./pii-warning";
 import { Platform } from "react-native";
@@ -25,6 +26,7 @@ export type { StreamEvent } from "./agent-events";
 export type Role = "owner" | "member";
 // shared: the author chose to let the rest of the server read it (off when a chat starts). author/readOnly: someone else's chat.
 export type ChatLastMessage = { role: "user" | "assistant"; text: string; at: number; attachments: number; pending?: boolean };
+export type PrototypeChanges = { edits: { from: string; to: string }[]; styles: { selector: string; css: Record<string, string> }[] };
 export type ProjectLevel = "read" | "write" | "merge";
 export type ProjectPerson = { key: string; id?: string; name: string; github?: string; level: ProjectLevel; owner: boolean };
 // A body of work the team shares (docs/projects.md). access: your level (null for an admin who isn't listed);
@@ -54,7 +56,7 @@ export type TodoPatch = { text?: string; status?: "open" | "done"; assigneeName?
 // ready: every feature is checked, so the final box opens. shipped: someone ticked that box.
 export type ProjectRelease = { id: string; name: string; date: string; items: ReleaseItem[]; ready?: boolean; shipped?: { at: number; by: string | null; byName: string } | null };
 // mode "vibe": a vibe-coding chat that builds a prototype with a preview link.
-export type Chat = { usage?: { input: number; output: number; total: number; turns: number }; projectId?: string; projectShared?: boolean; project?: { id: string; name: string }; mode?: "vibe"; previewUrl?: string; files?: boolean; id: string; title: string; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; latestTurn?: AgentTurn | null };
+export type Chat = { usage?: { input: number; output: number; total: number; turns: number }; projectId?: string; projectShared?: boolean; project?: { id: string; name: string }; mode?: "vibe"; previewUrl?: string; files?: boolean; id: string; title: string; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; latestTurn?: AgentTurn | null; members?: ChatMember[] };
 export type Message = { id: string; role: "user" | "assistant"; text: string; at?: number | string | null; attachments?: Attachment[]; pending?: boolean; interrupted?: boolean; sourceDevice?: SourceDevice };
 
 // ----- token leaderboard -----
@@ -488,6 +490,8 @@ export const api = {
   readAllChats: (a: Account) => request(a, "/v1/chats/read-all", { method: "POST", body: "{}" }).then(() => undefined),
   readChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/read`, { method: "POST", body: "{}" }).then(() => undefined),
   chat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}`).then((r) => r.json()).then((d) => d.chat as Chat),
+  // Edit mode in the prototype preview: save the changed page over the prototype's file.
+  savePrototype: (a: Account, id: string, path: string, changes: PrototypeChanges) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype`, { method: "POST", body: JSON.stringify({ path, ...changes }) }).then(json<{ ok: true; path: string; missed: string[] }>),
   setChatShared: (a: Account, id: string, shared: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ shared }) }).then((r) => r.json()).then((d) => d.chat as Chat),
   // Projects: shared bodies of work with notes, files, rules and who can read, write or merge (docs/projects.md).
   projects: (a: Account) => request(a, "/v1/projects").then(json<{ projects: Project[]; vibeCoder: boolean; vibe: boolean; vibeProject?: string; vibeLinks?: { primary: string; backup: string } }>),
@@ -524,6 +528,9 @@ export const api = {
   setDailyLimit: (a: Account, userId: string, change: { unlimitedTokens: boolean; tokenLimit?: number | null }) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify(change) }).then(json<{ person: Person }>),
   setAgentTier: (a: Account, userId: string, agentTier: number) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ agentTier }) }).then(json<{ person: Person }>),
   setVibeCoder: (a: Account, userId: string, vibeCoder: boolean) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ vibeCoder }) }).then(json<{ person: Person }>),
+  // Invite people to read an agent chat, with how much of the past they see; take someone out again.
+  addChatMembers: (a: Account, id: string, userIds: string[], history: ChatHistory) => request(a, `/v1/chats/${encodeURIComponent(id)}/members`, { method: "POST", body: JSON.stringify({ userIds, history }) }).then((r) => r.json()).then((d) => d.chat as Chat),
+  removeChatMember: (a: Account, id: string, userId: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`, { method: "DELETE" }).then((r) => r.json()).then((d) => d.chat as Chat),
   deleteChat: (a: Account, id: string) => request(a, `/v1/chats/${id}`, { method: "DELETE" }),
   archiveChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/archive`, { method: "POST", body: "{}" }),
   restoreChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/restore`, { method: "POST", body: "{}" }),

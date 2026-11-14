@@ -16,8 +16,8 @@ flowchart TB
       DB["SQLite: messages, agent-turns,<br/>chat-media, meetings, inbox,<br/>usage (token counts only)"]
       FS["chat-files, recordings,<br/>meeting audio"]
     end
-    HO["Hermes owner API :8642<br/>full tools"]
-    HM["Hermes member API :8643<br/>empty tool allowlist, no memory"]
+    HO["Claude Code owner API :8642<br/>full tools"]
+    HM["Claude Code member API :8643<br/>empty tool allowlist, no memory"]
     HR["Researcher profile<br/>(tier 4)"]
   end
   IN --> SUP --> ST --> AU --> MS
