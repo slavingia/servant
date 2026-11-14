@@ -255,6 +255,7 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
   const count = board ? filterSummary : todoCountLine(open.length, done.length, filterSummary);
   const canChoose = editableOpen.length > 1;
   const hasMenu = !!filters || canChoose || sendable.length > 1;
+  const menuButton = hasMenu && !selecting ? <IconButton testID="todo-menu" icon="sort" label={filters ? "Filter and options" : "Options"} edge="end" disabled={!!busy} onPress={() => { setActiveId(null); setMenu(true); }} /> : null;
   return (
     <View>
       {selecting ? (
@@ -265,17 +266,20 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
             <Button label="Done" kind="secondary" compact disabled={!!busy} onPress={() => { setSelecting(false); setPicked([]); }} />
           </ButtonGroup>
         </View>
+      ) : board ? (
+        // The board's options sit on its own top line (beside the column names), not on a line of their own above it.
+        count ? <Text testID="todo-count" style={styles.boardFilters}>{count}</Text> : null
       ) : count || hasMenu ? (
         <View style={styles.toolbar}>
           <Text testID="todo-count" style={styles.count}>{count}</Text>
-          {hasMenu ? <IconButton testID="todo-menu" icon="sort" label={filters ? "Filter and options" : "Options"} edge="end" disabled={!!busy} onPress={() => { setActiveId(null); setMenu(true); }} /> : null}
+          {menuButton}
         </View>
       ) : null}
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
       {board ? (
         <View testID="todo-board" onLayout={event => setBoardWidth(event.nativeEvent.layout.width)}>
-          {sideBySide ? null : (
-            // One column at a time where three do not fit: the three names, each with how many it holds.
+          {sideBySide ? null : <View style={styles.boardBar}>
+            {/* One column at a time where three do not fit: the three names, each with how many it holds. */}
             <View accessibilityRole="radiogroup" accessibilityLabel="Column" style={styles.segments}>
               {TODO_STAGES.map(stage => {
                 const on = shown === stage;
@@ -287,12 +291,13 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
                 );
               })}
             </View>
-          )}
+            {menuButton}
+          </View>}
           <View style={sideBySide ? styles.board : undefined}>{(sideBySide ? TODO_STAGES : [shown]).map(stage => {
             const items = columns[stage];
             const listed = stage === "done" && !allDone ? items.slice(0, DONE_SHOWN) : items;
             const inside = <>
-              {sideBySide ? <View style={styles.columnHead}><Text accessibilityRole="header" style={styles.columnTitle}>{STAGE_LABEL[stage]}</Text><Text style={styles.columnCount}>{items.length}</Text></View> : null}
+              {sideBySide ? <View style={styles.columnHead}><Text accessibilityRole="header" style={styles.columnTitle}>{STAGE_LABEL[stage]}</Text><Text style={styles.columnCount}>{items.length}</Text>{stage === "done" ? <View style={styles.columnMenu}>{menuButton}</View> : null}</View> : null}
               {stage === "done" ? listed.map(t => row(t)) : !items.length ? null : still ? items.map(t => row(t)) : <ReorderableList items={items} onLift={() => setLifted(true)} onSettle={() => setLifted(false)} onDrop={ids => void drop(ids, items)} renderRow={(t, bind) => row(t, bind)} />}
               {!todos.length && stage === "todo" ? <Text style={styles.empty}>{empty}</Text>
                 : !items.length && !(stage === "todo" && adderLine) ? <Text style={styles.empty}>{EMPTY_COLUMN[stage]}</Text> : null}
@@ -478,7 +483,7 @@ const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create
   divider: { ...typography.label, color: colors.muted, marginTop: space.lg, marginBottom: space.xxs },
   bulkBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 44, paddingBottom: space.xs },
   // A line of the list: a box and the words, nothing drawn between one line and the next.
-  row: { flexDirection: "row", alignItems: "flex-start", gap: space.sm, paddingVertical: space.xxs, backgroundColor: colors.background },
+  row: { flexDirection: "row", alignItems: "flex-start", gap: space.sm, backgroundColor: colors.background },
   rowDone: { opacity: 0.7 },
   rowLifted: { backgroundColor: colors.surface },
   // The 24-point box sits where it did; the target around it is 44 points and takes no extra room in the row.
@@ -493,11 +498,14 @@ const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create
   // The board. Side by side, each column is headed by its name and how many it holds, over a hairline.
   board: { flexDirection: "row", alignItems: "stretch", gap: space.xl },
   column: { flex: 1, minWidth: 0 },
-  columnHead: { flexDirection: "row", alignItems: "center", gap: space.xs, minHeight: 44, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line, marginBottom: space.xs },
+  columnHead: { flexDirection: "row", alignItems: "center", gap: space.xs, minHeight: 44, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line, marginBottom: space.xxs },
+  columnMenu: { marginLeft: "auto" },
+  boardBar: { flexDirection: "row", alignItems: "center", gap: space.xs, marginBottom: space.xs },
+  boardFilters: { ...typography.caption, color: colors.muted, marginBottom: space.xs },
   columnTitle: { ...typography.label, color: colors.ink },
   columnCount: { ...typography.label, color: colors.muted },
   // One column at a time: the three names in one control, the chosen one filled.
-  segments: { flexDirection: "row", gap: space.xxs, padding: space.xxs, borderRadius: radius.md, backgroundColor: colors.surface, marginBottom: space.sm },
+  segments: { flexDirection: "row", gap: space.xxs, padding: space.xxs, borderRadius: radius.md, backgroundColor: colors.surface, flex: 1, minWidth: 0 },
   segment: { flex: 1, minWidth: 0, minHeight: 44, alignItems: "center", justifyContent: "center", paddingHorizontal: space.xs, borderRadius: radius.sm },
   segmentOn: { backgroundColor: colors.background },
   segmentText: { ...typography.label, color: colors.muted, textAlign: "center" },

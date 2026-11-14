@@ -103,3 +103,18 @@ test("the work log says when a finished to-do was started and whether it was on 
   assert.match(saved, /useState<"open" \| "completed" \| "history">\(params\.view === "history" \? "history" : "open"\)/);
   assert.match(component, /\{board \? <Button label="Work log" kind="link" compact onPress=\{\(\) => \{ setMenu\(false\); router\.push\(\{ pathname: "\/saved", params: \{ view: "history" \} \}\); \}\} \/> : null\}/);
 });
+
+// The owner on the first board: "odd spacing too much vert at places".
+test("no empty line above the board, and the lines sit close together", () => {
+  const style = (source: string, name: string) => source.match(new RegExp(`\\n  ${name}: \\{([^\\n]*)\\},`))?.[1] ?? "";
+  // The options icon is on the board's top line: beside the column picker, or at the end of the last column's heading.
+  assert.match(component, /\) : board \? \(\s*\/\/[^\n]*\n\s*count \? <Text testID="todo-count" style=\{styles\.boardFilters\}>\{count\}<\/Text> : null/, "no toolbar line of its own");
+  assert.match(component, /<\/View>\s*\{menuButton\}\s*<\/View>\}/, "beside the column picker on a phone");
+  assert.match(component, /\{stage === "done" \? <View style=\{styles\.columnMenu\}>\{menuButton\}<\/View> : null\}/);
+  assert.doesNotMatch(style(list, "row"), /padding/, "a line is as tall as its 44-point target, no more");
+  assert.match(style(list, "body"), /minHeight: 44/);
+  // In the work log, the facts about a finished to-do are one block.
+  const saved = read("app/saved.tsx");
+  assert.match(saved, /item\.kind === "todo" \? <View style=\{styles\.logDetails\}>/);
+  assert.match(style(saved, "logDetails"), /gap: space\.xxs \/ 2/);
+});
