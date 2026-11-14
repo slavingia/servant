@@ -15,6 +15,7 @@ import { api, ServerError, type Chat } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { useLiveActions } from "../../lib/live";
 import { openingChat } from "../../lib/chat-cache";
+import { reuseEqual } from "../../lib/reuse-equal";
 import { setRowChange, withRowChanges, type RowChanges } from "../../lib/row-changes";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../../lib/theme";
 import { activeAgentTurn, agentTurnLabel, liveAgentLine } from '../../lib/agent-turns';
@@ -63,9 +64,10 @@ export default function Chats() {
     if (!account) return;
     try {
       const { mine, others } = await api.orgChats(account, setAccount);
-      setChats(mine);
+      // The list is read every five seconds. What did not change is kept, so a look that finds nothing new draws nothing.
+      setChats(current => reuseEqual(current, mine));
       refreshAgent(mine);
-      setShared(others);
+      setShared(current => reuseEqual(current, others));
       void refreshProjects(account);
       setError(null);
     } catch (e) {
