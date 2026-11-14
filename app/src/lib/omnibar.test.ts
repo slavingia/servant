@@ -56,15 +56,15 @@ test("quick actions that lead to a feature the server turned off are not offered
 test("the quick actions offered before typing are the everyday ones; newer destinations are still found by name", () => {
   for (const surveys of [false, true]) assert.deepEqual(omnibarShortcuts("", false, undefined, surveys).slice(0, 4).map(item => item.id), ["new-message", "new-channel", "agent", "members"]);
   assert.equal(omnibarShortcuts("saved", false)[0]?.id, "saved");
-  assert.equal(omnibarShortcuts("survey", false, undefined, true)[0]?.id, "surveys");
-  assert.equal(omnibarShortcuts("feedback queue", false, undefined, true)[0]?.id, "feedback-queue");
+  // Surveys and the feedback queue are one place now; either name finds it.
+  for (const words of ["survey", "feedback queue", "feedback", "responses"]) assert.equal(omnibarShortcuts(words, false, undefined, true)[0]?.id, "feedback", words);
 });
 
 test("survey shortcuts require explicit server view permission for every role", () => {
   for (const owner of [true, false]) {
-    assert.equal(omnibarShortcuts("surveys", owner).some(item => item.id === "surveys"), false);
-    assert.equal(omnibarShortcuts("feedback queue", owner).some(item => item.id === "feedback-queue"), false);
-    assert.equal(omnibarShortcuts("surveys", owner, undefined, true).some(item => item.id === "surveys"), true);
-    assert.equal(omnibarShortcuts("feedback queue", owner, undefined, true).some(item => item.id === "feedback-queue"), true);
+    for (const words of ["surveys", "feedback queue", "feedback"]) {
+      assert.equal(omnibarShortcuts(words, owner).some(item => item.id === "feedback"), false, words);
+      assert.equal(omnibarShortcuts(words, owner, undefined, true).some(item => item.id === "feedback"), true, words);
+    }
   }
 });

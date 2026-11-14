@@ -1,9 +1,10 @@
-# Surveys and the feedback queue
+# Feedback: surveys and their responses
 
-Surveys collect private feedback. Open **Surveys** in the desktop sidebar or
-**You → Workspace → Surveys** on a phone. Each survey currently has a name,
+Surveys collect private feedback. Open **Feedback** in the desktop sidebar or
+under **You** on a phone. It has two tabs: **Surveys** and **Responses**
+(the feedback queue). Each survey currently has a name,
 a question, five faces scored 1–5 and an optional comment. Results show the
-response count, average and distribution. **Feedback queue** shows individual
+response count, average and distribution. **Responses** shows individual
 responses, private reply addresses and internal review notes.
 Rampart Edge removes detected personal information from submitted comments
 before they are saved.

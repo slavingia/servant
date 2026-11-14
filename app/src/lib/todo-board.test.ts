@@ -72,7 +72,7 @@ test("the details sheet takes a due date and says what happens without one", () 
   assert.match(editor, /<TextInput testID="todo-due-date" accessibilityLabel="Due date, year-month-day"/);
   assert.match(editor, /`Leave it empty and it is due with its release, \$\{releaseDate\(releaseDay\)\}\.` : "Leave it empty and it has no due date\."/);
   assert.match(editor, /if \(dueDate && !DATE_SHAPE\.test\(dueDate\)\) \{ setError\("Due dates look like 2026-11-20"\); return; \}/);
-  assert.match(editor, /dueDate: dueDate \|\| null \}\)/, "an empty field clears the to-do's own date");
+  assert.match(editor, /channelId, dueDate: dueDate \|\| null,/, "an empty field clears the to-do's own date");
 });
 
 // "These should basically feed into work log too": a finished to-do's entry says when it was started and whether
@@ -102,4 +102,22 @@ test("the work log says when a finished to-do was started and whether it was on 
   assert.match(saved, /\{workLogDue\(item\) \? <Text testID=\{`work-log-due-\$\{item\.id\}`\} style=\{styles\.logMeta\}>\{workLogDue\(item\)\}<\/Text> : null\}/);
   assert.match(saved, /useState<"open" \| "completed" \| "history">\(params\.view === "history" \? "history" : "open"\)/);
   assert.match(component, /\{board \? <Button label="Work log" kind="link" compact onPress=\{\(\) => \{ setMenu\(false\); router\.push\(\{ pathname: "\/saved", params: \{ view: "history" \} \}\); \}\} \/> : null\}/);
+});
+
+// The owner on the first board: "odd spacing too much vert at places".
+test("no empty line above the board, and the lines sit close together", () => {
+  const style = (source: string, name: string) => source.match(new RegExp(`\\n  ${name}: \\{([^\\n]*)\\},`))?.[1] ?? "";
+  // The owner then: "Move that button top right And it'll be in header and then all that space is saved".
+  assert.match(component, /\) : board \? \(\s*\/\/[^\n]*\n\s*count \? <Text testID="todo-count" style=\{styles\.boardFilters\}>\{count\}<\/Text> : null/, "no toolbar line of its own");
+  assert.match(component, /\{board \? <Stack\.Screen options=\{!menuButton \? \{ headerRight: undefined, unstable_headerRightItems: undefined \} : Platform\.OS === "ios"/, "the button is in the screen's header");
+  assert.match(component, /icon: \{ type: "sfSymbol" as const, name: "line\.3\.horizontal\.decrease" \}, tintColor: colors\.blue, hidesSharedBackground: true, onPress: openMenu/, "the system's own button on iOS");
+  assert.match(component, /: \{ headerRight: \(\) => <View style=\{styles\.headerMenu\}>\{menuButton\}<\/View> \}\}/);
+  const boardMarkup = component.slice(component.indexOf('<View testID="todo-board"'), component.indexOf("{menu ? ("));
+  assert.doesNotMatch(boardMarkup, /menuButton/, "and nowhere on the board itself");
+  assert.doesNotMatch(style(list, "row"), /padding/, "a line is as tall as its 44-point target, no more");
+  assert.match(style(list, "body"), /minHeight: 44/);
+  // In the work log, the facts about a finished to-do are one block.
+  const saved = read("app/saved.tsx");
+  assert.match(saved, /item\.kind === "todo" \? <View style=\{styles\.logDetails\}>/);
+  assert.match(style(saved, "logDetails"), /gap: space\.xxs \/ 2/);
 });

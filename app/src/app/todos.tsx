@@ -28,6 +28,8 @@ function TodoScreen({ account, params }: { account: Account; params: { id?: stri
   const [scope, setScope] = useState<Scope>("all");
   const [project, setProject] = useState<string | undefined>(params.project);
   const [release, setRelease] = useState<string | undefined>(params.release);
+  // Show one epic and the to-dos under it.
+  const [epic, setEpic] = useState<{ id: string; text: string } | undefined>();
   const [selectedId, setSelectedId] = useState(params.id);
   const [todos, setTodos] = useState<TodoItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +46,7 @@ function TodoScreen({ account, params }: { account: Account; params: { id?: stri
     loading.current = true;
     try {
       const rows = selectedId ? [(await api.todo(account, selectedId)).todo]
-        : (await api.todos(account, { project, release, status: "all", mine: scope === "mine" })).todos;
+        : (await api.todos(account, { project, release, status: "all", mine: scope === "mine", epic: epic?.id })).todos;
       if (request === version.current) { setTodos(rows); setError(null); }
     } catch (e) {
       if (request === version.current) {
@@ -52,7 +54,7 @@ function TodoScreen({ account, params }: { account: Account; params: { id?: stri
         setTodos([]);
       }
     } finally { if (request === version.current) loading.current = false; }
-  }, [account, project, release, scope, selectedId]);
+  }, [account, project, release, scope, epic, selectedId]);
   // The agent ticks items off while this is open.
   useFocusEffect(useCallback(() => {
     focused.current = true;
@@ -73,6 +75,7 @@ function TodoScreen({ account, params }: { account: Account; params: { id?: stri
   }, []);
 
   const list = projects?.list ?? [];
+  const epics = (todos ?? []).filter(t => t.type === "epic");
   const current = list.find(p => p.id === project);
   const chip = (label: string, on: boolean, press: () => void) => (
     <Pressable key={label} accessibilityRole="radio" accessibilityState={{ checked: on, disabled: writing }} aria-checked={on} accessibilityLabel={label} disabled={writing} onPress={press} style={[styles.chip, on && styles.chipOn]}>
@@ -101,8 +104,16 @@ function TodoScreen({ account, params }: { account: Account; params: { id?: stri
         {current.releases.map(r => chip(r.name, release === r.id, () => setRelease(r.id)))}
       </View>
     </> : null}
+    {epics.length || epic ? <>
+      <Text style={styles.label}>Epic</Text>
+      <View accessibilityRole="radiogroup" accessibilityLabel="Epic" style={styles.group}>
+        {chip("All epics", !epic, () => setEpic(undefined))}
+        {epics.map(e => chip(e.text, epic?.id === e.id, () => setEpic({ id: e.id, text: e.text })))}
+      </View>
+    </> : null}
   </View>;
-  const summary = todoFilterSummary({ mine: scope === "mine", project: current?.name, release: current?.releases.find(r => r.id === release)?.name, done: false });
+  const summary = [todoFilterSummary({ mine: scope === "mine", project: current?.name, release: current?.releases.find(r => r.id === release)?.name, done: false }),
+    epic?.text].filter(Boolean).join(" · ");
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} tintColor={colors.blue} />}>
       <Stack.Screen options={{ title: current ? `${current.name} to-dos` : "To-dos" }} />

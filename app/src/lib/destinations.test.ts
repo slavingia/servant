@@ -24,7 +24,7 @@ test("the sidebar is three short groups: where people talk, your work, the team"
   assert.deepEqual(labels("sidebar"), [
     ["Conversations", ["Home", "Agent", "Chats", "Cases"]],
     ["Your work", ["To-dos", "Saved", "Meetings"]],
-    ["Team", ["People", "Surveys", "Feedback queue", "Wiki"]],
+    ["Team", ["People", "Feedback", "Wiki"]],
   ]);
 });
 
@@ -32,7 +32,7 @@ test("You lists the same places under the same names, plus the ones a wide windo
   assert.deepEqual(labels("you"), [
     ["Conversations", ["Cases"]],
     ["Your work", ["To-dos", "Saved", "Meetings", "Archived"]],
-    ["Team", ["People", "Invite people", "Surveys", "Feedback queue", "Wiki", "Loops", "Agent usage"]],
+    ["Team", ["People", "Invite people", "Feedback", "Wiki", "Loops", "Agent usage"]],
   ]);
   assert.deepEqual(labels("you", member), [
     ["Conversations", ["Cases"]],

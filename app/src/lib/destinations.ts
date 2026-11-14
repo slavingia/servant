@@ -43,8 +43,8 @@ export const DESTINATIONS: Destination[] = [
   { id: "archive", label: "Archived", icon: "archive", path: "/archived-channels", group: "work", needs: "talk", sidebar: false, you: true, detail: "Channels and messages you archived", keywords: "archive archived restore channels messages" },
   { id: "members", label: "People", icon: "people", path: "/members", group: "team", needs: "people", sidebar: true, you: true, detail: "Everyone on your server", keywords: "people members directory" },
   { id: "invite", label: "Invite people", icon: "addPerson", path: "/invite", group: "team", needs: "people", owner: true, sidebar: false, you: true, detail: "Share an invite to your server", keywords: "people invite join link teammates" },
-  { id: "surveys", label: "Surveys", icon: "smile", path: "/surveys", group: "team", surveys: true, sidebar: true, you: true, detail: "Surveys and their private results", keywords: "survey faces ratings results share" },
-  { id: "feedback-queue", label: "Feedback queue", icon: "inbox", path: "/queue", group: "team", surveys: true, sidebar: true, you: true, detail: "Private survey responses to review", keywords: "feedback queue private survey responses review" },
+  // Surveys and the responses to them are one place, with a tab for each on the screen.
+  { id: "feedback", label: "Feedback", icon: "smile", path: "/surveys", group: "team", surveys: true, sidebar: true, you: true, detail: "Surveys and the private responses to review", keywords: "feedback survey surveys queue responses review faces ratings results share private" },
   { id: "wiki", label: "Wiki", icon: "book", path: "/wiki", group: "team", sidebar: true, you: true, detail: "Pages your team writes together, and the abbreviations that expand as you type", keywords: "wiki pages documents docs notes knowledge handbook guide text shortcuts abbreviations lexicon glossary expand" },
   { id: "loops", label: "Loops", icon: "loop", path: "/loops", group: "team", sidebar: false, you: true, detail: "What the agent does on its own, every hour, day and week", keywords: "loops automations schedule scheduled recurring cron releases hourly daily weekly agent" },
   { id: "usage", label: "Agent usage", icon: "clock", path: "/leaderboard", group: "team", sidebar: false, you: true, detail: "How much each person uses the agent", keywords: "agent usage tokens leaderboard" },
@@ -72,6 +72,7 @@ export function placeIsOpen(place: Destination, pathname: string, kind: string |
     case "members": return pathname === "/members" || pathname === "/invite";
     case "meetings": return pathname === "/meetings" || pathname.startsWith("/meetings/");
     case "inbox": return pathname === "/inbox" || pathname.startsWith("/inbox/");
+    case "feedback": return pathname === "/surveys" || pathname === "/queue";
     case "wiki": return pathname === "/wiki" || pathname === "/lexicon";
     default: return pathname === place.path;
   }

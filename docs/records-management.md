@@ -30,7 +30,7 @@ could not be saved"). People see no difference otherwise: an edited message show
 | A chat message **disappears from the agent's own history** (the mirror used to delete its copy) | the message, archived first; if archiving fails the copy is left alone |
 | An agent turn **ends** | the full approval record (what the agent asked to run, and the person's allow or deny decision) and the names, types and sizes of what was attached, which used to be blanked |
 | A **personal recording** is deleted | hidden from the person, but the audio, transcript and notes stay |
-| A **to-do** is edited, deleted, or removed with its recording | its full earlier row is copied into `records_archive` in `messages.db`, in the same transaction as the to-do change; archive failure refuses the change |
+| A **to-do** is edited, deleted, or removed with its recording | its full earlier row (type, priority, estimate, description and epic included; for a deleted to-do, its comments too) is copied into `records_archive` in `messages.db`, in the same transaction as the to-do change; archive failure refuses the change |
 | A **meeting's audio** and `keepRecordings: false` | the audio is kept anyway; this switch wins over the storage-saving one |
 | A **project file or project** is deleted | moved into `project-files/.removed/`, out of view and out of every listing |
 | A **wiki page** is edited or deleted | its title and Markdown text as they were, who last wrote them, who changed or deleted the page, when. Moving a page under another changes neither, so it archives nothing |

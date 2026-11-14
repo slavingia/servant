@@ -21,6 +21,7 @@ test("the reply hint is not repeated under every response", () => {
 });
 
 test("Surveys returns to the Surveys screen instead of adding another copy", () => {
-  assert.match(source, /router\.dismissTo\(\{ pathname: '\/surveys'/);
+  assert.doesNotMatch(source, /router\.dismissTo\(\{ pathname: '\/surveys'/, "the Surveys button became a tab");
+  assert.match(source, /<FeedbackTabs current="responses" survey=\{detail\?\.survey\.id\} disabled=\{busy\} \/>/);
   assert.doesNotMatch(source, /router\.push\(\{ pathname: '\/surveys'/);
 });

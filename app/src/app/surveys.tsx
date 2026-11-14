@@ -3,6 +3,7 @@ import { Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, Text
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { Button } from '../components/Button';
+import { FeedbackTabs } from '../components/FeedbackTabs';
 import { useSession } from '../lib/session';
 import { surveysApi, surveyError, surveyFaces, surveyRatingLabels, type Survey, type SurveyDetail } from '../lib/surveys';
 import { NO_SURVEY_ACCESS, surveyPermissionsFromServer } from '../lib/survey-permissions';
@@ -82,6 +83,7 @@ export default function Surveys() {
   };
   if (!account) return null;
   return <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+    <FeedbackTabs current="surveys" survey={detail?.survey.id} disabled={busy} />
     <Text style={styles.body}>Collect feedback privately. Responses and results are visible to authorized staff only.</Text>
     {permissions.canView && !permissions.canManage ? <Text style={styles.caption}>You have view access. A user researcher or admin can create and edit surveys.</Text> : null}
     {permissions.canManage ? <View style={styles.actions}><Button label={editor ? 'Cancel' : 'New survey'} kind="secondary" compact disabled={busy} onPress={() => { setEditor(editor ? null : 'new'); setTitle(''); setQuestion('How was your experience?'); setNotice(''); }} /></View> : null}
@@ -108,7 +110,7 @@ export default function Surveys() {
           {Platform.OS !== 'web' ? <Button label="Share" kind="secondary" compact onPress={() => { void Share.share({ message: detail.survey.shareUrl! }).catch(e => setError(surveyError(e))); }} /> : null}
         </View></> : <Text style={styles.caption}>Survey address not configured.</Text>}
         {detail.survey.emailReady === false ? <Text style={styles.caption}>Email verification is not ready. Ask a server admin to configure the survey address and email delivery.</Text> : null}
-        <View style={styles.actions}>{permissions.canManage ? <><Button label="Edit survey" kind="secondary" compact disabled={busy || !!editor} onPress={() => { setEditor(detail.survey.id); setTitle(detail.survey.title); setQuestion(detail.survey.question); setNotice(''); }} /><Button label={detail.survey.closed ? 'Reopen survey' : 'Close survey'} kind="secondary" compact busy={busy} disabled={!!editor} onPress={toggle} /></> : null}<Button label="View responses" kind="link" compact onPress={() => router.push({ pathname: '/queue', params: { survey: detail.survey.id } })} /></View>
+        <View style={styles.actions}>{permissions.canManage ? <><Button label="Edit survey" kind="secondary" compact disabled={busy || !!editor} onPress={() => { setEditor(detail.survey.id); setTitle(detail.survey.title); setQuestion(detail.survey.question); setNotice(''); }} /><Button label={detail.survey.closed ? 'Reopen survey' : 'Close survey'} kind="secondary" compact busy={busy} disabled={!!editor} onPress={toggle} /></> : null}<Button label="View responses" kind="link" compact onPress={() => router.replace({ pathname: '/queue', params: { survey: detail.survey.id } })} /></View>
       </View>
       <View style={styles.panel}>
         <Text accessibilityRole="header" style={styles.heading}>Results</Text>

@@ -88,6 +88,31 @@ test("link with phone approval, then list, read, post and ask the agent through 
     const chat = await text("new_agent_chat", { title: "From MCP", shared: true });
     const answer = await text("ask_agent", { chat_id: chat.id, text: "summarize the week" });
     assert.match(answer.text, /Done: summarize the week/);
+    // The batch copy into Jira: one command writes the import file, another records the keys Jira gave.
+    // The server under test runs in this process, so the command must not block it.
+    const run = (args: string[]) => new Promise<string>((resolve, reject) => {
+      const child = spawn(process.execPath, [path.join(here, "index.ts"), ...args], { env });
+      let stdout = "", stderr = "";
+      child.stdout.on("data", d => { stdout += d; }); child.stderr.on("data", d => { stderr += d; });
+      child.on("exit", status => status === 0 ? resolve(stdout) : reject(new Error(`${args[0]} exited ${status}: ${stderr}`)));
+    });
+    const epic = (await phoneCall("POST", "/v1/todos", { text: "Guest mode", type: "epic" })).todo;
+    const bug = (await phoneCall("POST", "/v1/todos", { text: "Sign-in fails, sometimes", type: "bug", priority: "high", estimate: 3, parentId: epic.id })).todo;
+    await phoneCall("POST", `/v1/todos/${bug.id}/comments`, { text: "Seen on a phone only" });
+    const csvFile = path.join(home, "out.csv");
+    const exportLog = await run(["jira-export", csvFile]);
+    assert.equal(exportLog, "", "nothing on stdout; the file is the output");
+    const csv = fs.readFileSync(csvFile, "utf8");
+    assert.match(csv, /^Issue Key,Issue Id,Parent Id,Summary,Issue Type,Status,Priority,/);
+    assert.match(csv, new RegExp(`\\r\\n,${epic.number},,Guest mode,Epic,To Do,`));
+    assert.match(csv, new RegExp(`\\r\\n,${bug.number},${epic.number},"Sign-in fails, sometimes",Bug,To Do,High,,,Ana Ruiz,.*,3,,servant-${bug.number},.*; Ana Ruiz; Seen on a phone only\\r\\n`));
+    // What Jira hands back after the import: its own keys beside the labels the file carried.
+    const jiraFile = path.join(home, "jira.csv");
+    fs.writeFileSync(jiraFile, `Summary,Issue key,Labels,Labels\r\nGuest mode,APP-7,team,servant-${epic.number}\r\n"Sign-in fails, sometimes",APP-8,servant-${bug.number},\r\nSomething else,APP-9,other,\r\n`);
+    await run(["jira-keys", jiraFile]);
+    assert.deepEqual([(await phoneCall("GET", `/v1/todos/${epic.id}`)).todo.jiraKey, (await phoneCall("GET", `/v1/todos/${bug.id}`)).todo.jiraKey], ["APP-7", "APP-8"]);
+    await run(["jira-export", csvFile]);
+    assert.match(fs.readFileSync(csvFile, "utf8"), new RegExp(`\\r\\nAPP-8,${bug.number},${epic.number},`), "the next export updates the issue it became");
     // A revoked device stops working right away.
     const devs = (await phoneCall("GET", "/v1/devices")).devices || [];
     const laptop = devs.find((d: any) => d.label === "Test laptop" || d.name === "Test laptop");

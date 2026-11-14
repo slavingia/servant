@@ -4,10 +4,13 @@
 //
 //   node src/index.ts link "<invite or workspace link>"   sign in once (approve on your phone)
 //   node src/index.ts                                     run the MCP server on stdio
+//   node src/index.ts jira-export [file.csv] [project]    write your to-dos as a file Jira's CSV importer reads
+//   node src/index.ts jira-keys <jira export.csv>         record which Jira issue each to-do became
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { call, link, loadAccount, parseWorkspace, streamAgent, accountFile, type Account } from "./client.ts";
+import { jiraExport, jiraKeys } from "./jira.ts";
 
 const [cmd, arg, name] = process.argv.slice(2);
 if (cmd === "link") {
@@ -20,6 +23,15 @@ function account(): Account {
   const a = loadAccount();
   if (!a) throw new Error(`Not signed in. Run: servant-mcp link "<invite or workspace link>" (saves ${accountFile()})`);
   return a;
+}
+// The batch copy into Jira: one command each way, and then the process ends.
+if (cmd === "jira-export" || cmd === "jira-keys") {
+  try {
+    if (cmd === "jira-export") await jiraExport(account(), arg, name);
+    else if (!arg) { console.error("Usage: servant-mcp jira-keys <CSV exported from Jira>"); process.exit(2); }
+    else await jiraKeys(account(), arg);
+    process.exit(0);
+  } catch (e: any) { console.error(e?.message || String(e)); process.exit(1); }
 }
 const api = <T = any>(method: string, path: string, body?: unknown) => call<T>(account(), method, path, body);
 const ok = (data: unknown) => ({ content: [{ type: "text" as const, text: typeof data === "string" ? data : JSON.stringify(data, null, 2) }] });
