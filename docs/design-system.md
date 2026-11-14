@@ -342,6 +342,13 @@ stream on the content background. Author names lead, timestamps stay secondary, 
 messages by the same person within five minutes can share a compact author group;
 day changes and thread context preserve the appropriate separation.
 
+A channel or DM with unread messages shows one **New** line above the first of
+them (`UnreadLine`, placed by `lib/unread-line.ts`): a rule across the stream in
+`primary`, ending in a filled "New" like the unread badges. It is above the date
+when both fall on one message, and the message under it always shows its author.
+It marks where reading started for this visit, so it does not move as messages
+are read or arrive.
+
 Replies, mentions, reaction chips, delivery/read status, typing, and presence
 remain contextual to their conversation. Reaction chips retain 44-point hit
 targets around their smaller visible shape. Failed agent messages use the error
