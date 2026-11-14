@@ -3,7 +3,7 @@ flowchart LR
     subgraph NET["Agency guest Wi-Fi (not the internal network)"]
       subgraph MAC["Agency-issued Mac: the only place plaintext lives"]
         S["Servant server<br/>loopback + encrypted API"]
-        H["Hermes agent<br/>localhost only"]
+        H["Claude Code agent<br/>localhost only"]
         S -- "agent turn, only if the person has a tier above 0" --> H
       end
     end

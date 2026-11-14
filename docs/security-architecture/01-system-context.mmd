@@ -11,11 +11,11 @@ flowchart LR
   end
   subgraph OM["Owner's Mac - trusted boundary (plaintext lives here)"]
     S["Servant server<br/>(Node, no npm deps)"]
-    H["Hermes agent API<br/>localhost only"]
+    H["Claude Code agent API<br/>localhost only"]
     W["Local transcription<br/>ffmpeg + whisper model"]
   end
   subgraph EXT["Third-party services"]
-    LLM["Model provider(s)<br/>configured in Hermes"]
+    LLM["Model provider(s)<br/>configured in Claude Code"]
     PUSH["Apple APNs / Google FCM"]
     CR["Firebase Crashlytics"]
     GH["GitHub Gist<br/>(legacy discovery)"]

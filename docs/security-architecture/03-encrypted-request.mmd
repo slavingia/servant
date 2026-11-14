@@ -4,7 +4,7 @@ sequenceDiagram
   participant P as Phone app
   participant C as Cloudflare tunnel or relay
   participant S as Servant server
-  participant H as Hermes (localhost)
+  participant H as Claude Code (localhost)
   O->>P: Trusted invite: code + server public key
   Note left of P: Pin public key in SecureStore
   P->>C: POST /v1/secure {ephemeral key, salt, ciphertext} pair request

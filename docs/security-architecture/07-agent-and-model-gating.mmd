@@ -4,7 +4,7 @@ flowchart TB
   T0 -- "owner turns it on, per person" --> T["Tier 1 to 5 granted"]
   T --> L{"agentAccess setting"}
   L -- "limited" --> MB["Member agent: no tools at all<br/>(researcher: web and read-only, no shell or files)"]
-  L -- "full (current)" --> FA["Owner's full Hermes: files, terminal,<br/>web, memory, connected services, no approvals"]
+  L -- "full (current)" --> FA["Owner's full Claude Code: files, terminal,<br/>web, memory, connected services, no approvals"]
   MB --> C["Daily token cap per tier<br/>1M / 5M / 20M, owner can raise or lift"]
   FA --> C
   C --> M["Agency model endpoint (Claude)"]
