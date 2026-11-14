@@ -12,15 +12,17 @@ const choices: { mode: NotificationPreferences['mode']; title: string }[] = [
 ];
 export default function NotificationSettings() {
   const styles = useStyles();
-  const { supported, enabled, busy, error, preferences, enable, update } = useNotifications();
+  const { supported, enabled, busy, error, preferences, enable, update, disable } = useNotifications();
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(timer); }, []);
-  if (!supported) return <ScrollView style={styles.root} contentContainerStyle={styles.content}><Text accessibilityRole="header" style={styles.title}>Notifications unavailable</Text><Text style={styles.description}>Available in the iPhone and Android app.</Text></ScrollView>;
+  if (!supported) return <ScrollView style={styles.root} contentContainerStyle={styles.content}><Text accessibilityRole="header" style={styles.title}>Notifications unavailable</Text><Text style={styles.description}>This browser cannot show notifications. They work in the iPhone and Android app, the Mac app, and in Chrome, Edge, Firefox and Safari on a computer.</Text></ScrollView>;
   const paused = preferences.pausedUntil > now;
   return <ScrollView style={styles.root} contentContainerStyle={styles.content}>
 
     <Text style={styles.description}>Archived channels are muted.</Text>
-    {!enabled ? <Button label="Enable notifications" busy={busy} onPress={enable} style={styles.enable} /> : <View style={styles.enabled}><Text style={styles.detail}>Notifications are enabled</Text><Pressable accessibilityRole="button" onPress={() => Linking.openSettings()} style={styles.settings}><Text style={styles.link}>Open system settings</Text></Pressable></View>}
+    {/* A browser (it can be switched off here): say what turning it on does, and offer the way back. */}
+    {disable && !enabled ? <Text style={styles.description}>This browser can alert you to chats, mentions and agent replies while Servant is in the background or closed.</Text> : null}
+    {!enabled ? <Button label="Enable notifications" busy={busy} onPress={enable} style={styles.enable} /> : disable ? <View style={styles.enabled}><Text style={styles.detail}>Notifications are on in this browser</Text><Button compact kind="link" label="Turn off in this browser" disabled={busy} onPress={disable} style={styles.turnOff} /></View> : <View style={styles.enabled}><Text style={styles.detail}>Notifications are enabled</Text><Pressable accessibilityRole="button" onPress={() => Linking.openSettings()} style={styles.settings}><Text style={styles.link}>Open system settings</Text></Pressable></View>}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
     <Text accessibilityRole="header" style={styles.label}>Notify me about</Text>
     {choices.map(choice => <Pressable key={choice.mode} disabled={busy} accessibilityRole="radio" accessibilityState={{ checked: preferences.mode === choice.mode, disabled: busy }} aria-checked={preferences.mode === choice.mode} onPress={() => update({ mode: choice.mode })} style={styles.row}>
@@ -44,6 +46,6 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   radio: { width: 22, height: 22, borderRadius: radius.pill, borderWidth: 1.5, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
   radioSelected: { borderColor: colors.blue }, radioDot: { width: 10, height: 10, borderRadius: radius.pill, backgroundColor: colors.blue },
   enable: { marginTop: space.lg }, enabled: { marginTop: space.md, paddingVertical: space.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
-  settings: { minHeight: 44, justifyContent: 'center' }, link: { ...typography.captionStrong, color: colors.blue, ...linkUnderline },
+  settings: { minHeight: 44, justifyContent: 'center' }, turnOff: { alignSelf: 'flex-start' }, link: { ...typography.captionStrong, color: colors.blue, ...linkUnderline },
   pauseChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }, pause: { minHeight: 48, justifyContent: 'center', paddingHorizontal: space.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm }, error: { ...typography.caption, marginTop: space.sm, color: colors.red },
 }));
