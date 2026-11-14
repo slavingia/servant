@@ -24,6 +24,7 @@ import { useLiveActions } from "../lib/live";
 import { liveEventCount } from "../lib/live-counts";
 import { earlyThread, fetchThread, forgetThread, keepThread, keptThread } from "../lib/thread-cache";
 import { shownReplyCount } from "../lib/thread-start";
+import { reuseEqual } from "../lib/reuse-equal";
 import { useSession } from "../lib/session";
 import { conversationHidden, landingHref, useFeatures } from "../lib/features";
 import { askAgentAbout } from "../lib/ask-agent";
@@ -149,12 +150,15 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
         accessDenied.current = false;
         // That request left before this screen was listening. If anything arrived for the conversation since, look again.
         if (early && liveEventCount(conv) !== early.mark) reload.current();
-        setConversation(c.conversation);
+        // A fresh copy that says what is already on screen keeps what is on screen: only a reply that changed is drawn again.
+        setConversation(shown => reuseEqual(shown, c.conversation));
         setJoined(c.joined);
-        setHead(current.reads.reduce(mergeReadEvent, current.updates.get(root) ?? t.root));
+        const first = current.reads.reduce(mergeReadEvent, current.updates.get(root) ?? t.root);
+        setHead(shown => reuseEqual(shown, first));
         const recovered = new Map(t.replies.map(p => [p.id, p]));
         for (const post of current.updates.values()) if (post.id !== root) recovered.set(post.id, post);
-        setReplies([...recovered.values()].map(post => current.reads.reduce(mergeReadEvent, post)).sort((a, b) => Number(a.id) - Number(b.id)));
+        const fresh = [...recovered.values()].map(post => current.reads.reduce(mergeReadEvent, post)).sort((a, b) => Number(a.id) - Number(b.id));
+        setReplies(shown => reuseEqual<Post[] | null>(shown, fresh));
         setUnavailable(false);
         setError(null);
       })

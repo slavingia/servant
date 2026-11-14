@@ -88,3 +88,15 @@ test("a conversation and a thread tell the navigator their header only when it c
   const conversation = read("app/c/[id].tsx");
   for (const handler of ["onCall", "onFiles", "onDetails"]) assert.match(conversation, new RegExp(`const ${handler} = useStableCallback\\(`), handler);
 });
+
+test("a fresh copy of a conversation or thread keeps the messages that did not change", () => {
+  // Coming back from a thread reloads the conversation, and a conversation opened from memory is followed by
+  // its fresh copy: fifty new objects that say the same thing drew all fifty rows again.
+  const conversation = read("app/c/[id].tsx");
+  assert.match(conversation, /setPosts\(\(old\) => reuseEqual\(old, current\.replace \? recovered : merge\(old \?\? \[\], recovered\)\)\);/);
+  assert.match(conversation, /setConv\(shown => reuseEqual\(shown, c\.conversation\)\);/);
+  const thread = read("app/thread.tsx");
+  assert.match(thread, /setReplies\(shown => reuseEqual<Post\[\] \| null>\(shown, fresh\)\);/);
+  assert.match(thread, /setHead\(shown => reuseEqual\(shown, first\)\);/);
+  assert.match(thread, /setConversation\(shown => reuseEqual\(shown, c\.conversation\)\);/);
+});

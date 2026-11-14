@@ -29,6 +29,7 @@ import { useStableCallback } from "../../lib/stable-callback";
 import { useLiveActions } from "../../lib/live";
 import { liveEventCount } from "../../lib/live-counts";
 import { mergePosts as merge } from "../../lib/post-list";
+import { reuseEqual } from "../../lib/reuse-equal";
 import { useSession } from "../../lib/session";
 import { askAgentAbout } from "../../lib/ask-agent";
 import { helpText, parseSlash, resolvePeople, splitDm } from "../../lib/slash-commands";
@@ -129,10 +130,12 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
       accessDenied.current = false;
       // That request left before this screen was listening. If anything arrived for the conversation since, look again.
       if (early && liveEventCount(id) !== early.mark) reload.current();
-      setConv(c.conversation);
+      // A fresh copy that says what is already on screen keeps what is on screen: only a message that changed
+      // is drawn again (coming back from a thread, or the copy that follows a conversation opened from memory).
+      setConv(shown => reuseEqual(shown, c.conversation));
       setJoined(c.joined);
       const recovered = merge(p.messages, [...current.updates.values()]).map(post => current.reads.reduce(mergeReadEvent, post));
-      setPosts((old) => current.replace ? recovered : merge(old ?? [], recovered));
+      setPosts((old) => reuseEqual(old, current.replace ? recovered : merge(old ?? [], recovered)));
       setMore(p.more);
       setUnavailable(false);
       setError(null);
