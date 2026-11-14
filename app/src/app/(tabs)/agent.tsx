@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, AppState, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect, useScrollToTop } from "expo-router";
 import { shortTime as when } from "../../lib/time-label";
@@ -15,6 +15,7 @@ import { api, ServerError, type Chat } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { useLiveActions } from "../../lib/live";
 import { openingChat } from "../../lib/chat-cache";
+import { setRowChange, withRowChanges, type RowChanges } from "../../lib/row-changes";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../../lib/theme";
 import { activeAgentTurn, agentTurnLabel, liveAgentLine } from '../../lib/agent-turns';
 import { LiveStatus } from "../../components/LiveStatus";
@@ -36,7 +37,6 @@ export default function Chats() {
   const { colors } = useTheme();
   const { account, setAccount, signOut } = useSession();
   const { refreshAgent } = useLiveActions();
-  const [chats, setChats] = useState<Chat[] | null>(null);
   const [shared, setShared] = useState<Chat[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -54,6 +54,10 @@ export default function Chats() {
   const [deleting, setDeleting] = useState<Chat | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const closeRow = useCallback(() => setOpenId(null), []);
+  // Archive, restore and delete show at once: the change waits here, over every copy of the list, until the server answers.
+  const [changes, setChanges] = useState<RowChanges>(() => new Map());
+  const [loadedChats, setChats] = useState<Chat[] | null>(null);
+  const chats = useMemo(() => loadedChats && withRowChanges(loadedChats, changes), [loadedChats, changes]);
 
   const load = useCallback(async () => {
     if (!account) return;
@@ -98,16 +102,23 @@ export default function Chats() {
     busy.current = true;
     setBusyId(chat.id);
     setActionError(null);
+    // The row moves at once (lib/row-changes.ts). The server does the work as it always has: where records are
+    // kept, a delete saves its copy first. If the server refuses, the row is back where it was and the error says why.
+    setChanges(waiting => setRowChange(waiting, chat.id, remove ? { deleted: true } : { archived: !chat.archived }));
+    setDeleting(null);
+    closeRow();
     try {
       if (remove) await api.deleteChat(account, chat.id);
       else if (chat.archived) await api.restoreChat(account, chat.id);
       else await api.archiveChat(account, chat.id);
-      setDeleting(null);
-      closeRow();
       await load();
     } catch (e) {
       setActionError(e instanceof ServerError ? e.message : "Couldn't update the conversation. Try again.");
+      // A delete that was refused asks again, with the reason, wherever the list is scrolled to.
+      if (remove) setDeleting(chat);
     } finally {
+      // The reloaded list has the change now, or it was refused: either way it no longer waits.
+      setChanges(waiting => setRowChange(waiting, chat.id, null));
       busy.current = false;
       setBusyId(null);
     }

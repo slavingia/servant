@@ -9,6 +9,7 @@ import { isSessionExpired, isSignedOut } from "./session-expiry-rules";
 import { usePhotos } from "./photos";
 import { agentUnreadTotal } from "./agent-unread";
 import { reuseEqual } from "./reuse-equal";
+import { setRowChange, withRowChanges, type RowChange, type RowChanges } from "./row-changes";
 
 // What a screen can ask the connection to do. These never change while you stay signed in, so a
 // screen that only listens or refreshes (an open conversation, a thread) is not re-rendered when
@@ -23,6 +24,9 @@ type LiveActions = {
   // A conversation as the list has it right now, read once without following the list: an opening
   // conversation shows its title at once instead of waiting for its own copy.
   peek: (id: string) => Conversation | undefined;
+  // Archive, restore or delete a conversation's row at once, before the server has answered; null takes the
+  // change off again (when the server has answered, or refused). See lib/row-changes.ts.
+  change: (id: string, change: RowChange | null) => void;
 };
 type LiveList = { conversations: Conversation[] | null; error: string | null; connected: boolean };
 type LivePresence = { presence: Record<string, Presence>; connected: boolean };
@@ -277,8 +281,10 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     if (id) setConversations((list) => list && list.some(c => c.id === id && c.unread) ? list.map((c) => (c.id === id ? { ...c, unread: 0 } : c)) : list);
   }, []);
 
+  const [changes, setChanges] = useState<RowChanges>(() => new Map());
+  const change = useCallback((id: string, next: RowChange | null) => setChanges(waiting => setRowChange(waiting, id, next)), []);
   // After sign-out, never show the previous person's conversations.
-  const shown = account ? conversations : null;
+  const shown = useMemo(() => account && conversations ? withRowChanges(conversations, changes) : null, [account, conversations, changes]);
   const latest = useRef(shown);
   useEffect(() => { latest.current = shown; }, [shown]);
   const peek = useCallback((id: string) => latest.current?.find(c => c.id === id), []);
@@ -294,7 +300,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   // The badges are numbers: the same numbers from a new list are the same badges.
   const unread = useMemo(() => ({ channels: counted.channels, messages: counted.messages, agent }), [counted.channels, counted.messages, agent]);
 
-  const actions = useMemo(() => ({ refresh, subscribe, setOpen, refreshAgent, peek }), [refresh, subscribe, setOpen, refreshAgent, peek]);
+  const actions = useMemo(() => ({ refresh, subscribe, setOpen, refreshAgent, peek, change }), [refresh, subscribe, setOpen, refreshAgent, peek, change]);
   const list = useMemo(() => ({ conversations: shown, error, connected }), [shown, error, connected]);
   const people = useMemo(() => ({ presence, connected }), [presence, connected]);
   return (

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, PanResponder, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { api, ServerError, type Account, type Conversation } from "../lib/server";
+import { useLiveActions } from "../lib/live";
 import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
 import { ConversationRow } from "./Messaging";
 import { AppIcon } from "./AppIcon";
@@ -27,21 +28,29 @@ export function useConversationActions(account: Account | null, refresh: () => u
   const [deleting, setDeleting] = useState<Conversation | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const closeRow = useCallback(() => setOpenId(null), []);
+  const { change } = useLiveActions();
   const act = async (c: Conversation, remove = false) => {
     if (!account || busy.current) return;
     busy.current = true;
     setBusyId(c.id);
     setActionError(null);
+    // The row moves at once (lib/row-changes.ts). The server does the work as it always has: where records are
+    // kept, a delete saves its copy first. If the server refuses, the row is back where it was and the error says why.
+    change(c.id, remove ? { deleted: true } : { archived: !c.archived });
+    setDeleting(null);
+    closeRow();
     try {
       if (remove) await api.deleteChannel(account, c.id);
       else if (c.archived) await api.restoreChannel(account, c.id);
       else await api.archiveChannel(account, c.id);
-      setDeleting(null);
-      closeRow();
       await refresh();
     } catch (e) {
       setActionError(e instanceof ServerError ? e.message : `Couldn't update the ${kindName(c)}. Try again.`);
+      // A delete that was refused asks again, with the reason, wherever the list is scrolled to.
+      if (remove) setDeleting(c);
     } finally {
+      // The refreshed list has the change now, or it was refused: either way it no longer waits.
+      change(c.id, null);
       busy.current = false;
       setBusyId(null);
     }
