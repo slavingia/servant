@@ -1,0 +1,107 @@
+{
+  "before": {
+    "side": "before",
+    "commit": "da837115bc4e235c054cc1776e4fdbff545bdd5e",
+    "captures": [
+      {
+        "file": "before/board-desktop.png",
+        "commit": "da837115bc4e235c054cc1776e4fdbff545bdd5e",
+        "route": "/todos",
+        "viewport": "desktop",
+        "meaning": "To-dos before: one list of open to-dos",
+        "sha256": "f1a806c1fa5cd2d6b79c54364b67a2fd1a84748d89da15f200969bf41a9bd3d3"
+      },
+      {
+        "file": "before/board-phone.png",
+        "commit": "da837115bc4e235c054cc1776e4fdbff545bdd5e",
+        "route": "/todos",
+        "viewport": "phone",
+        "meaning": "To-dos before: one list of open to-dos",
+        "sha256": "459965d6465f6944042e8aee3c5d3526f6e977640e2bae8ed34adb54f188455b"
+      }
+    ]
+  },
+  "after": {
+    "side": "after",
+    "commit": "da837115bc4e235c054cc1776e4fdbff545bdd5e",
+    "captures": [
+      {
+        "file": "after/board-desktop.png",
+        "commit": "da837115bc4e235c054cc1776e4fdbff545bdd5e",
+        "route": "/todos",
+        "viewport": "desktop",
+        "meaning": "To-dos as a board",
+        "sha256": "69ba5f514930983f684660147ec99e4462168dda3ad4791db702fee5c9364086"
+      },
+      {
+        "file": "after/dragging-desktop.png",
+        "commit": "da837115bc4e235c054cc1776e4fdbff545bdd5e",
+        "route": "/todos",
+        "viewport": "desktop",
+        "meaning": "A card dragged over In progress: the column is outlined",
+        "sha256": "cac3fa530d7060fcbd6f9adeefdd104a86624777a2c9f237c6d87878b4912b3f"
+      },
+      {
+        "file": "after/moved-desktop.png",
+        "commit": "da837115bc4e235c054cc1776e4fdbff545bdd5e",
+        "route": "/todos",
+        "viewport": "desktop",
+        "meaning": "After the drop: the card is in In progress",
+        "sha256": "a494241d311825839f1df77648d9f466f2769efb8cfc9f5c260e09e66ea83559"
+      },
+      {
+        "file": "after/details-desktop.png",
+        "commit": "da837115bc4e235c054cc1776e4fdbff545bdd5e",
+        "route": "/todos",
+        "viewport": "desktop",
+        "meaning": "Details: a due date, and what happens without one",
+        "sha256": "f348712b4ae9bf8c14c6b595e87573b8e8a99ec09fd4de3adbc99b7270884c35"
+      },
+      {
+        "file": "after/project-desktop.png",
+        "commit": "da837115bc4e235c054cc1776e4fdbff545bdd5e",
+        "route": "/todos",
+        "viewport": "desktop",
+        "meaning": "The board filtered to one project",
+        "sha256": "b7d42b04701d5e5823a38d5288a5ec60703039ba7f019a0a4f148d1404aa2a40"
+      },
+      {
+        "file": "after/board-phone.png",
+        "commit": "da837115bc4e235c054cc1776e4fdbff545bdd5e",
+        "route": "/todos",
+        "viewport": "phone",
+        "meaning": "To-dos as a board",
+        "sha256": "5541bff2782e4f469e4bbd72dea98881ba10bb08b620a52752e7de2aaa097ad0"
+      },
+      {
+        "file": "after/editing-phone.png",
+        "commit": "da837115bc4e235c054cc1776e4fdbff545bdd5e",
+        "route": "/todos",
+        "viewport": "phone",
+        "meaning": "The row being edited offers Start beside Send to Agent and Details",
+        "sha256": "35440c02ca5ba838a0bf4415196d4ec758d6d3f5eeef06e8fe16803235e13dd7"
+      },
+      {
+        "file": "after/in-progress-phone.png",
+        "commit": "da837115bc4e235c054cc1776e4fdbff545bdd5e",
+        "route": "/todos",
+        "viewport": "phone",
+        "meaning": "In progress on a phone",
+        "sha256": "ec62f4203d716307f8bf18724a92ab8356e076fa35e22ada1674e307e855d05b"
+      },
+      {
+        "file": "after/done-phone.png",
+        "commit": "da837115bc4e235c054cc1776e4fdbff545bdd5e",
+        "route": "/todos",
+        "viewport": "phone",
+        "meaning": "Done on a phone",
+        "sha256": "22f1e2c7e18b6db41268491f0a0dac9e032a4fa5d61a5c4ed06ca3522e357741"
+      }
+    ]
+  },
+  "viewports": {
+    "phone": "390x844, touch",
+    "desktop": "1280x900"
+  },
+  "note": "The after side ran the working tree on top of the commit named; the commit that holds these files is the first with the change."
+}

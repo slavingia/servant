@@ -51,8 +51,11 @@ export type TodoItem = {
   chatId: string | null; withAgent: boolean;
   createdBy: string; createdByName: string; createdAt: number; updatedAt: number; doneAt: number | null; doneBy: string | null;
   canEdit: boolean;
+  // The board: its column, its own due date, and the date it is due (its own, or its release's when it has none).
+  stage?: TodoStage; dueDate?: string | null; due?: string | null; dueFrom?: "own" | "release" | null;
 };
-export type TodoPatch = { text?: string; status?: "open" | "done"; assigneeName?: string; assigneeId?: string; projectId?: string | null; releaseId?: string | null; channelId?: string | null };
+export type TodoStage = "todo" | "doing" | "done";
+export type TodoPatch = { text?: string; status?: "open" | "done"; stage?: TodoStage; dueDate?: string | null; assigneeName?: string; assigneeId?: string; projectId?: string | null; releaseId?: string | null; channelId?: string | null };
 // ready: every feature is checked, so the final box opens. shipped: someone ticked that box.
 export type ProjectRelease = { id: string; name: string; date: string; items: ReleaseItem[]; ready?: boolean; shipped?: { at: number; by: string | null; byName: string } | null };
 // mode "vibe": a vibe-coding chat that builds a prototype with a preview link.
@@ -121,6 +124,8 @@ export type WorkLogEntry =
       timeBasis: "meeting" | "recording-upload"; startedAt: number | null; endedAt: number | null; durationMs: number | null;
       source: { title: string | null; summary: string | null; conversationId: string | null } | null }
   | { kind: "todo"; id: string; at: number; todoId: string; createdAt: number; reopenedAt: number | null; originKind: "recording" | "call" | null;
+      // From the board, as they were when it was finished: when work began, and the day it was due (YYYY-MM-DD).
+      startedAt?: number | null; due?: string | null;
       completedBy: { kind: "agent" | "person" | "unknown"; id?: string; name?: string };
       source: { text: string; projectId: string | null; projectName: string | null; releaseId: string | null; releaseName: string | null; channelId: string | null; channelName: string | null } | null };
 export type MeetingStatus = "live" | "recorded" | "processing" | "done" | "failed";

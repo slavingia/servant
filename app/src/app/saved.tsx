@@ -1,7 +1,7 @@
 import { Radio } from "../components/Radio";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, AppState, FlatList, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import * as Crypto from "expo-crypto";
 import * as Haptics from "expo-haptics";
@@ -13,7 +13,7 @@ import { useLiveActions } from "../lib/live";
 import { durationText } from "../lib/meetings";
 import { applySavedCompletion, savedMessagePreview, savedMessagesFor, visibleSavedMessages } from "../lib/saved-messages";
 import { buildWorkLogReport, filterWorkLog, savedWorkLabel, type SavedReportPeriod } from "../lib/saved-report";
-import { visibleWorkLog, workLogActor, workLogChanged, workLogHref, workLogLabel, workLogPreview } from "../lib/work-log";
+import { visibleWorkLog, workLogActor, workLogChanged, workLogDue, workLogHref, workLogLabel, workLogPreview } from "../lib/work-log";
 import { accountId, api, ServerError, type Account, type SavedCompletion, type SavedMessage, type WorkLogEntry } from "../lib/server";
 import { useSession } from "../lib/session";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
@@ -32,7 +32,9 @@ function SavedTasks({ account }: { account: Account }) {
   const features = useFeatures();
   const { subscribe } = useLiveActions();
   const [data, setData] = useState<Snapshot | null>(null);
-  const [view, setView] = useState<"open" | "completed" | "history">("open");
+  // ?view=history opens on the work log (the To-dos board links here).
+  const params = useLocalSearchParams<{ view?: string }>();
+  const [view, setView] = useState<"open" | "completed" | "history">(params.view === "history" ? "history" : "open");
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -258,6 +260,8 @@ function WorkLogRow({ item }: { item: WorkLogEntry }) {
           {item.completedBy.kind !== "agent" ? <Text style={styles.caption}>Completed by {workLogActor(item)}</Text> : null}
           {item.source ? <Text style={styles.caption}>{[item.source.projectName, item.source.releaseName, item.source.channelName && `#${item.source.channelName}`].filter(Boolean).join(" · ")}</Text> : null}
           <Text style={styles.logMeta}>Created {savedWorkLabel(item.createdAt)}</Text>
+          {item.startedAt ? <Text style={styles.logMeta}>Started {savedWorkLabel(item.startedAt)}</Text> : null}
+          {workLogDue(item) ? <Text testID={`work-log-due-${item.id}`} style={styles.logMeta}>{workLogDue(item)}</Text> : null}
           {item.reopenedAt !== null ? <Text style={styles.reopened}>Reopened {savedWorkLabel(item.reopenedAt)}</Text> : null}
         </> : null}
       </>}

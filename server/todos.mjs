@@ -11,6 +11,8 @@ import { DatabaseSync } from "node:sqlite";
 import { ensureRecordsSchema, preserve } from "./records-preserve.mjs";
 
 export const STATUSES = ["open", "done"];
+// The columns of the board. To do and in progress are both open; "doing" is an open to-do that has been started.
+export const STAGES = ["todo", "doing", "done"];
 export const MAX_TEXT = 300;
 export const MAX_LIST = 500;
 /** An edit posts to the channel at most this often per to-do, so fixing a typo twice isn't two lines. */
@@ -106,6 +108,16 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
       PRIMARY KEY(chat_id, completion_key)
     );`);
     if (!db.prepare("PRAGMA table_info(todos)").all().some(c => c.name === "completion_id")) db.exec("ALTER TABLE todos ADD COLUMN completion_id TEXT");
+    // The board: when a to-do is due (its own date; without one, its release's), and when work on it began.
+    // An open to-do that has been started is "in progress"; nothing else about a to-do's status changes.
+    if (!db.prepare("PRAGMA table_info(todos)").all().some(c => c.name === "due_date")) db.exec("ALTER TABLE todos ADD COLUMN due_date TEXT");
+    if (!db.prepare("PRAGMA table_info(todos)").all().some(c => c.name === "started_at")) db.exec("ALTER TABLE todos ADD COLUMN started_at INTEGER");
+    // The work log keeps what the board knew when a to-do was finished: when work on it began and when it was due.
+    // Like the rest of a completion, neither can be rewritten afterwards.
+    if (!db.prepare("PRAGMA table_info(todo_completions)").all().some(c => c.name === "started_at")) db.exec("ALTER TABLE todo_completions ADD COLUMN started_at INTEGER");
+    if (!db.prepare("PRAGMA table_info(todo_completions)").all().some(c => c.name === "due_date")) db.exec("ALTER TABLE todo_completions ADD COLUMN due_date TEXT");
+    db.exec(`CREATE TRIGGER IF NOT EXISTS todo_completions_no_rewrite_board BEFORE UPDATE OF started_at, due_date ON todo_completions
+      BEGIN SELECT RAISE(ABORT, 'To-do completion history cannot be rewritten'); END;`);
     // Adopt the earlier standalone store once, without changing or deleting it.
     // The receipt lives in the same transaction as the copy, so a retry cannot
     // resurrect a task somebody deleted after the successful migration.
@@ -175,7 +187,7 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
     claimChat: q("UPDATE todos SET chat_id = ?, updated_at = ? WHERE id = ? AND chat_id IS NULL AND status = 'open'"),
     freeChat: q("UPDATE todos SET chat_id = NULL WHERE id = ? AND chat_id = ?"),
     posted: q("UPDATE todos SET last_posted_at = ? WHERE id = ?"),
-    completion: q("INSERT INTO todo_completions (id,todo_id,created_at,completed_at,created_by,assignee_id,actor_kind,actor_id,origin_kind) VALUES (?,?,?,?,?,?,?,?,?)"),
+    completion: q("INSERT INTO todo_completions (id,todo_id,created_at,completed_at,created_by,assignee_id,actor_kind,actor_id,origin_kind,started_at,due_date) VALUES (?,?,?,?,?,?,?,?,?,?,?)"),
     reopened: q("UPDATE todo_completions SET reopened_at = ? WHERE id = ? AND reopened_at IS NULL"),
     workLog: q("SELECT * FROM todo_completions WHERE created_by = ? OR assignee_id = ? OR (actor_kind = 'person' AND actor_id = ?) ORDER BY completed_at DESC, rowid DESC"),
     agentCompletion: q("SELECT 1 FROM todo_agent_completions WHERE chat_id = ? AND completion_key = ?"),
@@ -194,6 +206,19 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
     if (user.role === "owner" || todo.created_by === user.id || todo.assignee_id === user.id) return true;
     return !!todo.project_id && !!project(user, todo.project_id);
   }
+  /** The board's column for a to-do: done, in progress (open and begun), or to do. */
+  const stageOf = todo => todo.status === "done" ? "done" : todo.started_at ? "doing" : "todo";
+  /** A due date as YYYY-MM-DD for a real day, or none. */
+  function cleanDue(value) {
+    if (value === undefined || value === null || value === "") return null;
+    const match = typeof value === "string" ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim()) : null;
+    const day = match ? new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))) : null;
+    if (!day || day.getUTCFullYear() !== Number(match[1]) || day.getUTCMonth() !== Number(match[2]) - 1 || day.getUTCDate() !== Number(match[3]) || Number(match[1]) < 2000 || Number(match[1]) > 2100) {
+      throw fault(400, "bad_request", "Give the due date as a day, like 2026-11-20");
+    }
+    return value.trim();
+  }
+
   /** Can they change it? The author, whoever it's for, a project writer, and the owner. */
   function canEdit(todo, user) {
     if (!user) return false;
@@ -205,8 +230,15 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
     const id = `done_${crypto.randomBytes(9).toString("base64url")}`;
     const kind = actorId === "agent" ? "agent" : actorId ? "person" : "unknown";
     st.completion.run(id, todo.id, todo.created_at, at, todo.created_by, todo.assignee_id, kind, kind === "person" ? actorId : null,
-      ["recording", "call"].includes(todo.source_kind) ? todo.source_kind : null);
+      ["recording", "call"].includes(todo.source_kind) ? todo.source_kind : null, todo.started_at ?? null, dueAtCompletion(todo));
     return id;
+  }
+  /** The day a to-do was due when it was finished: its own, or its release's as its author sees the release. */
+  function dueAtCompletion(todo) {
+    if (todo.due_date) return todo.due_date;
+    const author = person(todo.created_by);
+    if (!author || !todo.project_id || !todo.release_id) return null;
+    try { return project({ id: todo.created_by, ...author }, todo.project_id, todo.release_id)?.releaseDate || null; } catch { return null; }
   }
 
   function workLog(user) {
@@ -221,6 +253,8 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
       return {
         kind: "todo", id: `todo:${entry.id}`, at: entry.completed_at, todoId: entry.todo_id, createdAt: entry.created_at,
         reopenedAt: entry.reopened_at, originKind,
+        // What the board knew at that moment: when work began (if it was ever moved to In progress) and the day it was due.
+        startedAt: entry.started_at ?? null, due: entry.due_date || null,
         completedBy: entry.actor_kind === "person" ? { kind: "person", id: entry.actor_id, ...(person(entry.actor_id)?.name ? { name: person(entry.actor_id).name } : {}) }
           : { kind: entry.actor_kind === "agent" ? "agent" : "unknown" },
         source: allowed ? { text: todo.text, projectId: p ? todo.project_id : null, projectName: p?.projectName || null,
@@ -245,6 +279,11 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
       createdAt: todo.created_at, updatedAt: todo.updated_at, doneAt: todo.done_at || null,
       doneBy: todo.done_by === "agent" ? "agent" : todo.done_by ? person(todo.done_by)?.name || "Someone" : null,
       canEdit: canEdit(todo, user),
+      // The board's column, and when it is due: its own date, or its release's when it has none of its own.
+      stage: stageOf(todo),
+      dueDate: todo.due_date || null,
+      due: todo.due_date || (p?.releaseDate || null),
+      dueFrom: todo.due_date ? "own" : p?.releaseDate ? "release" : null,
     };
   }
 
@@ -320,10 +359,12 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
     const { pid, rid } = cleanTags(user, body.projectId, body.releaseId);
     const channelId = cleanChannel(user, body.channelId);
     const who = cleanAssignee(body);
+    const dueDate = cleanDue(body.dueDate);
     const t = now();
     const id = newId();
     st.insert.run(id, text, st.maxPos.get().p + 1, user.id, who.id, who.name, pid, rid, channelId,
       source?.kind || null, source?.id || null, source?.title || null, t, t);
+    if (dueDate) db.prepare("UPDATE todos SET due_date = ? WHERE id = ?").run(dueDate, id);
     const todo = st.get.get(id);
     tell(todo, user.id, "added");
     return view(st.get.get(id), user);
@@ -365,6 +406,19 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
       const channelId = cleanChannel(user, body.channelId);
       if (channelId !== todo.channel_id) { next.channel_id = channelId; channelAdded = !!channelId && !todo.channel_id; }
     }
+    if ("dueDate" in body) {
+      const dueDate = cleanDue(body.dueDate);
+      if (dueDate !== (todo.due_date || null)) { next.due_date = dueDate; changed.push("due"); }
+    }
+    // Moving a card on the board: to do and in progress are both open; done is done.
+    let stageChange = false;
+    if ("stage" in body) {
+      if (!STAGES.includes(body.stage)) throw fault(400, "bad_request", "A to-do is to do, in progress or done");
+      if ("status" in body) throw fault(400, "bad_request", "Change the stage or the status, not both");
+      body = { ...body, status: body.stage === "done" ? "done" : "open", stage: body.stage };
+      const started = body.stage === "doing" ? todo.started_at || now() : body.stage === "todo" ? null : todo.started_at ?? null;
+      if (started !== (todo.started_at ?? null)) { next.started_at = started; stageChange = true; }
+    }
     let statusChange = null;
     if ("status" in body) {
       if (!STATUSES.includes(body.status)) throw fault(400, "bad_request", "A to-do is open or done");
@@ -372,17 +426,19 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
         next.status = body.status; statusChange = body.status;
         next.done_at = body.status === "done" ? now() : null;
         next.done_by = body.status === "done" ? user.id : null;
+        // Unticking a done to-do puts it back in To do; dragging it to In progress says so with a stage.
+        if (body.status === "open" && !("stage" in body) && todo.started_at) next.started_at = null;
       }
     }
-    if (!changed.length && !statusChange && !channelAdded && next.channel_id === todo.channel_id) return view(todo, user);
+    if (!changed.length && !statusChange && !stageChange && !channelAdded && next.channel_id === todo.channel_id) return view(todo, user);
     next.updated_at = now();
     keep(todo, "todo_changed", user.id);
     if (statusChange === "done") next.completion_id = completed(next, user.id, next.done_at);
     else if (statusChange === "open") { if (todo.completion_id) st.reopened.run(next.updated_at, todo.completion_id); next.completion_id = null; }
     db.prepare(`UPDATE todos SET text=?, status=?, assignee_id=?, assignee_name=?, project_id=?, release_id=?, channel_id=?,
-      done_at=?, done_by=?, updated_at=?, completion_id=? WHERE id=?`)
+      done_at=?, done_by=?, updated_at=?, completion_id=?, due_date=?, started_at=? WHERE id=?`)
       .run(next.text, next.status, next.assignee_id, next.assignee_name, next.project_id, next.release_id, next.channel_id,
-        next.done_at ?? null, next.done_by ?? null, next.updated_at, next.completion_id ?? null, todo.id);
+        next.done_at ?? null, next.done_by ?? null, next.updated_at, next.completion_id ?? null, next.due_date ?? null, next.started_at ?? null, todo.id);
     const saved = st.get.get(todo.id);
     if (statusChange === "done") tell(saved, user.id, "completed");
     else if (statusChange === "open") tell(saved, user.id, "reopened");
@@ -461,7 +517,8 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
       const current = mine(todo.id, user, true);
       if (current.status !== "open" || current.chat_id !== STARTING) throw fault(409, "todo_changed", "This to-do changed before the agent could start. Open it and try again.");
       if (!chat?.id || typeof chat.id !== "string" || chat.id === STARTING) throw new Error("The agent did not identify its work chat");
-      db.prepare("UPDATE todos SET chat_id = ?, updated_at = ? WHERE id = ?").run(chat.id, now(), todo.id);
+      // Work handed to the agent has begun: the card moves to In progress.
+      db.prepare("UPDATE todos SET chat_id = ?, updated_at = ?, started_at = coalesce(started_at, ?) WHERE id = ?").run(chat.id, now(), now(), todo.id);
       linkedChatId = chat.id;
     });
     const run = (async () => {
@@ -474,7 +531,12 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
     starting.set(todo.id, run);
     try {
       await run;
-    } catch (e) { st.freeChat.run(todo.id, linkedChatId || STARTING); throw e; }
+    } catch (e) {
+      st.freeChat.run(todo.id, linkedChatId || STARTING);
+      // The work never began, so the card goes back to where it was.
+      db.prepare("UPDATE todos SET started_at = ? WHERE id = ? AND chat_id IS NULL").run(todo.started_at ?? null, todo.id);
+      throw e;
+    }
     finally { starting.delete(todo.id); }
     const saved = mine(todo.id, user);
     const visible = view(saved, user);

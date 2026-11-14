@@ -342,7 +342,7 @@ test('work logs capture exact completion times and actor provenance for only the
     todos.update(ana, todo.id, { status: 'done' });
     const [entry] = todos.workLog(pat);
     assert.deepEqual(entry, {
-      kind: 'todo', id: entry.id, at: 1_001_234, todoId: todo.id, createdAt: 1_000_000, reopenedAt: null, originKind: null,
+      kind: 'todo', id: entry.id, at: 1_001_234, todoId: todo.id, createdAt: 1_000_000, reopenedAt: null, originKind: null, startedAt: null, due: null,
       completedBy: { kind: 'person', id: ana.id, name: ana.name },
       source: { text: todo.text, projectId: 'example-app', projectName: 'Example app', releaseId: 'r1', releaseName: 'Nov 17', channelId: 'c1', channelName: 'example-team' },
     });

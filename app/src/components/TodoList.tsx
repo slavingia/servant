@@ -1,20 +1,24 @@
-import { useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from "react";
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { createElement, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from "react";
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { router } from "expo-router";
 import { AppIcon } from "./AppIcon";
 import { Button, ButtonGroup, IconButton } from "./Button";
 import { CheckBox } from "./CheckBox";
 import { ReorderableList } from "./ReorderableList";
 import { refreshProjects, useProjects } from "../lib/projects-store";
-import { api, ServerError, type Account, type Conversation, type TodoItem, type TodoPatch } from "../lib/server";
-import { orderReleases } from "../lib/releases";
-import { editableTodos, mergeTodoUpdates, sortTodos, todoCountLine, todoMeta } from "../lib/todo-list";
+import { api, ServerError, type Account, type Conversation, type TodoItem, type TodoPatch, type TodoStage } from "../lib/server";
+import { DATE_SHAPE, orderReleases, releaseDate } from "../lib/releases";
+import { boardColumns, dueLine, editableTodos, mergeTodoUpdates, sortTodos, STAGE_LABEL, TODO_STAGES, todoCountLine, todoMeta, todoStage } from "../lib/todo-list";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
 
 // A list of to-dos you can work, kept as plain as a list on paper: a box to tick and the words. Tap the words to
 // edit them in place; only then does that row offer what else can be done with it (send it to Agent, its details).
 // Hold a row and drag to reorder. Everything about the list as a whole (filters, tagging several, sending all) is
 // behind one icon at the top. Used under a meeting's notes and on its own screen.
+//
+// On its own screen it is a board: To do, In progress and Done. In a wide window the three columns sit side by side
+// and a card is dragged from one to another; on a phone one column shows at a time and the row being edited offers
+// the move. Ticking the box is always Done. A line says when a to-do is due: its own day, or its release's.
 type Props = {
   account: Account;
   todos: TodoItem[];
@@ -30,13 +34,23 @@ type Props = {
   filters?: ReactNode;
   /** Which filters are on, in a few words ("Mine · Example app"), said beside the count. */
   filterSummary?: string;
+  /** Lay the to-dos out as a board of To do, In progress and Done. */
+  board?: boolean;
 };
+// Three columns need this much room; below it the board shows one column at a time.
+const BOARD_MIN_WIDTH = 720;
+// The Done column grows for ever; it starts with the latest few.
+const DONE_SHOWN = 10;
+const EMPTY_COLUMN: Record<TodoStage, string> = { todo: "Nothing to do", doing: "Nothing in progress", done: "Nothing done yet" };
+// What a dragged card carries: the to-do's id, under a name of its own so a column ignores dragged text and files.
+const CARD = "application/x-servant-todo";
+type DragEvent = { preventDefault(): void; dataTransfer?: { setData(type: string, value: string): void; getData(type: string): string; types: readonly string[]; effectAllowed: string; dropEffect: string } | null; currentTarget: { contains(node: unknown): boolean }; relatedTarget?: unknown };
 
 // In a browser, pressing the mouse on a row's options would take focus from the words being edited, which ends the
 // edit and removes the options before the click lands. Keeping the press from moving focus leaves both in place.
 const KEEP_EDITING = (Platform.OS === "web" ? { onMouseDown: (event: { preventDefault(): void }) => event.preventDefault() } : {}) as object;
 
-export function TodoList({ account, todos, onChange, onBusyChange, onReload, empty = "Nothing to do", allowAdd = true, filters, filterSummary = "" }: Props) {
+export function TodoList({ account, todos, onChange, onBusyChange, onReload, empty = "Nothing to do", allowAdd = true, filters, filterSummary = "", board = false }: Props) {
   const styles = useStyles();
   const { colors } = useTheme();
   // The row whose words are being edited in place, and what its field holds.
@@ -52,6 +66,15 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
   const [error, setError] = useState<string | null>(null);
   const [lifted, setLifted] = useState(false);
   const [draft, setDraft] = useState("");
+  // The board: the column a phone is showing, whether the columns fit side by side, where a dragged card is
+  // hovering, and whether the whole Done column is listed.
+  const [shown, setShown] = useState<TodoStage>("todo");
+  const [boardWidth, setBoardWidth] = useState(useWindowDimensions().width);
+  const [over, setOver] = useState<TodoStage | null>(null);
+  const [allDone, setAllDone] = useState(false);
+  const sideBySide = board && boardWidth >= BOARD_MIN_WIDTH;
+  // Dragging between columns is the browser's own drag and drop, so it is for the web and Mac apps with a mouse.
+  const canDrag = sideBySide && Platform.OS === "web";
   const running = useRef(false);
   const mounted = useRef(true);
   const adder = useRef<ComponentRef<typeof TextInput>>(null);
@@ -60,6 +83,7 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
   const ordered = useMemo(() => sortTodos(todos), [todos]);
   const open = ordered.filter(t => t.status === "open");
   const done = ordered.filter(t => t.status === "done");
+  const columns = useMemo(() => boardColumns(todos), [todos]);
   const editableOpen = editableTodos(open);
   const sendable = editableOpen.filter(t => !t.chatId);
   const selected = editableTodos(todos).filter(t => picked.includes(t.id));
@@ -109,6 +133,12 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
   const tick = async (t: TodoItem) => {
     await run(t.id, () => api.updateTodo(account, t.id, { status: t.status === "done" ? "open" : "done" }), "Couldn't save that. Try again", next => replace(next.todo));
   };
+  // Move a card to another column. To do and In progress are both open; Done is the same as ticking the box.
+  const move = async (t: TodoItem, stage: TodoStage) => {
+    setActiveId(null);
+    if (todoStage(t) === stage) return;
+    await run(t.id, () => api.updateTodo(account, t.id, { stage }), "Couldn't move that. Try again", next => replace(next.todo));
+  };
   // Leaving a row's words (a tap elsewhere, or Return) saves them if they changed, and puts its options away.
   const finishWords = async (t: TodoItem) => {
     const next = words.trim();
@@ -131,15 +161,15 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
       }
     }, "Couldn't start the agent. Try again");
   };
-  const drop = async (ids: string[]) => {
-    if (running.current || editableOpen.length !== open.length) return;
-    writeBusy("order", true); setError(null);
-    // Only the open ones are dragged; done ones stay at the bottom.
+  const drop = async (ids: string[], group: TodoItem[] = open) => {
+    if (editableOpen.length !== open.length) return;
+    // Only the open ones of one list or column are dragged; the rest stay where they are.
     const positions = new Map(todos.map(t => [t.id, t.position]));
-    onChange(current => sortTodos(current.map(t => { const i = ids.indexOf(t.id); return i < 0 ? t : { ...t, position: Math.min(...open.map(o => o.position)) + i / 1000 }; })));
-    try { const r = await api.reorderTodos(account, ids); replace(r.todos); }
-    catch (e) { if (mounted.current) { onChange(current => sortTodos(current.map(t => ({ ...t, position: positions.get(t.id) ?? t.position })))); fail(e, "Couldn't save the new order"); } }
-    finally { writeBusy("order", false); }
+    await run("order", async () => {
+      onChange(current => sortTodos(current.map(t => { const i = ids.indexOf(t.id); return i < 0 ? t : { ...t, position: Math.min(...group.map(o => o.position)) + i / 1000 }; })));
+      try { replace((await api.reorderTodos(account, ids)).todos); }
+      catch (e) { onChange(current => sortTodos(current.map(t => ({ ...t, position: positions.get(t.id) ?? t.position })))); throw e; }
+    }, "Couldn't save the new order");
   };
   const add = async () => {
     const text = draft.trim();
@@ -158,7 +188,9 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
     const finished = t.status === "done";
     const active = activeId === t.id && !selecting && t.canEdit;
     const meta = todoMeta(t);
-    return (
+    const due = dueLine(t);
+    const stage = todoStage(t);
+    const line = (
       <View key={t.id} testID={`todo-${t.id}`} style={[styles.row, finished && styles.rowDone, bind?.lifted && styles.rowLifted]}>
         {selecting ? (
           <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: on, disabled: !t.canEdit || !!busy }} aria-checked={on} accessibilityLabel={`Choose: ${t.text}`} disabled={!t.canEdit || !!busy}
@@ -184,6 +216,8 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
                 {finished ? null : t.chatId
                   ? <Button label="Open chat" kind="link" compact onPress={() => { setActiveId(null); router.push({ pathname: "/chat/[id]", params: { id: t.chatId!, title: t.text } }); }} />
                   : <Button label="Send to Agent" kind="link" compact onPress={() => void send(t)} />}
+                {/* On a phone there is no dragging: the row being worked on offers the move. */}
+                {board && !finished ? <Button label={stage === "doing" ? "Move to To do" : "Start"} accessibilityLabel={stage === "doing" ? `Move to To do: ${t.text}` : `Start: ${t.text}`} kind="link" compact onPress={() => void move(t, stage === "doing" ? "todo" : "doing")} /> : null}
                 <Button label="Details" accessibilityLabel={`Details of: ${t.text}`} kind="link" compact onPress={() => { setActiveId(null); setEditingId(t.id); }} />
               </ButtonGroup>
             </View>
@@ -193,14 +227,32 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
             disabled={!t.canEdit || !!busy} onPress={() => { if (selecting) setPicked(p => on ? p.filter(x => x !== t.id) : [...p, t.id]); else { setWords(t.text); setActiveId(t.id); } }}
             onLongPress={bind && !finished && !selecting && t.canEdit ? bind.onLongPress : undefined} delayLongPress={350} style={styles.body}>
             <Text style={[styles.text, finished && styles.textDone]}>{t.text}</Text>
-            {meta ? <Text style={styles.meta}>{meta}</Text> : null}
+            {due || meta ? <Text style={styles.meta}>{due ? <Text testID="todo-due" style={due.overdue ? styles.overdue : undefined}>{due.text}</Text> : null}{due && meta ? " · " : ""}{meta}</Text> : null}
           </Pressable>
         )}
       </View>
     );
+    if (!canDrag || !t.canEdit || selecting || active || !!busy) return line;
+    // A card is picked up with the mouse and dropped on another column.
+    return createElement("div", {
+      key: t.id, draggable: true, style: { display: "flex", flexDirection: "column", cursor: "grab" },
+      onDragStart: (event: DragEvent) => { if (event.dataTransfer) { event.dataTransfer.setData(CARD, t.id); event.dataTransfer.effectAllowed = "move"; } },
+      onDragEnd: () => setOver(null),
+    }, line);
   };
 
-  const count = todoCountLine(open.length, done.length, filterSummary);
+  // Hold and drag reorders the open to-dos of a list or a column, except where a mouse drags cards between columns.
+  const still = selecting || editableOpen.length !== open.length || !!busy || !!activeId || canDrag;
+  // The next line of the list: no box around it, no button beside it. Return adds it and waits for another.
+  const adderLine = !selecting && allowAdd ? (
+    <View style={styles.row}>
+      <View style={styles.boxTarget}><AppIcon name="plus" size={18} color={colors.muted} /></View>
+      <TextInput ref={adder} testID="todo-add" accessibilityLabel="New to-do" editable={!busy} placeholder="New to-do" placeholderTextColor={colors.muted} value={draft} onChangeText={setDraft}
+        onSubmitEditing={() => void add()} onBlur={() => void add()} blurOnSubmit={false} returnKeyType="done" maxLength={300} cursorColor={colors.ink} style={[styles.words, styles.adder]} />
+    </View>
+  ) : null;
+  // The board counts in its columns, so the line above it only says which filters are on.
+  const count = board ? filterSummary : todoCountLine(open.length, done.length, filterSummary);
   const canChoose = editableOpen.length > 1;
   const hasMenu = !!filters || canChoose || sendable.length > 1;
   return (
@@ -220,19 +272,44 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
         </View>
       ) : null}
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-      {open.length ? (selecting || editableOpen.length !== open.length || !!busy || !!activeId
-        ? open.map(t => row(t))
-        : <ReorderableList items={open} onLift={() => setLifted(true)} onSettle={() => setLifted(false)} onDrop={ids => void drop(ids)} renderRow={(t, bind) => row(t, bind)} />)
-        : !done.length ? <Text style={styles.empty}>{empty}</Text> : null}
-      {!selecting && allowAdd ? (
-        // The next line of the list: no box around it, no button beside it. Return adds it and waits for another.
-        <View style={styles.row}>
-          <View style={styles.boxTarget}><AppIcon name="plus" size={18} color={colors.muted} /></View>
-          <TextInput ref={adder} testID="todo-add" accessibilityLabel="New to-do" editable={!busy} placeholder="New to-do" placeholderTextColor={colors.muted} value={draft} onChangeText={setDraft}
-            onSubmitEditing={() => void add()} onBlur={() => void add()} blurOnSubmit={false} returnKeyType="done" maxLength={300} cursorColor={colors.ink} style={[styles.words, styles.adder]} />
+      {board ? (
+        <View testID="todo-board" onLayout={event => setBoardWidth(event.nativeEvent.layout.width)}>
+          {sideBySide ? null : (
+            // One column at a time where three do not fit: the three names, each with how many it holds.
+            <View accessibilityRole="radiogroup" accessibilityLabel="Column" style={styles.segments}>
+              {TODO_STAGES.map(stage => {
+                const on = shown === stage;
+                return (
+                  <Pressable key={stage} testID={`todo-segment-${stage}`} accessibilityRole="radio" accessibilityState={{ checked: on }} aria-checked={on} accessibilityLabel={`${STAGE_LABEL[stage]}, ${columns[stage].length}`}
+                    onPress={() => { setActiveId(null); setShown(stage); }} style={[styles.segment, on && styles.segmentOn]}>
+                    <Text style={[styles.segmentText, on && styles.segmentTextOn]}>{STAGE_LABEL[stage]} {columns[stage].length}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+          <View style={sideBySide ? styles.board : undefined}>{(sideBySide ? TODO_STAGES : [shown]).map(stage => {
+            const items = columns[stage];
+            const listed = stage === "done" && !allDone ? items.slice(0, DONE_SHOWN) : items;
+            const inside = <>
+              {sideBySide ? <View style={styles.columnHead}><Text accessibilityRole="header" style={styles.columnTitle}>{STAGE_LABEL[stage]}</Text><Text style={styles.columnCount}>{items.length}</Text></View> : null}
+              {stage === "done" ? listed.map(t => row(t)) : !items.length ? null : still ? items.map(t => row(t)) : <ReorderableList items={items} onLift={() => setLifted(true)} onSettle={() => setLifted(false)} onDrop={ids => void drop(ids, items)} renderRow={(t, bind) => row(t, bind)} />}
+              {!todos.length && stage === "todo" ? <Text style={styles.empty}>{empty}</Text>
+                : !items.length && !(stage === "todo" && adderLine) ? <Text style={styles.empty}>{EMPTY_COLUMN[stage]}</Text> : null}
+              {stage === "todo" ? adderLine : null}
+              {items.length > listed.length ? <Button label={`Show all ${items.length}`} kind="link" compact onPress={() => setAllDone(true)} /> : null}
+            </>;
+            if (!canDrag) return <View key={stage} testID={`todo-column-${stage}`} style={sideBySide ? styles.column : undefined}>{inside}</View>;
+            // A column takes a dropped card.
+            return <DropColumn key={stage} stage={stage} over={over === stage} onOver={on => setOver(current => on ? stage : current === stage ? null : current)}
+              onCard={id => { const card = todos.find(t => t.id === id && t.canEdit); if (card) void move(card, stage); }}>{inside}</DropColumn>;
+          })}</View>
         </View>
-      ) : null}
-      {done.length ? <View>{open.length || allowAdd ? <Text style={styles.divider}>Done</Text> : null}{done.map(t => row(t))}</View> : null}
+      ) : <>
+        {open.length ? (still ? open.map(t => row(t)) : <ReorderableList items={open} onLift={() => setLifted(true)} onSettle={() => setLifted(false)} onDrop={ids => void drop(ids)} renderRow={(t, bind) => row(t, bind)} />) : !done.length ? <Text style={styles.empty}>{empty}</Text> : null}
+        {adderLine}
+        {done.length ? <View>{open.length || allowAdd ? <Text style={styles.divider}>Done</Text> : null}{done.map(t => row(t))}</View> : null}
+      </>}
       {menu ? (
         <Modal transparent animationType="slide" onRequestClose={() => setMenu(false)}>
           <View style={styles.sheetWrap}>
@@ -247,6 +324,8 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
               </ScrollView>
               <View style={styles.sheetButtons}>
                 {onReload ? <Button label="Refresh" kind="link" compact onPress={() => { setMenu(false); onReload(); }} /> : null}
+                {/* What was finished, by whom and when, is kept in the work log. */}
+                {board ? <Button label="Work log" kind="link" compact onPress={() => { setMenu(false); router.push({ pathname: "/saved", params: { view: "history" } }); }} /> : null}
                 <View style={{ flex: 1 }} />
                 <Button label="Done" compact onPress={() => setMenu(false)} />
               </View>
@@ -262,6 +341,18 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
   );
 }
 
+// A column of the board in a browser: a card dragged over it can be dropped on it, and an outline says where it will land.
+function DropColumn({ stage, over, onOver, onCard, children }: { stage: TodoStage; over: boolean; onOver: (over: boolean) => void; onCard: (id: string) => void; children: ReactNode }) {
+  const { colors } = useTheme();
+  return createElement("div", {
+    "data-testid": `todo-column-${stage}`,
+    style: { flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", borderRadius: radius.md, outline: over ? `2px solid ${colors.blue}` : "none", outlineOffset: space.xs },
+    onDragOver: (event: DragEvent) => { if (!event.dataTransfer?.types.includes(CARD)) return; event.preventDefault(); event.dataTransfer.dropEffect = "move"; if (!over) onOver(true); },
+    onDragLeave: (event: DragEvent) => { if (!event.currentTarget.contains(event.relatedTarget)) onOver(false); },
+    onDrop: (event: DragEvent) => { event.preventDefault(); const id = event.dataTransfer?.getData(CARD); onOver(false); if (id) onCard(id); },
+  }, children);
+}
+
 // Edit one to-do, or tag several at once (bulkCount): words, who it's for, project, release and channel.
 function TodoEditor({ account, todo, bulkCount, onClose, onSaved, onDeleted, onBulk, onBusyChange }: {
   account: Account; todo?: TodoItem; bulkCount?: number; onClose: () => void;
@@ -273,6 +364,7 @@ function TodoEditor({ account, todo, bulkCount, onClose, onSaved, onDeleted, onB
   const projects = useProjects();
   const [text, setText] = useState(todo?.text ?? "");
   const [who, setWho] = useState(todo?.assignee?.name ?? "");
+  const [due, setDue] = useState(todo?.dueDate ?? "");
   const [projectId, setProjectId] = useState<string | null>(todo?.projectId ?? null);
   const [releaseId, setReleaseId] = useState<string | null>(todo?.releaseId ?? null);
   const [channelId, setChannelId] = useState<string | null>(todo?.channelId ?? null);
@@ -288,6 +380,8 @@ function TodoEditor({ account, todo, bulkCount, onClose, onSaved, onDeleted, onB
   const ordered = project ? orderReleases(project.releases) : { upcoming: [], past: [] };
   const releases = [...ordered.upcoming, ...ordered.past];
   const pickProject = (id: string | null) => { setProjectId(id); setReleaseId(null); };
+  // Without a day of its own, a to-do is due with its release.
+  const releaseDay = releases.find(r => r.id === releaseId)?.date ?? "";
 
   const save = async () => {
     if (saving) return;
@@ -301,7 +395,9 @@ function TodoEditor({ account, todo, bulkCount, onClose, onSaved, onDeleted, onB
         if (!Object.keys(patch).length) { setError("Choose a project, a channel or who it's for"); return; }
         await onBulk?.(patch);
       } else if (todo) {
-        const r = await api.updateTodo(account, todo.id, { text, assigneeName: who.trim(), projectId, releaseId, channelId });
+        const dueDate = due.trim();
+        if (dueDate && !DATE_SHAPE.test(dueDate)) { setError("Due dates look like 2026-11-20"); return; }
+        const r = await api.updateTodo(account, todo.id, { text, assigneeName: who.trim(), projectId, releaseId, channelId, dueDate: dueDate || null });
         onSaved?.(r.todo);
       }
     } catch (e) { setError(e instanceof ServerError ? e.message : "Couldn't save. Try again"); }
@@ -328,6 +424,11 @@ function TodoEditor({ account, todo, bulkCount, onClose, onSaved, onDeleted, onB
             </> : <Text style={styles.hint}>Only what you choose below changes. Everything else stays as it is.</Text>}
             <Text style={styles.label}>For</Text>
             <TextInput accessibilityLabel="Who it's for" placeholder="A name, or nobody yet" placeholderTextColor={colors.muted} value={who} onChangeText={setWho} maxLength={60} style={styles.input} />
+            {!bulk ? <>
+              <Text style={styles.label}>Due (YYYY-MM-DD)</Text>
+              <TextInput testID="todo-due-date" accessibilityLabel="Due date, year-month-day" placeholder="No date of its own" placeholderTextColor={colors.muted} value={due} onChangeText={setDue} maxLength={10} keyboardType="numbers-and-punctuation" autoCapitalize="none" autoCorrect={false} style={styles.input} />
+              <Text testID="todo-due-hint" style={styles.hint}>{DATE_SHAPE.test(releaseDay) ? `Leave it empty and it is due with its release, ${releaseDate(releaseDay)}.` : "Leave it empty and it has no due date."}</Text>
+            </> : null}
             <Text style={styles.label}>Project</Text>
             <View style={styles.choices}>
               {!bulk ? <Option label="No project" on={projectId === null} onPress={() => pickProject(null)} /> : null}
@@ -387,6 +488,20 @@ const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create
   textDone: { textDecorationLine: "line-through", color: colors.muted },
   // Who it is for and where it belongs, as one quiet line under the words.
   meta: { ...typography.caption, color: colors.muted, marginTop: space.xxs / 2 },
+  // A day that has passed is the one thing on the line that is not quiet.
+  overdue: { color: colors.red },
+  // The board. Side by side, each column is headed by its name and how many it holds, over a hairline.
+  board: { flexDirection: "row", alignItems: "stretch", gap: space.xl },
+  column: { flex: 1, minWidth: 0 },
+  columnHead: { flexDirection: "row", alignItems: "center", gap: space.xs, minHeight: 44, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line, marginBottom: space.xs },
+  columnTitle: { ...typography.label, color: colors.ink },
+  columnCount: { ...typography.label, color: colors.muted },
+  // One column at a time: the three names in one control, the chosen one filled.
+  segments: { flexDirection: "row", gap: space.xxs, padding: space.xxs, borderRadius: radius.md, backgroundColor: colors.surface, marginBottom: space.sm },
+  segment: { flex: 1, minWidth: 0, minHeight: 44, alignItems: "center", justifyContent: "center", paddingHorizontal: space.xs, borderRadius: radius.sm },
+  segmentOn: { backgroundColor: colors.background },
+  segmentText: { ...typography.label, color: colors.muted, textAlign: "center" },
+  segmentTextOn: { color: colors.ink },
   // The words being edited sit exactly where they were read: the same type, no box around them.
   words: { ...typography.body, color: colors.ink, padding: 0, margin: 0, borderWidth: 0, backgroundColor: "transparent", ...(Platform.OS === "web" ? { outlineStyle: "none" } as object : {}) },
   adder: { flex: 1, minWidth: 0, minHeight: 44, paddingVertical: space.xs },

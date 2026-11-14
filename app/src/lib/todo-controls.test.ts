@@ -16,7 +16,7 @@ const style = (source: string, name: string) => source.match(new RegExp(`\\n  ${
 const minHeight = (source: string, name: string) => Number(style(source, name).match(/minHeight: (\d+)/)?.[1] ?? 0);
 // The list component alone, without the details sheet below it.
 const component = list.slice(0, list.indexOf("// Edit one to-do, or tag several at once"));
-const rowCode = component.slice(component.indexOf("const row = "), component.indexOf("const count = "));
+const rowCode = component.slice(component.indexOf("const row = "), component.indexOf("if (!canDrag || !t.canEdit"));
 
 test("every To-dos control is at least 44 points, without relying on hit slop", () => {
   assert.ok(minHeight(screen, "chip") >= 44, "filter choices");
@@ -29,7 +29,8 @@ test("every To-dos control is at least 44 points, without relying on hit slop", 
   // Every control in the list is one of the sized targets, the shared Button, a whole row, or the sheet's backdrop.
   const controls = list.split("<Pressable").slice(1).map(rest => rest.match(/style=\{\[?([\w.]+)/)?.[1] ?? "no style");
   assert.ok(controls.length >= 6, "found the list's controls");
-  const sized = ["styles.boxTarget", "styles.linkTarget", "styles.option", "styles.body", "StyleSheet.absoluteFill"];
+  assert.ok(minHeight(list, "segment") >= 44, "the board's column picker on a phone");
+  const sized = ["styles.boxTarget", "styles.linkTarget", "styles.option", "styles.body", "styles.segment", "StyleSheet.absoluteFill"];
   assert.deepEqual(controls.filter(name => !sized.includes(name)), []);
 });
 
@@ -39,7 +40,8 @@ test("a row at rest is a box and its words: no Send button, no grip, no colored 
   const rest = rowCode.slice(rowCode.indexOf(") : (\n          <Pressable accessibilityRole=\"button\" accessibilityLabel={`${t.text}. Edit`}"));
   assert.ok(rest.length > 0, "found the row at rest");
   assert.doesNotMatch(rest, /<Button\b|<IconButton\b/, "no buttons on a row that is not being edited");
-  assert.match(rest, /<Text style=\{\[styles\.text, finished && styles\.textDone\]\}>\{t\.text\}<\/Text>\s*\{meta \? <Text style=\{styles\.meta\}>\{meta\}<\/Text> : null\}/);
+  // Under the words, one quiet line: when it is due, then who it is for and where it belongs.
+  assert.match(rest, /<Text style=\{\[styles\.text, finished && styles\.textDone\]\}>\{t\.text\}<\/Text>\s*\{due \|\| meta \? <Text style=\{styles\.meta\}>\{due \? <Text testID="todo-due" style=\{due\.overdue \? styles\.overdue : undefined\}>\{due\.text\}<\/Text> : null\}\{due && meta \? " · " : ""\}\{meta\}<\/Text> : null\}/);
 });
 
 test("who it is for and where it belongs is one quiet line", () => {
@@ -88,17 +90,16 @@ test("the list has one line above it, and one icon for everything about the list
   assert.match(sheet, /<Button label=\{`Send all \$\{sendable\.length\} to Agent`\} kind="secondary"/);
   assert.match(sheet, /<Button label="Refresh" kind="link" compact/);
   // The screen draws no filters of its own any more: it hands them to the list.
-  assert.match(screen, /<TodoList account=\{account\} todos=\{todos\} allowAdd=\{!selectedId\} filters=\{filters\} filterSummary=\{summary\}/);
+  assert.match(screen, /<TodoList account=\{account\} todos=\{todos\} board=\{!selectedId\} allowAdd=\{!selectedId\} filters=\{filters\} filterSummary=\{summary\}/);
   const body = screen.slice(screen.indexOf("<ScrollView style={styles.root}"));
   assert.doesNotMatch(body, /chip\(|radiogroup/, "nothing but the list on the screen");
 });
 
-test("Show done is a switch of its own, not a third choice beside Everyone's and Mine", () => {
+test("the board always has its Done column, so there is no Show done switch", () => {
   const start = screen.indexOf('accessibilityLabel="Whose to-dos"');
   const group = screen.slice(start, screen.indexOf("</View>", start));
   assert.match(group, /Everyone's/);
   assert.match(group, /Mine/);
-  assert.doesNotMatch(group, /done/i, "the group holds the two choices only");
-  assert.match(screen, /<Toggle value=\{showDone\} label="Show done" disabled=\{writing\} onValueChange=\{setShowDone\} \/>/);
-  assert.doesNotMatch(screen, /Hide done/, "the label stays put; the switch shows the state");
+  assert.doesNotMatch(screen, /Show done|Hide done|showDone/);
+  assert.match(screen, /status: "all", mine: scope === "mine"/, "the board asks for finished to-dos too");
 });

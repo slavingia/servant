@@ -2388,7 +2388,7 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
       if (!access.visible) return null;
       const release = rid ? project.releases.find(r => r.id === rid) : null;
       if (rid && !release) return null;
-      return { projectName: project.name, releaseName: release?.name || "", canWrite: access.canWrite };
+      return { projectName: project.name, releaseName: release?.name || "", releaseDate: release?.date || "", canWrite: access.canWrite };
     },
     channel: (userId, channelId) => serviceMessaging.channelFor(userId, channelId),
     canReadChat: (user, chatId) => canReadChat(readState().chats[chatId], user),
