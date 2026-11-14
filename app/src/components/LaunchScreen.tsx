@@ -116,8 +116,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   youName: { width: 76, height: 10 },
   youRole: { width: 44, height: 8 },
 
-  // AppChrome.tsx `widePane` and DesktopHome.tsx.
-  pane: { flex: 1, minWidth: 0, alignItems: "center", paddingHorizontal: space.lg, paddingTop: space.xxl, backgroundColor: colors.background, borderTopLeftRadius: radius.xl, borderBottomLeftRadius: radius.xl, overflow: "hidden" },
+  // AppChrome.tsx `widePane`, which meets the sidebar in a straight edge, and DesktopHome.tsx.
+  pane: { flex: 1, minWidth: 0, alignItems: "center", paddingHorizontal: space.lg, paddingTop: space.xxl, backgroundColor: colors.background, overflow: "hidden" },
   column: { width: "100%", maxWidth: 680 },
   line: { height: 12, borderRadius: radius.sm, backgroundColor: colors.line },
   titleBox: { height: 34, justifyContent: "center" },
