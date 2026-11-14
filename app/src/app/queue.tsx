@@ -1,7 +1,8 @@
 import { useCallback, useRef, useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Button } from '../components/Button';
+import { FeedbackTabs } from '../components/FeedbackTabs';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useSession } from '../lib/session';
 import { surveysApi, surveyError, surveyFaces, type ResponsePatch, type Survey, type SurveyDetail, type SurveyResponse } from '../lib/surveys';
@@ -101,9 +102,9 @@ export default function FeedbackQueue() {
   const pending = detail?.responses.filter(item => item.visibility === 'pending').length || 0;
   return <>
     <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+      <FeedbackTabs current="responses" survey={detail?.survey.id} disabled={busy} />
       <Text style={styles.body}>Survey feedback is private. Team notes and review status are visible to authorized staff only.</Text>
       {permissions.canView && !permissions.canManage ? <Text style={styles.caption}>You have view access. A user researcher or admin can review and edit responses.</Text> : null}
-      <View style={styles.actions}><Button label="Surveys" kind="secondary" compact disabled={busy} onPress={() => router.dismissTo({ pathname: '/surveys', params: detail ? { survey: detail.survey.id } : {} })} /></View>
       {surveys.length ? <View accessibilityRole="tablist" accessibilityLabel="Choose a survey" style={styles.selector}>{surveys.map(survey => <Pressable key={survey.id} accessibilityRole="tab" accessibilityState={{ selected: detail?.survey.id === survey.id, disabled: busy || !!editing }} aria-selected={detail?.survey.id === survey.id} disabled={busy || !!editing} onPress={() => { setSelected(survey.id); setNotice(''); }} style={[styles.tab, detail?.survey.id === survey.id && styles.tabSelected]}><Text style={[styles.tabText, detail?.survey.id === survey.id && styles.tabTextSelected]}>{survey.title}</Text></Pressable>)}</View> : null}
       {detail ? <><Text accessibilityRole="header" style={styles.heading}>{detail.survey.title}</Text><Text style={styles.caption}>Responses: {detail.responses.length} · Needs review: {pending}</Text><View accessibilityRole="tablist" accessibilityLabel="Show" style={styles.selector}>{filters.map(item => <Pressable key={item.id} accessibilityRole="tab" accessibilityState={{ selected: filter === item.id, disabled: !!editing }} aria-selected={filter === item.id} disabled={!!editing} onPress={() => setFilter(item.id)} style={[styles.tab, filter === item.id && styles.tabSelected]}><Text style={[styles.tabText, filter === item.id && styles.tabTextSelected]}>{item.label}</Text></Pressable>)}</View></> : null}
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}

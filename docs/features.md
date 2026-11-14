@@ -98,7 +98,7 @@ and view private results. Each form has a five-face rating and optional comment.
 Respondents verify their email before submitting; the team can use that address
 to reply. Rampart Edge removes detected personal information from comments
 locally before storage; nonempty comments require the installed model.
-**Feedback queue** lets researchers and administrators review
+The **Responses** tab of **Feedback** lets researchers and administrators review
 responses, add internal notes and open
 an email reply. Business owners can view surveys, results and feedback with
 read-only access. Responses and contact addresses stay private; there is no
