@@ -256,14 +256,14 @@ function WorkLogRow({ item }: { item: WorkLogEntry }) {
           {item.timeBasis === "recording-upload" ? <Text style={styles.logMeta}>Added {savedWorkLabel(item.at)}{item.durationMs !== null ? ` · Recording: ${durationText(item.durationMs)}` : ""}</Text>
             : <>{item.startedAt !== null ? <Text style={styles.logMeta}>Meeting started {savedWorkLabel(item.startedAt)}</Text> : null}
               {item.endedAt !== null ? <Text style={styles.logMeta}>Meeting ended {savedWorkLabel(item.endedAt)}</Text> : null}</>}
-        </> : item.kind === "todo" ? <>
+        </> : item.kind === "todo" ? <View style={styles.logDetails}>
           {item.completedBy.kind !== "agent" ? <Text style={styles.caption}>Completed by {workLogActor(item)}</Text> : null}
           {item.source ? <Text style={styles.caption}>{[item.source.projectName, item.source.releaseName, item.source.channelName && `#${item.source.channelName}`].filter(Boolean).join(" · ")}</Text> : null}
           <Text style={styles.logMeta}>Created {savedWorkLabel(item.createdAt)}</Text>
           {item.startedAt ? <Text style={styles.logMeta}>Started {savedWorkLabel(item.startedAt)}</Text> : null}
           {workLogDue(item) ? <Text testID={`work-log-due-${item.id}`} style={styles.logMeta}>{workLogDue(item)}</Text> : null}
           {item.reopenedAt !== null ? <Text style={styles.reopened}>Reopened {savedWorkLabel(item.reopenedAt)}</Text> : null}
-        </> : null}
+        </View> : null}
       </>}
       {href ? <View style={styles.sourceLink}><Button label={item.kind === "saved" ? "Open message" : item.kind === "meeting" ? "Open meeting" : "Open to-do"} kind="link" compact onPress={() => router.push(href)} /></View> : null}
     </View>
@@ -308,6 +308,8 @@ const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create
   workNote: { ...typography.bodyStrong, color: colors.ink },
   sourceText: { ...typography.body, color: colors.muted },
   logMeta: { ...typography.meta, color: colors.muted },
+  // The facts about a finished to-do read as one block: close together, apart from the words above them.
+  logDetails: { gap: space.xxs / 2 },
   reopened: { ...typography.caption, color: colors.muted, fontStyle: "italic" },
   sourceLink: { alignItems: "flex-start", marginLeft: -space.md },
 }));

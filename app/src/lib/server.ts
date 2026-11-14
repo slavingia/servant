@@ -53,9 +53,17 @@ export type TodoItem = {
   canEdit: boolean;
   // The board: its column, its own due date, and the date it is due (its own, or its release's when it has none).
   stage?: TodoStage; dueDate?: string | null; due?: string | null; dueFrom?: "own" | "release" | null;
+  // The tracker: a key ("EA-42": the project's initials and a number that never changes), a kind, a priority, an
+  // estimate in points, a longer description, the epic it belongs to, and its issue's key in Jira once it has one.
+  number?: number; key?: string; type?: TodoType; priority?: TodoPriority | null; estimate?: number | null; description?: string;
+  parentId?: string | null; parentText?: string | null; jiraKey?: string | null; commentCount?: number;
 };
+export type TodoType = "task" | "bug" | "story" | "epic";
+export type TodoPriority = "high" | "medium" | "low";
+export type TodoComment = { id: string; text: string; createdAt: number; author: { id: string; name: string } };
 export type TodoStage = "todo" | "doing" | "done";
-export type TodoPatch = { text?: string; status?: "open" | "done"; stage?: TodoStage; dueDate?: string | null; assigneeName?: string; assigneeId?: string; projectId?: string | null; releaseId?: string | null; channelId?: string | null };
+export type TodoPatch = { text?: string; status?: "open" | "done"; stage?: TodoStage; dueDate?: string | null;
+  type?: TodoType; priority?: TodoPriority | null; estimate?: number | string | null; description?: string; parentId?: string | null; jiraKey?: string | null; assigneeName?: string; assigneeId?: string; projectId?: string | null; releaseId?: string | null; channelId?: string | null };
 // ready: every feature is checked, so the final box opens. shipped: someone ticked that box.
 export type ProjectRelease = { id: string; name: string; date: string; items: ReleaseItem[]; ready?: boolean; shipped?: { at: number; by: string | null; byName: string } | null };
 // mode "vibe": a vibe-coding chat that builds a prototype with a preview link.
@@ -462,18 +470,21 @@ export const uploadPost = (account: Account, onMove?: (a: Account) => void) => (
   request(account, path, { method: "POST", body: JSON.stringify(body) }, onMove).then(r => r.json());
 
 export const api = {
-  todos: (a: Account, query: { project?: string; release?: string; source?: string; status?: "open" | "done" | "all"; mine?: boolean } = {}) => {
+  todos: (a: Account, query: { project?: string; release?: string; source?: string; status?: "open" | "done" | "all"; mine?: boolean; epic?: string } = {}) => {
     const q = new URLSearchParams();
     if (query.project) q.set("project", query.project);
     if (query.release) q.set("release", query.release);
     if (query.source) q.set("source", query.source);
     if (query.status) q.set("status", query.status);
     if (query.mine) q.set("mine", "1");
+    if (query.epic) q.set("epic", query.epic);
     return request(a, `/v1/todos${q.toString() ? `?${q}` : ""}`).then(json<{ todos: TodoItem[] }>);
   },
   addTodo: (a: Account, body: TodoPatch & { text: string }) => request(a, "/v1/todos", { method: "POST", body: JSON.stringify(body) }).then(json<{ todo: TodoItem }>),
   todo: (a: Account, id: string) => request(a, `/v1/todos/${encodeURIComponent(id)}`).then(json<{ todo: TodoItem }>),
   updateTodo: (a: Account, id: string, patch: TodoPatch) => request(a, `/v1/todos/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }).then(json<{ todo: TodoItem }>),
+  todoComments: (a: Account, id: string) => request(a, `/v1/todos/${encodeURIComponent(id)}/comments`).then(json<{ comments: TodoComment[] }>),
+  addTodoComment: (a: Account, id: string, text: string) => request(a, `/v1/todos/${encodeURIComponent(id)}/comments`, { method: "POST", body: JSON.stringify({ text }) }).then(json<{ comment: TodoComment }>),
   deleteTodo: (a: Account, id: string) => request(a, `/v1/todos/${encodeURIComponent(id)}`, { method: "DELETE" }).then(json<{ ok: true }>),
   reorderTodos: (a: Account, ids: string[]) => request(a, "/v1/todos/reorder", { method: "POST", body: JSON.stringify({ ids }) }).then(json<{ todos: TodoItem[] }>),
   bulkTodos: (a: Account, ids: string[], patch: TodoPatch) => request(a, "/v1/todos/bulk", { method: "POST", body: JSON.stringify({ ids, patch }) }).then(json<{ todos: TodoItem[] }>),

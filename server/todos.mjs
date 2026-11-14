@@ -8,11 +8,24 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { jiraCsv, JIRA_DATE_FORMAT } from "./jira-export.mjs";
 import { ensureRecordsSchema, preserve } from "./records-preserve.mjs";
 
 export const STATUSES = ["open", "done"];
 // The columns of the board. To do and in progress are both open; "doing" is an open to-do that has been started.
 export const STAGES = ["todo", "doing", "done"];
+// What a tracker needs beyond the words: a kind of work, how much it matters, and a longer write-up.
+// An epic is a to-do that other to-dos belong to.
+export const TYPES = ["task", "bug", "story", "epic"];
+export const PRIORITIES = ["high", "medium", "low"];
+export const MAX_DESCRIPTION = 5000;
+export const MAX_COMMENT = 2000;
+/** The letters before a to-do's number: the project's initials ("Example app" is EA), or TODO without a project. */
+export function keyPrefix(projectName) {
+  const words = String(projectName || "").toUpperCase().match(/[A-Z0-9]+/g) || [];
+  if (!words.length) return "TODO";
+  return (words.length === 1 ? words[0].slice(0, 4) : words.map(word => word[0]).join("").slice(0, 5));
+}
 export const MAX_TEXT = 300;
 export const MAX_LIST = 500;
 /** An edit posts to the channel at most this often per to-do, so fixing a typo twice isn't two lines. */
@@ -112,6 +125,16 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
     // An open to-do that has been started is "in progress"; nothing else about a to-do's status changes.
     if (!db.prepare("PRAGMA table_info(todos)").all().some(c => c.name === "due_date")) db.exec("ALTER TABLE todos ADD COLUMN due_date TEXT");
     if (!db.prepare("PRAGMA table_info(todos)").all().some(c => c.name === "started_at")) db.exec("ALTER TABLE todos ADD COLUMN started_at INTEGER");
+    // The tracker: a number that never changes (shown with the project's initials, "EA-42"), a kind, a priority, an
+    // estimate, a longer description, the epic it belongs to, and the key of its issue in Jira once it has one.
+    const columns = () => db.prepare("PRAGMA table_info(todos)").all().map(c => c.name);
+    for (const [name, kind] of [["number", "INTEGER"], ["type", "TEXT"], ["priority", "TEXT"], ["estimate", "REAL"], ["description", "TEXT"], ["parent_id", "TEXT"], ["jira_key", "TEXT"]]) {
+      if (!columns().includes(name)) db.exec(`ALTER TABLE todos ADD COLUMN ${name} ${kind}`);
+    }
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS todos_number ON todos(number);
+      CREATE INDEX IF NOT EXISTS todos_parent ON todos(parent_id);
+      CREATE TABLE IF NOT EXISTS todo_comments (id TEXT PRIMARY KEY, todo_id TEXT NOT NULL, author_id TEXT NOT NULL, text TEXT NOT NULL, created_at INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS todo_comments_todo ON todo_comments(todo_id, created_at);`);
     // The work log keeps what the board knew when a to-do was finished: when work on it began and when it was due.
     // Like the rest of a completion, neither can be rewritten afterwards.
     if (!db.prepare("PRAGMA table_info(todo_completions)").all().some(c => c.name === "started_at")) db.exec("ALTER TABLE todo_completions ADD COLUMN started_at INTEGER");
@@ -148,6 +171,11 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
           ["recording", "call"].includes(todo.source_kind) ? todo.source_kind : null);
       db.prepare("UPDATE todos SET completion_id = ? WHERE id = ?").run(id, todo.id);
     }
+    // Every to-do has a number, in the order they were written: those from before the tracker and any just imported.
+    {
+      let next = db.prepare("SELECT COALESCE(MAX(number), 0) AS n FROM todos").get().n;
+      for (const row of db.prepare("SELECT id FROM todos WHERE number IS NULL ORDER BY created_at, rowid").all()) db.prepare("UPDATE todos SET number = ? WHERE id = ?").run(++next, row.id);
+    }
     db.exec("COMMIT");
   } catch (e) { db.exec("ROLLBACK"); if (!suppliedDb) db.close(); throw e; }
 
@@ -170,7 +198,7 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
     try {
       ensureRecordsSchema(db);
       preserve(db, { event, conversation_id: todo.id, conversation_kind: "todo", author_id: todo.created_by,
-        actor_id: actorId || null, text: todo.text, created_at: todo.created_at, detail: { ...todo } }, [], now());
+        actor_id: actorId || null, text: todo.text, created_at: todo.created_at, detail: { ...todo, ...(event === "todo_changed" || event === "todo_completed" ? {} : { comments: db.prepare("SELECT * FROM todo_comments WHERE todo_id = ? ORDER BY created_at, rowid").all(todo.id) }) } }, [], now());
     } catch { throw fault(503, "records_preservation_failed", "This to-do could not be changed because its record could not be saved. Try again."); }
   }
   const q = s => db.prepare(s);
@@ -179,6 +207,12 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
     all: q("SELECT * FROM todos ORDER BY position, created_at, id LIMIT ?"),
     bySource: q("SELECT * FROM todos WHERE source_kind = ? AND source_id = ? ORDER BY position, id"),
     byChat: q("SELECT * FROM todos WHERE chat_id = ?"),
+    commentCount: q("SELECT COUNT(*) AS n FROM todo_comments WHERE todo_id = ?"),
+    comments: q("SELECT * FROM todo_comments WHERE todo_id = ? ORDER BY created_at, rowid"),
+    addComment: q("INSERT INTO todo_comments (id, todo_id, author_id, text, created_at) VALUES (?,?,?,?,?)"),
+    delComments: q("DELETE FROM todo_comments WHERE todo_id = ?"),
+    children: q("SELECT COUNT(*) AS n FROM todos WHERE parent_id = ?"),
+    childRows: q("SELECT * FROM todos WHERE parent_id = ?"),
     maxPos: q("SELECT COALESCE(MAX(position), 0) AS p FROM todos"),
     insert: q(`INSERT INTO todos (id, text, position, created_by, assignee_id, assignee_name, project_id, release_id, channel_id,
       source_kind, source_id, source_title, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`),
@@ -284,7 +318,51 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
       dueDate: todo.due_date || null,
       due: todo.due_date || (p?.releaseDate || null),
       dueFrom: todo.due_date ? "own" : p?.releaseDate ? "release" : null,
+      // The tracker's fields.
+      number: todo.number, key: `${keyPrefix(p?.projectName)}-${todo.number}`,
+      type: TYPES.includes(todo.type) ? todo.type : "task", priority: todo.priority || null, estimate: todo.estimate ?? null,
+      description: todo.description || "", jiraKey: todo.jira_key || null,
+      ...epicOf(todo, user),
+      commentCount: st.commentCount.get(todo.id).n,
     };
+  }
+  /** The epic a to-do belongs to, named only for someone who can see that epic. */
+  function epicOf(todo, user) {
+    const parent = todo.parent_id ? st.get.get(todo.parent_id) : null;
+    return parent && canSee(parent, user) ? { parentId: parent.id, parentText: parent.text } : { parentId: null, parentText: null };
+  }
+  function cleanType(value) {
+    if (value === undefined || value === null || value === "") return "task";
+    if (!TYPES.includes(value)) throw fault(400, "bad_request", "A to-do is a task, a bug, a story or an epic");
+    return value;
+  }
+  function cleanPriority(value) {
+    if (value === undefined || value === null || value === "") return null;
+    if (!PRIORITIES.includes(value)) throw fault(400, "bad_request", "Priority is high, medium or low");
+    return value;
+  }
+  function cleanEstimate(value) {
+    if (value === undefined || value === null || value === "") return null;
+    const points = typeof value === "number" ? value : Number(String(value).trim());
+    if (!Number.isFinite(points) || points < 0 || points > 1000) throw fault(400, "bad_request", "Give the estimate as a number of points, like 3");
+    return Math.round(points * 100) / 100;
+  }
+  const cleanDescription = value => String(value ?? "").replace(/\r\n?/g, "\n").trim().slice(0, MAX_DESCRIPTION) || null;
+  /** A Jira issue key as Jira writes it: PROJ-123. */
+  function cleanJiraKey(value) {
+    if (value === undefined || value === null || value === "") return null;
+    const key = String(value).trim().toUpperCase();
+    if (!/^[A-Z][A-Z0-9_]{1,19}-[1-9][0-9]{0,8}$/.test(key)) throw fault(400, "bad_request", "A Jira key looks like APP-42");
+    return key;
+  }
+  /** The epic a to-do is put under: an epic this person can see, and never the to-do itself or another epic's child. */
+  function cleanParent(user, value, self, type) {
+    if (!value) return null;
+    if (type === "epic") throw fault(400, "bad_request", "An epic cannot belong to another epic");
+    const parent = st.get.get(String(value));
+    if (!parent || parent.id === self || !canSee(parent, user)) throw fault(404, "not_found", "No such epic");
+    if (parent.type !== "epic") throw fault(400, "bad_request", "Choose an epic");
+    return parent.id;
   }
 
   const mine = (id, user, needEdit = false) => {
@@ -360,22 +438,26 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
     const channelId = cleanChannel(user, body.channelId);
     const who = cleanAssignee(body);
     const dueDate = cleanDue(body.dueDate);
+    const type = cleanType(body.type), priority = cleanPriority(body.priority), estimate = cleanEstimate(body.estimate);
+    const description = cleanDescription(body.description), parentId = cleanParent(user, body.parentId, null, type);
     const t = now();
     const id = newId();
     st.insert.run(id, text, st.maxPos.get().p + 1, user.id, who.id, who.name, pid, rid, channelId,
       source?.kind || null, source?.id || null, source?.title || null, t, t);
     if (dueDate) db.prepare("UPDATE todos SET due_date = ? WHERE id = ?").run(dueDate, id);
+    db.prepare("UPDATE todos SET number = (SELECT COALESCE(MAX(number), 0) + 1 FROM todos), type = ?, priority = ?, estimate = ?, description = ?, parent_id = ? WHERE id = ?")
+      .run(type, priority, estimate, description, parentId, id);
     const todo = st.get.get(id);
     tell(todo, user.id, "added");
     return view(st.get.get(id), user);
   }
 
-  function list(user, { project: pid, release: rid, source, status = "open", mine: onlyMine } = {}) {
+  function list(user, { project: pid, release: rid, source, status = "open", mine: onlyMine, epic } = {}) {
     const [kind, sid] = typeof source === "string" ? source.split(":") : [];
     const rows = (kind && sid ? st.bySource.all(kind, sid) : st.all.all(MAX_LIST))
       .filter(t => canSee(t, user)
         && (!pid || t.project_id === pid) && (!rid || t.release_id === rid)
-        && (status === "all" || t.status === status)
+        && (status === "all" || t.status === status) && (!epic || t.parent_id === epic || t.id === epic)
         && (!onlyMine || t.created_by === user.id || t.assignee_id === user.id));
     return rows.map(t => view(t, user));
   }
@@ -405,6 +487,25 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
     if ("channelId" in body) {
       const channelId = cleanChannel(user, body.channelId);
       if (channelId !== todo.channel_id) { next.channel_id = channelId; channelAdded = !!channelId && !todo.channel_id; }
+    }
+    // The tracker's fields. Each is checked, and counts as an edit only when it really changes.
+    const tracked = [
+      ["type", "type", () => cleanType(body.type), todo.type || "task"],
+      ["priority", "priority", () => cleanPriority(body.priority), todo.priority || null],
+      ["estimate", "estimate", () => cleanEstimate(body.estimate), todo.estimate ?? null],
+      ["description", "description", () => cleanDescription(body.description), todo.description || null],
+      ["jiraKey", "jira_key", () => cleanJiraKey(body.jiraKey), todo.jira_key || null],
+    ];
+    for (const [field, column, clean, before] of tracked) {
+      if (!(field in body)) continue;
+      const value = clean();
+      if (value !== before) { next[column] = value; changed.push(field); }
+    }
+    if ((next.type || "task") === "epic" && (todo.type || "task") !== "epic" && !("parentId" in body) && todo.parent_id) { next.parent_id = null; changed.push("parent"); }
+    if ((todo.type || "task") === "epic" && (next.type || "task") !== "epic" && st.children.get(todo.id).n) throw fault(409, "todo", "Move its to-dos to another epic first");
+    if ("parentId" in body) {
+      const parentId = cleanParent(user, body.parentId, todo.id, next.type || "task");
+      if (parentId !== (todo.parent_id || null)) { next.parent_id = parentId; changed.push("parent"); }
     }
     if ("dueDate" in body) {
       const dueDate = cleanDue(body.dueDate);
@@ -439,6 +540,8 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
       done_at=?, done_by=?, updated_at=?, completion_id=?, due_date=?, started_at=? WHERE id=?`)
       .run(next.text, next.status, next.assignee_id, next.assignee_name, next.project_id, next.release_id, next.channel_id,
         next.done_at ?? null, next.done_by ?? null, next.updated_at, next.completion_id ?? null, next.due_date ?? null, next.started_at ?? null, todo.id);
+    db.prepare("UPDATE todos SET type=?, priority=?, estimate=?, description=?, parent_id=?, jira_key=? WHERE id=?")
+      .run(next.type || "task", next.priority ?? null, next.estimate ?? null, next.description ?? null, next.parent_id ?? null, next.jira_key ?? null, todo.id);
     const saved = st.get.get(todo.id);
     if (statusChange === "done") tell(saved, user.id, "completed");
     else if (statusChange === "open") tell(saved, user.id, "reopened");
@@ -497,7 +600,30 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
   }
 
   function remove(user, id) {
-    return transaction(() => { const todo = mine(id, user, true); keep(todo, "todo_deleted", user.id); st.del.run(todo.id); });
+    return transaction(() => {
+      const todo = mine(id, user, true);
+      // Its copy carries its comments. An epic's to-dos stay; they just no longer belong to it.
+      keep(todo, "todo_deleted", user.id);
+      for (const child of st.childRows.all(todo.id)) { keep(child, "todo_changed", user.id); db.prepare("UPDATE todos SET parent_id = NULL, updated_at = ? WHERE id = ?").run(now(), child.id); }
+      st.delComments.run(todo.id);
+      st.del.run(todo.id);
+    });
+  }
+
+  // ----- comments -----
+  const commentView = row => ({ id: row.id, text: row.text, createdAt: row.created_at, author: { id: row.author_id, name: person(row.author_id)?.name || "Someone" } });
+  /** What has been said on a to-do, oldest first, for anyone who can see it. */
+  function comments(user, id) { return st.comments.all(mine(id, user).id).map(commentView); }
+  /** Anyone who can see a to-do can say something on it. A comment is not edited or deleted afterwards. */
+  function comment(user, id, body = {}) {
+    return transaction(() => {
+      const todo = mine(id, user);
+      const text = String(body.text ?? "").replace(/\r\n?/g, "\n").trim().slice(0, MAX_COMMENT);
+      if (!text) throw fault(400, "bad_request", "Write a comment");
+      const row = { id: `tc_${crypto.randomBytes(9).toString("base64url")}`, todo_id: todo.id, author_id: user.id, text, created_at: now() };
+      st.addComment.run(row.id, row.todo_id, row.author_id, row.text, row.created_at);
+      return commentView(row);
+    });
   }
 
   /** Hand it to the agent: one work chat, started once however many times this is tapped. */
@@ -572,9 +698,24 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
   const forSource = (user, kind, id) => st.bySource.all(kind, id).filter(t => canSee(t, user)).map(t => view(t, user));
   function removeSource(kind, id, actorId = null) {
     return transaction(() => {
-      for (const todo of st.bySource.all(kind, id)) keep(todo, "todo_source_deleted", actorId);
+      for (const todo of st.bySource.all(kind, id)) {
+        keep(todo, "todo_source_deleted", actorId);
+        for (const child of st.childRows.all(todo.id)) { keep(child, "todo_changed", actorId); db.prepare("UPDATE todos SET parent_id = NULL WHERE id = ?").run(child.id); }
+        st.delComments.run(todo.id);
+      }
       db.prepare("DELETE FROM todos WHERE source_kind = ? AND source_id = ?").run(kind, id);
     });
+  }
+
+  // ----- export for Jira -----
+  /** Every to-do this person can see (optionally one project's), with its epic's number and its comments, as a Jira CSV. */
+  function jiraExport(user, { project: pid } = {}) {
+    if (pid && !project(user, pid, null)) throw fault(404, "not_found", "No such project");
+    const issues = list(user, { project: pid, status: "all" }).map(todo => ({
+      ...todo, parentNumber: todo.parentId ? st.get.get(todo.parentId)?.number ?? null : null, comments: st.comments.all(todo.id).map(commentView),
+    }));
+    return { csv: jiraCsv(issues), count: issues.length, dateFormat: JIRA_DATE_FORMAT,
+      issues: issues.map(issue => ({ id: issue.id, number: issue.number, key: issue.key, jiraKey: issue.jiraKey, canEdit: issue.canEdit })) };
   }
 
   // ----- HTTP -----
@@ -585,11 +726,12 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
       if (method === "GET") {
         const p = url.searchParams;
         return send(res, 200, { todos: list(user, { project: p.get("project") || undefined, release: p.get("release") || undefined, source: p.get("source") || undefined,
-          status: ["open", "done", "all"].includes(p.get("status")) ? p.get("status") : "open", mine: p.get("mine") === "1" }) }), true;
+          status: ["open", "done", "all"].includes(p.get("status")) ? p.get("status") : "open", mine: p.get("mine") === "1", epic: p.get("epic") || undefined }) }), true;
       }
       if (method === "POST") return send(res, 201, { todo: create(user, (await readBody(req)) || {}) }), true;
       return fail(res, 405, "method_not_allowed", "Not allowed"), true;
     }
+    if (id === "export" && method === "GET") { res.setHeader("Cache-Control", "no-store"); return send(res, 200, jiraExport(user, { project: url.searchParams.get("project") || undefined })), true; }
     if (id === "reorder" && method === "POST") return send(res, 200, { todos: reorder(user, ((await readBody(req)) || {}).ids) }), true;
     if (id === "bulk" && method === "POST") { const b = (await readBody(req)) || {}; return send(res, 200, { todos: bulk(user, b.ids, b.patch) }), true; }
     if (!sub) {
@@ -597,10 +739,12 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
       if (method === "DELETE") return remove(user, id), send(res, 200, { ok: true }), true;
       if (method === "GET") return send(res, 200, { todo: view(mine(id, user), user) }), true;
     }
+    if (sub === "comments" && method === "GET") return send(res, 200, { comments: comments(user, id) }), true;
+    if (sub === "comments" && method === "POST") return send(res, 201, { comment: comment(user, id, (await readBody(req)) || {}) }), true;
     if (sub === "agent" && method === "POST") { await readBody(req); return send(res, 200, await sendToAgent(user, device, id)), true; }
     return fail(res, 404, "not_found", "Not found"), true;
   }
 
   const close = () => { if (!suppliedDb) db.close(); };
-  return { handle, create, list, update, bulk, reorder, remove, sendToAgent, agentDone, fromRecording, forSource, removeSource, workLog, close, db };
+  return { handle, create, list, update, bulk, reorder, remove, comments, comment, jiraExport, sendToAgent, agentDone, fromRecording, forSource, removeSource, workLog, close, db };
 }

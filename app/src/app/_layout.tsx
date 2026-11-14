@@ -134,9 +134,9 @@ function SessionNavigation() {
         <Stack.Screen name="chat/[id]" options={{ title: "", ...childScreen }} />
         {/* Where a share from another app lands (share.tsx); the share waits natively through sign-in. */}
         <Stack.Screen name="share" options={{ title: "Send to agent", ...childScreen }} />
-        <Stack.Screen name="feedback" options={{ title: "Feedback", ...childScreen }} />
-        <Stack.Screen name="surveys" options={{ title: "Surveys", ...sidebarScreen }} />
-        <Stack.Screen name="queue" options={{ title: "Feedback queue", ...sidebarScreen }} />
+        <Stack.Screen name="feedback" options={{ title: "Send feedback", ...childScreen }} />
+        <Stack.Screen name="surveys" options={{ title: "Feedback", ...sidebarScreen }} />
+        <Stack.Screen name="queue" options={{ title: "Feedback", ...sidebarScreen }} />
         <Stack.Screen name="saved" options={{ title: "Saved", ...sidebarScreen }} />
         <Stack.Screen name="todos" options={{ title: "To-dos", ...sidebarScreen }} />
         <Stack.Screen name="wiki" options={{ title: "Wiki", ...sidebarScreen }} />

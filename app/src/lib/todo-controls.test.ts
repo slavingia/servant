@@ -41,7 +41,10 @@ test("a row at rest is a box and its words: no Send button, no grip, no colored 
   assert.ok(rest.length > 0, "found the row at rest");
   assert.doesNotMatch(rest, /<Button\b|<IconButton\b/, "no buttons on a row that is not being edited");
   // Under the words, one quiet line: when it is due, then who it is for and where it belongs.
-  assert.match(rest, /<Text style=\{\[styles\.text, finished && styles\.textDone\]\}>\{t\.text\}<\/Text>\s*\{due \|\| meta \? <Text style=\{styles\.meta\}>\{due \? <Text testID="todo-due" style=\{due\.overdue \? styles\.overdue : undefined\}>\{due\.text\}<\/Text> : null\}\{due && meta \? " · " : ""\}\{meta\}<\/Text> : null\}/);
+  assert.match(rest, /<Text style=\{\[styles\.text, finished && styles\.textDone\]\}>\{t\.text\}<\/Text>/);
+  assert.match(rest, /\{due \? <Text testID="todo-due" style=\{due\.overdue \? styles\.overdue : undefined\}>\{due\.text\}<\/Text> : null\}/);
+  assert.match(rest, /\{meta\}\{meta && tracker\.tail \? " · " : ""\}\{tracker\.tail\}\s*<\/Text> : null\}/);
+  assert.equal((rest.match(/style=\{styles\.meta\}/g) ?? []).length, 1, "one line, not a row of tags");
 });
 
 test("who it is for and where it belongs is one quiet line", () => {
@@ -81,7 +84,8 @@ test("the list has one line above it, and one icon for everything about the list
   assert.equal(todoCountLine(0, 0, "Mine"), "Mine", "an empty filtered list still says what is filtered");
   assert.equal(todoFilterSummary({ mine: false, done: false }), "", "everyone's open to-dos is the plain list");
   assert.equal(todoFilterSummary({ mine: true, project: "Example app", release: "Spring release", done: true }), "Mine · Example app · Spring release · With done");
-  assert.match(component, /<IconButton testID="todo-menu" icon="sort" label=\{filters \? "Filter and options" : "Options"\}/);
+  assert.match(component, /const menuLabel = filters \? "Filter and options" : "Options";/);
+  assert.match(component, /<IconButton testID="todo-menu" icon="sort" label=\{menuLabel\} edge=\{board \? undefined : "end"\}/);
   assert.doesNotMatch(component, /Refresh to-dos|Choose several to tag|toolbarActions/, "no row of links above the list");
   // What the icon opens: the screen's filters, then tagging several, sending all, and a refresh.
   const sheet = component.slice(component.indexOf('testID="todo-menu-sheet"'));

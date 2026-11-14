@@ -4,7 +4,7 @@ import { SafeAreaInsetsContext, useSafeAreaInsets } from "react-native-safe-area
 import { useSession } from "../lib/session";
 import { isDesktop } from "../lib/desktop";
 import { useWideLayout } from "../lib/layout";
-import { radius, createThemedStyles } from "../lib/theme";
+import { createThemedStyles } from "../lib/theme";
 import { Sidebar } from "./Sidebar";
 import { ActiveCallBar } from "./ActiveCallBar";
 import { ServerBanner } from "./ServerBanner";
@@ -65,8 +65,9 @@ export function AppChrome({ enabled, children }: { enabled: boolean; children: R
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   wideRoot: { flex: 1, flexDirection: "row", backgroundColor: colors.navy },
-  // The white main pane, rounded where it meets the sidebar.
-  widePane: { backgroundColor: colors.background, borderTopLeftRadius: radius.xl, borderBottomLeftRadius: radius.xl, overflow: "hidden" },
+  // The white main pane meets the sidebar in a straight edge. It had rounded corners there, which drew the eye
+  // to the join and showed nothing.
+  widePane: { backgroundColor: colors.background },
   signedInRoot: { backgroundColor: colors.background },
   header: { flexShrink: 0 },
   statusArea: { backgroundColor: colors.background },
