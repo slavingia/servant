@@ -1,8 +1,8 @@
 import { Radio } from "./Radio";
-import { useCallback, useRef, useState } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect, useIsFocused, useScrollToTop } from "expo-router";
-import { useSettled, WhileFocused } from "./WhileFocused";
+import { useWhileHidden } from "../lib/hidden-screen";
 import { AppIcon } from "./AppIcon";
 import { Button } from "./Button";
 import { PageTitle } from "./Band";
@@ -35,15 +35,19 @@ type HomeRow =
   | { kind: "discovery"; id: "discovery-header" | "discovery-status" };
 
 export function ChannelList({ archived = false }: { archived?: boolean }) {
+  // Under another screen the list is handed what it last showed until the changes pause (lib/hidden-screen.ts):
+  // it does not draw every row for every message anywhere, and coming back draws nothing when nothing changed.
+  const list = useWhileHidden(useLiveList(), useIsFocused());
+  return <ChannelRows archived={archived} conversations={list.conversations} error={list.error} connected={list.connected} />;
+}
+
+const ChannelRows = memo(function ChannelRows({ archived, conversations, error, connected }: { archived: boolean; conversations: Conversation[] | null; error: string | null; connected: boolean }) {
   const styles = useStyles();
   // Tapping the tab you're already on scrolls back to the top.
   const scrollRef = useRef<FlatList<HomeRow>>(null);
   useScrollToTop(scrollRef);
   const { colors } = useTheme();
   const { account } = useSession();
-  const focused = useIsFocused();
-  const { conversations, error, connected } = useLiveList();
-  const settled = useSettled(focused, conversations);
   const { refresh } = useLiveActions();
   const reconnecting = !connected && conversations !== null;
   const [refreshing, setRefreshing] = useState(false);
@@ -139,8 +143,6 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
 
   return (
     <View style={styles.root}>
-      {/* Under another screen the list waits for the changes to pause, then catches up once; in front it draws every change. */}
-      <WhileFocused focused={focused} settled={settled}>
       <FlatList ref={scrollRef} contentInsetAdjustmentBehavior="automatic"
         data={rows}
         keyExtractor={item => item.id}
@@ -257,10 +259,9 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
         // Picking Custom also unlocks dragging; any other sort locks it again.
         setReordering(value === "custom" && !unreadOnly);
       }} />
-      </WhileFocused>
     </View>
   );
-}
+});
 
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },

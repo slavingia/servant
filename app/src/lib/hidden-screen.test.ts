@@ -2,32 +2,39 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { SETTLE_MS, skipWhileHidden } from "./hidden-screen.ts";
 
-test("a hidden list skips drawing until the changes have paused; a list in front always draws", () => {
-  // Under another screen, with changes still arriving: nothing is drawn.
-  assert.equal(skipWhileHidden({ focused: false, settled: 3 }, { focused: false, settled: 3 }), true);
-  assert.equal(skipWhileHidden({ focused: true, settled: 3 }, { focused: false, settled: 3 }), true, "going under another screen draws nothing either");
-  // The changes paused: it catches up once, so it is current before anyone goes back to it.
-  assert.equal(skipWhileHidden({ focused: false, settled: 3 }, { focused: false, settled: 4 }), false);
-  // In front, including the moment it comes back: every change is drawn.
-  assert.equal(skipWhileHidden({ focused: false, settled: 4 }, { focused: true, settled: 4 }), false);
-  assert.equal(skipWhileHidden({ focused: true, settled: 4 }, { focused: true, settled: 4 }), false);
-  assert.ok(SETTLE_MS >= 500 && SETTLE_MS <= 3000, "long enough to sit out a burst of messages, short enough to be current on the way back");
+// hidden-screen.ts has a hook, so it is read rather than imported; the rule itself is one line.
+const read = (file: string) => fs.readFileSync(path.join(import.meta.dirname, "..", file), "utf8");
+const source = read("lib/hidden-screen.ts");
+const whileHidden = <T,>(focused: boolean, current: T, settled: T): T => focused ? current : settled;
+
+test("a screen in front is handed the current list; a hidden one what it last showed", () => {
+  assert.match(source, /export const whileHidden = <T,>\(focused: boolean, current: T, settled: T\): T => focused \? current : settled;/);
+  const shown = ["general"], newer = ["general", "launch"];
+  assert.equal(whileHidden(true, newer, shown), newer);
+  assert.equal(whileHidden(false, newer, shown), shown, "under another screen: no new list, so nothing is drawn");
+  // Coming back with nothing changed hands back the very same list: the rows are not drawn again.
+  assert.equal(whileHidden(true, shown, shown), shown);
 });
 
-test("the Home and Chats lists draw every change only while they are in front", () => {
-  const read = (file: string) => fs.readFileSync(path.join(import.meta.dirname, "..", file), "utf8");
-  const gate = read("components/WhileFocused.tsx");
-  assert.match(gate, /memo\(function WhileFocused\([^)]*\) \{\n\s+return children;\n\}, skipWhileHidden\);/);
-  // The cue to catch up waits for a pause, and only while hidden.
-  assert.match(gate, /if \(focused\) return;\n\s+const timer = setTimeout\(\(\) => setSettled\(count => count \+ 1\), SETTLE_MS\);/);
-  for (const file of ["components/ChannelList.tsx", "app/(tabs)/messages.tsx"]) {
-    const source = read(file);
-    assert.match(source, /const focused = useIsFocused\(\);/, file);
-    assert.match(source, /const settled = useSettled\(focused, conversations\);/, file);
-    const from = source.indexOf("<WhileFocused focused={focused} settled={settled}>"), to = source.indexOf("</WhileFocused>");
-    assert.ok(from > 0 && to > from, `${file}: the list is inside WhileFocused`);
-    assert.match(source.slice(from, to), /<FlatList /, file);
+test("a hidden list catches up once the changes pause, and remembers what it showed while in front", () => {
+  // In front, what is on screen is remembered as it is shown, so going under another screen changes nothing.
+  assert.match(source, /if \(focused && settled !== value\) setSettled\(value\);/);
+  // Hidden, the current value is handed over only after a pause; every new change starts the wait again.
+  assert.match(source, /if \(focused\) return;\n\s+const timer = setTimeout\(\(\) => setSettled\(value\), SETTLE_MS\);\n\s+return \(\) => clearTimeout\(timer\);\n\s+\}, \[focused, value\]\);/);
+  const settle = Number(/export const SETTLE_MS = (\d+);/.exec(source)![1]);
+  assert.ok(settle >= 500 && settle <= 3000, "long enough to sit out a burst of messages, short enough to be current on the way back");
+});
+
+test("the Home and Chats lists are drawn through a memo that only sees the list they are handed", () => {
+  for (const [file, rows] of [["components/ChannelList.tsx", "ChannelRows"], ["app/(tabs)/messages.tsx", "MessageRows"]] as const) {
+    const screen = read(file);
+    assert.match(screen, /const list = useWhileHidden\(useLiveList\(\), useIsFocused\(\)\);/, file);
+    assert.match(screen, new RegExp(`const ${rows} = memo\\(function ${rows}\\(`), file);
+    assert.match(screen, new RegExp(`return <${rows} [^\\n]*conversations=\\{list\\.conversations\\} error=\\{list\\.error\\} connected=\\{list\\.connected\\} />;`), file);
+    // The rows themselves do not follow the live list or the focus: only what they are handed.
+    const body = screen.slice(screen.indexOf(`const ${rows} = memo(`));
+    assert.doesNotMatch(body, /useLiveList\(\)|useIsFocused\(\)/, file);
   }
+  assert.equal(fs.existsSync(path.join(import.meta.dirname, "../components/WhileFocused.tsx")), false);
 });

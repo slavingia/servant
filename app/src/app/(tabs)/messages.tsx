@@ -1,8 +1,8 @@
-import { useCallback, useRef, useState } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 import { SkeletonRows } from "../../components/Skeleton";
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { Redirect, router, useFocusEffect, useIsFocused, useScrollToTop } from "expo-router";
-import { useSettled, WhileFocused } from "../../components/WhileFocused";
+import { useWhileHidden } from "../../lib/hidden-screen";
 import { AppIcon } from "../../components/AppIcon";
 import { SwipeChannelRow, useConversationActions } from "../../components/SwipeChannelRow";
 import { Button } from "../../components/Button";
@@ -14,15 +14,19 @@ import { landingHref, useFeatures } from "../../lib/features";
 import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
 
 export default function Messages() {
+  // Under another screen the list is handed what it last showed until the changes pause (lib/hidden-screen.ts):
+  // it does not draw every row for every message anywhere, and coming back draws nothing when nothing changed.
+  const list = useWhileHidden(useLiveList(), useIsFocused());
+  return <MessageRows conversations={list.conversations} error={list.error} connected={list.connected} />;
+}
+
+const MessageRows = memo(function MessageRows({ conversations, error, connected }: { conversations: Conversation[] | null; error: string | null; connected: boolean }) {
   const styles = useStyles();
   // Tapping the tab you're already on scrolls back to the top.
   const scrollRef = useRef<FlatList<Conversation>>(null);
   useScrollToTop(scrollRef);
   const { colors } = useTheme();
   const { account } = useSession();
-  const focused = useIsFocused();
-  const { conversations, error, connected } = useLiveList();
-  const settled = useSettled(focused, conversations);
   const { refresh } = useLiveActions();
   const reconnecting = !connected && conversations !== null;
   const [refreshing, setRefreshing] = useState(false);
@@ -50,8 +54,6 @@ export default function Messages() {
   const list = dms.filter(c => !unreadOnly || c.unread > 0);
   return (
     <View style={styles.root}>
-      {/* Under another screen the list waits for the changes to pause, then catches up once; in front it draws every change. */}
-      <WhileFocused focused={focused} settled={settled}>
       <FlatList ref={scrollRef} contentInsetAdjustmentBehavior="automatic"
         data={list}
         keyExtractor={(c) => c.id}
@@ -98,10 +100,9 @@ export default function Messages() {
         contentContainerStyle={styles.content}
       />
       {dialog}
-      </WhileFocused>
     </View>
   );
-}
+});
 
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
