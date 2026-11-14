@@ -33,6 +33,8 @@ Use Node 22.13 or newer. Run from the repository root. The server and relay test
 | Any changed shell script | `bash -n <file>` |
 | Everything | `bash scripts/scrub-check.sh` |
 
+The source-device rolling compatibility test pins the public baseline (`071e61c`). It keeps that worker running while replacing the API, checking device attribution, member privacy and role changes. It requires full repository history (`git fetch --unshallow` for a shallow clone). It does not cover the unpublished pre-baseline schema migration; the baseline already includes source-device columns.
+
 `scripts/scrub-check.sh` must pass before you push. It fails when a tracked file or file name matches a pattern in `scripts/scrub-denylist.txt` (names of organizations and people, internal hostnames, personal paths). CI runs it on every push and pull request.
 
 ## What we look for
