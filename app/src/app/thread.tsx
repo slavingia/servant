@@ -22,6 +22,7 @@ import { isDesktop } from "../lib/desktop";
 import { lastEditableMessage } from "../lib/edit-last-message";
 import { liveEventCount, useLiveActions } from "../lib/live";
 import { earlyThread, fetchThread, forgetThread, keepThread, keptThread } from "../lib/thread-cache";
+import { shownReplyCount } from "../lib/thread-start";
 import { useSession } from "../lib/session";
 import { conversationHidden, landingHref, useFeatures } from "../lib/features";
 import { askAgentAbout } from "../lib/ask-agent";
@@ -63,8 +64,8 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
     searchFocus.current = { target: focus, pending: !!focus, holding: !!focus, retries: 0 };
     return clearFocusRetry;
   }, [conv, root, focus, clearFocusRetry]);
-  // What this thread showed the last time it was open (lib/thread-cache.ts): it is on screen at once and a
-  // fresh copy loads behind it.
+  // What this thread showed the last time it was open, or the message it was opened from (lib/thread-cache.ts):
+  // it is on screen at once and a fresh copy loads behind it.
   const [kept] = useState(() => keptThread(account, conv, root));
   const loaded = useRef(!!kept);
   const reload = useRef<() => void>(() => {});
@@ -293,7 +294,8 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
   const onAskAgent = useStableCallback(askAgent);
   const onDelete = useStableCallback((p: Post) => { void remove(p); });
   const role = account.user.role;
-  const replyCount = (replies?.length ?? 0) + sending.length;
+  // Until the replies have loaded, the first message says how many there are.
+  const replyCount = shownReplyCount(head, replies, sending.length);
   const renderItem = useCallback(({ item, index }: { item: Post; index: number }) => {
     if (item.id === root) return <View style={[styles.head, item.id === focus && styles.searchMatch]}>
       {item.id === focus && matchLabel ? <Text style={styles.searchLabel}>{matchLabel}</Text> : null}
@@ -326,7 +328,7 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
             <Button label={title ? `Back to ${title}` : "Back"} kind="secondary" onPress={() => router.canGoBack() ? router.back() : router.replace({ pathname: "/c/[id]", params: { id: conv } })} style={{ marginTop: space.lg, alignSelf: "center", minWidth: 200 }} />
           </View>
         ) : error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-        {head === null && replies !== null && replies.length === 0 && error ? null : replies === null ? (
+        {head === null && replies !== null && replies.length === 0 && error ? null : replies === null && !head ? (
           <ActivityIndicator style={{ flex: 1 }} color={colors.blue} />
         ) : (
           <FlatList
@@ -343,6 +345,8 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
             onScrollToIndexFailed={onFocusScrollFailed}
             keyExtractor={postKey}
             contentContainerStyle={styles.list}
+            // The first message is up; its replies are on their way.
+            ListFooterComponent={replies === null ? <ActivityIndicator style={styles.loadingReplies} color={colors.blue} /> : undefined}
             renderItem={renderItem}
           />
         )}
@@ -363,6 +367,7 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   list: { paddingBottom: space.side },
+  loadingReplies: { paddingVertical: space.lg },
   error: { ...typography.caption, paddingHorizontal: space.side, paddingVertical: space.sm, color: colors.red, backgroundColor: colors.redSoft },
   gone: { flex: 1, alignItems: "center", justifyContent: "center", padding: space.lg },
   goneTitle: { ...typography.bodyStrong, color: colors.ink, textAlign: "center" },

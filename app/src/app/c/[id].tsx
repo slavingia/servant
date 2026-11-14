@@ -367,7 +367,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
     setJoining(false);
   };
 
-  const openThread = (p: Post) => { openingThread(account, id, p.id); router.push({ pathname: "/thread", params: { conv: id, root: p.id, title } }); };
+  const openThread = (p: Post) => { openingThread(account, id, p, { conversation: conv, joined }); router.push({ pathname: "/thread", params: { conv: id, root: p.id, title } }); };
   const askAgent = (p: Post) => { askAgentAbout(account, p, conv).catch(e => setError(errorText(e, "Couldn't start a chat with the agent"))); };
   // Joins and leaves close together read as one line ("Ann and Bo joined the channel").
   const data = useMemo(() => groupActivity([...(posts ?? []), ...sending].reverse()), [posts, sending]);
