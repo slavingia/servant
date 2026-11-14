@@ -56,8 +56,8 @@ test("a chat that was open before starts from what it showed, never from a reply
   assert.match(conversation, /if \(messages === null \|\| loadError \|\| !hasShown\.current \|\| messages\.some\(row => row\.localId \|\| row\.pending\)\) return;/);
   // A chat deleted because it was never used is not kept either.
   assert.match(conversation, /forgetChat\(a, String\(id\)\); void api\.deleteChat\(a, String\(id\)\)/);
-  // A refresh that fails leaves the kept messages up instead of the error page.
-  assert.match(conversation, /if \(hasShown\.current\) return;\n\s+setMessages\(\[\]\);/);
+  // A refresh that fails leaves the kept messages up instead of the error page, and says why above the message box.
+  assert.match(conversation, /if \(hasShown\.current\) \{ setSendError\(e instanceof ServerError \? e\.message : "Check your connection and try again\."\); return; \}\n\s+setMessages\(\[\]\);/);
 });
 
 test("kept chats live in memory only", () => {

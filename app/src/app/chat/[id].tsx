@@ -444,8 +444,9 @@ function ChatConversation({ account }: { account: Account }) {
       }
     }).catch(e => {
       if (request !== currentLoad.current) return;
-      // Messages from the last visit stay up; the regular look at the turns catches up when the server answers.
-      if (hasShown.current) return;
+      // Messages from the last visit stay up, with the reason above the message box; the regular look at the
+      // turns catches up, and clears it, when the server answers.
+      if (hasShown.current) { setSendError(e instanceof ServerError ? e.message : "Check your connection and try again."); return; }
       setMessages([]);
       setLoadError(e instanceof ServerError ? e.message : "Check your connection and try again.");
     }).finally(() => {
