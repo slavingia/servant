@@ -1,4 +1,4 @@
-// Exercise the deployed pre-provenance worker unchanged, including its already
+// Exercise the public-baseline worker unchanged, including its already
 // prepared SQLite statements, while replacing only the API with the new source.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,7 +15,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { testFetch } from './encrypted-test-client.mjs';
 import { createStateStore } from './state-store.mjs';
 
-const LEGACY_COMMIT = '1da98ef60253032e0fccdd3e0c7d01bf9cbc0f92';
+const BASELINE_COMMIT = '071e61c11db8757d4869d678f7351ca8decad549';
 const serverDirectory = fileURLToPath(new URL('.', import.meta.url));
 const repository = path.dirname(serverDirectory);
 
@@ -28,13 +28,18 @@ async function until(check, message) {
   throw new Error(message || 'Timed out waiting for mixed-version fixture');
 }
 
-function legacySource(directory) {
+function baselineSource(directory) {
   // CI fetches history for this test. Missing pinned code must fail rather than
   // silently substituting the new worker and claiming rolling compatibility.
-  const files = execFileSync('git', ['ls-tree', '-r', '--name-only', LEGACY_COMMIT, '--', 'server/'], { cwd: repository, encoding: 'utf8' }).trim().split('\n');
+  const files = execFileSync('git', ['ls-tree', '-r', '--name-only', BASELINE_COMMIT, '--', 'server/'], { cwd: repository, encoding: 'utf8' }).trim().split('\n');
   for (const name of files) {
     if (!/^server\/[^/]+\.(mjs|json)$/.test(name) || name.endsWith('.test.mjs') || name.endsWith('/encrypted-test-client.mjs')) continue;
-    fs.writeFileSync(path.join(directory, path.basename(name)), execFileSync('git', ['show', `${LEGACY_COMMIT}:${name}`], { cwd: repository }));
+    const output = fs.openSync(path.join(directory, path.basename(name)), 'w');
+    try {
+      execFileSync('git', ['show', `${BASELINE_COMMIT}:${name}`], { cwd: repository, stdio: ['ignore', output, 'pipe'] });
+    } finally {
+      fs.closeSync(output);
+    }
   }
   assert.ok(fs.existsSync(path.join(directory, 'worker.mjs')));
 }
@@ -47,7 +52,7 @@ function events(text) {
   });
 }
 
-test('new API preserves owner-only device source while the pinned legacy worker stays running', { timeout: 30000 }, async t => {
+test('new API preserves owner-only device source while the pinned public-baseline worker stays running', { timeout: 30000 }, async t => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'servant-source-compat-')));
   const directory = path.join(root, 'data');
   const legacy = path.join(root, 'legacy-source');
@@ -87,7 +92,7 @@ test('new API preserves owner-only device source while the pinned legacy worker 
     if (upstream.listening) await new Promise(resolve => upstream.close(resolve));
     fs.rmSync(root, { recursive: true, force: true });
   });
-  legacySource(legacy);
+  baselineSource(legacy);
   await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
   const fake = { url: `http://127.0.0.1:${upstream.address().port}`, key: 'isolated-fixture-key' };
   fs.writeFileSync(path.join(directory, 'config.json'), JSON.stringify({ name: 'Isolated compatibility fixture', host: '127.0.0.1', port: 0, agentAccess: 'full', upstreams: { owner: fake, member: fake } }));
@@ -125,29 +130,29 @@ test('new API preserves owner-only device source while the pinned legacy worker 
     return result;
   };
 
-  const before = await submit('Before source rollout', 'source-before-rollout');
-  assert.equal(before.find(item => item.event === 'sent').data.message.sourceDevice, undefined);
-  const legacyDb = new DatabaseSync(path.join(directory, 'agent-turns.db'));
-  assert.equal(legacyDb.prepare('PRAGMA table_info(private_turns)').all().some(column => column.name === 'source_device_kind'), false);
-  legacyDb.close();
+  const before = await submit('Before API rollout', 'source-before-rollout');
+  assert.deepEqual(before.find(item => item.event === 'sent').data.message.sourceDevice, { kind: 'mobile', label: 'Mobile' });
+  const baselineDb = new DatabaseSync(path.join(directory, 'agent-turns.db'));
+  assert.equal(baselineDb.prepare('PRAGMA table_info(private_turns)').all().some(column => column.name === 'source_device_kind'), true);
+  baselineDb.close();
   const channelResponse = await request('/v1/conversations', 'owner-phone', 'POST', { name: 'compatibility' });
   assert.equal(channelResponse.status, 201);
   const channelId = (await channelResponse.json()).conversation.id;
 
   api.child.kill('SIGTERM'); await api.closed;
   api = await start(serverDirectory, 'server');
-  assert.equal(worker.child.exitCode, null, 'Legacy worker must survive the API replacement');
+  assert.equal(worker.child.exitCode, null, 'Baseline worker must survive the API replacement');
   stateStore = createStateStore({ directory });
 
-  const mobile = await submit('Phone after source rollout', 'source-after-mobile');
-  const computer = await submit('Mac after source rollout', 'source-after-computer', 'owner-computer');
+  const mobile = await submit('Phone after API rollout', 'source-after-mobile');
+  const computer = await submit('Mac after API rollout', 'source-after-computer', 'owner-computer');
   assert.deepEqual(mobile.find(item => item.event === 'sent').data.message.sourceDevice, { kind: 'mobile', label: 'Mobile' });
   assert.deepEqual(computer.find(item => item.event === 'sent').data.message.sourceDevice, { kind: 'computer', label: 'Computer' });
   assert.ok([...mobile, ...computer].filter(item => item.event === 'message').every(item => !Object.hasOwn(item.data, 'sourceDevice')));
 
   const db = new DatabaseSync(path.join(directory, 'agent-turns.db'));
   const snapshots = db.prepare('SELECT request_id,source_device_kind FROM private_turns ORDER BY seq').all();
-  assert.deepEqual(snapshots.map(row => row.source_device_kind), [null, 'mobile', 'computer']);
+  assert.deepEqual(snapshots.map(row => row.source_device_kind), ['mobile', 'mobile', 'computer']);
   // Old worker writes plain stored event payloads. Decoration happens in the
   // new API, so it cannot leak to members or survive a role change in replay.
   const storedSent = db.prepare("SELECT payload FROM private_turn_events WHERE event='sent'").all();
@@ -156,15 +161,15 @@ test('new API preserves owner-only device source while the pinned legacy worker 
 
   const sharedHistory = await (await request('/v1/chats/chat-owner/messages', 'owner-computer')).json();
   const userRows = sharedHistory.messages.filter(message => message.role === 'user');
-  assert.equal(userRows.find(message => message.text === 'Before source rollout').sourceDevice, undefined);
-  assert.equal(userRows.find(message => message.text === 'Phone after source rollout').sourceDevice.kind, 'mobile');
-  assert.equal(userRows.find(message => message.text === 'Mac after source rollout').sourceDevice.kind, 'computer');
+  assert.deepEqual(userRows.find(message => message.text === 'Before API rollout').sourceDevice, { kind: 'mobile', label: 'Mobile' });
+  assert.equal(userRows.find(message => message.text === 'Phone after API rollout').sourceDevice.kind, 'mobile');
+  assert.equal(userRows.find(message => message.text === 'Mac after API rollout').sourceDevice.kind, 'computer');
   assert.ok(sharedHistory.messages.filter(message => message.role === 'assistant').every(message => !Object.hasOwn(message, 'sourceDevice')));
   stateStore.mutate(state => { state.devices[crypto.createHash('sha256').update('owner-phone').digest('hex')].label = 'Mac'; });
   offline = true;
   const offlineHistory = await (await request('/v1/chats/chat-owner/messages', 'owner-computer')).json();
   assert.equal(offlineHistory.upstreamUnavailable, true);
-  assert.equal(offlineHistory.messages.find(message => message.text === 'Phone after source rollout').sourceDevice.kind, 'mobile', 'Historical source is a snapshot, not a current device-label lookup');
+  assert.equal(offlineHistory.messages.find(message => message.text === 'Phone after API rollout').sourceDevice.kind, 'mobile', 'Historical source is a snapshot, not a current device-label lookup');
   offline = false;
 
   const member = await submit('Member phone input', 'source-member-mobile', 'member-phone', 'chat-member');
@@ -172,8 +177,6 @@ test('new API preserves owner-only device source while the pinned legacy worker 
   const memberHistory = await (await request('/v1/chats/chat-member/messages', 'member-phone')).json();
   assert.ok(memberHistory.messages.every(message => !Object.hasOwn(message, 'sourceDevice')));
 
-  // The old worker's prepared six-column INSERT still writes agent replies after
-  // the new API adds nullable source columns and writes its eight-column INSERT.
   const channelMessage = await request(`/v1/conversations/${channelId}/messages`, 'owner-computer', 'POST', { text: '@agent Check mixed versions' });
   assert.equal(channelMessage.status, 201);
   const trigger = (await channelMessage.json()).message;
@@ -181,12 +184,12 @@ test('new API preserves owner-only device source while the pinned legacy worker 
   const channelHistory = await until(async () => {
     const data = await (await request(`/v1/conversations/${channelId}/threads/${trigger.id}`)).json();
     return data.replies?.some(message => message.user.agent && !message.pending) ? data.replies : null;
-  }, 'Legacy worker did not finish channel reply after migration');
+  }, 'Baseline worker did not finish channel reply after API replacement');
   assert.ok(channelHistory.filter(message => message.user.agent).every(message => !Object.hasOwn(message, 'sourceDevice')));
   assert.equal(worker.child.exitCode, null);
 
   stateStore.mutate(state => { state.users.owner.role = 'member'; });
-  const replay = await submit('Phone after source rollout', 'source-after-mobile', 'owner-computer');
+  const replay = await submit('Phone after API rollout', 'source-after-mobile', 'owner-computer');
   assert.equal(replay.find(item => item.event === 'sent').data.message.sourceDevice, undefined, 'Replay rechecks the viewer role');
   const demotedHistory = await (await request('/v1/chats/chat-owner/messages', 'owner-computer')).json();
   assert.ok(demotedHistory.messages.every(message => !Object.hasOwn(message, 'sourceDevice')));
