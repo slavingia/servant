@@ -50,7 +50,59 @@ function mergeRanges(ranges: Range[]): Range[] {
 // term and every full name) was rebuilt on each of those calls, three patterns compiled per piece of text. It
 // is now built once per list of entries and kept for as long as that list is. A list is never changed in place:
 // a new glossary is a new list.
-const longestFirst = (values: Iterable<string>, flags: string) => new RegExp([...values].sort((a, b) => b.length - a.length).map(escapePattern).join("|"), flags);
+//
+// A pattern finds the longest of its values at each place in the text. Written as a flat list of alternatives,
+// every place in the text tries every value: a 2,000-entry lexicon took three seconds to scan a 50,000-character
+// draft for the older "Full Name (ABBR)" form. Values that start the same way now share that start (a prefix
+// tree), so each place in the text follows one path and gives up at the first character that fits no value.
+type Prefixes = { next: Map<string, Prefixes>; ends: boolean };
+// Whether the engine treats two characters as one when case is ignored, asked of the engine itself.
+const sameIgnoringCase = /^(.)\1$/isu;
+
+function longestFirst(values: Iterable<string>, flags: string): RegExp {
+  const ignoreCase = flags.includes("i");
+  // When case is ignored, "Foo" and "foo" must share a path: two paths that both fit the text would let the
+  // shorter value win. Each character is filed under the first one seen that the engine matches it with.
+  const filed = new Map<string, string>();
+  const alike = new Map<string, string[]>();
+  const fileOf = (character: string) => {
+    if (!ignoreCase) return character;
+    const known = filed.get(character);
+    if (known !== undefined) return known;
+    const keys = [character.toLowerCase(), character.toUpperCase()];
+    const first = keys.flatMap(key => alike.get(key) ?? []).find(other => sameIgnoringCase.test(other + character)) ?? character;
+    if (first === character) for (const key of keys) alike.set(key, [...(alike.get(key) ?? []), character]);
+    filed.set(character, first);
+    return first;
+  };
+  const root: Prefixes = { next: new Map(), ends: false };
+  for (const value of values) {
+    let node = root;
+    for (const character of value) {
+      const key = fileOf(character);
+      let next = node.next.get(key);
+      if (!next) node.next.set(key, next = { next: new Map(), ends: false });
+      node = next;
+    }
+    node.ends = true;
+  }
+  // What may follow a node: one branch per next character. Where a value ends, going further is optional, and
+  // the engine tries the longer way first.
+  const after = (node: Prefixes): string => {
+    if (!node.next.size) return "";
+    const branches = [...node.next].map(([character, next]) => {
+      let run = escapePattern(character);
+      while (!next.ends && next.next.size === 1) {
+        const [[following, beyond]] = next.next as unknown as [[string, Prefixes]];
+        run += escapePattern(following);
+        next = beyond;
+      }
+      return run + after(next);
+    });
+    return `(?:${branches.join("|")})${node.ends ? "?" : ""}`;
+  };
+  return new RegExp(after(root), flags);
+}
 
 /** Every match of a kept pattern, in order. A kept pattern remembers where it stopped, so it starts from the top each time. */
 function every(pattern: RegExp, text: string): RegExpExecArray[] {
