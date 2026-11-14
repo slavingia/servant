@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { LAUNCH_COLOR, space, typography, createThemedStyles } from "../lib/theme";
+import { WORDMARK_COLOR, space, typography, createThemedStyles } from "../lib/theme";
 import { ServantWordmark } from "./ServantWordmark";
 
 // Navy band under the status bar, on every screen without a back button.
@@ -34,7 +34,7 @@ export function PageTitle({ children, description, action }: { children: string;
 
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   band: { backgroundColor: colors.navy },
-  brandBand: { backgroundColor: LAUNCH_COLOR },
+  brandBand: { backgroundColor: WORDMARK_COLOR },
   wordmarkRow: { minHeight: 76, paddingVertical: 14, paddingHorizontal: space.side, alignItems: "center", justifyContent: "center" },
   wordmarkRight: { position: "absolute", right: space.side },
   row: { minHeight: 48, paddingVertical: space.xs, paddingHorizontal: space.side, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm },

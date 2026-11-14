@@ -60,9 +60,9 @@ export const lightColors = {
 
 export type ThemeColors = typeof lightColors;
 
-// The splash screen's color (app.json), so the launch screen and the wordmark band on Welcome continue it. It is
-// set before any server is known, so it does not follow a workspace color.
-export const LAUNCH_COLOR = "#112E51";
+// The app icon's navy (app.json), behind the wordmark on Welcome. It is shown before any server is known, so it
+// does not follow a workspace color.
+export const WORDMARK_COLOR = "#112E51";
 
 // White at set strengths on the brand color: the wide layout's sidebar and the phone's header bar, which are the
 // same in light and dark. One scale, so a row under the pointer, the open page and the search field are the same
