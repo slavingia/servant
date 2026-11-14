@@ -4,8 +4,8 @@ Opening Servant showed its wordmark on navy. It now shows the signed-in app's sh
 
 Real browser screenshots from the running app at phone size (390 × 844) and desktop size (1280 × 800), device scale 2.
 
-- **Before:** `main` at `612bb4c`.
-- **After:** the branch at `fc9d104`.
+- **Before:** `main` at `1989903`.
+- **After:** the branch at `8db262c`, which has `main` merged in.
 - Made-up workspace on a throwaway local server; the only person is Pat Tester. On the before side the launch screen's credit line was pointed at the placeholder name for these captures, so no real name is pictured.
 
 **Not pictured: a phone.** There is no iPhone, simulator or Android device where these were taken, so the native launch screens have not been seen running or built with Xcode or Gradle. What was checked instead is under "The native launch screen" below.
@@ -14,7 +14,7 @@ Real browser screenshots from the running app at phone size (390 × 844) and des
 
 Held open for the capture; normally it shows for a moment. Before, it was the same in light and dark.
 
-| | Before (`612bb4c`) | After (`fc9d104`) |
+| | Before (`1989903`) | After (`8db262c`) |
 | --- | --- | --- |
 | Phone, light | ![The wordmark on navy with the project credit](before/launch-phone-light.png) | ![Home's title, filters, rows and tab bar as grey shapes](after/launch-phone-light.png) |
 | Phone, dark | the same picture | ![The same shapes on the dark page](after/launch-phone-dark.png) |
@@ -25,18 +25,18 @@ Held open for the capture; normally it shows for a moment. Before, it was the sa
 
 What the browser and the Mac app show until the app's script arrives (script requests were held back for the capture).
 
-| | Before (`612bb4c`) | After (`fc9d104`) |
+| | Before (`1989903`) | After (`8db262c`) |
 | --- | --- | --- |
 | Desktop, dark | ![A blank white page, in dark mode](before/page-desktop-dark.png) | ![The sidebar and Home as shapes on the dark page](after/page-desktop-dark.png) |
 | Phone, light | a blank white page | ![Home as shapes](after/page-phone-light.png) |
 
-After, this page and the launch screen are the same picture: comparing where shapes are drawn, 0 to 103 pixels differ out of 1.3 million (phone) and 15 to 16 out of 4.1 million (desktop), all at the edges of rounded corners. The Mac app's variant, with room for the window controls, differs by 45 to 56 pixels out of 3.9 million.
+After, this page and the launch screen are the same picture: comparing where shapes are drawn, 0 to 98 pixels differ out of 1.3 million (phone) and 16 to 17 out of 4.1 million (desktop), all at the edges of rounded corners. The Mac app's variant, with room for the window controls, was compared before the pane became square: 45 to 56 pixels out of 3.9 million.
 
 ## Home while its list loads
 
 Signed in, with the server's answers held back for the capture.
 
-| | Before (`612bb4c`) | After (`fc9d104`) |
+| | Before (`1989903`) | After (`8db262c`) |
 | --- | --- | --- |
 | Phone | ![Home with seven two-line placeholder rows](before/loading-phone-light.png) | ![Home with the launch screen's sections and rows](after/loading-phone-light.png) |
 | Desktop | ![The sidebar with no channels and Home with no Recent](before/loading-desktop-light.png) | ![Placeholder rows in the sidebar and in Recent](after/loading-desktop-light.png) |
