@@ -59,11 +59,11 @@ export function PeopleSheet({ title, exclude, withHistory, busy = false, error, 
             <Text style={styles.name}>{c.label}</Text>
           </Radio>)}
         </View> : null}
+        <Text style={styles.footnote}>They can read the chat, and only you can message the agent</Text>
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         <View style={styles.footer}>
           <Button testID="invite-done" label={picked.length ? "Add" : "Done"} busy={busy}
             onPress={() => picked.length ? onDone(picked, withHistory ? history : "all") : onClose()} />
-          <Text style={styles.note}>They can read the chat. Only you can message the agent</Text>
         </View>
       </Pressable>
     </Pressable>
@@ -88,4 +88,5 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   error: { ...typography.caption, color: colors.red, paddingHorizontal: space.side, paddingTop: space.xs },
   footer: { paddingHorizontal: space.side, paddingTop: space.md, gap: space.xs },
   note: { ...typography.caption, color: colors.muted, padding: space.side },
+  footnote: { ...typography.caption, color: colors.muted, paddingHorizontal: space.side, paddingTop: space.sm },
 }));

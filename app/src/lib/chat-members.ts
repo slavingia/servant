@@ -14,9 +14,9 @@ export const HISTORY_CHOICES: { id: ChatHistory; label: string }[] = [
 export function historyLabel(member: Pick<ChatMember, "since" | "invitedAt">): string {
   if (!member.since) return "Sees the whole chat";
   const span = member.invitedAt - member.since;
-  if (span <= 0) return "Sees from when they were added";
-  if (span <= 86_400_000) return "Sees from the day before they were added";
-  return "Sees from the week before they were added";
+  if (span <= 0) return "Sees new messages only";
+  if (span <= 86_400_000) return "Sees the last day before they joined";
+  return "Sees the last seven days before they joined";
 }
 
 // "Jo Park", "Jo Park and Ana Ruiz", "Jo Park and two others" for the pill.

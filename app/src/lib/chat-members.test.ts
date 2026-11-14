@@ -8,9 +8,9 @@ test("history choices match what the server takes", () => {
 
 test("history label reads back what was given", () => {
   assert.equal(historyLabel({ since: 0, invitedAt: 5 }), "Sees the whole chat");
-  assert.equal(historyLabel({ since: 1000, invitedAt: 1000 }), "Sees from when they were added");
-  assert.equal(historyLabel({ since: 1000, invitedAt: 1000 + 86_400_000 }), "Sees from the day before they were added");
-  assert.equal(historyLabel({ since: 1000, invitedAt: 1000 + 7 * 86_400_000 }), "Sees from the week before they were added");
+  assert.equal(historyLabel({ since: 1000, invitedAt: 1000 }), "Sees new messages only");
+  assert.equal(historyLabel({ since: 1000, invitedAt: 1000 + 86_400_000 }), "Sees the last day before they joined");
+  assert.equal(historyLabel({ since: 1000, invitedAt: 1000 + 7 * 86_400_000 }), "Sees the last seven days before they joined");
 });
 
 test("people summary spells out small numbers", () => {
