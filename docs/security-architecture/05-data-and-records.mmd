@@ -1,0 +1,10 @@
+flowchart LR
+  E["Edit or delete: message, conversation,<br/>recording, file, agent history"] --> Q{"recordsPreservation<br/>enabled?"}
+  Q -- "no (default)" --> D["Change applied"]
+  Q -- "yes" --> A["Copy earlier version into records_archive<br/>in messages.db, same transaction"]
+  A -- "copy saved" --> D2["Change applied"]
+  A -- "copy fails" --> F["Change refused,<br/>person told"]
+  A -- "protected by" --> T["SQL triggers refuse UPDATE/DELETE;<br/>each row carries prev_hash + own hash<br/>(tampering detectable, not impossible);<br/>no disposition path - agency decides"]
+  classDef ok fill:#e8f5e9,stroke:#2e7d32,color:#000;
+  classDef bad fill:#ffebee,stroke:#c62828,color:#000;
+  class A,T ok; class F bad;

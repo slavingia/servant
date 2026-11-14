@@ -1,0 +1,41 @@
+flowchart LR
+  subgraph U["Untrusted networks"]
+    P["Phone app<br/>iOS / Android (Expo)<br/>pins server public key"]
+    M["Mac app (Electron)<br/>credential in Keychain<br/>via safeStorage"]
+    X["MCP clients<br/>approved on phone"]
+    G["Guests / web visitors<br/>join, guest meeting,<br/>secure inbox pages"]
+  end
+  subgraph CF["Cloudflare - untrusted relay (sees ciphertext, size, timing, IPs)"]
+    T["cloudflared quick tunnel<br/>(current)"]
+    R["Optional Worker relay<br/>+ Durable Object per hub<br/>(built, not deployed)"]
+  end
+  subgraph OM["Owner's Mac - trusted boundary (plaintext lives here)"]
+    S["Servant server<br/>(Node, no npm deps)"]
+    H["Hermes agent API<br/>localhost only"]
+    W["Local transcription<br/>ffmpeg + whisper model"]
+  end
+  subgraph EXT["Third-party services"]
+    LLM["Model provider(s)<br/>configured in Hermes"]
+    PUSH["Apple APNs / Google FCM"]
+    CR["Firebase Crashlytics"]
+    GH["GitHub Gist<br/>(legacy discovery)"]
+    ML["Mail command<br/>(email codes, optional)"]
+  end
+  P -- "AES-GCM envelopes<br/>POST /v1/secure" --> T
+  M -- "same encrypted API" --> T
+  X -- "same encrypted API" --> T
+  P -. "stable mode" .-> R
+  T -- "loopback 127.0.0.1" --> S
+  S -- "WebSocket opened<br/>outbound by the Mac" --> R
+  G -- "HTTPS public pages" --> T
+  S -- "prompt + history<br/>+ attachments" --> H
+  H -- "prompts" --> LLM
+  S --> W
+  S -- "title/body, opaque ids" --> PUSH
+  P -- "crash diagnostics" --> CR
+  S -- "public address" --> GH
+  S -- "6-digit code" --> ML
+  classDef trusted fill:#e8f5e9,stroke:#2e7d32,color:#000;
+  classDef untrusted fill:#fff3e0,stroke:#ef6c00,color:#000;
+  classDef third fill:#e3f2fd,stroke:#1565c0,color:#000;
+  class S,H,W trusted; class T,R,P,M,X,G untrusted; class LLM,PUSH,CR,GH,ML third;

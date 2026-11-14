@@ -1,0 +1,23 @@
+sequenceDiagram
+  autonumber
+  participant O as Owner (out of band)
+  participant P as Phone app
+  participant C as Cloudflare tunnel or relay
+  participant S as Servant server
+  participant H as Hermes (localhost)
+  O->>P: Trusted invite: code + server public key
+  Note left of P: Pin public key in SecureStore
+  P->>C: POST /v1/secure {ephemeral key, salt, ciphertext} pair request
+  C->>S: forwards opaque envelope
+  Note right of S: ECDH + HKDF, decrypt, check time and replay
+  Note right of S: Hash invite code, match, issue device token (stored as SHA-256)
+  S-->>P: Encrypted frames: device token
+  Note over P,S: Every later request: new ephemeral key + salt, bearer token inside ciphertext
+  P->>C: POST /v1/secure (message to agent)
+  C->>S: opaque envelope (no bearer token visible)
+  Note right of S: Authorize device, role, conversation access
+  Note right of S: Store plaintext message (records copy if enabled)
+  S->>H: prompt + history (owner or member profile)
+  H-->>S: streamed reply
+  S-->>P: Encrypted, sequenced response frames (headers, chunks, end)
+  Note over C: Sees sizes, timing, IPs only

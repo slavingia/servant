@@ -1,0 +1,12 @@
+flowchart LR
+  REQ["Signed-in person<br/>sends to Agent"] --> TIER{"Agent tier"}
+  TIER -- "0" --> NONE["No agent"]
+  TIER -- "4 researcher" --> RS["Researcher profile<br/>never promoted"]
+  TIER -- "1-3, 5" --> ACC{"config.json<br/>agentAccess"}
+  ACC -- "full (CURRENT DEFAULT)" --> FULL["Owner Hermes :8642<br/>files, terminal, web, memory,<br/>skills, connected services<br/>no approval prompts"]
+  ACC -- "limited" --> LIM["Member Hermes :8643<br/>empty tool allowlist<br/>memory off, no context files<br/>MEDIA paths stripped"]
+  FULL --> RISK["Anyone who can message the agent<br/>can read/change files and run<br/>commands on the owner's Mac"]
+  LIM --> SAFE["Text and inline images only<br/>within own conversation"]
+  classDef risk fill:#ffebee,stroke:#c62828,color:#000;
+  classDef ok fill:#e8f5e9,stroke:#2e7d32,color:#000;
+  class FULL,RISK risk; class LIM,SAFE ok;

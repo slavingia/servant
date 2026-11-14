@@ -1,0 +1,33 @@
+flowchart TB
+  IN["Ingress from tunnel / relay connector<br/>127.0.0.1 only"]
+  subgraph MAC["Owner's Mac"]
+    SUP["Supervisor<br/>loopback reverse proxy<br/>refuses non-loopback bind"]
+    subgraph API["API release (immutable, switched by deploy.mjs)"]
+      ST["Secure transport<br/>P-256 ECDH + HKDF + AES-GCM<br/>2-min timestamp, replay checks"]
+      AU["Auth: device bearer token<br/>SHA-256 hash stored<br/>roles owner / member, agent tiers"]
+      MS["Messaging, files, calls,<br/>meetings, projects, wiki"]
+      GATE["Warn-before-save checks<br/>PII + business-info filters"]
+      RP["Records preservation<br/>(when enabled)"]
+    end
+    WK["Durable worker<br/>channel agent turns + push<br/>(swapped by worker-swap.sh)"]
+    subgraph DATA["Data directory (gitignored, not encrypted by Servant)"]
+      K["transport-key (0600)<br/>never leaves the Mac"]
+      CFG["config.json<br/>adminKey, upstream keys"]
+      DB["SQLite: messages, agent-turns,<br/>chat-media, meetings, inbox,<br/>usage (token counts only)"]
+      FS["chat-files, recordings,<br/>meeting audio"]
+    end
+    HO["Hermes owner API :8642<br/>full tools"]
+    HM["Hermes member API :8643<br/>empty tool allowlist, no memory"]
+    HR["Researcher profile<br/>(tier 4)"]
+  end
+  IN --> SUP --> ST --> AU --> MS
+  MS --> GATE
+  MS --> RP --> DB
+  MS --> DB & FS
+  ST -.reads.-> K
+  AU -.reads.-> CFG
+  MS -- "agent turn" --> HO & HM & HR
+  WK --> DB
+  WK -- "channel turns" --> HO & HM
+  classDef key fill:#ffebee,stroke:#c62828,color:#000;
+  class K,CFG key;
