@@ -223,9 +223,8 @@ export const canSplitPreview = Platform.OS === "web" || !!NativeWebView;
 // sandboxed, so it hands its changes (words before and after, styles per element) to us and we save it through the signed-in API.
 export const editUrl = (url: string, version: number, editing: boolean) => `${url}${url.includes("?") ? "&" : "?"}v=${version}${editing ? "&edit=1" : ""}`;
 
-function PreviewPane({ url, version, stacked, onClose, onSave }: { url: string; version: number; stacked: boolean; onClose: () => void; onSave?: (path: string, changes: PrototypeChanges) => Promise<{ missed?: string[] }> }) {
+function PreviewPane({ url, version, stacked, onSave }: { url: string; version: number; stacked: boolean; onSave?: (path: string, changes: PrototypeChanges) => Promise<{ missed?: string[] }> }) {
   const styles = useStyles();
-  const { colors } = useTheme();
   const [editing, setEditing] = useState(false);
   // A state ref (not useRef): the frame is set once it mounts and read only in handlers.
   const [frame, setFrame] = useState<any>(null);
@@ -256,16 +255,14 @@ function PreviewPane({ url, version, stacked, onClose, onSave }: { url: string; 
       <Pressable accessibilityRole="button" accessibilityLabel={Platform.OS === "web" ? "Open preview in a new tab" : "Open preview full screen"} onPress={() => openPreview(url)} style={styles.previewBarLink}>
         <Text style={styles.headerLinkText}>{Platform.OS === "web" ? "Open" : "Full screen"}</Text>
       </Pressable>
-      <Pressable accessibilityRole="button" accessibilityLabel="Close preview" onPress={onClose} style={styles.previewBarLink}>
-        <AppIcon name="close" size={16} color={colors.muted} />
-      </Pressable>
     </View>
     {Platform.OS !== "web" ? <NativeWebView ref={setFrame} key={src} source={{ uri: src }} style={{ flex: 1, backgroundColor: "#FFFFFF" }} startInLoadingState setSupportMultipleWindows={false} onMessage={(e: { nativeEvent: { data: string } }) => handle(e.nativeEvent.data)} />
     : createElement("iframe", { ref: setFrame, key: src, src, title: "Preview", style: { flex: 1, width: "100%", height: "100%", border: 0, backgroundColor: "#FFFFFF" }, sandbox: "allow-scripts allow-same-origin allow-forms allow-popups" })}
   </View>;
 }
 
-// A "PREVIEW: <url>" line in a reply becomes a button (https, or http for a local server).
+// A "PREVIEW: <url>" line in a reply: the preview pane shows it, so the line is hidden. Where there is
+// no pane (no web view), it becomes a button that opens the page.
 function ReplyText({ text, failed }: { text: string; failed?: boolean }) {
   const styles = useStyles();
   const match = text.match(/(?:^|\n)PREVIEW:\s*(https?:\/\/\S+)\s*$/);
@@ -273,7 +270,7 @@ function ReplyText({ text, failed }: { text: string; failed?: boolean }) {
   const body = text.slice(0, match.index).trimEnd();
   return <View>
     {body ? <MessageText text={body} failed={failed} /> : null}
-    <Button label="Open preview" compact onPress={() => openPreview(match[1]!)} style={styles.previewInline} />
+    {canSplitPreview ? null : <Button label="Open preview" compact onPress={() => openPreview(match[1]!)} style={styles.previewInline} />}
   </View>;
 }
 
@@ -427,9 +424,6 @@ function ChatConversation({ account }: { account: Account }) {
   const { width: winWidth } = useWindowDimensions();
   // Portrait phones stack the preview above the chat; folds, tablets, landscape and wide windows put it beside.
   const stacked = winWidth < 600;
-  // The preview is open by default once there is something to see (the agent has replied); closing it sticks for this visit.
-  const [previewClosed, setPreviewClosed] = useState(false);
-  const [previewVersion, setPreviewVersion] = useState(0);
   // Links, pushes and the sidebar may open a chat without its title: read it from the server.
   useEffect(() => {
     if (!account || !id) return;
@@ -885,17 +879,11 @@ function ChatConversation({ account }: { account: Account }) {
   // ones held for after it sit below.
   const sentMeanwhile = useMemo(() => queuedBelow(waiting, [unstarted, turn]), [waiting, unstarted, turn]);
   // A finished reply's steps, fetched when its summary is opened.
-  const previewOpen = !!previewUrl && canSplitPreview && !previewClosed && (messages ?? []).some(m => m.role === "assistant" && !m.pending);
+  // The preview is always shown once there is something to see (the agent has replied).
+  const previewOpen = !!previewUrl && canSplitPreview && (messages ?? []).some(m => m.role === "assistant" && !m.pending);
   const savePrototype = (path: string, changes: PrototypeChanges) => api.savePrototype(account, String(id), path, changes);
   const loadSteps = useStableCallback((turnId: string) => api.agentTurn(account, String(id), turnId).then(found => found?.steps ?? []));
-  const showPreview = () => {
-    if (!previewUrl) return;
-    if (!canSplitPreview) { openPreview(previewUrl); return; }
-    if (!previewOpen) setPreviewVersion(v => v + 1);
-    setPreviewClosed(previewOpen);
-  };
   const headerLinks: HeaderLink[] = [
-    ...(previewUrl ? [{ label: "Preview", testID: "open-preview", accessibilityLabel: previewOpen ? "Hide preview" : "Open preview", onPress: showPreview }] : []),
     { label: "•••", icon: "more", testID: "open-options", accessibilityLabel: "Chat options", onPress: () => setSharing(true) },
   ];
   // The rows are built once per change of the messages or the turns, and each row is given only what it shows:
@@ -1038,7 +1026,7 @@ function ChatConversation({ account }: { account: Account }) {
           holdToQueue={busy || activeAgentTurn(turn)} onStop={stoppable ? () => { void stop(); } : undefined} /> : null}
       </ConversationKeyboardView>
       </View>
-      {previewOpen && previewUrl && canSplitPreview ? <PreviewPane url={previewUrl} version={previewVersion} stacked={stacked} onClose={() => setPreviewClosed(true)} onSave={savePrototype} /> : null}
+      {previewOpen && previewUrl && canSplitPreview ? <PreviewPane url={previewUrl} version={0} stacked={stacked} onSave={savePrototype} /> : null}
       </View>
     </View>
     </MediaGalleryProvider>
