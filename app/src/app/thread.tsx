@@ -17,6 +17,7 @@ import { mergeReadEvent } from "../lib/read-receipts";
 import { latestMessageReceipts } from "../lib/message-status";
 import { canCompactPost, sourceDeviceOf } from "../lib/message-device";
 import { createOutbox } from "../lib/outbox";
+import { asDeleted, showChange, undoChange, withReaction } from "../lib/post-changes";
 import { isDesktop } from "../lib/desktop";
 import { lastEditableMessage } from "../lib/edit-last-message";
 import { useLiveActions } from "../lib/live";
@@ -236,22 +237,34 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
       return false;
     }
   };
+  // A reaction or a delete shows at once; the thread's first message and its replies are kept apart.
+  const show = (shown: Post) => shown.id === root ? setHead(shown) : setReplies(list => showChange(list, shown));
+  const undo = (shown: Post, original: Post) => shown.id === root ? setHead(current => current === shown ? original : current) : setReplies(list => undoChange(list, shown, original));
   const react = async (post: Post, emoji: string, active: boolean) => {
+    // The server's copy confirms the reaction; a refusal takes it back.
+    const shown = withReaction(post, emoji, me, active);
+    show(shown);
     try {
       const p = await api.reactToPost(account, post.id, emoji, active);
       upsert(p);
       setError(null);
     } catch (e) {
+      undo(shown, post);
       setError(e instanceof ServerError ? e.message : "Couldn't save the reaction. Try again");
     }
   };
 
   const askAgent = (p: Post) => { askAgentAbout(account, p, conversation).catch(e => setError(e instanceof ServerError ? e.message : "Couldn't start a chat with the agent")); };
   const remove = async (p: Post) => {
+    // Gone at once. The server deletes it the way it always has (where records are kept, it saves its copy
+    // first); if it cannot, the message comes back as it was and the error says why.
+    const shown = asDeleted(p);
+    show(shown);
     try {
       await api.deletePost(account, p.id);
-      upsert({ ...p, deleted: true, text: "", attachments: [], reactions: [] });
+      upsert(shown);
     } catch (e) {
+      undo(shown, p);
       setError(e instanceof ServerError ? e.message : "Couldn't delete the message");
     }
   };

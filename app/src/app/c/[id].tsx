@@ -14,6 +14,7 @@ import { mergeReadEvent } from "../../lib/read-receipts";
 import { latestMessageReceipts } from "../../lib/message-status";
 import { canCompactPost, sourceDeviceOf } from "../../lib/message-device";
 import { createOutbox } from "../../lib/outbox";
+import { asDeleted, showChange, undoChange, withReaction } from "../../lib/post-changes";
 import { isDesktop } from "../../lib/desktop";
 import { lastEditableMessage } from "../../lib/edit-last-message";
 import { TypingLine, useTyping, useTypingPing } from "../../lib/typing";
@@ -305,20 +306,29 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
   };
 
   const react = async (post: Post, emoji: string, active: boolean) => {
+    // The reaction shows at once. The server's copy confirms it; a refusal takes it back.
+    const shown = withReaction(post, emoji, me, active);
+    setPosts(old => showChange(old, shown));
     try {
       const p = await api.reactToPost(account, post.id, emoji, active);
       applyPosts([p]);
       setError(null);
     } catch (e) {
+      setPosts(old => undoChange(old, shown, post));
       setError(e instanceof ServerError ? e.message : "Couldn't save the reaction. Try again");
     }
   };
 
   const remove = async (p: Post) => {
+    // Gone at once. The server deletes it the way it always has (where records are kept, it saves its copy
+    // first); if it cannot, the message comes back as it was and the error says why.
+    const shown = asDeleted(p);
+    setPosts(old => showChange(old, shown));
     try {
       await api.deletePost(account, p.id);
-      applyPosts([{ ...p, deleted: true, text: "", attachments: [], reactions: [] }]);
+      applyPosts([shown]);
     } catch (e) {
+      setPosts(old => undoChange(old, shown, p));
       setError(errorText(e, "Couldn't delete the message"));
     }
   };
