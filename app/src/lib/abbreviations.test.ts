@@ -178,6 +178,19 @@ test("the shared lexicon limit scans a moderate draft without dropping trailing 
   assert.ok(performance.now() - start < 3000, "A 2,000-entry lexicon and 50,000-character draft should remain interactive");
 });
 
+// The patterns share the start of values that begin alike. When case is ignored, "Foo" and "foo" begin alike:
+// kept apart, the shorter older form "Foo (F)" would win over "foo (F) bar (FB)" and leave "(fb)" to be marked.
+test("the longest full name wins whatever its case, as it did when every value was tried in turn", () => {
+  const entries = [entry("F", "Foo", "f"), entry("FB", "foo (F) bar", "fb"), entry("SS", "Stra\u00dfe", "ss"), entry("KM", "kilometre", "km")];
+  assert.deepEqual(findAbbreviations("foo (f) bar (fb)", entries), []);
+  assert.deepEqual(findAbbreviations("FOO (F) BAR (FB) and FB", entries).map(match => [match.token, match.start]), [["FB", 21]]);
+  assert.deepEqual(findAbbreviations("Foo (F) then FB", entries).map(match => match.token), ["FB"]);
+  // Characters the engine pairs only when case is ignored: the Kelvin sign with k, the long s with s.
+  assert.deepEqual(findAbbreviations("\u212ailometre (km) and KM", entries).map(match => [match.token, match.start]), [["KM", 19]]);
+  assert.deepEqual(findAbbreviations("STRA\u1e9eE (SS)", entries), []);
+  assert.equal(expandAbbreviations("F, FB, SS and KM", entries), "Foo, foo (F) bar, Stra\u00dfe and kilometre");
+});
+
 // Every part of every message row is matched against the glossary. What is made from the glossary alone used
 // to be made again on each call: three patterns compiled per piece of text, 0.66 ms a call with a hundred terms
 // on the engine the phones run.
