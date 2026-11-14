@@ -25,6 +25,7 @@ import { ServerSwitcher } from "./ServerSwitcher";
 import { Omnibar } from "./Omnibar";
 import { EmailNudge } from "./EmailNudge";
 import { useContextMenu, type ContextMenuItem } from "./ContextMenu";
+import { SidebarRowsSkeleton } from "./HomeSkeleton";
 
 export const SIDEBAR_WIDTH = 264;
 
@@ -56,7 +57,7 @@ export function Sidebar() {
   const styles = useStyles();
   const colors = useSidebarColors();
   const { account, deepWork, surveyPermissions } = useSession();
-  const { conversations, connected } = useLiveList();
+  const { conversations, error, connected } = useLiveList();
   const unread = useLiveUnread();
   const { expired: sessionExpired } = useSessionExpiry();
   const { sort, pending } = useChannelSort();
@@ -112,14 +113,15 @@ export function Sidebar() {
         </Section>
 
         {features.channels ? <Section title="Channels" open={channelsOpen} onToggle={() => setChannelsOpen(v => !v)} addLabel="Create a channel" onAdd={() => go(pathname, "/new-channel")}>
-          {channels.map(c => <ConversationItem key={c.id} c={c} selected={isOpen(c)} onPress={() => open(c)} />)}
+          {/* Until the list arrives, the rows the launch screen drew (HomeSkeleton.tsx) hold their places. */}
+          {conversations === null && !error ? <SidebarRowsSkeleton label="Loading channels" /> : channels.map(c => <ConversationItem key={c.id} c={c} selected={isOpen(c)} onPress={() => open(c)} />)}
           <NavItem quiet icon="plus" label="Browse channels" selected={pathname === "/browse"} onPress={() => go(pathname, "/browse")} />
           {archivedCount ? <NavItem quiet icon="archive" label="Archived" count={archivedCount} countMuted selected={pathname === "/archived-channels"} onPress={() => go(pathname, "/archived-channels")} /> : null}
         </Section> : null}
 
         {features.directMessages ? <Section title="Chats" open={dmsOpen} onToggle={() => setDmsOpen(v => !v)} addLabel="New message" onAdd={() => go(pathname, "/new-message")}>
-          {dms.map(c => <ConversationItem key={c.id} c={c} selected={isOpen(c)} onPress={() => open(c)} />)}
-          {!dms.length ? <NavItem quiet icon="plus" label="New message" onPress={() => go(pathname, "/new-message")} /> : null}
+          {conversations === null && !error ? <SidebarRowsSkeleton label="Loading chats" count={2} /> : dms.map(c => <ConversationItem key={c.id} c={c} selected={isOpen(c)} onPress={() => open(c)} />)}
+          {!dms.length && (conversations !== null || error) ? <NavItem quiet icon="plus" label="New message" onPress={() => go(pathname, "/new-message")} /> : null}
           {!features.channels && archivedCount ? <NavItem quiet icon="archive" label="Archived" count={archivedCount} countMuted selected={pathname === "/archived-channels"} onPress={() => go(pathname, "/archived-channels")} /> : null}
         </Section> : null}
       </ScrollView>

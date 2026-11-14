@@ -54,10 +54,9 @@ test("the usage chart's second bar is a palette color that shows against its tra
   assert.match(board, /styles\.swatch[^\n]*Share of survey comments/);
 });
 
-test("the launch screen and the wordmark band continue the splash screen's color", () => {
+test("the wordmark band continues the splash screen's color", () => {
   const splash = [...read("../app.json").matchAll(/"backgroundColor": "(#[0-9A-Fa-f]{6})"/g)].map(match => match[1]!.toUpperCase());
   assert.ok(splash.length >= 1);
   for (const color of splash) assert.equal(color, LAUNCH_COLOR);
-  assert.match(read("components/LaunchScreen.tsx"), /backgroundColor: LAUNCH_COLOR/);
   assert.match(read("components/Band.tsx"), /brandBand: \{ backgroundColor: LAUNCH_COLOR \}/);
 });

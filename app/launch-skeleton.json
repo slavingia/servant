@@ -1,0 +1,36 @@
+{
+  "colors": {
+    "light": { "background": "#FFFFFF", "bar": "#E6E7EB" },
+    "dark": { "background": "#12161C", "bar": "#303945" }
+  },
+  "header": [
+    { "x": 16, "y": 20, "width": 64, "height": 20 },
+    { "x": 32, "y": 84, "width": 20, "height": 14 },
+    { "x": 91, "y": 84, "width": 52, "height": 14 }
+  ],
+  "dividerY": 122,
+  "listHeight": 564,
+  "list": [
+    { "x": 16, "y": 27, "width": 72, "height": 14 },
+    { "x": 19, "y": 68, "width": 20, "height": 20 },
+    { "x": 54, "y": 72, "width": 96, "height": 12 },
+    { "x": 19, "y": 112, "width": 20, "height": 20 },
+    { "x": 54, "y": 116, "width": 132, "height": 12 },
+    { "x": 16, "y": 171, "width": 80, "height": 14 },
+    { "x": 19, "y": 212, "width": 20, "height": 20 },
+    { "x": 54, "y": 216, "width": 108, "height": 12 },
+    { "x": 19, "y": 256, "width": 20, "height": 20 },
+    { "x": 54, "y": 260, "width": 148, "height": 12 },
+    { "x": 19, "y": 300, "width": 20, "height": 20 },
+    { "x": 54, "y": 304, "width": 84, "height": 12 },
+    { "x": 19, "y": 344, "width": 20, "height": 20 },
+    { "x": 54, "y": 348, "width": 124, "height": 12 },
+    { "x": 16, "y": 403, "width": 56, "height": 14 },
+    { "x": 19, "y": 444, "width": 20, "height": 20 },
+    { "x": 54, "y": 448, "width": 116, "height": 12 },
+    { "x": 19, "y": 488, "width": 20, "height": 20 },
+    { "x": 54, "y": 492, "width": 92, "height": 12 },
+    { "x": 19, "y": 532, "width": 20, "height": 20 },
+    { "x": 54, "y": 536, "width": 140, "height": 12 }
+  ]
+}

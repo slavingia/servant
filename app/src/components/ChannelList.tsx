@@ -8,6 +8,7 @@ import { Button } from "./Button";
 import { PageTitle } from "./Band";
 import { EmailNudge } from "./EmailNudge";
 import { SkeletonRows } from "./Skeleton";
+import { HomeListSkeleton } from "./HomeSkeleton";
 import { SwipeChannelRow, useConversationActions } from "./SwipeChannelRow";
 import { ReorderableList } from "./ReorderableList";
 import { ChannelSortSheet } from "./ChannelSortSheet";
@@ -171,7 +172,8 @@ const ChannelRows = memo(function ChannelRows({ archived, conversations, error, 
         </View>}
         ListEmptyComponent={conversations === null ?
           error ? <View style={styles.empty}><Text accessibilityRole="alert" style={styles.errorText}>{error}</Text><Button label="Try again" kind="secondary" busy={refreshing} onPress={() => void reload()} /></View> :
-            <SkeletonRows label="Loading conversations" avatar={false} /> :
+            // Home loads in the shape the launch screen drew (HomeSkeleton.tsx), so opening the app never redraws it.
+            archived ? <SkeletonRows label="Loading conversations" avatar={false} /> : <HomeListSkeleton label="Loading conversations" /> :
           <View style={styles.empty}>
             <AppIcon name="archive" size={28} color={colors.muted} />
             <Text accessibilityRole="header" style={styles.emptyTitle}>No archived conversations</Text>
