@@ -10,12 +10,21 @@ export { VIBE_CHOICE };
 
 // "New chat" choices: talk to the agent as is, prototype with a
 // preview (when the server has the prototypes project), or work in a project.
-export function ProjectSheet({ visible, projects, vibe = true, selected = null, title = "New chat", onPick, onClose }: { visible: boolean; projects: Project[]; vibe?: boolean; selected?: string | null; title?: string; onPick: (project: string | null) => void; onClose: () => void }) {
+// "Served here and on Cloudflare · backup on GitHub Pages", from the two hosts' addresses.
+const host = (url: string) => { try { return new URL(url).host; } catch { return ""; } };
+export function vibeDescription(links?: { primary: string; backup: string }): string | undefined {
+  const primary = host(links?.primary ?? ""), backup = host(links?.backup ?? "");
+  if (!primary) return undefined;
+  return backup ? `${primary} · backup ${backup}` : primary;
+}
+
+export function ProjectSheet({ visible, projects, vibe = true, vibeLinks, selected = null, title = "New chat", onPick, onClose }: { visible: boolean; projects: Project[]; vibe?: boolean; vibeLinks?: { primary: string; backup: string }; selected?: string | null; title?: string; onPick: (project: string | null) => void; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const options: { id: string | null; name: string; description?: string }[] = [
     { id: null, name: "Agent" },
-    ...(vibe ? [{ id: VIBE_CHOICE, name: "Prototyping" }] : []),
+    // Prototyping is the design prototypes project too: one row, with where pages are served and the backup.
+    ...(vibe ? [{ id: VIBE_CHOICE, name: "Prototyping", description: vibeDescription(vibeLinks) }] : []),
     ...projects.map(p => ({ id: p.id, name: p.name, description: p.description || p.repo || undefined })),
   ];
   return <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>

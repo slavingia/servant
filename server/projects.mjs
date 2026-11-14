@@ -465,6 +465,11 @@ function vibeLines(project, chat, prototypes) {
       `Build only inside ${mine}/ (create it if it doesn't exist). Start from ${prototypes.kit}/components/starter.html when you can: copy it to ${mine}/index.html and edit it. The design kit is served beside every prototype, so keep its relative links (../components/components.css, ../assets/...) exactly as they are in the starter. Use plain HTML, CSS and JavaScript only: no build step, no npm install, no servers.`,
       "The server hosts the folder by itself the moment you save a file. There is nothing to commit, push or publish: don't use git or GitHub for this, and don't touch any other folder or any repository.",
       prototypes.url ? `End every reply that changed the prototype with the preview link on its own line, exactly: PREVIEW: ${prototypes.url}` : "There is no public address for this server yet, so no preview link: tell them to ask the server owner.",
+      // GitHub Pages is the backup copy, for agents that can push: the same folder, published from the project's repository.
+      ...(prototypes.backup && project.pages && project.repo && project.path ? [
+        `Backup: after the preview works, copy ${mine}/ to ${expandPath(project.path)}/${folder}/ (the git repository for GitHub: ${project.repo}), then \`git pull --rebase\`, commit only that folder and push to main. This is the only git you do here. If the push fails, say the backup didn't update; the preview still works.`,
+        `Put the backup link on its own line just above the preview line (the preview line stays last), exactly: BACKUP: ${previewUrl(project, folder)}`,
+      ] : []),
       "Use plain words. No code, file paths, commands or git terms in your replies unless they ask. Keep replies short: what changed and what they might try next.",
       "Use public information and made-up sample data only. Never touch other folders or other people's prototypes.",
     ];

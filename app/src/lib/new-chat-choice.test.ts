@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { VIBE_CHOICE, choiceName, needsNewChat, newChatOptions, offered } from "./new-chat-choice.ts";
+import { VIBE_CHOICE, canonical, choiceName, needsNewChat, newChatOptions, offered, pickable } from "./new-chat-choice.ts";
 import type { Projects } from "./projects-store.ts";
 
 const projects = { list: [{ id: "expo", name: "Expo app" }], vibeCoder: false, vibe: true } as unknown as Projects;
@@ -33,4 +33,16 @@ test("only vibe mode needs a fresh chat", () => {
   assert.equal(needsNewChat(null, VIBE_CHOICE), true);
   assert.equal(needsNewChat(VIBE_CHOICE, "expo"), true);
   assert.equal(needsNewChat(VIBE_CHOICE, VIBE_CHOICE), false);
+});
+
+test("prototyping and its project are one choice: listed once, old picks of the project mean Prototyping", () => {
+  const p = (id: string, name: string) => ({ id, name }) as unknown as Projects["list"][number];
+  const projects: Projects = { list: [p("servant", "Servant"), p("design-prototypes", "Design prototypes")], vibeCoder: false, vibe: true, vibeProject: "design-prototypes" };
+  assert.deepEqual(pickable(projects).map(x => x.id), ["servant"]);
+  assert.equal(canonical(projects, "design-prototypes"), VIBE_CHOICE);
+  assert.equal(choiceName(projects, "design-prototypes"), "Prototyping");
+  assert.equal(offered(projects, "design-prototypes"), true);
+  const off: Projects = { ...projects, vibe: false };
+  assert.deepEqual(pickable(off).map(x => x.id), ["servant", "design-prototypes"]);
+  assert.equal(canonical(off, "design-prototypes"), "design-prototypes");
 });

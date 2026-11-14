@@ -5,7 +5,8 @@ import { useSession } from "./session";
 // The projects you're in, shared by the sidebar, Home, the Agent tab's picker and the project
 // page: one list, so a project made or renamed in one place shows up in the others right away.
 // vibeCoder: you only build prototypes; vibe: vibe coding is set up on this server.
-export type Projects = { list: Project[]; vibeCoder: boolean; vibe: boolean };
+// vibeProject: the project Prototyping builds in, so pickers show it once; vibeLinks: where prototypes are served.
+export type Projects = { list: Project[]; vibeCoder: boolean; vibe: boolean; vibeProject?: string; vibeLinks?: { primary: string; backup: string } };
 type State = { who: string; loaded: Projects | null };
 let state: State = { who: "", loaded: null };
 const inflight = new Map<string, Promise<void>>();
@@ -20,7 +21,7 @@ export function refreshProjects(account: Account) {
   const who = whoIs(account);
   if (inflight.has(who)) return inflight.get(who)!;
   const request = api.projects(account)
-    .then(r => { const loaded = { list: r.projects, vibeCoder: r.vibeCoder, vibe: r.vibe }; cache.set(who, loaded); if (activeWho === who) emit({ who, loaded }); })
+    .then(r => { const loaded = { list: r.projects, vibeCoder: r.vibeCoder, vibe: r.vibe, vibeProject: r.vibeProject, vibeLinks: r.vibeLinks }; cache.set(who, loaded); if (activeWho === who) emit({ who, loaded }); })
     .catch(() => {})
     .finally(() => { inflight.delete(who); });
   inflight.set(who, request);

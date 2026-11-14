@@ -30,7 +30,7 @@ import { useSession } from "../../lib/session";
 import { anyTalk, useFeatures } from "../../lib/features";
 import { useLive } from "../../lib/live";
 import { useProjects } from "../../lib/projects-store";
-import { VIBE_CHOICE, choiceKey, lastChatKey, choiceName, needsNewChat, newChatOptions } from "../../lib/new-chat-choice";
+import { VIBE_CHOICE, canonical, choiceKey, lastChatKey, choiceName, needsNewChat, newChatOptions, pickable } from "../../lib/new-chat-choice";
 import { setItem } from "../../lib/storage";
 import { forwardTitle, parseForward, type ForwardCard } from "../../lib/forward";
 import { AppIcon, type AppIconName } from "../../components/AppIcon";
@@ -813,8 +813,9 @@ function ChatConversation() {
   // Nothing sent yet: the choice sits right above the message box, and goes once the first message is on its way.
   const fresh = messages !== null && messages.length === 0 && !loadError && !firstRow && !turn && waiting.length === 0;
   const showAbout = fresh && !!projects && !projects.vibeCoder;
-  const pickAbout = async (next: string | null) => {
+  const pickAbout = async (choice: string | null) => {
     setChoosing(false);
+    const next = canonical(projects, choice);
     if (next === about || switching) return;
     setSwitching(true);
     setAboutError(null);
@@ -846,7 +847,7 @@ function ChatConversation() {
       <Stack.Screen options={{ title: heading, headerTitle: titleButton(showTitle, setShowTitle, headerLinks.length), ...filesHeader(String(id), heading, colors.blue, headerLinks, false) }} />
       {showTitle ? <FullTitle title={heading} onClose={() => setShowTitle(false)} /> : null}
       {sharing ? <OptionsSheet id={String(id)} title={heading} shared={shared} projectId={projectId} projectShared={projectShared} onProject={setProjectId} onProjectShared={setProjectShared} onChange={setShared} onClose={() => setSharing(false)} /> : null}
-      {choosing && projects ? <ProjectSheet visible projects={projects.list} vibe={projects.vibe !== false} selected={about} title="This chat is about" onPick={project => { void pickAbout(project); }} onClose={() => setChoosing(false)} /> : null}
+      {choosing && projects ? <ProjectSheet visible projects={pickable(projects)} vibe={projects.vibe !== false} vibeLinks={projects.vibeLinks} selected={about} title="This chat is about" onPick={project => { void pickAbout(project); }} onClose={() => setChoosing(false)} /> : null}
       <View style={[styles.split, stacked && previewOpen && styles.splitStacked]}>
       <View style={[styles.chatColumn, stacked && previewOpen && styles.chatColumnStacked]}>
       <ConversationKeyboardView>

@@ -7,7 +7,7 @@ import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { deleteDescription } from "../../lib/records-notice";
 import { SwipeRow } from "../../components/SwipeChannelRow";
-import { choiceKey, newChatOptions, offered } from "../../lib/new-chat-choice";
+import { canonical, choiceKey, newChatOptions, offered } from "../../lib/new-chat-choice";
 import { getItem } from "../../lib/storage";
 import { refreshProjects, useProjects } from "../../lib/projects-store";
 import { isSessionExpired, isSignedOut } from "../../lib/session-expiry-rules";
@@ -128,7 +128,7 @@ export default function Chats() {
   // One tap: a chat about the remembered choice (business owners always build prototypes).
   const start = async () => {
     if (starting) return;
-    const project = projects && !projects.vibeCoder && offered(projects, choice) ? choice : null;
+    const project = projects && !projects.vibeCoder && offered(projects, choice) ? canonical(projects, choice) : null;
     setStarting(true);
     setError(null);
     try {

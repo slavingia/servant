@@ -10,14 +10,27 @@ export type NewChatChoice = string | null;
 // The storage key for a person's remembered choice ("" means just the agent).
 export const choiceKey = (userId: string) => `servant.project.${userId}`;
 
+// Prototyping and the project it builds in are one thing: when prototyping is on, pickers list
+// Prototyping and leave that project out, and an old remembered pick of the project means Prototyping.
+const isVibeProject = (projects: Projects | null, choice: NewChatChoice) =>
+  !!choice && projects?.vibe !== false && !!projects?.vibeProject && choice === projects.vibeProject;
+export function pickable(projects: Projects | null): Projects["list"] {
+  return (projects?.list ?? []).filter(p => !isVibeProject(projects, p.id));
+}
+export function canonical(projects: Projects | null, choice: NewChatChoice): NewChatChoice {
+  return isVibeProject(projects, choice) ? VIBE_CHOICE : choice;
+}
+
 // A choice the server no longer offers (prototyping off, a project you left) means "Agent".
 export function offered(projects: Projects | null, choice: NewChatChoice): boolean {
   if (!projects || !choice) return false;
+  choice = canonical(projects, choice);
   return choice === VIBE_CHOICE ? projects.vibe !== false : projects.list.some(p => p.id === choice);
 }
 
 export function choiceName(projects: Projects | null, choice: NewChatChoice): string {
   if (!offered(projects, choice)) return "Agent";
+  choice = canonical(projects, choice);
   return choice === VIBE_CHOICE ? "Prototyping" : projects?.list.find(p => p.id === choice)?.name ?? "Agent";
 }
 

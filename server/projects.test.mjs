@@ -149,6 +149,11 @@ test("what the agent is told: the workflow in plain words, the rules, and what t
   assert.match(hosted, /PREVIEW: https:\/\/team\.example\.test\/p\/proto-aaaa\/$/m);
   assert.match(hosted, /nothing to commit, push or publish/);
   assert.doesNotMatch(hosted, /git pull|github\.io|GitHub:/);
+  // Owner agents also copy it to GitHub Pages as the backup and give both links.
+  const backed = projectInstructions(prototypes, { chat: { mode: "vibe", vibeFolder: "proto-aaaa", hosted: "server" }, asker: users.usr_ana, level: null, files, full: true, prototypes: { dir: "/data/prototypes", url: "https://team.example.test/p/proto-aaaa/", kit: "/kit", backup: true } });
+  assert.match(backed, /PREVIEW: https:\/\/team\.example\.test\/p\/proto-aaaa\/$/m);
+  assert.match(backed, /BACKUP: https:\/\/example-org\.github\.io\/prototypes\/proto-aaaa\/$/m);
+  assert.match(backed, /commit only that folder and push to main/);
   assert.match(projectInstructions(prototypes, { chat: { mode: "vibe", vibeFolder: "proto-aaaa", hosted: "server" }, asker: users.usr_ana, level: null, files, full: true, prototypes: { dir: "/d", url: "", kit: "/k" } }), /no public address/);
   assert.equal(projectInstructions(null, {}), "");
 });

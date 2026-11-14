@@ -814,7 +814,7 @@ function chatContextBase(chat) {
   const access = accessOf(project, users[chat.userId], users, data.people);
   // Whoever started the chat must still be in the project; otherwise the chat carries no project context.
   if (chat.mode !== "vibe" && !access.visible) return "";
-  return projectInstructions(project, { chat, asker: users[chat.userId], level: access.level, files: projectFiles(), full: agentRole(chat.role, loadConfig()) === "owner", users, people: data.people, prototypes: { dir: PROTOTYPES_DIR, url: prototypePreview(chat), kit: expandPath(project.path) } });
+  return projectInstructions(project, { chat, asker: users[chat.userId], level: access.level, files: projectFiles(), full: agentRole(chat.role, loadConfig()) === "owner", users, people: data.people, prototypes: { dir: PROTOTYPES_DIR, url: prototypePreview(chat), kit: expandPath(project.path), backup: agentRole(chat.role, loadConfig()) === "owner" } });
 }
 const documents = () => documentStore ??= createDocumentStore(path.join(DATA_DIR, "chat-files"), { keep: () => recordsPreservationEnabled(loadConfig().recordsPreservation) });
 let usageDb;
@@ -1385,7 +1385,9 @@ async function handle(req, res, cfg) {
       const data = projects().read();
       const chats = allChats();
       const list = accessibleProjects(data, user, users()).map(({ project, access }) => projectView(project, access, user, users(), data.people, chats));
-      return send(res, 200, { ...wrap(false, list), vibeCoder: agentTierOf(users()[user.id]) === 2, agentTier: agentTierOf(users()[user.id]), vibe: !!vibeProject() });
+      return send(res, 200, { ...wrap(false, list), vibeCoder: agentTierOf(users()[user.id]) === 2, agentTier: agentTierOf(users()[user.id]), vibe: !!vibeProject(),
+        // Prototyping is this project: the new-chat list shows it once, as Prototyping, not twice.
+        ...(vibeProject() ? { vibeProject: VIBE_PROJECT, vibeLinks: { primary: loadConfig().publicUrl ? `${loadConfig().publicUrl.replace(/\/+$/, "")}/p/` : "", backup: vibeProject().pages || "" } } : {}) });
     }
     if (method === "POST" && parts.length === 2) {
       const body = await readAuthorizedBody(req);

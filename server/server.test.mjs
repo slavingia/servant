@@ -1133,7 +1133,8 @@ test("vibe coding is an option for everyone: any member can pick it and gets a p
   const stream = await waitFor(() => [...owner.calls, ...member.calls].find((c) => c.url.endsWith("/chat/stream") && c.body.message === "a page about refunds"));
   assert.ok(stream.body.system_message.includes(`PREVIEW: ${chat.previewUrl}`));
   assert.match(stream.body.system_message, /nothing to commit, push or publish|There is nothing to commit, push or publish/, "no git or GitHub in the loop");
-  assert.doesNotMatch(stream.body.system_message, /git pull|github\.io/);
+  // The full agent (on by default here) also copies it to GitHub Pages: the backup link sits above the preview line, which stays last for the button.
+  assert.match(stream.body.system_message, /preview line stays last\), exactly: BACKUP: https:\/\/[^\s]*github\.io\/[^\s]*proto-[0-9a-f]{18}\//);
   assert.match(stream.body.system_message, /- Public information and made-up sample data only/, "the project's rules come along");
   assert.doesNotMatch(stream.body.system_message, /on their behalf/, "vibe coders build in their own folder whatever their repo access");
   // Not asking for it still gives a plain chat.
