@@ -127,3 +127,35 @@ test('records preservation keeps a copy before a due date or a move changes a to
   const [after] = todos.list(pat);
   assert.deepEqual([after.dueDate, after.stage], ['2026-11-25', 'doing'], 'nothing changes when the copy cannot be saved');
 });
+
+// The work log: a finished to-do's entry says when work on it began and when it was due, as they were at that moment.
+test('a completion carries when the to-do was started and when it was due, and neither can be rewritten', async () => {
+  const { todos, tick } = setup();
+  const own = todos.create(pat, { text: 'Own date', dueDate: '2026-11-20' });
+  tick(100);
+  todos.update(pat, own.id, { stage: 'doing' });
+  tick(100);
+  todos.update(pat, own.id, { stage: 'done' });
+  const released = todos.create(pat, { text: 'With the release', projectId: 'example-app', releaseId: 'r1' });
+  todos.update(pat, released.id, { status: 'done' });
+  const plain = todos.create(pat, { text: 'Neither' });
+  todos.update(pat, plain.id, { status: 'done' });
+  const sent = todos.create(pat, { text: 'For the agent', dueDate: '2026-12-01' });
+  tick(50);
+  await todos.sendToAgent(pat, null, sent.id);
+  tick(50);
+  assert.equal(todos.agentDone('cht_1', 'turn_1'), 1);
+  const log = Object.fromEntries(todos.workLog(pat).map(entry => [entry.source.text, [entry.startedAt, entry.due, entry.completedBy.kind]]));
+  assert.deepEqual(log, {
+    'Own date': [1_000_100, '2026-11-20', 'person'],
+    'With the release': [null, '2026-11-17', 'person'],
+    'Neither': [null, null, 'person'],
+    'For the agent': [1_000_250, '2026-12-01', 'agent'],
+  });
+  // Changing the to-do afterwards, or reopening it, leaves the entry as it was written.
+  todos.update(pat, own.id, { stage: 'todo', dueDate: '2027-01-01' });
+  const entry = todos.workLog(pat).find(item => item.source.text === 'Own date');
+  assert.deepEqual([entry.startedAt, entry.due, entry.reopenedAt !== null], [1_000_100, '2026-11-20', true]);
+  assert.throws(() => todos.db.prepare("UPDATE todo_completions SET due_date = '2030-01-01'").run(), /cannot be rewritten/);
+  assert.throws(() => todos.db.prepare('UPDATE todo_completions SET started_at = 1').run(), /cannot be rewritten/);
+});

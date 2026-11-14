@@ -41,6 +41,17 @@ card is over it. On a phone one column shows at a time and the row being edited 
 | Details: a due date, and what happens without one | ![The details sheet](after/details-desktop.png) |
 | The board filtered to one project | ![Example app only](after/project-desktop.png) |
 
+## The work log
+
+Finished to-dos were already in the work log. The entry now also says when the to-do was started and whether it met
+its due date. Both sides ticked the same to-do and opened the log; on the after side it had been started on Nov 12
+and was due Nov 10. (Each run of the capture script finishes the to-do again, so it is listed more than once.)
+
+| Viewport | Before | After |
+| --- | --- | --- |
+| Desktop | ![The work log on main](before/work-log-desktop.png) | ![The entry with Started and Due](after/work-log-desktop.png) |
+| Phone | ![The work log on main, on a phone](before/work-log-phone.png) | ![The entry on a phone](after/work-log-phone.png) |
+
 ## What the run checked
 
 The script that took the after captures also drove the board and failed on any difference: each to-do is in its own
@@ -48,3 +59,6 @@ column; the three due lines read "Due Dec 1", "Due Nov 20" and "Overdue, Nov 10"
 color; a card dragged To do, In progress, Done and back to To do lands in each and is ticked only in Done; ticking and
 unticking; Start and Move to To do from the row; a due date of "soon" and of Feb 30 are refused with a message, Nov 25
 is saved, and clearing it shows the release's date again; and no screen scrolls sideways.
+
+For the work log, a second script ticked the to-do on the board, followed **Work log** from the board's options, and
+failed unless the newest entry read "Started Nov 12, 2026, 10:30:00 AM" and "Due Nov 10, 2026. Done 4 days late".

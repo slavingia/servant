@@ -124,6 +124,8 @@ export type WorkLogEntry =
       timeBasis: "meeting" | "recording-upload"; startedAt: number | null; endedAt: number | null; durationMs: number | null;
       source: { title: string | null; summary: string | null; conversationId: string | null } | null }
   | { kind: "todo"; id: string; at: number; todoId: string; createdAt: number; reopenedAt: number | null; originKind: "recording" | "call" | null;
+      // From the board, as they were when it was finished: when work began, and the day it was due (YYYY-MM-DD).
+      startedAt?: number | null; due?: string | null;
       completedBy: { kind: "agent" | "person" | "unknown"; id?: string; name?: string };
       source: { text: string; projectId: string | null; projectName: string | null; releaseId: string | null; releaseName: string | null; channelId: string | null; channelName: string | null } | null };
 export type MeetingStatus = "live" | "recorded" | "processing" | "done" | "failed";

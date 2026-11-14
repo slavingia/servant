@@ -324,6 +324,8 @@ export function TodoList({ account, todos, onChange, onBusyChange, onReload, emp
               </ScrollView>
               <View style={styles.sheetButtons}>
                 {onReload ? <Button label="Refresh" kind="link" compact onPress={() => { setMenu(false); onReload(); }} /> : null}
+                {/* What was finished, by whom and when, is kept in the work log. */}
+                {board ? <Button label="Work log" kind="link" compact onPress={() => { setMenu(false); router.push({ pathname: "/saved", params: { view: "history" } }); }} /> : null}
                 <View style={{ flex: 1 }} />
                 <Button label="Done" compact onPress={() => setMenu(false)} />
               </View>

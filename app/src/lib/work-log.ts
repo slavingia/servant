@@ -33,6 +33,21 @@ export function workLogActor(entry: Extract<WorkLogEntry, { kind: "todo" }>): st
   return "Not recorded";
 }
 
+const DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
+/**
+ * Whether a finished to-do met its due date: "Due Nov 20, 2026. Done on time", "Done 1 day late", "Done 4 days late".
+ * Days are whole calendar days in the reader's time zone, the same days the board shows. Nothing when it had no due date.
+ */
+export function workLogDue(entry: Extract<WorkLogEntry, { kind: "todo" }>, timeZone?: string): string {
+  const match = DAY.exec(entry.due ?? "");
+  if (!match) return "";
+  const done = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(entry.at));
+  const days = (day: string) => { const m = DAY.exec(day)!; return Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!) / 86_400_000; };
+  const late = days(done) - days(match[0]);
+  const due = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", year: "numeric", month: "short", day: "numeric" }).format(new Date(Date.UTC(+match[1]!, +match[2]! - 1, +match[3]!)));
+  return `Due ${due}. ${late <= 0 ? "Done on time" : `Done ${late} ${late === 1 ? "day" : "days"} late`}`;
+}
+
 export function workLogPreview(entry: WorkLogEntry): string {
   if (entry.kind === "saved") return savedMessagePreview(entry.completion);
   if (entry.kind === "todo") return entry.source?.text ?? "This to-do is no longer available.";

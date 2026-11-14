@@ -1,5 +1,5 @@
 import type { SavedCompletion, WorkLogEntry } from "./server.ts";
-import { workLogActor, workLogCounts, workLogLabel } from "./work-log.ts";
+import { workLogActor, workLogCounts, workLogDue, workLogLabel } from "./work-log.ts";
 
 export type SavedCompletionRecord = SavedCompletion;
 export type SavedReportPeriod = "today" | "week" | "all" | { from: string; to: string };
@@ -221,6 +221,8 @@ export function buildWorkLogReport(history: readonly WorkLogEntry[], options: Sa
         `**Completed**\n\n${quote(savedWorkTime(entry.at, timeZone))}`,
         `**Completed by**\n\n${quote(workLogActor(entry))}`,
         `**Created**\n\n${quote(savedWorkTime(entry.createdAt, timeZone))}`);
+      if (entry.startedAt) sections.push(`**Started**\n\n${quote(savedWorkTime(entry.startedAt, timeZone))}`);
+      if (workLogDue(entry, timeZone)) sections.push(`**Due**\n\n${quote(workLogDue(entry, timeZone))}`);
       if (entry.reopenedAt !== null) sections.push(`**Reopened**\n\n${quote(savedWorkTime(entry.reopenedAt, timeZone))}`);
       if (entry.source) {
         sections.push("**Current to-do**", quote(entry.source.text));

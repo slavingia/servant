@@ -112,6 +112,12 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
     // An open to-do that has been started is "in progress"; nothing else about a to-do's status changes.
     if (!db.prepare("PRAGMA table_info(todos)").all().some(c => c.name === "due_date")) db.exec("ALTER TABLE todos ADD COLUMN due_date TEXT");
     if (!db.prepare("PRAGMA table_info(todos)").all().some(c => c.name === "started_at")) db.exec("ALTER TABLE todos ADD COLUMN started_at INTEGER");
+    // The work log keeps what the board knew when a to-do was finished: when work on it began and when it was due.
+    // Like the rest of a completion, neither can be rewritten afterwards.
+    if (!db.prepare("PRAGMA table_info(todo_completions)").all().some(c => c.name === "started_at")) db.exec("ALTER TABLE todo_completions ADD COLUMN started_at INTEGER");
+    if (!db.prepare("PRAGMA table_info(todo_completions)").all().some(c => c.name === "due_date")) db.exec("ALTER TABLE todo_completions ADD COLUMN due_date TEXT");
+    db.exec(`CREATE TRIGGER IF NOT EXISTS todo_completions_no_rewrite_board BEFORE UPDATE OF started_at, due_date ON todo_completions
+      BEGIN SELECT RAISE(ABORT, 'To-do completion history cannot be rewritten'); END;`);
     // Adopt the earlier standalone store once, without changing or deleting it.
     // The receipt lives in the same transaction as the copy, so a retry cannot
     // resurrect a task somebody deleted after the successful migration.
@@ -181,7 +187,7 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
     claimChat: q("UPDATE todos SET chat_id = ?, updated_at = ? WHERE id = ? AND chat_id IS NULL AND status = 'open'"),
     freeChat: q("UPDATE todos SET chat_id = NULL WHERE id = ? AND chat_id = ?"),
     posted: q("UPDATE todos SET last_posted_at = ? WHERE id = ?"),
-    completion: q("INSERT INTO todo_completions (id,todo_id,created_at,completed_at,created_by,assignee_id,actor_kind,actor_id,origin_kind) VALUES (?,?,?,?,?,?,?,?,?)"),
+    completion: q("INSERT INTO todo_completions (id,todo_id,created_at,completed_at,created_by,assignee_id,actor_kind,actor_id,origin_kind,started_at,due_date) VALUES (?,?,?,?,?,?,?,?,?,?,?)"),
     reopened: q("UPDATE todo_completions SET reopened_at = ? WHERE id = ? AND reopened_at IS NULL"),
     workLog: q("SELECT * FROM todo_completions WHERE created_by = ? OR assignee_id = ? OR (actor_kind = 'person' AND actor_id = ?) ORDER BY completed_at DESC, rowid DESC"),
     agentCompletion: q("SELECT 1 FROM todo_agent_completions WHERE chat_id = ? AND completion_key = ?"),
@@ -224,8 +230,15 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
     const id = `done_${crypto.randomBytes(9).toString("base64url")}`;
     const kind = actorId === "agent" ? "agent" : actorId ? "person" : "unknown";
     st.completion.run(id, todo.id, todo.created_at, at, todo.created_by, todo.assignee_id, kind, kind === "person" ? actorId : null,
-      ["recording", "call"].includes(todo.source_kind) ? todo.source_kind : null);
+      ["recording", "call"].includes(todo.source_kind) ? todo.source_kind : null, todo.started_at ?? null, dueAtCompletion(todo));
     return id;
+  }
+  /** The day a to-do was due when it was finished: its own, or its release's as its author sees the release. */
+  function dueAtCompletion(todo) {
+    if (todo.due_date) return todo.due_date;
+    const author = person(todo.created_by);
+    if (!author || !todo.project_id || !todo.release_id) return null;
+    try { return project({ id: todo.created_by, ...author }, todo.project_id, todo.release_id)?.releaseDate || null; } catch { return null; }
   }
 
   function workLog(user) {
@@ -240,6 +253,8 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
       return {
         kind: "todo", id: `todo:${entry.id}`, at: entry.completed_at, todoId: entry.todo_id, createdAt: entry.created_at,
         reopenedAt: entry.reopened_at, originKind,
+        // What the board knew at that moment: when work began (if it was ever moved to In progress) and the day it was due.
+        startedAt: entry.started_at ?? null, due: entry.due_date || null,
         completedBy: entry.actor_kind === "person" ? { kind: "person", id: entry.actor_id, ...(person(entry.actor_id)?.name ? { name: person(entry.actor_id).name } : {}) }
           : { kind: entry.actor_kind === "agent" ? "agent" : "unknown" },
         source: allowed ? { text: todo.text, projectId: p ? todo.project_id : null, projectName: p?.projectName || null,

@@ -74,3 +74,32 @@ test("the details sheet takes a due date and says what happens without one", () 
   assert.match(editor, /if \(dueDate && !DATE_SHAPE\.test\(dueDate\)\) \{ setError\("Due dates look like 2026-11-20"\); return; \}/);
   assert.match(editor, /dueDate: dueDate \|\| null \}\)/, "an empty field clears the to-do's own date");
 });
+
+// "These should basically feed into work log too": a finished to-do's entry says when it was started and whether
+// it met its due date, on the screen and in the report, and the board links to the log.
+test("the work log says when a finished to-do was started and whether it was on time", async () => {
+  const { workLogDue } = await import("./work-log.ts");
+  const { buildWorkLogReport } = await import("./saved-report.ts");
+  const entry = (due: string | null, at: number, startedAt: number | null = null) => ({
+    kind: "todo" as const, id: "todo:done_1", at, todoId: "todo_1", createdAt: 1000, reopenedAt: null, originKind: null, startedAt, due,
+    completedBy: { kind: "person" as const, id: "pat", name: "Pat Tester" },
+    source: { text: "Confirm the vendor list", projectId: null, projectName: null, releaseId: null, releaseName: null, channelId: null, channelName: null },
+  });
+  const noon = (day: number) => Date.UTC(2026, 10, day, 17);
+  assert.equal(workLogDue(entry("2026-11-20", noon(14)), "America/New_York"), "Due Nov 20, 2026. Done on time");
+  assert.equal(workLogDue(entry("2026-11-14", noon(14)), "America/New_York"), "Due Nov 14, 2026. Done on time", "the due day itself is on time");
+  assert.equal(workLogDue(entry("2026-11-13", noon(14)), "America/New_York"), "Due Nov 13, 2026. Done 1 day late");
+  assert.equal(workLogDue(entry("2026-11-10", noon(14)), "America/New_York"), "Due Nov 10, 2026. Done 4 days late");
+  // The day is the reader's: 03:00 UTC on the 15th is still the 14th in New York.
+  assert.equal(workLogDue(entry("2026-11-14", Date.UTC(2026, 10, 15, 3)), "America/New_York"), "Due Nov 14, 2026. Done on time");
+  assert.equal(workLogDue(entry(null, noon(14))), "");
+  assert.equal(workLogDue(entry("soon", noon(14))), "");
+  const report = buildWorkLogReport([entry("2026-11-10", noon(14), noon(12))], { period: "all", generatedAt: noon(15), serverName: "Example team", personName: "Pat Tester", timeZone: "America/New_York" }).markdown;
+  assert.match(report, /\*\*Started\*\*\n\n> [^\n]*Nov 12, 2026/);
+  assert.match(report, /\*\*Due\*\*\n\n> Due Nov 10, 2026\. Done 4 days late/);
+  const saved = read("app/saved.tsx");
+  assert.match(saved, /\{item\.startedAt \? <Text style=\{styles\.logMeta\}>Started \{savedWorkLabel\(item\.startedAt\)\}<\/Text> : null\}/);
+  assert.match(saved, /\{workLogDue\(item\) \? <Text testID=\{`work-log-due-\$\{item\.id\}`\} style=\{styles\.logMeta\}>\{workLogDue\(item\)\}<\/Text> : null\}/);
+  assert.match(saved, /useState<"open" \| "completed" \| "history">\(params\.view === "history" \? "history" : "open"\)/);
+  assert.match(component, /\{board \? <Button label="Work log" kind="link" compact onPress=\{\(\) => \{ setMenu\(false\); router\.push\(\{ pathname: "\/saved", params: \{ view: "history" \} \}\); \}\} \/> : null\}/);
+});
