@@ -1172,12 +1172,14 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   shareRow: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingBottom: space.sm },
   split: { flex: 1, flexDirection: "row" },
   splitStacked: { flexDirection: "column-reverse" },
-  chatColumnStacked: { flex: 1.1 },
-  previewPaneStacked: { minWidth: 0, borderLeftWidth: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  // Phone: the page gets most of the height; the chat keeps room for the last replies and the composer.
+  chatColumnStacked: { flex: 1 },
+  previewPaneStacked: { flex: 2, minWidth: 0, borderLeftWidth: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   chatColumn: { flex: 1, minWidth: 0 },
   previewPane: { flex: 1, minWidth: 320, borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colors.line, backgroundColor: colors.surface },
-  previewBar: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingLeft: space.side, paddingRight: space.xs, minHeight: 44, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
-  previewBarLink: { minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center" },
+  previewBar: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingLeft: space.side, paddingRight: space.side + space.xxs, minHeight: 44, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  // Text sits on the bar's right padding, in line with the header and message menus; the tap target stays 44.
+  previewBarLink: { minHeight: 44, minWidth: 44, alignItems: "flex-end", justifyContent: "center" },
   headerLinkText: { ...typography.label, color: colors.blue, ...linkUnderline },
   shareError: { ...typography.meta, color: colors.red, marginTop: space.xxs },
   message: { flexDirection: "row", paddingHorizontal: space.side, paddingVertical: space.sm, gap: 10 },
