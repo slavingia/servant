@@ -79,12 +79,11 @@ export default function ConversationScreen() {
     setPosts((old) => merge(old ?? [], incoming));
   }, []);
 
-  const load = useCallback(async (reset = false) => {
-    if (!account || !id) return;
+  const load = useCallback((reset = false): Promise<void> => {
+    if (!account || !id) return Promise.resolve();
     const current = { sequence: ++loadSequence.current, replace: reset || needsSnapshot.current || !!snapshot.current?.replace, updates: new Map<string, Post>(), reads: [] as Extract<LiveEvent, { event: "messages.read" }>["data"][] };
     snapshot.current = current;
-    try {
-      const [c, p] = await Promise.all([api.conversation(account, id), api.posts(account, id)]);
+    return Promise.all([api.conversation(account, id), api.posts(account, id)]).then(([c, p]) => {
       if (snapshot.current !== current) return;
       needsSnapshot.current = false;
       accessDenied.current = false;
@@ -95,7 +94,7 @@ export default function ConversationScreen() {
       setMore(p.more);
       setUnavailable(false);
       setError(null);
-    } catch (e) {
+    }).catch((e: unknown) => {
       if (snapshot.current !== current) return;
       setError(errorText(e, "Couldn't load this conversation"));
       if (e instanceof ServerError && [401, 403, 404].includes(e.status)) {
@@ -107,9 +106,9 @@ export default function ConversationScreen() {
         setEditing(null);
         setUnavailable(true);
       } else setPosts((old) => old ?? []);
-    } finally {
+    }).finally(() => {
       if (snapshot.current === current) snapshot.current = null;
-    }
+    });
   }, [account, id]);
 
   useEffect(() => () => {
@@ -118,7 +117,7 @@ export default function ConversationScreen() {
   }, [account, id]);
 
   useEffect(() => {
-    load();
+    void load();
     setOpen(focused ? id : null);
     return () => {
       setOpen(null);

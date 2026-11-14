@@ -196,6 +196,7 @@ export function openPreview(url: string) {
 // Wide windows (browser, Mac) show the preview beside the chat; phones open it full screen.
 // Native builds shipped before react-native-webview existed lack the module, so fall back to the full-screen sheet.
 let NativeWebView: any = null;
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- the module is missing in older builds, so it cannot be a static import
 if (Platform.OS !== "web") { try { NativeWebView = require("react-native-webview").WebView; } catch { NativeWebView = null; } }
 export const canSplitPreview = Platform.OS === "web" || !!NativeWebView;
 
