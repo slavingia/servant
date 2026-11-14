@@ -1,8 +1,24 @@
 # Push notifications
 
-The iOS and Android apps register their native device token with the authenticated server. The server sends directly through APNs and FCM HTTP v1. Expo's push relay is not used.
+The iOS and Android apps register their native device token with the authenticated server. The server sends directly through APNs and FCM HTTP v1. Expo's push relay is not used. A browser can be alerted too, through its own push service: see [Browsers (web push)](#browsers-web-push).
 
 The default is direct messages, mentions (`@name`, `@channel`, `@here`), replies in threads you participate in, agent replies, and messages from visitors to the [secure inbox](secure-inbox.md) (Cases). You → Notifications also offers all messages, no notifications, and timed pauses. Archived channels do not notify. The conversation currently open on a device is silenced using a short presence lease. Tapping a notification opens the conversation or thread after validating the current user and registered device.
+
+## Browsers (web push)
+
+Owner's decision, 11/14: the web app can alert a browser that is not showing Servant, for the same things a phone hears about. It is off until a person chooses You → Notifications → **Enable notifications** in that browser, which is when the browser asks its own permission question; **Turn off in this browser** undoes it. It works in Chrome, Edge, Firefox and Safari on a computer and in Chrome and Firefox on Android. A tab on an iPhone cannot (the iPhone app can), and the Mac app keeps its own alerts.
+
+How it travels: the browser subscribes with its own push service (Google for Chrome, Mozilla for Firefox, Apple for Safari, Microsoft for Edge) and gives the server the subscription over the encrypted connection: an address at that push service and two keys. The server sends each alert to that address using the Web Push standards (RFC 8030, VAPID in RFC 8292, message encryption in RFC 8291), implemented in `server/web-push.mjs` with Node's own crypto and no added dependency. The app's service worker (`app/public/sw.js`) shows the alert, and a click brings Servant forward and opens the conversation after the same check of user and device as a phone tap.
+
+**What the push service can see.** The alert is the same allowlisted title, body and opaque routing ids a phone gets, and it is encrypted to keys that never leave the browser, so the push service carries it without being able to read it: unlike APNs and FCM, it sees no sender, title or message text, with previews on or off. It does see that this server sent something to that browser, when, and how large (a few hundred bytes), and the server's contact address if one is set (below). **Show sender and message** still decides what the alert says on screen.
+
+- **The server's key.** Made on first use and kept as `web-push-key` in the data directory with mode 0600. Its public half is what browsers subscribe with (`webPushKey` in `GET /v1/notifications`); the private half never leaves the machine. Back it up with the rest of the data directory: without it every browser has to enable notifications again. A damaged key file is an error, never silently replaced.
+- **Contact address.** Push services ask who is sending. The server gives `contactEmail` from `config.json` as a `mailto:` address, or else `publicUrl` when it is an `https` address, or else nothing. Safari's push service may refuse a server that gives neither, so set one.
+- **Where the server will send.** Only to the browsers' own push services (`fcm.googleapis.com`, `*.push.services.mozilla.com`, `*.push.apple.com`, `*.notify.windows.com`), over https, without following redirects. A subscription naming any other address is refused when it is registered and never contacted, so a signed-in browser cannot point the server at something inside its own network.
+- **Nothing to configure.** No Apple or Google credentials are involved; `push.json` is not needed for browsers. The server must be able to reach those hosts.
+- **Lifecycle.** Alerts wait up to an hour at the push service for a browser that is closed, and a newer alert for the same conversation replaces one still waiting. A subscription the push service reports gone (404 or 410) is removed. Signing out removes the registration, and the browser stops listening for that server. With several servers signed in, each has its own subscription (a service worker registration under `/push/<server>/`), because a subscription belongs to one server's key.
+- **Quiet while reading.** The page reports the conversation on screen while its window is in front, as the phone app does, so that conversation does not alert, and alerts already showing for it are taken down.
+- **Not included.** Calls show as an ordinary alert and do not ring. There is no unread badge on the browser's icon. The web app is not installable, so there is no push on an iPhone's Home Screen.
 
 ## Server configuration
 
