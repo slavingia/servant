@@ -36,3 +36,22 @@ test("the Abbreviations page marks a guess and lets anyone keep it", () => {
   assert.match(page, /\{entry\.guessed \? <Button label="Keep" accessibilityLabel=\{`Keep Agent's guess for \$\{entry\.abbreviation\}`\} kind="secondary"/);
   assert.match(page, /saved\(await lexiconApi\.update\(account, entry\.id, \{ fullName: entry\.fullName \}\)\)/, "keeping saves the same words under a person's name");
 });
+
+test("Send does not wait for the abbreviation list: the box clears and the message goes first", () => {
+  const composer = read("components/Messaging.tsx");
+  const start = composer.indexOf("const send = async (how?: \"queue\") => {");
+  const sent = composer.indexOf("const ok = await onSend(body, uploads, how);", start);
+  assert.ok(start > 0 && sent > start);
+  const before = composer.slice(start, sent);
+  // The lookup is started, not awaited: every read of the list is inside the block that runs beside the send.
+  const from = before.indexOf("void (async () => {"), to = before.indexOf("})().catch(", from);
+  assert.ok(from > 0 && to > from, "the lookup runs beside the send");
+  const beside = before.slice(from, to);
+  assert.match(beside, /await getEntries\(\)/);
+  assert.match(beside, /await getEntries\(true\)/, "a term defined since the composer opened is not learned twice");
+  assert.doesNotMatch(before.slice(0, from) + before.slice(to), /getEntries\(/, "nothing before the send reads the list");
+  // Nothing locks the box or refuses the send because the list could not be read.
+  assert.doesNotMatch(composer, /preparingAbbreviations|Couldn't load abbreviations/);
+  // An edit teaches nothing, so it does not read the list at all.
+  assert.match(before, /if \(body && glossaryAccount && !command && !onCancel\) \{/);
+});

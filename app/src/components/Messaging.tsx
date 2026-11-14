@@ -511,7 +511,6 @@ export function Composer({
   }, [draftKey]);
   useEffect(() => { if (draftKey) setDraft(draftKey, text); }, [draftKey, text]);
   const [busy, setBusy] = useState(false);
-  const [preparingAbbreviations, setPreparingAbbreviations] = useState(false);
   const [files, setFiles] = useState<DraftAttachment[]>([]);
   const [picking, setPicking] = useState(false);
   const [attachmentMenu, setAttachmentMenu] = useState(false);
@@ -639,7 +638,6 @@ export function Composer({
     // What goes back in the box if sending fails: the message as typed, "/queue" and all.
     let typedQueue = false;
     const restore = () => typedQueue ? `/queue ${body}` : body;
-    let loadingAbbreviations = false;
     const scope = sendScope.current;
     const uploads = files.map(({ name, data, document }) => document ? { name, data, document } : { name, data });
     try {
@@ -660,27 +658,19 @@ export function Composer({
         body = later; how = "queue"; typedQueue = true;
       }
       const command = commands && !onCancel && !uploads.length && later === null && parseSlash(body, commands.channel, commands.agent === true, features);
-      if (body && glossaryAccount && !command) {
-        loadingAbbreviations = true;
-        setPreparingAbbreviations(true);
-        let entries = await glossary.getEntries();
-        if (scope !== sendScope.current) return;
-        let unknown = findUnknownAbbreviations(body, entries);
-        if (unknown.length && !onCancel) {
-          // Another member may have defined it since this composer opened.
-          entries = await glossary.getEntries(true);
-          if (scope !== sendScope.current) return;
-          unknown = findUnknownAbbreviations(body, entries);
-        }
-        // Sending never stops to ask what an abbreviation means. The message goes as written; the server adds
-        // Agent's guess and gives the sender a to-do to check it. Nothing here waits for that.
-        if (unknown.length && !onCancel) {
-          const account = glossaryAccount, remember = glossary.rememberEntry;
-          void lexiconApi.learn(account, unknown.slice(0, MAX_LEARNED_TERMS), body).then(result => result.entries.forEach(remember)).catch(() => {});
-        }
+      if (body && glossaryAccount && !command && !onCancel) {
+        // Sending never stops to ask what an abbreviation means, and never waits for the list of them either: the
+        // box clears and the message goes the moment Send is pressed. Beside it, an abbreviation nobody has
+        // defined is handed to the server, which adds Agent's guess and gives the sender a to-do to check it.
         // The message goes exactly as written. Known abbreviations are marked when it is shown, not expanded.
-        loadingAbbreviations = false;
-        setPreparingAbbreviations(false);
+        const account = glossaryAccount, remember = glossary.rememberEntry, getEntries = glossary.getEntries;
+        void (async () => {
+          let unknown = findUnknownAbbreviations(body, await getEntries());
+          // Another member may have defined it since this composer opened.
+          if (unknown.length) unknown = findUnknownAbbreviations(body, await getEntries(true));
+          if (!unknown.length) return;
+          void lexiconApi.learn(account, unknown.slice(0, MAX_LEARNED_TERMS), body).then(result => result.entries.forEach(remember)).catch(() => {});
+        })().catch(() => { /* The list could not be read: the message is sent all the same. */ });
       }
       if (clearNow) setText("");
       touch.current.sentAt = Date.now();
@@ -691,9 +681,9 @@ export function Composer({
     } catch {
       if (scope !== sendScope.current) return;
       if (clearNow) setText(current => current || restore());
-      setFileError(loadingAbbreviations ? "Couldn't load abbreviations. Try again." : "Couldn't send. Your draft is saved here; try again");
+      setFileError("Couldn't send. Your draft is saved here; try again");
     }
-    finally { sending.current = false; setBusy(false); setPreparingAbbreviations(false); }
+    finally { sending.current = false; setBusy(false); }
   };
   const highlight = mentionNames.size > 0 && hasMention(text, mentionNames);
   const deletesWhenEmpty = !!onCancel && !!onDeleteEmpty;
@@ -766,7 +756,7 @@ export function Composer({
           {mentionParts(text, mentionNames).map((part, i) => part.mention ? <Text key={i} style={styles.mention}>{part.text}</Text> : part.text)}{"\u200b"}
         </Text> : null}
         <TextInput
-          editable={(!busy || clearNow) && !preparingAbbreviations}
+          editable={!busy || clearNow}
           ref={input}
           autoFocus={autoFocus}
           testID="composer-input"
