@@ -236,7 +236,8 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
   const reacting = useRef(false);
   const insets = useSafeAreaInsets();
   const context = useContextMenu();
-  const available = !post.deleted && !post.pending && !post.activity;
+  // A message still on its way has nothing to react to, reply to or edit yet.
+  const available = !post.deleted && !post.pending && !post.sending && !post.activity;
   const working = post.pending && post.user.agent;
   const reactions = post.reactions ?? [];
   const choose = async (emoji: string) => {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Platform, StyleSheet, Text, View } from "react-native";
 import { Redirect, router, Stack, useIsFocused, useLocalSearchParams } from "expo-router";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -15,7 +15,9 @@ import { useStableCallback } from "../lib/stable-callback";
 import { useReadReceipts } from "../lib/use-read-receipts";
 import { mergeReadEvent } from "../lib/read-receipts";
 import { latestMessageReceipts } from "../lib/message-status";
-import { canCompactPost } from "../lib/message-device";
+import { canCompactPost, sourceDeviceOf } from "../lib/message-device";
+import { createOutbox } from "../lib/outbox";
+import { isDesktop } from "../lib/desktop";
 import { lastEditableMessage } from "../lib/edit-last-message";
 import { useLiveActions } from "../lib/live";
 import { useSession } from "../lib/session";
@@ -73,6 +75,11 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
   const typingNames = useTyping(conv, root, account?.user.id ?? "");
   const ping = useTypingPing(account, conv, root);
   const rows = useMemo(() => head ? [head, ...(replies ?? [])] : replies ?? [], [head, replies]);
+  // Replies shown the moment Send is pressed, under the ones the server has (lib/outbox.ts).
+  const [outbox] = useState(createOutbox);
+  const [sending, setSending] = useState<Post[]>([]);
+  const postKey = outbox.key;
+  const shown = useMemo(() => sending.length ? [...rows, ...sending] : rows, [rows, sending]);
   const receipts = useMemo(() => conversation && conversation.id === conv && conversation.kind === "dm"
     ? latestMessageReceipts(rows, account.user.id, conversation.members)
     : undefined, [rows, account.user.id, conversation, conv]);
@@ -181,9 +188,12 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
         }
         if (e.event !== "message.created" && e.event !== "message.updated") return;
         const p = e.data;
-        if (p.conversationId === conv && (p.id === root || p.threadRoot === root)) upsert(p);
+        if (p.conversationId !== conv || (p.id !== root && p.threadRoot !== root)) return;
+        // My own reply arriving while its send is still waiting for an answer: the answer brings it in.
+        if (p.threadRoot === root && outbox.hold(e.event, p, account.user.id)) return;
+        upsert(p);
       }),
-    [subscribe, root, conv, account, upsert, load],
+    [subscribe, root, conv, account, upsert, load, outbox],
   );
 
   const media = useMemo(() => mediaFromPosts(rows), [rows]);
@@ -191,13 +201,24 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
   const editLast = lastEditableMessage(replies ?? [], me);
 
   const send = async (text: string, attachments: Upload[] = []) => {
+    // A text reply is in the thread the moment it is sent; one with files shows when they have gone up.
+    const local = attachments.length ? null : outbox.add({ conversationId: conv, threadRoot: root, text, user: { id: me, name: account.user.name }, after: rows.at(-1),
+      sourceDevice: account.user.role === "owner" ? sourceDeviceOf(isDesktop() ? "computer" : Platform.OS === "web" ? "web" : "mobile") : undefined });
+    if (local) { releaseSearchFocus(); setSending(outbox.sending()); }
+    // The server's copy takes the row's place; on a failure the row goes and the composer puts the text back.
+    const settle = (sent: Post | null) => {
+      const arrived = local ? outbox.settle(local.id, sent) : sent ? [sent] : [];
+      if (local) setSending(outbox.sending());
+      arrived.forEach(upsert);
+    };
     try {
       const post = await withPiiConfirm(askPii, confirmPii => api.post(account, conv, text, root, attachments, confirmPii));
       releaseSearchFocus();
-      upsert(post);
+      settle(post);
       setError(null);
       return true;
     } catch (e) {
+      settle(null);
       if (e instanceof PiiDeclined) return false;
       setError(e instanceof ServerError ? e.message : "Couldn't send. Check your connection");
       return false;
@@ -241,7 +262,7 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
   const onAskAgent = useStableCallback(askAgent);
   const onDelete = useStableCallback((p: Post) => { void remove(p); });
   const role = account.user.role;
-  const replyCount = replies?.length ?? 0;
+  const replyCount = (replies?.length ?? 0) + sending.length;
   const renderItem = useCallback(({ item, index }: { item: Post; index: number }) => {
     if (item.id === root) return <View style={[styles.head, item.id === focus && styles.searchMatch]}>
       {item.id === focus && matchLabel ? <Text style={styles.searchLabel}>{matchLabel}</Text> : null}
@@ -251,7 +272,7 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
         {!replyCount ? "No replies yet" : `${replyCount} ${replyCount === 1 ? "reply" : "replies"}`}
       </Text>
     </View>;
-    const above = rows[index - 1];
+    const above = shown[index - 1];
     const newDay = !!above && new Date(item.createdAt).toDateString() !== new Date(above.createdAt).toDateString();
     const compact = above?.id !== root && canCompactPost(above, item, role);
     return <View style={item.id === focus ? styles.searchMatch : undefined}>
@@ -259,7 +280,7 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
       {item.id === focus && matchLabel ? <Text style={styles.searchLabel}>{matchLabel}</Text> : null}
       <PostRow post={item} receipt={receipts?.get(item.id)} onReact={onReact} onAskAgent={onAskAgent} me={me} compact={compact && item.id !== focus} onEdit={setEditing} onDelete={onDelete} />
     </View>;
-  }, [rows, root, focus, matchLabel, title, receipts, me, role, replyCount, styles, onReact, onAskAgent, onDelete]);
+  }, [shown, root, focus, matchLabel, title, receipts, me, role, replyCount, styles, onReact, onAskAgent, onDelete]);
 
   return (
     <MediaGalleryProvider key={`${conv}:${unavailable}`} scope={{ kind: "conversation", id: conv }} items={media}>
@@ -280,7 +301,7 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
           <FlatList
             {...readTracking}
             ref={list}
-            data={rows}
+            data={shown}
             keyboardDismissMode="interactive"
             keyboardShouldPersistTaps="handled"
             // A search hit stays in view through initial measurements. Normal
@@ -307,8 +328,6 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
     </MediaGalleryProvider>
   );
 }
-
-const postKey = (post: Post) => post.id;
 
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },

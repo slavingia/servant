@@ -93,6 +93,8 @@ export type Post = {
   text: string;
   deleted: boolean;
   pending: boolean;
+  /** Only on this device: shown the moment Send was pressed, before the server has answered (outbox.ts). */
+  sending?: boolean;
   replyCount: number;
   lastReplyAt: number | null;
   createdAt: number;

@@ -13,6 +13,9 @@ export function parseSourceDevice(value: unknown): SourceDevice | undefined {
   return { kind, label: labels[kind] };
 }
 
+/** What the server says of a message sent from this kind of device, for a message shown before the server has answered. */
+export const sourceDeviceOf = (kind: "mobile" | "computer" | "web"): SourceDevice => ({ kind, label: labels[kind] });
+
 export function messageDeviceLabel(viewerRole: string | undefined, message: MessageDevice): string | null {
   if (message.user?.agent || message.activity || message.pending || (message.role && message.role !== "user")) return null;
   const device = parseSourceDevice(message.sourceDevice);

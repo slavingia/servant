@@ -12,7 +12,9 @@ import { PresenceLine, usePresentPeers } from "../../components/Presence";
 import { useReadReceipts } from "../../lib/use-read-receipts";
 import { mergeReadEvent } from "../../lib/read-receipts";
 import { latestMessageReceipts } from "../../lib/message-status";
-import { canCompactPost } from "../../lib/message-device";
+import { canCompactPost, sourceDeviceOf } from "../../lib/message-device";
+import { createOutbox } from "../../lib/outbox";
+import { isDesktop } from "../../lib/desktop";
 import { lastEditableMessage } from "../../lib/edit-last-message";
 import { TypingLine, useTyping, useTypingPing } from "../../lib/typing";
 import { useActiveCall } from "../../lib/active-call";
@@ -35,7 +37,6 @@ import { channelVisibility } from "../../lib/channel-visibility";
 import { groupActivity } from "../../lib/activity-groups";
 
 const errorText = (e: unknown, fallback: string) => (e instanceof ServerError ? e.message : fallback);
-const postKey = (post: Post) => post.id;
 
 // Merge posts by id, keeping order by id (ids are increasing numbers).
 function merge(list: Post[], incoming: Post[]) {
@@ -81,6 +82,10 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
   const [joined, setJoined] = useState(true);
   const [calling, setCalling] = useState(false);
   const [posts, setPosts] = useState<Post[] | null>(null);
+  // Messages shown the moment Send is pressed, under the ones the server has (lib/outbox.ts).
+  const [outbox] = useState(createOutbox);
+  const [sending, setSending] = useState<Post[]>([]);
+  const postKey = outbox.key;
   const [more, setMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // The answer to a command like /help: shown plainly, not as an error. Tap it to dismiss.
@@ -169,6 +174,8 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
         } else if (e.event === "message.created" || e.event === "message.updated") {
           const p = e.data;
           if (p.conversationId !== id || p.threadRoot) return;
+          // My own message arriving while its send is still waiting for an answer: the answer brings it in.
+          if (outbox.hold(e.event, p, account.user.id)) return;
           applyPosts([p]);
         } else if (e.event === "messages.read" && e.data.conversationId === id) {
           snapshot.current?.reads.push(e.data);
@@ -177,7 +184,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
           void load();
         }
       }),
-    [subscribe, account, id, applyPosts, load],
+    [subscribe, account, id, applyPosts, load, outbox],
   );
 
   const media = useMemo(() => mediaFromPosts(posts ?? []), [posts]);
@@ -261,12 +268,23 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
       const handled = await runCommand(text);
       if (handled !== null) return handled;
     }
+    // A text message is in the conversation the moment it is sent; one with files shows when they have gone up.
+    const local = attachments.length ? null : outbox.add({ conversationId: id, threadRoot: null, text, user: { id: me, name: account.user.name }, after: posts?.at(-1),
+      sourceDevice: account.user.role === "owner" ? sourceDeviceOf(isDesktop() ? "computer" : Platform.OS === "web" ? "web" : "mobile") : undefined });
+    if (local) setSending(outbox.sending());
+    // The server's copy takes the row's place; on a failure the row goes and the composer puts the text back.
+    const settle = (sent: Post | null) => {
+      const arrived = local ? outbox.settle(local.id, sent) : sent ? [sent] : [];
+      if (local) setSending(outbox.sending());
+      if (arrived.length) applyPosts(arrived);
+    };
     try {
       const p = await withPiiConfirm(askPii, confirmPii => api.post(account, id, text, undefined, attachments, confirmPii));
-      applyPosts([p]);
+      settle(p);
       setError(null);
       return true;
     } catch (e) {
+      settle(null);
       if (e instanceof PiiDeclined) return false;
       setError(errorText(e, "Couldn't send. Check your connection"));
       return false;
@@ -320,7 +338,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
   const openThread = (p: Post) => router.push({ pathname: "/thread", params: { conv: id, root: p.id, title } });
   const askAgent = (p: Post) => { askAgentAbout(account, p, conv).catch(e => setError(errorText(e, "Couldn't start a chat with the agent"))); };
   // Joins and leaves close together read as one line ("Ann and Bo joined the channel").
-  const data = useMemo(() => groupActivity([...(posts ?? [])].reverse()), [posts]);
+  const data = useMemo(() => groupActivity([...(posts ?? []), ...sending].reverse()), [posts, sending]);
   // Every row gets the same handlers for as long as the screen is open, and the list gets the same
   // rows until the messages change: typing, a presence change or an error line draw no message again.
   const onReact = useStableCallback(react);
