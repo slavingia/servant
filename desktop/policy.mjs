@@ -48,6 +48,11 @@ export function frameOrigins(value) {
   }))];
 }
 // The app window's Content Security Policy. Tweets embed from platform.twitter.com.
+// The app's page as the Mac app serves it: marked, so the skeleton it shows before its script loads
+// (app/public/index.html) leaves room for the window controls, as the sidebar that replaces it does.
+export function desktopPage(html) {
+  return String(html).replace(/<html(?=[\s>])/, '<html data-servant-desktop');
+}
 export function contentSecurityPolicy(origins = []) {
   return `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: data:; font-src 'self' data:; connect-src 'self' https: http://127.0.0.1:* http://localhost:*; object-src 'none'; frame-src ${[...origins, 'https://platform.twitter.com'].join(' ')}; base-uri 'self'; form-action 'none'`;
 }

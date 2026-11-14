@@ -2,7 +2,7 @@ import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, Menu, Notificatio
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { APP_URL, DOWNLOAD_PAGE, accountFileName, activeAccountKey, desktopNotification, allowedPermission, assetPath, contentSecurityPolicy, externalUrl, frameOrigins, inviteLink, isAppUrl, workspaceConfig } from './policy.mjs';
+import { APP_URL, DOWNLOAD_PAGE, accountFileName, activeAccountKey, desktopNotification, desktopPage, allowedPermission, assetPath, contentSecurityPolicy, externalUrl, frameOrigins, inviteLink, isAppUrl, workspaceConfig } from './policy.mjs';
 import { createUpdates } from './updates.mjs';
 import { createWebUpdates } from './ota.mjs';
 
@@ -65,6 +65,11 @@ else {
       const headers = new Headers(result.headers);
       headers.set('Content-Security-Policy', csp);
       headers.set('X-Content-Type-Options', 'nosniff');
+      // The page itself is marked as the Mac app's (policy.mjs); every other file is served as it is.
+      if (file === path.join(webRoot, 'index.html') && result.ok) {
+        headers.delete('Content-Length');
+        return new Response(desktopPage(await result.text()), { status: result.status, headers });
+      }
       return new Response(result.body, { status: result.status, headers });
     });
     // Copy actions may write plain text, and meetings may use the camera and

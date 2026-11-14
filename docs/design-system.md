@@ -394,6 +394,17 @@ chosen, the open one has room to explain each choice.
 
 ## Screen states
 
+- Opening the app shows the signed-in app's shape, never a logo: Home's title,
+  filters and rows on a phone, the sidebar beside Home in the wide layout. Four
+  places draw it, each handing over to the next without anything moving: the
+  iOS launch screen (`plugins/with-launch-skeleton.js`), the web page before
+  its script loads (`public/index.html`, which the Mac app shows too), the
+  launch screen while the saved account is read (`LaunchScreen.tsx`), and then
+  Home, the sidebar and the wide Home while their lists load
+  (`HomeSkeleton.tsx`). The phone's shapes and the page colors come from one
+  file, `launch-skeleton.json`; change a shape there, and in the page when it
+  is the wide layout's (`launch-skeleton.test.ts`). Android's launch screen
+  can only be a color, so it is the page color in light and dark.
 - Explain what an empty screen is for and offer the next useful action.
 - Show initial loading separately from an empty result.
 - Keep existing content visible during refresh and reconnection.

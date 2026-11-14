@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { darkColors, lightColors } from "./theme-colors.ts";
+import { darkColors, lightColors, onBrandTint } from "./theme-colors.ts";
 
 const require = createRequire(import.meta.url);
 const app = path.join(import.meta.dirname, "../..");
@@ -17,6 +17,7 @@ type Shape = { colors: Record<"light" | "dark", { background: string; bar: strin
 const shape: Shape = require("../../launch-skeleton.json");
 const plugin = require("../../plugins/with-launch-skeleton.js");
 const config = JSON.parse(read("app.json")).expo;
+const page = read("public/index.html");
 const listTop = shape.dividerY + 1;
 const phoneBars: Bar[] = [...shape.header, ...shape.list.map(bar => ({ ...bar, y: bar.y + listTop }))];
 
@@ -101,6 +102,43 @@ test("the iOS launch screen draws the same bars from the top of the safe area", 
 
   const once = structuredClone(board);
   assert.deepEqual(plugin.applyLaunchSkeleton(board), once, "a second prebuild adds nothing");
+});
+
+test("the web page shows the same shapes before its script loads", () => {
+  // The phone's bars, one for one and in order, with the rule under the filters.
+  const markup = phoneBars.map(bar => `<i style="left:${bar.x}px;top:${bar.y}px;width:${bar.width}px;height:${bar.height}px"></i>`);
+  const drawn = [...page.matchAll(/<i style="[^"]*"><\/i>/g)].map(match => match[0]);
+  assert.deepEqual(drawn, markup, "public/index.html draws launch-skeleton.json's bars");
+  assert.match(page, new RegExp(`#launch \\.rule \\{ left: 0; right: 0; top: ${shape.dividerY}px; height: 1px;`));
+
+  // The page's colors in each appearance, the brand color behind the sidebar, and its one strength of white.
+  const { light, dark } = shape.colors;
+  assert.ok(page.includes(`html { background: ${light.background}; color-scheme: light; --page: ${light.background}; --bar: ${light.bar}; }`));
+  assert.ok(page.includes(`html { background: ${dark.background}; color-scheme: dark; --page: ${dark.background}; --bar: ${dark.bar}; }`));
+  assert.ok(page.includes(`#launch .wide { display: none; position: absolute; inset: 0; background: ${lightColors.navy}; }`));
+  assert.equal(lightColors.navy, darkColors.navy, "the sidebar is the same in light and dark");
+  assert.ok(page.includes(`--bar: ${onBrandTint.field}; }`));
+  const colors = new Set(page.match(/#[0-9A-Fa-f]{6}\b|rgba?\([^)]*\)/g));
+  assert.deepEqual([...colors].sort(), [light.background, light.bar, dark.background, dark.bar, lightColors.navy, onBrandTint.field].sort(), "no color of its own");
+
+  // The wide layout starts where the app's does, with the app's sidebar.
+  const wide = Number(read("src/lib/layout.ts").match(/WIDE_LAYOUT_MIN_WIDTH = (\d+)/)![1]);
+  const sidebar = Number(read("src/components/Sidebar.tsx").match(/SIDEBAR_WIDTH = (\d+)/)![1]);
+  assert.ok(page.includes(`@media (min-width: ${wide}px) {\n        #launch .phone { display: none; }\n        #launch .wide { display: flex; }`));
+  assert.ok(page.includes(`#launch .side { width: ${sidebar}px;`));
+
+  // Inside #root, so the app's first frame replaces it; no script (the Mac app's policy allows none inline),
+  // no words and no logo.
+  assert.match(page, /<div id="root">\s*<div id="launch" aria-hidden="true">/);
+  assert.doesNotMatch(page, /<script/i);
+  // With scripts off nothing replaces the shapes, so the page still says why, above them.
+  assert.match(page, /<noscript> You need to enable JavaScript to run this app\. <\/noscript>/);
+  assert.match(page, /noscript \{ position: fixed; z-index: 1; /);
+  const body = page.slice(page.indexOf('<div id="launch"'), page.lastIndexOf("</body>"));
+  assert.equal(body.replace(/<[^>]*>/g, "").trim(), "", "shapes only");
+  assert.doesNotMatch(body, /<(img|svg|picture)\b/i);
+  // Expo fills these in when it builds the page.
+  assert.ok(page.includes("<title>%WEB_TITLE%</title>") && page.includes('lang="%LANG_ISO_CODE%"'));
 });
 
 test("the app's launch screen and Home's loading rows are the same shapes", () => {
