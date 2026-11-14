@@ -3,6 +3,7 @@ import { AppState, Platform } from "react-native";
 import { useIsFocused } from "expo-router";
 import { ExpoSpeechRecognitionModule } from "expo-speech-recognition";
 import { createDictationCoordinator, type DictationState } from "./dictation-session";
+import { remembered } from "./remembered";
 
 export type Dictation = DictationState & {
   available: boolean;
@@ -26,6 +27,15 @@ const coordinator = createDictationCoordinator({
   },
 }, { permissionMayBackgroundApp: Platform.OS === 'android' });
 
+// Whether this phone can take dictation is a question for the system (a speech recognizer is made to ask it),
+// answered while the composer draws for the first time. Every conversation, thread and chat has a composer, so
+// each screen opened was held up by it. The answer is remembered, and asked again when the app comes back to
+// the front, in case dictation was turned on or off in Settings meanwhile.
+const recognitionAvailable = remembered(() => {
+  try { return ExpoSpeechRecognitionModule.isRecognitionAvailable(); } catch { return false; }
+});
+AppState.addEventListener("change", state => { if (state === "active") recognitionAvailable.forget(); });
+
 function deviceLanguage() {
   try { return Intl.DateTimeFormat().resolvedOptions().locale || "en-US"; } catch { return "en-US"; }
 }
@@ -33,9 +43,7 @@ function deviceLanguage() {
 export function useDictation(onText: (spoken: string) => void): Dictation {
   const focused = useIsFocused();
   const [state, setState] = useState<DictationState>({ listening: false, partial: '', error: '' });
-  const [available] = useState(() => {
-    try { return ExpoSpeechRecognitionModule.isRecognitionAvailable(); } catch { return false; }
-  });
+  const [available] = useState(recognitionAvailable.get);
   const commit = useRef(onText);
   useLayoutEffect(() => { commit.current = onText; });
   const session = useRef<ReturnType<typeof coordinator.createSession> | null>(null);
