@@ -14,6 +14,7 @@ import { isSessionExpired, isSignedOut } from "../../lib/session-expiry-rules";
 import { api, ServerError, type Chat } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { useLiveActions } from "../../lib/live";
+import { openingChat } from "../../lib/chat-cache";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../../lib/theme";
 import { activeAgentTurn, agentTurnLabel, liveAgentLine } from '../../lib/agent-turns';
 import { LiveStatus } from "../../components/LiveStatus";
@@ -85,6 +86,12 @@ export default function Chats() {
   );
 
   if (!account) return null;
+  // One of your own chats: the screen is told so (it need not ask whose it is) and its requests leave at the
+  // press, before the screen has been built (lib/chat-cache.ts).
+  const openChat = (chat: Chat, extra: { compose?: string } = {}) => {
+    openingChat(account, chat.id);
+    router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, mine: "1", ...extra } });
+  };
 
   const act = async (chat: Chat, remove = false) => {
     if (busy.current) return;
@@ -133,7 +140,7 @@ export default function Chats() {
     setError(null);
     try {
       const chat = await api.newChat(account, newChatOptions(project));
-      router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, compose: "1" } });
+      openChat(chat, { compose: "1" });
     } catch (e) {
       setError(e instanceof ServerError ? e.message : "Couldn't start a chat");
     } finally {
@@ -172,7 +179,7 @@ export default function Chats() {
             {actionError && !deleting ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
             {account.user.role === 'owner' && chats?.some(chat => chat.latestTurn?.status === 'waiting_for_approval') ? <View style={styles.inbox}>
               <Text accessibilityRole="header" style={styles.inboxTitle}>Needs your approval</Text>
-              {chats.filter(chat => chat.latestTurn?.status === 'waiting_for_approval').map(chat => <Pressable key={chat.id} accessibilityRole="button" accessibilityLabel={`Review action in ${chat.title}`} onPress={() => router.push({ pathname: '/chat/[id]', params: { id: chat.id, title: chat.title } })} style={styles.approvalRow}>
+              {chats.filter(chat => chat.latestTurn?.status === 'waiting_for_approval').map(chat => <Pressable key={chat.id} accessibilityRole="button" accessibilityLabel={`Review action in ${chat.title}`} onPress={() => openChat(chat)} style={styles.approvalRow}>
                 <Text style={styles.rowTitle}>{chat.title}</Text><Text style={styles.approvalDetail}>{chat.latestTurn?.approval?.description || 'Review this action to continue.'}</Text><Text style={styles.review}>Review action →</Text>
               </Pressable>)}
             </View> : null}
@@ -215,6 +222,7 @@ export default function Chats() {
                 onPress={() => {
                   // Opening it reads it; the server records that when the chat loads.
                   if (unread) setShared(list => list.map(chat => chat.id === item.id ? { ...chat, unread: 0 } : chat));
+                  openingChat(account, item.id, true);
                   router.push({ pathname: "/chat/[id]", params: { id: item.id, title: item.title, readOnly: "1", author: item.author?.name ?? "" } });
                 }}
                 style={({ pressed }) => [styles.row, styles.rowWrap, pressed && { backgroundColor: colors.surface }]}>
@@ -246,7 +254,7 @@ export default function Chats() {
                   onPress={() => bind.onPress(() => {
                     // Clear the badge right away; the chat screen tells the server.
                     if (unread) setChats(list => list?.map(chat => chat.id === item.id ? { ...chat, unread: 0 } : chat) ?? list);
-                    router.push({ pathname: "/chat/[id]", params: { id: item.id, title: item.title } });
+                    openChat(item);
                   })}
                   onLongPress={bind.onLongPress}
                   accessibilityActions={bind.accessibilityActions}

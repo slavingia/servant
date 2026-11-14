@@ -33,7 +33,7 @@ test("only the screens gone back to most are kept", () => {
 test("signing out or changing account drops everything every screen kept", async () => {
   const conversations = createScreenCache<string>();
   const chats = createScreenCache<string>();
-  const early = createEarlyRequests<string>();
+  const early = createEarlyRequests<Promise<string>>();
   conversations.set("a:c1", "posts");
   chats.set("a:chat1", "messages");
   early.start("a:c1", 0, async () => "on its way");
@@ -45,23 +45,26 @@ test("signing out or changing account drops everything every screen kept", async
 
 test("a request started at the press is the one the screen uses, once", async () => {
   let clock = 1000, calls = 0;
-  const early = createEarlyRequests<string>(5000, () => clock);
+  const early = createEarlyRequests<Promise<string>>(5000, () => clock);
   early.start("c1", 7, async () => { calls++; return "first page"; });
   // A second press on the same row does not ask twice.
   early.start("c1", 9, async () => { calls++; return "again"; });
   assert.equal(calls, 1);
   clock += 300;
+  // Looking leaves it for the screen that takes it.
+  assert.equal(await early.peek("c1")?.result, "first page");
   const taken = early.take("c1");
   assert.equal(taken?.mark, 7);
   assert.equal(await taken?.result, "first page");
   // Taken once: the screen's later reloads make their own request.
   assert.equal(early.take("c1"), null);
+  assert.equal(early.peek("c1"), null);
   assert.equal(early.take("never-started"), null);
 });
 
 test("a request too old to trust is not used, and a new press starts another", async () => {
   let clock = 0, calls = 0;
-  const early = createEarlyRequests<number>(5000, () => clock);
+  const early = createEarlyRequests<Promise<number>>(5000, () => clock);
   early.start("c1", 0, async () => ++calls);
   clock = 5001;
   assert.equal(early.take("c1"), null);
@@ -75,12 +78,14 @@ test("a request too old to trust is not used, and a new press starts another", a
   assert.equal(await early.take("c1")?.result, 3);
 });
 
-test("a request nobody takes can fail without an unhandled error", async () => {
-  const early = createEarlyRequests<string>();
-  early.start("c1", 0, async () => { throw new Error("offline"); });
-  await new Promise(resolve => setTimeout(resolve, 5));
-  // The screen that does take it sees the failure, like any load.
-  await assert.rejects(early.take("c1")!.result, /offline/);
+test("several requests can be started together and awaited one by one", async () => {
+  const early = createEarlyRequests<{ info: Promise<string>; messages: Promise<string[]> }>();
+  early.start("chat1", 0, () => ({ info: Promise.resolve("mine"), messages: Promise.resolve(["hello"]) }));
+  // One part answers a question before the screen exists; the screen then takes all of it.
+  assert.equal(await early.peek("chat1")!.result.info, "mine");
+  const taken = early.take("chat1")!.result;
+  assert.deepEqual(await taken.messages, ["hello"]);
+  assert.equal(early.peek("chat1"), null);
 });
 
 test("what is kept is the newest page, like a fresh open", () => {

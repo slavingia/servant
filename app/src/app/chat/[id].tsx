@@ -25,7 +25,8 @@ import { estimateCost, formatCost, formatTokens } from "../../lib/token-format";
 import { helpText, parseSlash } from "../../lib/slash-commands";
 import { PiiDeclined, withPiiConfirm } from "../../lib/pii-warning";
 import { usePiiConfirm } from "../../components/PiiConfirm";
-import { api, sendMessage, ServerError, uploadPost, type Chat, type Project, type Message, type Upload } from "../../lib/server";
+import { chatLoad, chatTurns, forgetChat, keepChat, keptChat, peekChatLoad, takeChatLoad } from "../../lib/chat-cache";
+import { api, sendMessage, ServerError, uploadPost, type Account, type Chat, type Project, type Message, type Upload } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { anyTalk, useFeatures } from "../../lib/features";
 import { useLiveActions } from "../../lib/live";
@@ -44,22 +45,29 @@ import { Toggle } from "../../components/Toggle";
 type Row = Message & { waitingForAgent?: boolean; queuedTurn?: AgentTurn; agentWorking?: boolean; pending?: boolean; failed?: boolean; localId?: string; uploads?: Upload[]; forwardPreview?: ForwardCard | null };
 
 export default function ChatScreen() {
-  const { id, readOnly } = useLocalSearchParams<{ id: string; readOnly?: string }>();
+  const { id, readOnly, mine } = useLocalSearchParams<{ id: string; readOnly?: string; mine?: string }>();
   const { account } = useSession();
+  const styles = useStyles();
   const key = `${account?.serverUrl ?? ""}:${account?.token ?? ""}:${id}`;
-  // A link (e.g. "Working on it in ..." from @agent) doesn't say whose chat it is: ask the server.
-  const [theirs, setTheirs] = useState<boolean | null>(readOnly === "1" ? true : null);
+  // Whose chat this is. The row that opened it says so (readOnly or mine), or the chat was open before.
+  // Only a link that doesn't say (e.g. "Working on it in ..." from @agent) asks the server, and the chat's
+  // messages are asked for in the same moment (lib/chat-cache.ts): one wait, not one after the other.
+  const [answer, setAnswer] = useState<{ key: string; theirs: boolean } | null>(null);
+  const remembered = useMemo(() => account && id ? keptChat(account, String(id))?.info : undefined, [account, id]);
+  const theirs = readOnly === "1" ? true : mine === "1" ? false : remembered ? !!remembered.readOnly : answer?.key === key ? answer.theirs : null;
   useEffect(() => {
-    if (readOnly === "1" || !account || !id) return;
+    if (theirs !== null || !account || !id) return;
     let live = true;
-    api.chat(account, String(id)).then(c => { if (live) setTheirs(!!c.readOnly); }).catch(() => { if (live) setTheirs(false); });
+    chatLoad(account, String(id)).info.then(c => { if (live) setAnswer({ key, theirs: !!c.readOnly }); }).catch(() => { if (live) setAnswer({ key, theirs: false }); });
     return () => { live = false; };
-  }, [account, id, readOnly]);
+  }, [account, id, key, theirs]);
+  if (!account) return null;
   // Someone else's shared chat opens read-only: no composer, turns or controls.
   if (theirs === true) return <SharedChatView key={key} />;
-  if (theirs === null) return null;
+  // Not known yet: the same placeholder the chat shows while its messages load.
+  if (theirs === null) return <View style={styles.root}><SkeletonRows label="Loading messages" count={8} style={{ flex: 1 }} /></View>;
   // A different conversation or account starts with fresh draft and send state.
-  return <ChatConversation key={key} />;
+  return <ChatConversation key={key} account={account} />;
 }
 
 function SharedChatView() {
@@ -68,16 +76,21 @@ function SharedChatView() {
   const { id, title, author } = useLocalSearchParams<{ id: string; title?: string; author?: string }>();
   const { account } = useSession();
   const features = useFeatures();
-  const [messages, setMessages] = useState<Message[] | null>(null);
-  const [chat, setChat] = useState<Chat | null>(null);
+  // What this chat showed the last time it was open is on screen at once; a fresh copy loads behind it.
+  const [kept] = useState(() => account && id ? keptChat(account, id) : undefined);
+  const [messages, setMessages] = useState<Message[] | null>(kept?.messages ?? null);
+  const [chat, setChat] = useState<Chat | null>(kept?.info ?? null);
   const [error, setError] = useState<string | null>(null);
   const [showTitle, setShowTitle] = useState(false);
   const [forwarding, setForwarding] = useState<ForwardTarget | null>(null);
   const load = useCallback(async () => {
     if (!account || !id) return;
     try {
-      const [history, info] = await Promise.all([api.messages(account, id), api.chat(account, id)]);
+      // The first load takes the requests started when the chat's row was pressed; a retry asks again.
+      const first = takeChatLoad(account, id);
+      const [history, info] = await Promise.all([first?.messages ?? api.messages(account, id), first?.info ?? api.chat(account, id)]);
       setMessages(history); setChat(info); setError(null);
+      keepChat(account, id, { info, messages: history, turns: [] });
     } catch (e) {
       setMessages(current => current ?? []);
       setError(e instanceof ServerError ? e.message : "Check your connection and try again.");
@@ -303,22 +316,30 @@ function OptionsSheet({ id, title, shared, projectId, projectShared, onProject, 
   </Modal>;
 }
 
-function ChatConversation() {
+function ChatConversation({ account }: { account: Account }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const { id, title, compose, forward, forwardAuthor, forwardWhere, forwardText, forwardFiles } = useLocalSearchParams<{ id: string; title?: string; compose?: string; forward?: string; forwardAuthor?: string; forwardWhere?: string; forwardText?: string; forwardFiles?: string }>();
-  const { account, setAccount } = useSession();
+  const { setAccount } = useSession();
   const { refreshAgent } = useLiveActions();
+  // What this chat showed the last time it was open (lib/chat-cache.ts): its messages, the "Worked for" lines
+  // and its settings are on screen at once, and a fresh copy loads behind them. The reply in progress is
+  // never taken from memory: it shows when the server says there is one.
+  const [kept] = useState(() => keptChat(account, String(id)));
+  const lastInfo = useRef<Chat | null>(kept?.info ?? null);
+  const lastTurns = useRef<AgentTurn[]>(kept?.turns ?? []);
+  // Whether this chat has shown its messages: a refresh that fails then leaves them up instead of an error page.
+  const hasShown = useRef(!!kept);
   // A message brought here with "Ask the agent", until it's sent or removed.
   const [pendingForward, setPendingForward] = useState<string | null>(forward || null);
   const forwardFileCount = Number(forwardFiles) || 0;
-  const [messages, setMessages] = useState<Row[] | null>(null);
+  const [messages, setMessages] = useState<Row[] | null>(kept?.messages ?? null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const { ask: askPii, dialog: piiDialog } = usePiiConfirm();
-  const [chatUsage, setChatUsage] = useState<Chat["usage"] | null>(null);
+  const [chatUsage, setChatUsage] = useState<Chat["usage"] | null>(kept?.info?.usage ?? null);
   const refreshUsage = useCallback(() => { if (account && id) api.chat(account, String(id)).then(c => setChatUsage(c.usage ?? null)).catch(() => {}); }, [account, id]);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const uploaded = useRef(new Map<string, string>());
@@ -327,7 +348,7 @@ function ChatConversation() {
   // (steerRequested), or held until it finishes.
   const [waiting, setWaiting] = useState<AgentTurn[]>([]);
   // Finished replies by the message they wrote, for "Worked for 12 seconds" above each one.
-  const [worked, setWorked] = useState<Map<string, AgentTurn>>(() => new Map());
+  const [worked, setWorked] = useState<Map<string, AgentTurn>>(() => workByMessage(kept?.turns ?? []));
   // The reply seen being worked on here. Its summary eases in when it lands; older ones are simply there.
   const [watched, setWatched] = useState<string | null>(null);
   if (turn && turn.status !== "queued" && activeAgentTurn(turn) && watched !== turn.id) setWatched(turn.id);
@@ -335,19 +356,19 @@ function ChatConversation() {
   const [actionError, setActionError] = useState<string | null>(null);
   // The answer to a command like /help: shown plainly, not as an error. Tap it to dismiss.
   const [commandNote, setCommandNote] = useState<string | null>(null);
-  const [heading, setHeading] = useState(title && title !== "New chat" ? title : "New chat");
+  const [heading, setHeading] = useState(title && title !== "New chat" ? title : kept?.info?.title || "New chat");
   // The full agent takes any file, so a ZIP of a prototype can be hosted.
   const [showTitle, setShowTitle] = useState(false);
   const [forwarding, setForwarding] = useState<ForwardTarget | null>(null);
   const features = useFeatures();
-  const [shared, setShared] = useState<boolean | null>(null);
+  const [shared, setShared] = useState<boolean | null>(kept?.info ? kept.info.shared !== false : null);
   const [sharing, setSharing] = useState(false);
-  const [projectId, setProjectId] = useState<string | null>(null);
-  const [projectShared, setProjectShared] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(kept?.info?.projectId ?? null);
+  const [projectShared, setProjectShared] = useState(kept?.info?.projectShared === true);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(kept?.info?.mode === "vibe" && kept.info.previewUrl ? kept.info.previewUrl : null);
   // What this chat is about, changeable until the first message is sent. Prototyping is set when a
   // chat is made, so switching to or from it starts a fresh chat in place of this empty one.
-  const [vibe, setVibe] = useState(false);
+  const [vibe, setVibe] = useState(kept?.info?.mode === "vibe");
   const projects = useProjects();
   const [choosing, setChoosing] = useState(false);
   const [switching, setSwitching] = useState(false);
@@ -361,8 +382,10 @@ function ChatConversation() {
   useEffect(() => {
     if (!account || !id) return;
     let live = true;
-    api.chat(account, id).then(c => {
+    // Asked for together with the messages when the chat was opened; on its own after that.
+    (peekChatLoad(account, id)?.info ?? api.chat(account, id)).then(c => {
       if (!live) return;
+      lastInfo.current = c;
       if (c.title && c.title !== "New chat") setHeading(h => h === "New chat" ? c.title : h);
       setChatUsage(c.usage ?? null);
       setShared(c.shared !== false);
@@ -400,11 +423,12 @@ function ChatConversation() {
     if (!account || !id) return;
     const request = {};
     currentLoad.current = request;
-    return Promise.all([api.messages(account, id), api.agentTurns(account, id).catch(e => {
-      if (e instanceof ServerError && e.status === 404) return [];
-      throw e;
-    })]).then(([history, turns]) => {
+    // The first load takes the requests started when the chat's row was pressed; a retry asks again.
+    const first = takeChatLoad(account, id);
+    return Promise.all([first?.messages ?? api.messages(account, id), first?.turns ?? chatTurns(account, id)]).then(([history, turns]) => {
       if (request === currentLoad.current) {
+        hasShown.current = true;
+        lastTurns.current = turns;
         setMessages(history);
         const split = splitTurns(turns);
         setTurn(split.current); setWaiting(split.waiting); setWorked(workByMessage(turns));
@@ -415,6 +439,8 @@ function ChatConversation() {
       }
     }).catch(e => {
       if (request !== currentLoad.current) return;
+      // Messages from the last visit stay up; the regular look at the turns catches up when the server answers.
+      if (hasShown.current) return;
       setMessages([]);
       setLoadError(e instanceof ServerError ? e.message : "Check your connection and try again.");
     }).finally(() => {
@@ -442,6 +468,7 @@ function ChatConversation() {
       try {
         const turns = await api.agentTurns(account, id);
         if (!active) return;
+        lastTurns.current = turns;
         const { current: latest, waiting: listed } = splitTurns(turns);
         const queued = listed.map(t => joining.current.has(t.id) ? { ...t, steerRequested: true } : t);
         const newest = Math.max(0, ...turns.map(t => t.updatedAt));
@@ -513,10 +540,15 @@ function ChatConversation() {
   // the account object was replaced (a rename, a deep-work change from another device), deleting a chat you were still in.
   const accountRef = useRef(account);
   useEffect(() => { accountRef.current = account; }, [account]);
-  useEffect(() => () => { const a = accountRef.current; if (discardable.current && a) void api.deleteChat(a, String(id)).catch(() => {}); }, [id]);
+  useEffect(() => () => { const a = accountRef.current; if (discardable.current && a) { forgetChat(a, String(id)); void api.deleteChat(a, String(id)).catch(() => {}); } }, [id]);
   const loaded = messages !== null && !loadError;
   useEffect(() => { if (id && loaded && account) setItem(lastChatKey(account.user.id), String(id)).catch(() => {}); }, [id, loaded, account]);
-  if (!account) return null;
+  // Keep what the server has confirmed for the next visit: never a message still on its way or a reply being written.
+  useEffect(() => {
+    if (messages === null || loadError || !hasShown.current || messages.some(row => row.localId || row.pending)) return;
+    const info = lastInfo.current ? { ...lastInfo.current, title: heading, projectShared, ...(shared === null ? {} : { shared }), ...(projectId ? { projectId } : {}) } : null;
+    keepChat(account, String(id), { info, messages, turns: lastTurns.current });
+  }, [account, id, messages, loadError, worked, heading, shared, projectId, projectShared]);
 
   // A look at the turns alone. The conversation itself reloads on the regular refresh.
   const refreshTurns = () => refreshNow.current(true);
