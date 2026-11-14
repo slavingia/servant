@@ -98,6 +98,10 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       // only the rows that did are drawn again (and nothing is when the list says the same thing).
       setConversations(current => reuseEqual(current, list.map((c) => (c.id === open.current && AppState.currentState === "active" ? { ...c, unread: 0 } : c))));
       setError(null);
+      // The conversations most likely to be opened next (unread first) are loaded quietly, one at a time, so
+      // opening one shows its messages at once instead of a spinner (lib/conversation-cache.ts). Asked on every
+      // read of the list: after the live stream starts over, what was kept is gone and is loaded again.
+      warmConversations(account, list);
     } catch (e) {
       if (version !== refreshVersion.current) return;
       if (isSignedOut(e)) return void signOut();
@@ -298,9 +302,6 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const shown = useMemo(() => account && conversations ? withRowChanges(conversations, changes) : null, [account, conversations, changes]);
   const latest = useRef(shown);
   useEffect(() => { latest.current = shown; }, [shown]);
-  // The conversations most likely to be opened next (unread first) are loaded quietly, one at a time, so
-  // opening one shows its messages at once instead of a spinner (lib/conversation-cache.ts).
-  useEffect(() => { if (account && shown) warmConversations(account, shown); }, [account, shown]);
   const peek = useCallback((id: string) => latest.current?.find(c => c.id === id), []);
   const presence = useMemo(() => presenceState.identity === identity ? presenceState.people : {}, [presenceState, identity]);
   const counted = useMemo(() => {

@@ -116,7 +116,8 @@ test("conversations and chats likely to be opened next are loaded ahead, and kep
   const path = await import("node:path");
   const read = (file: string) => fs.readFileSync(path.join(import.meta.dirname, "..", file), "utf8");
   const live = read("lib/live.tsx");
-  assert.match(live, /useEffect\(\(\) => \{ if \(account && shown\) warmConversations\(account, shown\); \}, \[account, shown\]\);/);
+  // Asked on every read of the list, so conversations are loaded again after the live stream starts over.
+  assert.match(live, /setError\(null\);\n(\s+\/\/ [^\n]+\n)+\s+warmConversations\(account, list\);/);
   assert.match(live, /countLiveEvent\(e\);\n\s+\/\/ [^\n]+\n\s+followLive\(account, e\);/);
   assert.match(live, /warmChats\(account, list\);/);
   const conversations = read("lib/conversation-cache.ts");
