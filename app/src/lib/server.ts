@@ -202,6 +202,8 @@ export type Conversation = {
   memberCount: number;
   members?: Person[];
   unread: number;
+  /** How far you have read here, as a message id: the "New" line goes above the first message after it (unread-line.ts). Absent on an older server, and for a channel you are only previewing. */
+  readThrough?: string;
   /** The person's own private conversation with the agent. */
   agentDm?: boolean;
   lastMessage: Post | null;

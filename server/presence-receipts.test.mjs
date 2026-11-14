@@ -148,6 +148,36 @@ test('reading a thread does not mark later top-level posts read', async t => {
   assert.deepEqual((await f.getPosts(f.first, c.id)).find(m => m.id === String(top.seq)).readBy, []);
 });
 
+test('a conversation tells each person how far they have read, so the app can mark what is new', async t => {
+  const f = fixture(t);
+  const c = f.channel(false);
+  const one = (who = 'member') => f.route(f.first, who, 'GET', `/v1/conversations/${c.id}`).then(r => r.data.conversation);
+  const listed = async (who = 'member') => (await f.route(f.first, who, 'GET', '/v1/conversations')).data.conversations.find(x => x.id === c.id);
+  const joinedAt = (await one()).readThrough;
+  assert.match(joinedAt, /^[0-9]+$/, 'a message id, as a string like every other id');
+  const first = f.first.post(c, 'owner', 'First');
+  const second = f.first.post(c, 'owner', 'Second');
+  // Unread messages do not move the place, in the conversation or in the list.
+  assert.equal((await one()).readThrough, joinedAt);
+  assert.deepEqual([(await listed()).readThrough, (await listed()).unread], [joinedAt, 2]);
+  // Seeing the first moves it there; the second is still new.
+  await f.read(f.first, c.id, [first.seq]);
+  assert.equal((await one()).readThrough, String(first.seq));
+  assert.deepEqual([(await listed()).readThrough, (await listed()).unread], [String(first.seq), 1]);
+  // It is each person's own: the writer's place is theirs, not the reader's.
+  assert.notEqual((await one('owner')).readThrough, String(first.seq));
+  // A reply in a thread is not a place in the conversation.
+  const reply = f.first.post(c, 'owner', 'Reply', second.seq);
+  await f.read(f.first, c.id, [reply.seq]);
+  assert.equal((await one()).readThrough, String(first.seq));
+  // Someone previewing a public channel they have left has no place in it.
+  assert.equal('readThrough' in await one('outsider'), true);
+  await f.route(f.first, 'outsider', 'POST', `/v1/conversations/${c.id}/leave`);
+  const preview = await f.route(f.first, 'outsider', 'GET', `/v1/conversations/${c.id}`);
+  assert.deepEqual([preview.data.conversation.id, preview.data.joined], [c.id, false]);
+  assert.equal('readThrough' in preview.data.conversation, false);
+});
+
 test('receipts persist across API instances and replay obeys current message and membership access', async t => {
   const f = fixture(t, true);
   const c = f.channel();
