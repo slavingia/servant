@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, PanResponder, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useRef, useState } from "react";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { SwipeSurface } from "./SwipeSurface";
 import { api, ServerError, type Account, type Conversation } from "../lib/server";
 import { useLiveActions } from "../lib/live";
 import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
@@ -132,35 +133,9 @@ export function SwipeRow({ name, kind, archived, open, busy, canDelete, locked =
 }) {
   const styles = useStyles();
   const { colors } = useTheme();
-  const [x] = useState(() => new Animated.Value(0));
   const width = canDelete ? 184 : 96;
   const archiveLabel = archived ? "Restore" : "Archive";
-  // The buttons are invisible unless the row has moved, so a closed row never
-  // shows them, whatever happens to the row on top.
-  const actionsOpacity = useMemo(() => x.interpolate({ inputRange: [-1, 0], outputRange: [1, 0], extrapolate: "clamp" }), [x]);
-  useEffect(() => {
-    const animation = Animated.timing(x, { toValue: open ? -width : 0, duration: 180, useNativeDriver: true });
-    animation.start();
-    return () => animation.stop();
-  }, [open, width, x]);
-  const pan = useMemo(() => {
-    const origin = open ? -width : 0;
-    return PanResponder.create({
-    onMoveShouldSetPanResponder: (_, g) => !busy && !locked && Math.abs(g.dx) > 12 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
-    onPanResponderGrant: () => { x.stopAnimation(); },
-    onPanResponderMove: (_, g) => x.setValue(Math.max(-width, Math.min(0, origin + g.dx))),
-    onPanResponderRelease: (_, g) => {
-      const reveal = g.vx < -0.4 || (g.vx <= 0.4 && origin + g.dx < -width / 3);
-      if (reveal) onOpen(); else onClose();
-      // Also settle when the requested open state hasn't changed.
-      Animated.timing(x, { toValue: reveal ? -width : 0, duration: 180, useNativeDriver: true }).start();
-    },
-    onPanResponderTerminate: () => {
-      onClose();
-      Animated.timing(x, { toValue: 0, duration: 180, useNativeDriver: true }).start();
-    },
-  });
-  }, [busy, locked, onClose, onOpen, open, width, x]);
+  const settled = useCallback((reveal: boolean) => { if (reveal) onOpen(); else onClose(); }, [onClose, onOpen]);
   const bind: RowBindings = {
     onPress: (go) => { if (!busy) { if (open) onClose(); else go(); } },
     onLongPress: () => { if (!busy) onOpen(); },
@@ -172,17 +147,20 @@ export function SwipeRow({ name, kind, archived, open, busy, canDelete, locked =
     <View style={styles.root}>
       {/* Only the row being acted on dims. Dimming every row let the action
           buttons behind each one show through the whole list. */}
-      <Animated.View {...pan.panHandlers} style={{ zIndex: 1, backgroundColor: colors.background, transform: [{ translateX: x }], opacity: busy && open ? 0.5 : 1 }}>
+      <SwipeSurface open={open} width={width} enabled={!busy && !locked} onSettle={settled}
+        rowStyle={{ zIndex: 1, backgroundColor: colors.background, opacity: busy && open ? 0.5 : 1 }}
+        behindStyle={styles.actions}
+        behindProps={{ ...(Platform.OS === "web" ? { "aria-hidden": !open } : { accessibilityElementsHidden: !open, importantForAccessibility: open ? "auto" as const : "no-hide-descendants" as const }), pointerEvents: open && !busy ? "auto" : "none" }}
+        behind={<>
+          <Pressable disabled={!open || busy} accessibilityRole="button" accessibilityLabel={`${archiveLabel} ${name}`} onPress={onArchive} style={[styles.action, styles.archive]}>
+            <Text style={styles.label}>{archiveLabel}</Text>
+          </Pressable>
+          {canDelete ? <Pressable disabled={!open || busy} accessibilityRole="button" accessibilityLabel={`Delete ${name}`} onPress={onDelete} style={[styles.action, styles.delete]}>
+            <Text style={styles.label}>Delete</Text>
+          </Pressable> : null}
+        </>}>
         {children(bind)}
-      </Animated.View>
-      <Animated.View style={[styles.actions, { width, opacity: actionsOpacity }]} {...(Platform.OS === "web" ? { "aria-hidden": !open } : { accessibilityElementsHidden: !open, importantForAccessibility: open ? "auto" as const : "no-hide-descendants" as const })} pointerEvents={open && !busy ? "auto" : "none"}>
-        <Pressable disabled={!open || busy} accessibilityRole="button" accessibilityLabel={`${archiveLabel} ${name}`} onPress={onArchive} style={[styles.action, styles.archive]}>
-          <Text style={styles.label}>{archiveLabel}</Text>
-        </Pressable>
-        {canDelete ? <Pressable disabled={!open || busy} accessibilityRole="button" accessibilityLabel={`Delete ${name}`} onPress={onDelete} style={[styles.action, styles.delete]}>
-          <Text style={styles.label}>Delete</Text>
-        </Pressable> : null}
-      </Animated.View>
+      </SwipeSurface>
     </View>
   );
 }

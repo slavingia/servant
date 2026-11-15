@@ -41,6 +41,29 @@ test("a row's time and day labels build no formatter of their own", t => {
   assert.ok(made.mock.callCount() <= names.length, `${made.mock.callCount()} formatters for ${names.length} formats`);
 });
 
+test("the same minute is put into words once, however many rows ask", t => {
+  const now = new Date(2026, 10, 3, 12, 0).getTime();
+  // Its own clock, so the kept words start empty here.
+  const later = now + 30 * 60_000;
+  const made: Intl.DateTimeFormat[] = [];
+  const Real = Intl.DateTimeFormat;
+  let said = 0;
+  t.mock.method(Intl, "DateTimeFormat", function (this: unknown, ...args: ConstructorParameters<typeof Intl.DateTimeFormat>) {
+    const real = new Real(...args);
+    made.push(real);
+    return { format: (date: Date) => { said++; return real.format(date); } };
+  });
+  const at = new Date(now - 5 * 60_000);
+  const first = localFormat("time", at, later);
+  for (let i = 0; i < 300; i++) assert.equal(localFormat("time", new Date(at.getTime() + (i % 60) * 1000), later), first, "every second of that minute reads the same");
+  assert.equal(said, 1);
+  assert.equal(localFormat("time", new Date(at.getTime() + 60_000), later), new Real([], FORMATS.time).format(new Date(at.getTime() + 60_000)), "the next minute has its own words");
+  assert.equal(localFormat("monthDay", at, later), new Real([], FORMATS.monthDay).format(at), "and another format its own");
+  assert.equal(said, 3);
+  // More minutes than are kept: still right, and the store does not grow without end.
+  for (let i = 0; i < 2500; i++) assert.equal(localFormat("time", new Date(now - i * 60_000), later), new Real([], FORMATS.time).format(new Date(now - i * 60_000)));
+});
+
 test("a change of time zone shows at once, and a change of settings within a minute", t => {
   const zone = process.env.TZ;
   const at = new Date(Date.UTC(2026, 10, 3, 17, 30));

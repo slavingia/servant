@@ -88,6 +88,7 @@ Open the invite link, or in the Mac app choose **Paste an invite link**. On a ph
 - [To-dos as your tracker](docs/jira.md): keys, types, priority, estimates, epics and comments, and a one-command copy into Jira
 - [Stable relay](docs/relay-transport.md): a fixed public address without exposing the machine
 - [Notifications](docs/notifications.md): APNs and FCM credentials, browser notifications (web push), and exactly what Apple, Google and browser push services can see
+- [Performance](docs/performance.md): what was measured in a browser, how to measure it again, and what is not known about phones.
 - [Public testing](docs/public-testing.md): a public TestFlight link and Play open testing, from the release scripts
 - [Email sign-in](docs/email-sign-in.md): work-email codes, allowed domains and the mailer command
 - [Encryption](docs/encryption.md) and [member security](docs/member-security.md): the protocol and the restricted member agent

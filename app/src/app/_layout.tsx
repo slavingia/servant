@@ -1,6 +1,8 @@
+import { preloadScreens } from "../lib/preload-screens";
+import { GestureRoot } from "../components/GestureRoot";
 import { Platform, Text, View } from "react-native";
 import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider as NavigationThemeProvider, usePathname } from "expo-router";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { SessionProvider, useSession } from "../lib/session";
@@ -24,11 +26,13 @@ import { useApplyUpdates } from "../lib/ota";
 export default function RootLayout() {
   useApplyUpdates();
   return (
-    <SafeAreaProvider>
-      <SessionProvider>
-        <SessionNavigation />
-      </SessionProvider>
-    </SafeAreaProvider>
+    <GestureRoot>
+      <SafeAreaProvider>
+        <SessionProvider>
+          <SessionNavigation />
+        </SessionProvider>
+      </SafeAreaProvider>
+    </GestureRoot>
   );
 }
 
@@ -54,6 +58,8 @@ function SessionNavigation() {
     },
   }), [colors, scheme]);
   const paired = !!account && validServerKey(account.serverKey);
+  // In a browser, load every screen's code ahead of its first use (lib/preload-order.ts).
+  useEffect(() => { if (paired) preloadScreens(); }, [paired]);
   const landing = landingHref(useFeatures());
   // Wait for the saved account before mounting any invite screen.
   if (!ready) {
