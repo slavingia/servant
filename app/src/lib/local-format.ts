@@ -25,11 +25,22 @@ export const FORMATS = {
 export type LocalFormat = keyof typeof FORMATS;
 
 const KEEP_MS = 60_000;
-let kept: { since: number; offset: number; formatters: Partial<Record<LocalFormat, Intl.DateTimeFormat>> } | null = null;
+// Even a kept formatter takes its time to say a date: measured in a browser, the labels were about a tenth of
+// the work of opening a channel (docs/performance.md), because every row asks twice and rows are drawn more
+// than once. No format here is finer than a minute, so what was said for a minute is kept and said again. The
+// kept words go when the formatters do.
+const WORDS_KEPT = 2000;
+let kept: { since: number; offset: number; formatters: Partial<Record<LocalFormat, Intl.DateTimeFormat>>; words: Map<string, string> } | null = null;
 
 /** `date` in the device's own words, as toLocaleTimeString or toLocaleDateString would say it with the same options. */
 export function localFormat(format: LocalFormat, date: Date, now = Date.now()): string {
   const offset = new Date(now).getTimezoneOffset();
-  if (!kept || offset !== kept.offset || now - kept.since >= KEEP_MS || now < kept.since) kept = { since: now, offset, formatters: {} };
-  return (kept.formatters[format] ??= new Intl.DateTimeFormat([], FORMATS[format])).format(date);
+  if (!kept || offset !== kept.offset || now - kept.since >= KEEP_MS || now < kept.since) kept = { since: now, offset, formatters: {}, words: new Map() };
+  const key = `${format}:${Math.floor(date.getTime() / 60_000)}`;
+  const said = kept.words.get(key);
+  if (said !== undefined) return said;
+  const words = (kept.formatters[format] ??= new Intl.DateTimeFormat([], FORMATS[format])).format(date);
+  if (kept.words.size >= WORDS_KEPT) kept.words.clear();
+  kept.words.set(key, words);
+  return words;
 }
