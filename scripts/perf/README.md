@@ -25,6 +25,16 @@ PERF_DIR=$W node scripts/perf/measure.cjs main 5 $W/main.json
 
 To compare two commits, build each into its own folder, serve them one after the other on the same port (the saved sign-ins belong to the address), and alternate single runs so that drift in the machine falls on both.
 
+## How long a press takes
+
+```sh
+PERF_DIR=$W node scripts/perf/instant.cjs after            # normal speed
+PERF_DIR=$W node scripts/perf/instant.cjs after 4          # processor slowed four times
+PERF_DIR=$W node scripts/perf/instant.cjs after 1 150      # 150 ms added to every answer from the server
+```
+
+It presses its way through the app (a channel, a thread, Details, back, the tabs) and prints, for each press, the time from the pointer going down until what the press was for is on screen and opaque. The time is taken inside the page on every frame; timing a press from outside the page adds hundreds of milliseconds of its own.
+
 ## What a run does
 
 With the processor slowed four times (`THROTTLE=1` for no slowing):

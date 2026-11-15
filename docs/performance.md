@@ -2,6 +2,55 @@
 
 What was measured, how, and what it showed. The scripts are in [scripts/perf](../scripts/perf/README.md); the raw medians and ranges are in [captures/performance/measurements.json](captures/performance/measurements.json).
 
+## 11/15: every press under 300 ms
+
+The owner's target: everything should feel instant, under 300 ms. Measured from inside the page (`scripts/perf/instant.cjs`): from the pointer going down until what the press was for is on screen and opaque, checked on every frame, plus one frame for it to be painted. A phone-sized page, the same server and channel as below, three runs, the median. "Before" is `main` at `f9d0263`; "after" is this change together with the three below.
+
+### What was slow, and why
+
+The first visit to each kind of screen took 340–520 ms; every later visit took 30–60 ms. In a browser a screen's code arrives the first time the screen is opened. While it is on its way the screen is an empty placeholder, and React then keeps a placeholder up for about 300 ms even when the code arrived in ten. The browser's own timeline showed nothing running for about 260 ms of the wait.
+
+The fix: in a browser, every screen's code is loaded ahead of its first use (`app/src/lib/preload-order.ts`): channels, agent chats, threads and the tabs at once when the signed-in app comes up, the rest one at a time when the page is quiet. Sign-in and pairing screens are left for when they are needed. This fetches about 260 KB (compressed) in the background that used to be fetched screen by screen. Phones are not affected: their screens' code is in the app.
+
+Time labels on message rows now put each minute into words once (`app/src/lib/local-format.ts`). They were about a tenth of the script in a profile of opening a channel; the gain was too small to tell apart from run-to-run differences in these timings.
+
+### Results
+
+At normal speed:
+
+| Press | Before | After |
+| --- | --- | --- |
+| Open a channel, first visit | 354 ms | 107 ms |
+| Open a thread, first visit | 440 ms | 137 ms |
+| People tab, first visit | 342 ms | 58 ms |
+| You tab, first visit | 335 ms | 35 ms |
+| Details | 78 ms | 108 ms |
+| Open a channel again | 39 ms | 42 ms |
+| Back to the channel, back to Home, the other tabs, a second channel, the agent chat | 13–45 ms | 15–55 ms |
+
+**After, nothing measured is over 300 ms at normal speed; the slowest is 137 ms.** A sent message is drawn 11 ms after Enter and is in its place at 27 ms (one run, after).
+
+With 150 ms added to every answer from the server, to stand in for a real network: the same four first visits go from 358, 426, 516 and 348 ms to 106, 126, 208 and 34 ms. Details takes 260 ms (228 before), because it waits for the server. Nothing is over 300 ms after. A channel that was not among the few loaded ahead on Home still waits for the server when opened; that case is not in these timings.
+
+### Still over 300 ms: a processor slowed four times
+
+| Press | Before | After |
+| --- | --- | --- |
+| Open a channel, first visit | 510 ms | 486 ms |
+| Open a thread, first visit | 808 ms | 450 ms |
+| Details | 249 ms | 365 ms |
+| Back to the channel from Details | 234 ms | 302 ms |
+| Open a channel again | 166 ms | 230 ms |
+| People tab, first visit | 447 ms | 150 ms |
+| You tab, first visit | 411 ms | 155 ms |
+| Everything else | 13–220 ms | 13–245 ms |
+
+On a device that slow, drawing a screen of messages for the first time takes about half a second, as it did before. Details, coming back from it, and reopening a channel are 60–115 ms **slower** than before: the recycling list measures itself again each time a screen covers or uncovers it. Three variations of how the list starts were tried and made no difference outside the noise.
+
+### Not known
+
+How any of this feels on a phone. The apps were not run, and the preloading does not apply there.
+
 ## 11/15: React Compiler, a recycling list for conversations, and the swipe row on Gesture Handler and Reanimated
 
 Three changes, measured in a browser only. **Nothing here was measured on a phone**, and the phone-only change has no number at all.
@@ -32,7 +81,7 @@ A production web build (`expo export -p web`) of `main` at `f9d0263` and of this
 
 With no slowing (three runs each): a message arriving costs 6.8 ms of script against 9.8; the same scroll back takes 24 s against 60 s and 3.2 s of script against 6.9; no frame was over 50 ms on `main` and at most one was on the new build (longest frame 50 ms against 33 ms).
 
-Opening a channel shows its newest message at the same moment on both: 854–862 ms from the press on the new build and 877–911 ms on `main`, four opens each with no slowing. Most of that is the request for the messages.
+How long a press takes to show its screen is measured separately, and more exactly, in the next section. An earlier version of this page gave 854–862 ms for opening a channel on both builds; that figure came from polling the page from outside and was too high by about half a second.
 
 ### What that means
 
