@@ -1,6 +1,7 @@
 // Native implementation is resolved from notifications.native.tsx by Metro.
 // The Mac bridge presents OS notifications while this renderer monitors every
-// saved server. Ordinary browser builds do not request notification access.
+// saved server. A browser that can is offered web push (notifications-web-push.ts),
+// and asks for notification access only when the person chooses Enable notifications.
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { router, useGlobalSearchParams, usePathname, useRootNavigationState } from 'expo-router';
 import { useSession } from './session';
@@ -12,16 +13,33 @@ import { loadAccountsBadge, notificationAccountRoute } from './notification-acco
 import { desktopMessageNotifies } from './desktop-notification-rules';
 import type { DesktopNotice } from './desktop';
 import type { NotificationRoute } from './notification-route';
+import { webPushSupported } from './web-push';
+import { useWebPushNotifications } from './notifications-web-push';
 export type NotificationState = {
   supported: boolean; enabled: boolean; busy: boolean; error: string | null;
   preferences: NotificationPreferences;
   enable: () => Promise<void>;
   update: (p: Partial<NotificationPreferences>) => Promise<void>;
+  /** A browser only: stop alerts in this browser. Phones and the Mac app are switched off in their system settings. */
+  disable?: () => Promise<void>;
 };
 const fallback: NotificationState = { supported: false, enabled: false, busy: false, error: null, preferences: defaultNotifications, enable: async () => {}, update: async () => {} };
 const Ctx = createContext<NotificationState>(fallback);
 
+// Which notifications this build has is fixed for as long as it runs: the Mac app's bridge, a browser's web
+// push, or none (a browser that cannot, such as a tab on an iPhone).
 export function NotificationsProvider({ children }: { children: ReactNode }) {
+  const [kind] = useState(() => typeof window !== 'undefined' && window.servantDesktop?.notifications ? 'desktop' : webPushSupported() ? 'browser' : 'none');
+  if (kind === 'desktop') return <DesktopNotifications>{children}</DesktopNotifications>;
+  if (kind === 'browser') return <BrowserNotifications>{children}</BrowserNotifications>;
+  return <Ctx.Provider value={fallback}>{children}</Ctx.Provider>;
+}
+
+function BrowserNotifications({ children }: { children: ReactNode }) {
+  return <Ctx.Provider value={useWebPushNotifications()}>{children}</Ctx.Provider>;
+}
+
+function DesktopNotifications({ children }: { children: ReactNode }) {
   const { account, accounts, switchAccount } = useSession();
   const bridge = typeof window === 'undefined' ? undefined : window.servantDesktop?.notifications;
   const pathname = usePathname();

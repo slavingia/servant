@@ -56,6 +56,62 @@ When you open a channel or a direct message with unread messages, a line marked 
 
 The place comes from the server: each conversation carries `readThrough`, the id of the last message you have read there, in `GET /v1/conversations` and `GET /v1/conversations/:id`. It is your own place and is sent only to you. An older server sends none and shows no line; older app builds ignore it. Threads and agent chats have no line.
 
+## Search
+
+Search (the field at the top of the sidebar, ⌘K or Ctrl+K, or the search icon on a phone) finds channels, people, agent chat titles and messages. Messages are matched by whole words and by their stem, in any order: `renewal approve` finds "The permit renewals were approved". The last word may be the start of one, and words in quotes must appear together. Part of a word, or text that is not words, is still found as typed when nothing else matches. Results are the 20 newest, from conversations you are in; the box says when there are more.
+
+Filters narrow messages, alone or with words:
+
+- `in:#general` only that channel (its name, with or without `#`)
+- `from:@Jo-Park` only what that person wrote (their @name, a first name nobody shares, or `me`)
+- `has:link` only messages with a link; `has:file` only messages with something attached
+- `is:thread` only replies in threads and the messages they answer
+
+With a filter typed, only messages are listed. A filter that names no channel or person finds nothing rather than everything, and no filter reaches past what you can read.
+
+The server keeps a full-text index of message text in `messages.db` (SQLite's own FTS5, so there is still nothing to install). The database keeps it in step inside the same transaction as every post, edit and delete, so an edited or deleted message's old words are never found; a server that already has messages indexes them once when it is first updated. Agent chats are searched by title only. `/feedback` (below) and other commands are not indexed.
+
+### The agent can search too
+
+Owner's decision, 11/15: when someone asks `@agent` something it cannot answer from the message in front of it ("when is the budget review?"), the agent can look up what was said before. It asks the server with a hidden line, once per answer; the server runs the search and sends back up to 10 matching messages (who, where, the date, and up to 600 characters each), and the agent answers from them. The request is never shown.
+
+The search runs as the person who asked and is narrowed by who will read the answer:
+
+- **In a channel or a group message**, only that conversation and public channels are searched. The person asking may be in private channels the other readers are not; nothing from those can reach the answer.
+- **In your own chat with the agent**, which only you read, everything you can read is searched.
+
+Nothing outside what the asker can read is ever searched, the agent's own earlier replies are left out, and a server with channels or direct messages turned off does not search them. This adds no tool to the agent and changes nothing about where it runs: the server does the search and passes text, as it already does with earlier messages. What the agent is sent goes to the model provider like the rest of the prompt.
+
+## A reply also sent to the channel
+
+Under a thread's reply field, **Also send to #channel** (in a direct message, **Also send to this chat**) sends the next reply to the conversation as well, for an answer everyone should see. It is one message: still a reply in its thread, and shown in the conversation with a line saying who and what it answers and a **View thread** link. It counts as unread there like any other message. The box clears after each reply.
+
+The server keeps this as a flag on the reply (`in_channel`); `POST /v1/conversations/:id/messages` takes `alsoInChannel: true` with a `threadRoot`, and the message comes back with `alsoInChannel` and `replyTo` (the first message's author and its first 120 characters, empty once that message is deleted). Editing and deleting it work as for any message.
+
+## Quoting a message
+
+Touch and hold a message (or open its **•••** menu) and choose **Quote**. Its words go into the reply field as a quote, ahead of anything already typed, with the cursor ready for the answer. Messages over 500 characters are cut, and a quote inside the quoted message is not quoted again. What is sent is an ordinary message that starts with a quote; nothing links it to the message quoted.
+
+## Link previews
+
+Owner's decision, 11/15: when a person posts a message with a link, the server reads that page once and shows its title, description and site name under the message. Readers never contact the site: the preview is words only, with no picture, and the app fetches nothing. Only the first link in a message is read, and not links inside code, plain `http` links, or X/Twitter links (which have their own card). The agent's messages get none. Editing the message drops the preview and reads the new first link; deleting the message removes it.
+
+What leaves the server: one request to the linked site for that page, from the server's address, with no cookie, sign-in or anything about the person or conversation. The site therefore learns that this server looked at that page, and when. Set `"linkPreviews": false` in `config.json` to stop the server reading links at all.
+
+The address comes from a message, so it is treated as hostile (`server/link-preview.mjs`): only `https` on a real host name and the default port; every address the name resolves to must be on the public internet (nothing loopback, private, link-local or reserved, in IPv4 or IPv6); the connection is made to the address that was checked, so a name cannot answer one thing for the check and another for the request; each redirect is checked the same way, three at most; and the read stops at five seconds or 512 KB. Only an HTML page is read, and only text is kept, with markup removed. Pages are read a few at a time and the same address is not read again for ten minutes.
+
+## Playing a link in place
+
+A link to an Apple Podcasts show or episode, an Apple Music album, playlist or song, a Spotify track, album, playlist, episode or show, a YouTube video or a Vimeo video gets a **Play here** button under the message, in channels, direct messages, threads and agent chats. Pressing it loads that service's own player in place. The first two such links in a message get a button; the link itself stays in the text, and the page's title and description still show as a [link preview](#link-previews).
+
+Nothing is loaded before the press. Until then no reader's device contacts the service; after it, that one device loads the player from the service, which sees what any visit to its player sees (the device's address and browser, and on the web the address of the site Servant is served from, not the page or conversation). YouTube plays from `youtube-nocookie.com` and Vimeo with its do-not-track setting. Other people in the conversation are not affected by one person pressing Play.
+
+The player's address is built from the checked parts of the link (a country code, a name, ids), never copied from the message, and only these five services' player addresses are ever framed (`app/src/lib/media-embed.ts`); on a phone the player cannot navigate anywhere else, and the Mac app's frame policy lists the same five (`desktop/policy.mjs`).
+
+## Formatting and commands
+
+A person's message is formatted as they type it: `*bold*` or `**bold**`, `_italics_`, `~~strikethrough~~`, `` `code` ``, fenced code, `>` quotes and lists. Typing `/` at the start of a message lists commands; `/help` says what each does. `/feedback what to fix or add` sends feedback about Servant from wherever you are typing and says it was sent; `/feedback` alone opens the Feedback page. Only the words after the command are sent, with the kind of screen, the app build and the platform: nothing from the conversation is attached.
+
 ## Saved messages
 
 Touch and hold a channel message, direct message, or thread reply (or open its **•••** menu on the web or Mac) and choose **Save for later**. Open **Saved** in the sidebar, **You → Saved** on a phone, or search for “saved” in the search bar. Your private task list has **In progress**, **Completed**, and **Work log** views. Tick an item off, undo or reopen it, remove it from the list, or use **Open message** to return to the highlighted original and its thread. Before checking it off, **Add work note** can record the result, decisions, or links to what you finished.

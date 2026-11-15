@@ -96,6 +96,8 @@ export type Post = {
   readBy?: { userId: string; readAt: number }[];
   reactions?: { emoji: string; userIds: string[] }[];
   attachments?: Attachment[];
+  /** The first linked page's own title and description, read once by the server when the message was posted. */
+  preview?: LinkPreview;
   activity?: "joined" | "left" | "todo";
   /** One-tap replies the agent offers under its message. */
   suggestions?: string[];
@@ -103,6 +105,9 @@ export type Post = {
   conversationId: string;
   user: Person;
   threadRoot: string | null;
+  /** A thread reply its author also sent to the conversation, and the first message it answers. */
+  alsoInChannel?: boolean;
+  replyTo?: { user: string; text: string };
   text: string;
   deleted: boolean;
   pending: boolean;
@@ -186,6 +191,7 @@ export type Recording = {
   summary: string | null; error: string | null; openSteps: number; notes: string[]; transcript: string; steps: RecordingStep[]; todos?: TodoItem[];
 };
 export type ResearchCard = { n: number; askedBy: string; question: string; answer: string | null; status: "working" | "done" | "failed"; at: number };
+export type LinkPreview = { url: string; title: string; description: string; site: string };
 export type Conversation = {
   id: string;
   kind: "channel" | "dm";
@@ -222,7 +228,8 @@ export type SearchMessage = {
   user: Person;
   createdAt: number;
 };
-export type SearchResults = { channels: SearchChannel[]; people: Person[]; messages: SearchMessage[] };
+/** `more`: there are more matching messages than the page that came back (absent on an older server). */
+export type SearchResults = { channels: SearchChannel[]; people: Person[]; messages: SearchMessage[]; more?: boolean };
 export type LiveEvent =
   | { event: "message.created" | "message.updated"; data: Post }
   | { event: "conversation.updated" | "conversation.read"; data: { id: string } }
@@ -620,8 +627,8 @@ export const api = {
   posts: (a: Account, id: string, before?: string) =>
     request(a, `/v1/conversations/${id}/messages${before ? `?before=${before}` : ""}`).then(json<{ messages: Post[]; more: boolean }>),
   thread: (a: Account, id: string, root: string) => request(a, `/v1/conversations/${id}/threads/${root}`).then(json<{ root: Post; replies: Post[] }>),
-  post: (a: Account, id: string, text: string, threadRoot?: string, attachments: Upload[] = [], confirmPii: PiiChoice = false) =>
-    request(a, `/v1/conversations/${id}/messages`, { method: "POST", body: JSON.stringify({ text, threadRoot, attachments, ...piiFlags(confirmPii) }) })
+  post: (a: Account, id: string, text: string, threadRoot?: string, attachments: Upload[] = [], confirmPii: PiiChoice = false, alsoInChannel = false) =>
+    request(a, `/v1/conversations/${id}/messages`, { method: "POST", body: JSON.stringify({ text, threadRoot, attachments, ...(threadRoot && alsoInChannel ? { alsoInChannel: true } : {}), ...piiFlags(confirmPii) }) })
       .then(json<{ message: Post }>)
       .then((d) => d.message),
   editPost: (a: Account, postId: string, text: string) =>

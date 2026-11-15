@@ -122,7 +122,7 @@ test("conversations and chats likely to be opened next are loaded ahead, and kep
   assert.match(live, /warmChats\(account, list\);/);
   const conversations = read("lib/conversation-cache.ts");
   // A kept conversation takes in a message that arrives; a thread reply is not a message of the conversation.
-  assert.match(conversations, /if \(post\.threadRoot\) return;/);
+  assert.match(conversations, /if \(!showsInConversation\(post\)\) return;/);
   assert.match(conversations, /kept\.update\(id, \{ \.\.\.snapshot, posts: page\.items, more: page\.more \}\);/);
   // When the stream starts over, messages may have been missed: nothing kept is trusted.
   assert.match(conversations, /if \(event\.data\.reset !== false\) \{ kept\.clear\(\); warm\.clear\(\); \}/);

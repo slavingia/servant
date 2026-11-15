@@ -43,8 +43,12 @@ test("messages underline abbreviations with a dotted line and a hover title", ()
   assert.match(abbr, /createElement\("abbr", \{ title,/);
   assert.match(abbr, /textDecorationStyle: "dotted"/);
   assert.match(abbr, /cursor: "help"/);
-  assert.match(composer, /withAbbreviations\(p, abbreviations\)/, "people's messages");
-  assert.match(read("components/MessageText.tsx"), /part\.code \? part\.text : withAbbreviations\(part\.text, abbreviations\)/, "agent replies and the wiki, never code");
+  // People's messages, agent replies and the wiki are all drawn by MessageText: marked everywhere but in code.
+  assert.match(composer, /if \(!parsed\) return <MessageText chat text=\{text\} \/>;/, "people's messages");
+  const drawn = read("components/MessageText.tsx");
+  assert.match(drawn, /part\.code \? part\.text : plain\(part\.text, styles, abbreviations, mentions\)/, "never code");
+  assert.match(drawn, /if \(!mentions \|\| !text\.includes\('@'\)\) return withAbbreviations\(text, abbreviations\);/);
+  assert.match(drawn, /<Text key=\{i\}>\{withAbbreviations\(piece, abbreviations\)\}<\/Text>/, "beside a mention too");
 });
 
 test("a message drawn again is not marked again: the same words and glossary give back the same parts", () => {

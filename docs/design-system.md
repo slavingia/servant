@@ -342,6 +342,12 @@ stream on the content background. Author names lead, timestamps stay secondary, 
 messages by the same person within five minutes can share a compact author group;
 day changes and thread context preserve the appropriate separation.
 
+A person's message is formatted as they typed it: `*bold*` or `**bold**`,
+`_italics_`, `~~strikethrough~~`, `` `code` `` and fenced code, `>` quotes and
+lists, with `@mentions` standing out. It is the agent's renderer (`MessageText`)
+with `chat` set, which leaves a line starting with `#`, a row of dashes or a
+line with bars as typed rather than making a heading, a rule or a table.
+
 A channel or DM with unread messages shows one **New** line above the first of
 them (`UnreadLine`, placed by `lib/unread-line.ts`): a rule across the stream in
 `primary`, ending in a filled "New" like the unread badges. It is above the date

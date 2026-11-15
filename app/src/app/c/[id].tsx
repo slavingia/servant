@@ -1,3 +1,4 @@
+import { showsInConversation, threadOf } from "../../lib/also-in-channel";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, AppState, FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Redirect, router, Stack, useIsFocused, useLocalSearchParams } from "expo-router";
@@ -34,6 +35,7 @@ import { reuseEqual } from "../../lib/reuse-equal";
 import { useSession } from "../../lib/session";
 import { askAgentAbout } from "../../lib/ask-agent";
 import { helpText, parseSlash, resolvePeople, splitDm } from "../../lib/slash-commands";
+import { sendSlashFeedback } from "../../lib/slash-feedback";
 import { conversationHidden, landingHref, useFeatures } from "../../lib/features";
 import { ChannelDetails } from "../channel-info";
 import { useWideLayout } from "../../lib/layout";
@@ -218,7 +220,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
           void load(true);
         } else if (e.event === "message.created" || e.event === "message.updated") {
           const p = e.data;
-          if (p.conversationId !== id || p.threadRoot) return;
+          if (p.conversationId !== id || !showsInConversation(p)) return;
           // My own message arriving while its send is still waiting for an answer: the answer brings it in.
           if (outbox.hold(e.event, p, account.user.id)) return;
           applyPosts([p]);
@@ -288,6 +290,9 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
         case "browse": router.push("/browse"); return true;
         case "people": router.push("/members"); return true;
         case "help": setError(null); setNote(helpText(isChannel, false, features)); return true;
+        case "feedback":
+          if (!cmd.args) { router.push("/feedback"); return true; }
+          setError(null); setNote(await sendSlashFeedback(account, cmd.args, isChannel ? "channel" : "direct message")); return true;
         case "files": openFiles(); return true;
         case "agent": return cmd.args ? send(`@agent ${cmd.args}`) : need("a question");
         case "shrug": return send(`${cmd.args ? cmd.args + " " : ""}¯\\_(ツ)_/¯`);
@@ -389,7 +394,8 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
     setJoining(false);
   };
 
-  const openThread = (p: Post) => { openingThread(account, id, p, { conversation: conv, joined }); router.push({ pathname: "/thread", params: { conv: id, root: p.id, title } }); };
+  // A reply also sent here opens the thread it belongs to, not one of its own.
+  const openThread = (p: Post) => { if (!p.threadRoot) openingThread(account, id, p, { conversation: conv, joined }); router.push({ pathname: "/thread", params: { conv: id, root: threadOf(p), title } }); };
   const askAgent = (p: Post) => { askAgentAbout(account, p, conv).catch(e => setError(errorText(e, "Couldn't start a chat with the agent"))); };
   // Joins and leaves close together read as one line ("Ann and Bo joined the channel").
   const data = useMemo(() => groupActivity([...(posts ?? []), ...sending].reverse()), [posts, sending]);
@@ -398,6 +404,10 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
   const onReact = useStableCallback(react);
   const onOpenThread = useStableCallback(openThread);
   const onAskAgent = useStableCallback(askAgent);
+  // "Quote" on a message: its words go into the reply field.
+  const [quote, setQuote] = useState<{ text: string; at: number } | null>(null);
+  const quoteTaken = useStableCallback(() => setQuote(null));
+  const onQuote = useStableCallback((p: Post) => { setEditing(null); setQuote({ text: p.text, at: Date.now() }); });
   const onDelete = useStableCallback((p: Post) => { void remove(p); });
   const onSuggest = useStableCallback((text: string) => { void send(text); });
   const onEndReached = useStableCallback(() => { void older(); });
@@ -419,13 +429,14 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
         compact={compact}
         onOpenThread={onOpenThread}
         onAskAgent={onAskAgent}
+        onQuote={joined ? onQuote : undefined}
         onSuggest={joined && index === 0 ? onSuggest : undefined}
         onEdit={setEditing}
         onDelete={onDelete}
       />
       </View>
     );
-  }, [data, joined, me, receipts, role, newAbove, onReact, onOpenThread, onAskAgent, onSuggest, onDelete]);
+  }, [data, joined, me, receipts, role, newAbove, onReact, onOpenThread, onAskAgent, onQuote, onSuggest, onDelete]);
 
   // Wide screens (browser, Mac app) show Details beside the channel, open by default; Details
   // toggles it. Phones open the Details page.
@@ -528,7 +539,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
         ) : editing ? (
           <Composer members={conv?.members} mentionAgent me={me} key={`edit-${editing.id}`} placeholder="Edit message" autoFocus initial={editing.text} sendLabel="Save" onSend={saveEdit} onCancel={() => setEditing(null)} onDeleteEmpty={() => setConfirmDelete(editing)} />
         ) : (
-          <Composer autoFocus={compose === "1"} members={conv?.members} mentionAgent me={me} key={`new-${id}`} draftKey={`c:${id}`} placeholder={conv ? `Message ${title}` : "Message"} onSend={send} onTyping={ping} onEditLast={editLast ? () => setEditing(editLast) : undefined} commands={{ channel: isChannel }} />
+          <Composer autoFocus={compose === "1"} members={conv?.members} mentionAgent me={me} key={`new-${id}`} draftKey={`c:${id}`} quote={quote} onQuoted={quoteTaken} placeholder={conv ? `Message ${title}` : "Message"} onSend={send} onTyping={ping} onEditLast={editLast ? () => setEditing(editLast) : undefined} commands={{ channel: isChannel }} />
         )}
       </ConversationKeyboardView>
       </View>

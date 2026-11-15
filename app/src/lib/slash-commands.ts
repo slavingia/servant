@@ -27,6 +27,8 @@ export const SLASH_COMMANDS: Omit<SlashCommand, "args">[] = [
   { name: "stop", hint: "", description: "Stop the agent's current reply", where: "agent" },
   // A message sent while the agent replies joins that reply. This one waits for it to finish instead.
   { name: "queue", hint: "message", description: "Send it after the current reply, not into it", where: "agent" },
+  // About Servant itself, from wherever you are typing (slash-feedback.ts). Only the words after it are sent.
+  { name: "feedback", hint: "what to fix or add", description: "Tell the Servant team what to fix or add", where: "any" },
   { name: "help", hint: "", description: "Show what these commands do", where: "any" },
 ];
 

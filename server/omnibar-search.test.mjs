@@ -167,3 +167,92 @@ test('each search group is bounded and message results are newest first', async 
   assert.equal(result.people.length, 10);
   assert.deepEqual(result.messages.map(m => m.id), ids.slice(-20).reverse());
 });
+
+test('words are matched whole and by their stem, in any order, with the last one as typed so far', async () => {
+  const c = await channel('fts-words');
+  const renewals = await post(c.id, 'The permit renewals were approved on Friday');
+  const intake = await post(c.id, 'Intake form: two requests came in already');
+  const ids = async q => (await search(q)).messages.map(m => m.id);
+  assert.deepEqual(await ids('renewal approve'), [renewals.id], 'stems: renewal finds renewals, approve finds approved');
+  assert.deepEqual(await ids('friday permit'), [renewals.id], 'any order');
+  assert.deepEqual(await ids('permit reque'), [], 'every word must be there');
+  assert.deepEqual(await ids('requests inta'), [intake.id], 'the last word may be the start of one');
+  assert.deepEqual(await ids('"came in already"'), [intake.id], 'words in quotes, together');
+  assert.deepEqual(await ids('"in came already"'), []);
+  // Part of a word and text the index does not split into words are still found as typed.
+  assert.deepEqual(await ids('newals'), [renewals.id]);
+  // Nothing typed can act as a search operator.
+  for (const q of ['permit OR zzzz', 'permit NOT approved', 'permit*', '(permit', 'text:permit', 'permit AND', '"permit', 'NEAR(permit approved)']) assert.ok(Array.isArray((await search(q)).messages), q);
+});
+
+test('filters narrow by conversation, writer, links, files and threads, alone or with words', async () => {
+  const one = await channel('fts-filter-one'), two = await channel('fts-filter-two');
+  await api(`/v1/conversations/${one.id}/members`, { method: 'POST', body: { userIds: ['member'] } }).catch(() => {});
+  const mine = await post(one.id, 'Budget review notes for the quarter');
+  const theirs = await post(one.id, 'Budget review slides are at https://example.gov/slides', { who: 'member' });
+  const other = await post(two.id, 'Budget review moved to Tuesday');
+  const reply = await post(one.id, 'Budget reply in the thread', { threadRoot: mine.id });
+  const ids = async (q, who = 'owner') => (await search(q, who)).messages.map(m => m.id);
+  assert.deepEqual(await ids('budget review'), [other.id, theirs.id, mine.id]);
+  assert.deepEqual(await ids('budget review in:#fts-filter-one'), [theirs.id, mine.id]);
+  assert.deepEqual(await ids('budget review in:fts-filter-two'), [other.id]);
+  assert.deepEqual(await ids(`budget review in:${two.id}`), [other.id], 'a conversation id works too');
+  assert.deepEqual(await ids('budget from:me'), [reply.id, other.id, mine.id]);
+  assert.deepEqual(await ids('budget from:@ÉLODIE-Search'), [theirs.id]);
+  assert.deepEqual(await ids('budget from:élodie'), [theirs.id], 'a first name, in any case');
+  assert.deepEqual(await ids('budget has:link'), [theirs.id]);
+  assert.deepEqual(await ids('budget is:thread'), [reply.id, mine.id], 'the reply and the message it answers');
+  assert.deepEqual(await ids('in:fts-filter-one from:me is:thread'), [reply.id, mine.id], 'filters with no words');
+  assert.deepEqual(await ids('has:file in:fts-filter-one'), []);
+  // A filter that names nothing finds nothing, rather than everything.
+  assert.deepEqual(await ids('budget in:no-such-channel'), []);
+  assert.deepEqual(await ids('budget from:nobody'), []);
+  // With a filter, only messages come back.
+  const filtered = await search('fts-filter in:fts-filter-one');
+  assert.deepEqual([filtered.channels, filtered.people], [[], []]);
+  // A filter never reaches past what the person can read.
+  const secret = await channel('fts-filter-private', { private: true });
+  const hidden = await post(secret.id, 'Budget numbers nobody else may see');
+  assert.deepEqual(await ids('budget in:fts-filter-private'), [hidden.id]);
+  assert.deepEqual(await ids('budget in:fts-filter-private', 'outsider'), []);
+  assert.deepEqual(await ids(`budget in:${secret.id}`, 'outsider'), []);
+  assert.equal((await ids('budget from:owner', 'outsider')).includes(hidden.id), false, 'everything else the owner wrote in public channels, and not this');
+});
+
+test('the index follows edits and deletes, and says when there are more results than a page', async () => {
+  const c = await channel('fts-changes');
+  const m = await post(c.id, 'The zephyrword draft is ready');
+  const ids = async q => (await search(q)).messages.map(x => x.id);
+  assert.deepEqual(await ids('zephyrword'), [m.id]);
+  await api(`/v1/messages/${m.id}`, { method: 'PATCH', body: { text: 'The quillword draft is ready' } });
+  assert.deepEqual([await ids('zephyrword'), await ids('quillword')], [[], [m.id]], 'the old words are gone with the edit');
+  await api(`/v1/messages/${m.id}`, { method: 'DELETE' });
+  assert.deepEqual(await ids('quillword'), [], 'a deleted message is not found');
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM messages_search WHERE messages_search MATCH '\"quillword\"'").get().n, 0, 'nor are its words left in the index');
+  for (let i = 0; i < 23; i++) await post(c.id, `Paginationword number ${i}`);
+  const page = await search('paginationword');
+  assert.deepEqual([page.messages.length, page.more], [20, true]);
+  assert.equal((await search('paginationword number 3')).more, false);
+});
+
+test('a server that already has messages indexes them when it is first updated', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'servant-search-upgrade-'));
+  try {
+    const { createMessaging } = await import('./messaging.mjs');
+    const people = { u: { id: 'u', name: 'Pat Tester', role: 'owner' } };
+    const file = path.join(dir, 'messages.db');
+    let m = createMessaging({ file, users: () => people, agentName: () => 'Agent' });
+    const c = m.createChannel(people.u, { name: 'before-upgrade' });
+    m.post(c, 'u', 'Written before the index existed: heirloomword');
+    m.close();
+    // As an older server left it: no index, no triggers.
+    const raw = new DatabaseSync(file);
+    raw.exec('DROP TRIGGER messages_search_insert; DROP TRIGGER messages_search_delete; DROP TRIGGER messages_search_update; DROP TABLE messages_search;');
+    raw.exec("INSERT INTO messages (conversation_id, user_id, text, created_at) SELECT conversation_id, user_id, 'Also before: heirloomword again', created_at FROM messages LIMIT 1");
+    raw.close();
+    m = createMessaging({ file, users: () => people, agentName: () => 'Agent' });
+    const count = m.db.prepare("SELECT COUNT(*) AS n FROM messages_search WHERE messages_search MATCH '\"heirloomword\"'").get().n;
+    m.close();
+    assert.equal(count, 2);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

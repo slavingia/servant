@@ -17,6 +17,8 @@ import { Button, IconButton } from "../../components/Button";
 import { MessageText } from "../../components/MessageText";
 import { withoutContextSummaries } from "../../lib/context-summary";
 import { TweetEmbed } from "../../components/TweetEmbed";
+import { MediaEmbed } from "../../components/MediaEmbed";
+import { mediaEmbeds } from "../../lib/media-embed";
 import { tweetIds } from "../../lib/tweet-embed";
 import { AgentApprovalCard } from "../../components/AgentApprovalCard";
 import { activeAgentTurn, agentTurnLabel, inOrder, joinsReply, liveAgentLine, queuedBelow, splitTurns, withRead, workByMessage, workedFor, type AgentStep, type AgentTurn } from "../../lib/agent-turns";
@@ -27,6 +29,7 @@ import { bufferAgentReply } from "../../lib/agent-events";
 import { messageDeviceLabel } from "../../lib/message-device";
 import { estimateCost, formatCost, formatTokens } from "../../lib/token-format";
 import { helpText, parseSlash } from "../../lib/slash-commands";
+import { sendSlashFeedback } from "../../lib/slash-feedback";
 import { PiiDeclined, withPiiConfirm } from "../../lib/pii-warning";
 import { usePiiConfirm } from "../../components/PiiConfirm";
 import { chatLoad, chatTurns, forgetChat, keepChat, keptChat, peekChatLoad, takeChatLoad } from "../../lib/chat-cache";
@@ -701,6 +704,9 @@ function ChatConversation({ account }: { account: Account }) {
         case "browse": router.push("/browse"); return true;
         case "people": router.push("/members"); return true;
         case "help": setCommandNote(helpText(false, true, features)); return true;
+        case "feedback":
+          if (!cmd.args) { router.push("/feedback"); return true; }
+          setCommandNote(await sendSlashFeedback(account, cmd.args, "agent chat")); return true;
       }
     } catch (e) { setActionError(e instanceof Error ? e.message : `Couldn't run /${cmd.name}`); return false; }
     return null;
@@ -1063,6 +1069,7 @@ const ChatRow = memo(function ChatRow({ item, chatId, me, role, canForward, work
       {work ? <AgentWorked turn={work} load={loadSteps} settle={settle} /> : null}
       {mine && !working ? <ForwardedText item={item} /> : !working && item.text ? <ReplyText text={item.text} failed={item.failed} /> : null}
       {!working && !item.failed ? tweetIds(item.text || "").map(id => <TweetEmbed key={id} id={id} />) : null}
+      {!working && !item.failed ? mediaEmbeds(item.text || "").map(embed => <MediaEmbed key={embed.key} embed={embed} />) : null}
       {!working && item.attachments?.length ? <Attachments files={item.attachments} /> : null}
       {item.uploads?.length ? <PendingAttachments files={item.uploads} progress={uploadProgress} /> : null}
       {working ? <AgentProgress line={liveAgentLine(turn, status)} turn={turn} /> : null}

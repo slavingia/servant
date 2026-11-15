@@ -15,7 +15,14 @@ function open(url: string) {
   void Linking.openURL(url).catch(() => {});
 }
 
-function Inlines({ text, styles, abbreviations }: { text: string; styles: Styles; abbreviations: readonly GlossaryEntry[] }): ReactNode {
+// "@Jo-Park" in a person's message stands out, as it did before their messages were formatted.
+const MENTION = /(@[\p{L}\p{M}\p{N}_’'.-]+)/gu;
+function plain(text: string, styles: Styles, abbreviations: readonly GlossaryEntry[], mentions: boolean): ReactNode {
+  if (!mentions || !text.includes('@')) return withAbbreviations(text, abbreviations);
+  return text.split(MENTION).map((piece, i) => piece.startsWith('@') ? <Text key={i} style={styles.mention}>{piece}</Text> : <Text key={i}>{withAbbreviations(piece, abbreviations)}</Text>);
+}
+
+function Inlines({ text, styles, abbreviations, mentions = false }: { text: string; styles: Styles; abbreviations: readonly GlossaryEntry[]; mentions?: boolean }): ReactNode {
   return inlineMessage(text).map((part: Inline, i) => {
     const style = [
       part.strong && styles.strong, part.em && styles.em, part.strike && styles.strike,
@@ -23,15 +30,16 @@ function Inlines({ text, styles, abbreviations }: { text: string; styles: Styles
     ];
     return part.url
       ? <Text key={i} style={style} accessibilityRole="link" onPress={() => open(part.url!)}>{part.text}</Text>
-      : <Text key={i} style={style}>{part.code ? part.text : withAbbreviations(part.text, abbreviations)}</Text>;
+      : <Text key={i} style={style}>{part.code ? part.text : plain(part.text, styles, abbreviations, mentions)}</Text>;
   });
 }
 
-export const MessageText = memo(function MessageText({ text, failed = false }: { text: string; failed?: boolean }) {
+/** `chat`: a person's message. It is formatted as people type (message-format.ts) and its @mentions stand out. */
+export const MessageText = memo(function MessageText({ text, failed = false, chat = false }: { text: string; failed?: boolean; chat?: boolean }) {
   const styles = useStyles();
   const abbreviations = useAbbreviations();
   const body = [styles.body, failed && styles.failed];
-  return <View style={styles.blocks}>{messageBlocks(text).map((block, index) => {
+  return <View style={styles.blocks}>{messageBlocks(text, { chat }).map((block, index) => {
     switch (block.kind) {
       case 'code':
         return <View key={index} style={styles.codeBlock}>
@@ -59,17 +67,17 @@ export const MessageText = memo(function MessageText({ text, failed = false }: {
           : <Text accessibilityLabel={block.checked ? 'Done' : 'Not done'} style={[styles.marker, styles.box, block.checked && styles.boxDone]}>{block.checked ? '☑' : '☐'}</Text>;
         return <View key={index} style={[styles.list, { paddingLeft: block.depth * 18 }]}>
           {marker}
-          <View style={styles.copy}><Text selectable style={[body, block.checked && styles.done]}><Inlines text={block.text} styles={styles} abbreviations={abbreviations} /></Text></View>
+          <View style={styles.copy}><Text selectable style={[body, block.checked && styles.done]}><Inlines text={block.text} styles={styles} abbreviations={abbreviations} mentions={chat} /></Text></View>
         </View>;
       }
       case 'heading':
         return <View key={index} style={index > 0 && styles.headingGap}>
-          <Text selectable accessibilityRole="header" style={[body, block.level <= 1 ? styles.h1 : block.level === 2 ? styles.h2 : styles.h3]}><Inlines text={block.text} styles={styles} abbreviations={abbreviations} /></Text>
+          <Text selectable accessibilityRole="header" style={[body, block.level <= 1 ? styles.h1 : block.level === 2 ? styles.h2 : styles.h3]}><Inlines text={block.text} styles={styles} abbreviations={abbreviations} mentions={chat} /></Text>
         </View>;
       case 'quote':
-        return <View key={index} style={styles.quote}><Text selectable style={[body, styles.quoteText]}><Inlines text={block.text} styles={styles} abbreviations={abbreviations} /></Text></View>;
+        return <View key={index} style={styles.quote}><Text selectable style={[body, styles.quoteText]}><Inlines text={block.text} styles={styles} abbreviations={abbreviations} mentions={chat} /></Text></View>;
       default:
-        return <View key={index}><Text selectable style={body}><Inlines text={block.text} styles={styles} abbreviations={abbreviations} /></Text></View>;
+        return <View key={index}><Text selectable style={body}><Inlines text={block.text} styles={styles} abbreviations={abbreviations} mentions={chat} /></Text></View>;
     }
   })}</View>;
 });
@@ -81,7 +89,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   h1: { ...typography.heading }, h2: { ...typography.bodyStrong, fontWeight: '700' }, h3: { ...typography.bodyStrong },
   headingGap: { marginTop: space.xxs },
   strong: { fontWeight: '700' }, em: { fontStyle: 'italic' }, strike: { textDecorationLine: 'line-through' },
-  link: { color: colors.blue, textDecorationLine: 'underline' },
+  link: { color: colors.blue, textDecorationLine: 'underline' }, mention: { color: colors.blue, fontWeight: typography.bodyStrong.fontWeight },
   inlineCode: { fontFamily: mono, backgroundColor: colors.subtle, fontSize: 14 },
   codeBlock: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm, padding: space.sm, gap: space.xs },
   language: { ...typography.meta, color: colors.muted }, code: { ...typography.caption, fontFamily: mono, color: colors.ink },

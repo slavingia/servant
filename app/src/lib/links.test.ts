@@ -23,6 +23,7 @@ const NOT_LINKS: Record<string, string> = {
   "app/(tabs)/agent.tsx:unreadWhen": "the time on an unread row",
   "app/(tabs)/_layout.tsx:selected": "the chosen tab's label",
   "app/c/[id].tsx:labelStyle": "a native header button",
+  "components/MessageText.tsx:mention": "a name in a message",
 };
 
 test("the rule is one line in the theme, and the shared Button's link uses it", () => {

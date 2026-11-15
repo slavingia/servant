@@ -1,6 +1,7 @@
 // A conversation you have opened is kept in memory (lib/screen-cache.ts), so going back to it shows
 // its messages at once while a fresh copy loads behind them. Pressing a conversation's row also starts
 // its request right away, before the screen has been built, so a first visit has its answer sooner.
+import { showsInConversation } from "./also-in-channel";
 import { AppState } from "react-native";
 import { accountId, api, type Account, type Conversation, type LiveEvent, type Post } from "./server";
 import { liveEventCount } from "./live-counts";
@@ -39,7 +40,8 @@ export function followLive(account: Account, event: LiveEvent) {
   if (event.event !== "message.created" && event.event !== "message.updated") return;
   const post = event.data;
   // A reply belongs to its thread; the conversation shows its first message, which is updated on its own.
-  if (post.threadRoot) return;
+  // One its author also sent to the conversation is shown there too.
+  if (!showsInConversation(post)) return;
   const id = key(account, post.conversationId);
   const snapshot = kept.peek(id);
   if (!snapshot) return;

@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { webSubscription } from './web-push.mjs';
 
 // Owner, 11/2: alerts show who sent the message and what they said, for
 // channels, DMs and agent chats. `contentPreviews` (default on) is the switch;
@@ -171,6 +172,15 @@ export function createPushService({ file, state, mutate, resolve, send, clock = 
 export function updatePushRegistration(s, device, body) {
   if (body.token === null) { delete device.push; delete device.voip; delete device.ringsCalls; delete device.pushPresence; return; }
   const { platform, token, environment = 'production' } = body;
+  if (platform === 'web') {
+    // A browser: its push service's address for it and the keys alerts are encrypted to (web-push.mjs).
+    const subscription = webSubscription(body);
+    if (!subscription) throw Object.assign(new Error('Invalid notification registration'), { status: 400, code: 'bad_push_token' });
+    for (const other of Object.values(s.devices)) if (other.id !== device.id && other.push?.token === subscription.token) delete other.push;
+    delete device.voip; delete device.ringsCalls;
+    device.push = { platform: 'web', ...subscription };
+    return;
+  }
   if (!['ios', 'android'].includes(platform) || typeof token !== 'string' || token.length < 20 || token.length > 4096 || /\s/.test(token) ||
       (platform === 'ios' && !/^[a-f0-9]{64,200}$/i.test(token)) || !['development', 'production'].includes(environment)) {
     throw Object.assign(new Error('Invalid notification registration'), { status: 400, code: 'bad_push_token' });

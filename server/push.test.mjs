@@ -1,11 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createPushService, defaults, isMention, notificationPayload, previewText, wantsNotification, updatePushRegistration, updateVoipRegistration, updatePreferences } from './push.mjs';
 import { createMessaging } from './messaging.mjs';
-import { fcmMessage, apnsPayload, voipPayload, apnsTopic } from './push-transport.mjs';
+import { fcmMessage, apnsPayload, voipPayload, apnsTopic, createPushTransport, webPushMessage } from './push-transport.mjs';
+import { decryptPush, temporaryWebPushIdentity } from './web-push.mjs';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'servant-push-'));
 const user = { id: 'u_alice', name: 'Alice Smith' };
@@ -43,6 +45,75 @@ test('registration moves a token to the new session, settings validate inputs', 
   assert.throws(() => updatePreferences({}, { pausedUntil: Infinity }));
   updatePushRegistration(state, current, { token: null });assert.equal(current.push, undefined);
 });
+test('a browser registers its push subscription: only a real push service address and whole keys are kept', () => {
+  const receiver = crypto.createECDH('prime256v1'); receiver.generateKeys();
+  const keys = { p256dh: receiver.getPublicKey().toString('base64url'), auth: crypto.randomBytes(16).toString('base64url') };
+  const endpoint = 'https://fcm.googleapis.com/fcm/send/example';
+  const phone = { id: 'phone', userId: 'u', push: { platform: 'ios', token: 'a'.repeat(64), environment: 'production' }, voip: { token: 'b'.repeat(64), environment: 'production' } };
+  const old = { id: 'old', userId: 'u', push: { platform: 'web', token: endpoint, ...keys } };
+  const browser = { id: 'browser', userId: 'u', voip: { token: 'c'.repeat(64) }, ringsCalls: true };
+  const state = { devices: { phone, old, browser } };
+  updatePushRegistration(state, browser, { platform: 'web', token: endpoint, keys });
+  assert.deepEqual(browser.push, { platform: 'web', token: endpoint, ...keys });
+  assert.equal(old.push, undefined, 'the same browser signed in again: its earlier session stops receiving');
+  assert.equal(phone.push.platform, 'ios', 'other devices keep theirs');
+  assert.deepEqual([browser.voip, browser.ringsCalls], [undefined, undefined], 'a browser has no call tokens');
+  // Refused, leaving what was there: an address that is not a push service, or keys that are missing or wrong.
+  for (const body of [{ platform: 'web', token: 'https://127.0.0.1/internal', keys }, { platform: 'web', token: 'http://fcm.googleapis.com/x', keys }, { platform: 'web', token: endpoint },
+    { platform: 'web', token: endpoint, keys: { ...keys, auth: 'short' } }, { platform: 'web', token: endpoint, keys: { ...keys, p256dh: 'A'.repeat(87) } }]) {
+    assert.throws(() => updatePushRegistration(state, browser, body), { code: 'bad_push_token', status: 400 });
+    assert.equal(browser.push.token, endpoint);
+  }
+  // Turning it off in the browser removes it like any other device.
+  updatePushRegistration(state, browser, { token: null });
+  assert.equal(browser.push, undefined);
+});
+
+test('a browser alert is the same title, body and routing ids, sealed so the push service cannot read it', async () => {
+  const receiver = crypto.createECDH('prime256v1'); receiver.generateKeys();
+  const auth = crypto.randomBytes(16);
+  const device = { platform: 'web', token: 'https://updates.push.services.mozilla.com/wpush/v2/example', p256dh: receiver.getPublicKey().toString('base64url'), auth: auth.toString('base64url') };
+  const identity = temporaryWebPushIdentity();
+  const requests = [];
+  const transport = createPushTransport(() => ({}), async (url, options) => { requests.push({ url, options }); return { status: 201 }; }, () => ({ identity, subject: 'mailto:team@example.gov' }));
+  const notification = notificationPayload({ kind: 'channel', conversationId: 'ch_1', messageId: 7, title: 'Jo Park in #general', body: 'Two requests have come in already.', secret: 'never' },
+    { id: 'u1', notifications: { contentPreviews: true } }, 'd1');
+  assert.deepEqual(await transport(device, { ...notification, internal: 'never' }), { ok: true });
+  assert.equal(requests[0].url, device.token);
+  const message = JSON.parse(decryptPush(requests[0].options.body, receiver, auth));
+  assert.deepEqual(message, { title: 'Jo Park in #general', body: 'Two requests have come in already.', tag: 'ch_1', data: { userId: 'u1', deviceId: 'd1', conversationId: 'ch_1', messageId: '7' } });
+  assert.equal(webPushMessage(notification).data.conversationId, 'ch_1');
+  assert.doesNotMatch(Buffer.from(requests[0].options.body).toString('latin1'), /Jo Park|requests|ch_1|u1/, 'nothing readable leaves the server');
+  assert.match(requests[0].options.headers.Topic, /^[A-Za-z0-9_-]{32}$/);
+  // With previews off the browser gets the same generic words as a phone.
+  const generic = notificationPayload({ kind: 'dm', conversationId: 'dm_1', title: 'Jo Park', body: 'private words' }, { id: 'u1', notifications: { contentPreviews: false } }, 'd1');
+  await transport(device, generic);
+  assert.deepEqual(JSON.parse(decryptPush(requests[1].options.body, receiver, auth)), { title: 'Servant', body: 'You have a new message', tag: 'dm_1', data: { userId: 'u1', deviceId: 'd1', conversationId: 'dm_1' } });
+  // No signing identity: nothing is sent.
+  await assert.rejects(createPushTransport(() => ({}), async () => assert.fail('must not send'))(device, notification), /WEB_PUSH_NOT_CONFIGURED/);
+});
+
+test('a browser subscription that is gone is removed, and one that fails for now is tried again', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'servant-push-web-'));
+  const endpoint = 'https://fcm.googleapis.com/fcm/send/example';
+  const state = { users: { u: { id: 'u', notifications: { mode: 'all' } } }, devices: { b: { id: 'b', userId: 'u', push: { platform: 'web', token: endpoint, p256dh: 'p', auth: 'a' } } } };
+  const answers = [{ ok: false, retry: true, code: '503' }, { ok: false, invalid: true, retry: false, code: '410' }];
+  const sent = [];
+  let now = 1000;
+  const service = createPushService({ file: path.join(dir, 'push.db'), state: () => state, mutate: change => change(state), autoDrain: false, clock: () => now, log: () => {},
+    resolve: event => ({ kind: 'dm', conversationId: 'dm_1', title: 'Jo Park', body: event.text }),
+    send: async (target, notification) => { sent.push({ target, notification }); return answers.shift(); } });
+  try {
+    service.enqueue({ kind: 'message', messageId: 1, text: 'Hello' });
+    await service.drain();
+    assert.deepEqual([sent.length, service.pending(), sent[0].target.platform, sent[0].target.token], [1, 1, 'web', endpoint]);
+    now += 6000;
+    await service.drain();
+    assert.deepEqual([sent.length, service.pending()], [2, 0]);
+    assert.equal(state.devices.b.push, undefined, 'the browser unsubscribed: its registration is dropped');
+  } finally { service.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('message eligibility respects private membership, personal archive, sender, reads and thread participation', async () => {
   const dir = tmp(); const people = { a: { id: 'a', name: 'Alice' }, b: { id: 'b', name: 'Bob' }, c: { id: 'c', name: 'Cora' } };
   const queued = [];

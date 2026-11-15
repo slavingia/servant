@@ -2,10 +2,8 @@ import { memo, useLayoutEffect, useEffect, useRef, useState, type ComponentRef, 
 import { MeetingCard } from "./MeetingCard";
 import { useProjectGlossary } from "../lib/use-project-glossary";
 import { findUnknownAbbreviations } from "../lib/abbreviations";
-import { useAbbreviations } from "../lib/use-abbreviations";
-import { withAbbreviations } from "./Abbr";
 import { lexiconApi } from "../lib/lexicon-api";
-import { ActivityIndicator, Alert, Image, Keyboard, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type PressableProps } from "react-native";
+import { ActivityIndicator, Alert, Image, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type PressableProps } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -33,8 +31,12 @@ import { SaveMessageAction } from "./SaveMessageAction";
 import { useContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { MessageText } from "./MessageText";
 import { TweetEmbed } from "./TweetEmbed";
+import { MediaEmbed } from "./MediaEmbed";
+import { mediaEmbeds } from "../lib/media-embed";
+import { LinkPreview } from "./LinkPreview";
+import { withQuote } from "../lib/quote";
+import { replyContext } from "../lib/also-in-channel";
 import { tweetIds } from "../lib/tweet-embed";
-import { safeUrl } from "../lib/message-format";
 import { conversationPreview } from "../lib/conversation-preview";
 import { parseForward } from "../lib/forward";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
@@ -163,17 +165,18 @@ const MAX_LEARNED_TERMS = 8;
 
 // Splits text so @mentions stand out.
 // A message forwarded from an agent chat shows as a quote card, then the note.
-function ForwardedPost({ text, edited }: { text: string; edited: boolean }) {
+function ForwardedPost({ text }: { text: string }) {
   const styles = useStyles();
   const parsed = parseForward(text);
-  if (!parsed) return <Rich text={text + (edited ? " " : "")} style={styles.body} />;
+  // A person's own words are formatted as they typed them: *bold*, _italics_, `code`, quotes and lists.
+  if (!parsed) return <MessageText chat text={text} />;
   const where = [parsed.forward.where, parsed.forward.when].filter(Boolean).join(" · ");
   return <>
     <View accessible accessibilityLabel={`Forwarded message from ${parsed.forward.author}, ${where}. ${parsed.forward.quote || "No text"}`} style={styles.forwardCard}>
       <Text style={styles.forwardLabel}>Forwarded from {parsed.forward.author}<Text style={styles.forwardWhere}> · {where}</Text></Text>
       {parsed.forward.quote ? <Text selectable={Platform.OS === "web"} style={styles.body}>{parsed.forward.quote}</Text> : null}
     </View>
-    {parsed.rest ? <Rich text={parsed.rest + (edited ? " " : "")} style={styles.body} /> : null}
+    {parsed.rest ? <MessageText chat text={parsed.rest} /> : null}
   </>;
 }
 
@@ -181,30 +184,6 @@ const MENTION_TOKEN = /(@[\p{L}\p{M}\p{N}_’'.-]+)/gu;
 const mentionParts = (text: string, names: Set<string>) =>
   text.split(MENTION_TOKEN).map(t => ({ text: t, mention: t.startsWith("@") && names.has(t.toLowerCase().replace(/[.,;:!?)'’]+$/, "")) }));
 const hasMention = (text: string, names: Set<string>) => text.includes("@") && mentionParts(text, names).some(p => p.mention);
-
-function Rich({ text, style }: { text: string; style: object }) {
-  const styles = useStyles();
-  const abbreviations = useAbbreviations();
-  // Web links open in the browser; @mentions are highlighted; known abbreviations get a dotted underline.
-  const parts = text.split(/(https?:\/\/[^\s<>"'`]*[^\s<>"'`.,;:!?)\]}*_~]|@[\p{L}\p{M}\p{N}_’'.-]+)/gu);
-  return (
-    <Text selectable={Platform.OS === "web"} style={style}>
-      {parts.map((p, i) =>
-        /^https?:\/\//.test(p) && safeUrl(p) ? (
-          <Text key={i} style={styles.link} accessibilityRole="link" onPress={() => void Linking.openURL(p).catch(() => {})}>
-            {p}
-          </Text>
-        ) : p.startsWith("@") ? (
-          <Text key={i} style={styles.mention}>
-            {p}
-          </Text>
-        ) : (
-          withAbbreviations(p, abbreviations)
-        ),
-      )}
-    </Text>
-  );
-}
 
 type PostProps = {
   post: Post;
@@ -218,6 +197,8 @@ type PostProps = {
   onDelete?: (post: Post) => void;
   onReact?: (post: Post, emoji: string, active: boolean) => Promise<void>;
   onAskAgent?: (post: Post) => void;
+  /** Puts the message's words in the reply field as a quote. */
+  onQuote?: (post: Post) => void;
   /** Sends a suggested reply. Given only for the newest message, so old chips go away. */
   onSuggest?: (text: string) => void;
 };
@@ -228,7 +209,8 @@ const REACTIONS = [
   ["👀", "Looking"], ["🔥", "Fire"], ["👏", "Applause"], ["💯", "Hundred"],
 ];
 
-export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpenThread: openThread, onEdit: edit, onDelete: remove, onReact: react, onAskAgent: askAgent, onSuggest }: PostProps) {
+export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpenThread: openThread, onEdit: edit, onDelete: remove, onReact: react, onAskAgent: askAgent, onQuote: quoteIt, onSuggest }: PostProps) {
+  const onQuote = quoteIt && post.text && !post.deleted ? () => quoteIt(post) : undefined;
   const onOpenThread = openThread && (() => openThread(post));
   const onEdit = edit && (() => edit(post));
   const onDelete = remove && (() => remove(post));
@@ -290,6 +272,7 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
   const options = [
     ...(onAskAgent ? [{ text: "Ask the agent", onPress: onAskAgent }] : []),
     ...(onOpenThread ? [{ text: "Reply in thread", onPress: onOpenThread }] : []),
+    ...(onQuote ? [{ text: "Quote", onPress: onQuote }] : []),
     ...(mine && onEdit ? [{ text: "Edit", onPress: onEdit }] : []),
     ...(mine && onDelete ? [{ text: "Delete", onPress: onDelete }] : []),
   ];
@@ -311,6 +294,7 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
         return <Pressable key={emoji} accessibilityRole="button" accessibilityLabel={`${selected ? "Remove" : "Add"} ${name} reaction`} aria-pressed={selected} disabled={busy} onPress={() => { context.close(); void choose(emoji!); }} style={state => [styles.contextEmoji, ((state as { hovered?: boolean }).hovered || selected) && styles.selectedReaction]}><Text style={styles.emoji}>{emoji}</Text></Pressable>;
       })}</View> }, { separator: true as const }] : []),
       ...(onOpenThread ? [{ label: "Reply in thread", onPress: onOpenThread }] : []),
+      ...(onQuote ? [{ label: "Quote", onPress: onQuote }] : []),
       ...(post.text ? [{ label: "Copy text", onPress: () => { void Clipboard.setStringAsync(post.text!); } }] : []),
       ...(account ? [{ label: "Save for later", onPress: () => { void api.saveMessage(account, post.id).catch(() => {}); } }] : []),
       ...(onAskAgent ? [{ label: "Ask the agent", onPress: onAskAgent }] : []),
@@ -336,14 +320,17 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
             <Text style={styles.time}>{when(post.createdAt)}{deviceLabel && post.sourceDevice?.kind !== "agent" ? <Text testID={`message-device-${post.id}`} accessibilityLabel={`Sent from ${deviceLabel}`}> · {deviceLabel}</Text> : null}</Text>
           </View>
         ) : null}
+        {post.alsoInChannel && !post.deleted ? <Text numberOfLines={onOpenThread ? 1 : undefined} style={styles.alsoSent}>{onOpenThread ? replyContext(post) : "Also sent to the conversation"}</Text> : null}
         {post.deleted ? (
           <Text style={styles.deleted}>Message deleted</Text>
         ) : working || (post.pending && !post.text && !post.attachments?.length) ? (
           <Text style={styles.deleted}>Working…</Text>
         ) : post.text ? (
-          post.user.agent ? <MessageText text={post.text} /> : <ForwardedPost text={post.text} edited={!!post.editedAt} />
+          post.user.agent ? <MessageText text={post.text} /> : <ForwardedPost text={post.text} />
         ) : null}
         {!post.deleted ? tweetIds(post.text).map(id => <TweetEmbed key={id} id={id} />) : null}
+        {!post.deleted ? mediaEmbeds(post.text).map(embed => <MediaEmbed key={embed.key} embed={embed} />) : null}
+        {post.preview && !post.deleted ? <LinkPreview preview={post.preview} /> : null}
         {post.editedAt && !post.deleted ? <Text style={styles.edited}>Edited</Text> : null}
         {post.meeting && post.user.agent && !post.deleted ? <MeetingCard meeting={post.meeting} /> : null}
         </View>
@@ -366,6 +353,11 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
           })}
         </View> : null}
         {available && Platform.OS === "web" ? <Pressable accessibilityRole="button" accessibilityLabel={`Actions for ${post.user.name}'s message`} onPress={actions} style={styles.more}><Text style={styles.moreText}>•••</Text></Pressable> : null}
+        {onOpenThread && post.alsoInChannel && !post.deleted ? (
+          <Pressable accessibilityRole="button" accessibilityLabel={`${replyContext(post)}. View thread`} onPress={onOpenThread} style={styles.replies}>
+            <Text style={styles.repliesText}>View thread</Text>
+          </Pressable>
+        ) : null}
         {onOpenThread && post.replyCount > 0 ? (
           <Pressable accessibilityRole="button" accessibilityLabel={`${post.replyCount} ${post.replyCount === 1 ? "reply" : "replies"}, open thread`} onPress={onOpenThread} style={styles.replies}>
             <Text style={styles.repliesText}>
@@ -453,7 +445,12 @@ export function Composer({
   onStop,
   draftKey: conversationDraftKey,
   projectId,
+  quote,
+  onQuoted,
 }: {
+  onQuoted?: () => void;
+  /** A message to quote: its words are put ahead of what is typed. `at` tells one request from the next. */
+  quote?: { text: string; at: number } | null;
   placeholder: string;
   /** `how` is "queue" when the message should wait for the reply in progress to finish (a held Send, or "/queue …"). */
   onSend: (text: string, attachments?: Upload[], how?: "queue") => Promise<boolean>;
@@ -545,6 +542,19 @@ export function Composer({
     finally { setPicking(false); }
   };
   const input = useRef<ComponentRef<typeof TextInput>>(null);
+  // A new request to quote changes the text once, as it arrives; the screen then forgets the request, so
+  // a reply field shown again later does not quote it a second time.
+  const [quoted, setQuoted] = useState(0);
+  if (quote && quote.at !== quoted) {
+    setQuoted(quote.at);
+    setText(current => withQuote(current, quote.text));
+  }
+  const quoteAt = quote?.at;
+  useEffect(() => {
+    if (!quoteAt) return;
+    input.current?.focus();
+    onQuoted?.();
+  }, [quoteAt, onQuoted]);
   const filesRef = useRef<DraftAttachment[]>([]);
   const pendingPastes = useRef(0);
   useEffect(() => { filesRef.current = files; }, [files]);
@@ -952,6 +962,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   deleted: { ...typography.body, color: colors.muted, fontStyle: "italic" },
   edited: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
   receipt: { alignSelf: "flex-end", marginTop: 2 },
+  // A reply also sent to the conversation: what it answers, above its words. "View thread" under it opens the rest.
+  alsoSent: { ...typography.caption, color: colors.muted },
   replies: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", marginTop: space.xxs, minHeight: 44 },
   repliesText: { ...typography.captionStrong, color: colors.blue, ...linkUnderline },
   composerWrap: { backgroundColor: colors.background, paddingHorizontal: space.sm, paddingTop: space.xs },

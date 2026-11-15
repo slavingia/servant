@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import http2 from 'node:http2';
+import { sendWebPush } from './web-push.mjs';
 
 const b64 = (x) => Buffer.from(JSON.stringify(x)).toString('base64url');
 // Keep this allowlist at the provider boundary as well as in the queue. A new
@@ -33,6 +34,12 @@ export function fcmMessage(token, notification, ringing = false) {
     android: { priority: 'HIGH', ttl: '3600s', notification: { channel_id: 'messages', tag: n.group, sound: 'default', ...(n.badge === null ? {} : { notification_count: n.badge }) } },
   } };
 }
+// A browser (web-push.mjs). The same title, body and routing ids as a phone gets, and nothing else; the whole
+// message is encrypted to the browser, so its push service carries it without reading it.
+export function webPushMessage(notification) {
+  const n = privateNotification(notification);
+  return { title: n.title, body: n.body, tag: n.group, data: n.data };
+}
 export function apnsPayload(notification) {
   const n = privateNotification(notification);
   // expo-notifications reads a remote push's data ONLY from userInfo.body on
@@ -51,7 +58,8 @@ export function apnsTopic(c, voip = false, env = process.env) {
   const id = (typeof c?.apnsTopic === 'string' && c.apnsTopic.trim()) || (env.SERVANT_BUNDLE_ID || '').trim() || 'com.example.servant';
   return voip ? id + '.voip' : id;
 }
-export function createPushTransport(config, fetcher = fetch) {
+// `webPush()` gives this server's browser-push signing identity and the contact address that goes with it.
+export function createPushTransport(config, fetcher = fetch, webPush = () => null) {
   let google = null;
   let apple = null;
   async function googleToken(c) {
@@ -74,6 +82,14 @@ export function createPushTransport(config, fetcher = fetch) {
     return apple.token;
   }
   return async (device, notification) => {
+    if (device.platform === 'web') {
+      const sender = webPush();
+      if (!sender?.identity) throw new Error('WEB_PUSH_NOT_CONFIGURED');
+      const message = webPushMessage(notification);
+      // A newer alert for the same conversation replaces one the push service is still holding.
+      const topic = crypto.createHash('sha256').update(message.tag).digest('base64url').slice(0, 32);
+      return sendWebPush(device, message, { identity: sender.identity, subject: sender.subject, topic, fetcher });
+    }
     const c = config();
     if (device.platform === 'android') {
       if (!c?.fcmKeyPath || !c?.fcmProjectId) throw new Error('FCM_NOT_CONFIGURED');

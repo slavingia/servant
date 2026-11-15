@@ -82,7 +82,12 @@ function cells(line: string): string[] {
   return row.split(/(?<!\\)\|/).map(cell => cell.trim().replace(/\\\|/g, '|'));
 }
 
-export function messageBlocks(text: string): Block[] {
+/**
+ * `chat`: a person's message in a channel, a direct message or a thread. It gets what people type by hand
+ * (bold, italics, strikethrough, code, quotes and lists) and not what would turn an ordinary line into
+ * something else: a line that starts with # stays a line, and so do a row of dashes and a line with bars.
+ */
+export function messageBlocks(text: string, { chat = false }: { chat?: boolean } = {}): Block[] {
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   const blocks: Block[] = [];
   let paragraph: string[] = [];
@@ -101,7 +106,7 @@ export function messageBlocks(text: string): Block[] {
       continue;
     }
     if (!line.trim()) { flush(); continue; }
-    if (line.includes('|') && i + 1 < lines.length && TABLE_SEPARATOR.test(lines[i + 1]!) && lines[i + 1]!.includes('-')) {
+    if (!chat && line.includes('|') && i + 1 < lines.length && TABLE_SEPARATOR.test(lines[i + 1]!) && lines[i + 1]!.includes('-')) {
       const header = cells(line);
       const align = cells(lines[i + 1]!).map(c => c.startsWith(':') && c.endsWith(':') ? 'center' as const : c.endsWith(':') ? 'right' as const : 'left' as const);
       if (align.length === header.length || lines[i + 1]!.includes('|')) {
@@ -115,8 +120,8 @@ export function messageBlocks(text: string): Block[] {
         continue;
       }
     }
-    if (/^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(line)) { flush(); listIndents = []; blocks.push({ kind: 'rule' }); continue; }
-    const heading = /^\s{0,3}(#{1,6})\s+(.+?)(?:\s+#+)?\s*$/.exec(line);
+    if (!chat && /^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(line)) { flush(); listIndents = []; blocks.push({ kind: 'rule' }); continue; }
+    const heading = chat ? null : /^\s{0,3}(#{1,6})\s+(.+?)(?:\s+#+)?\s*$/.exec(line);
     const list = /^(\s*)([-+*]|\d+[.)])\s+(.*)$/.exec(line);
     const quote = /^\s{0,3}>\s?(.*)$/.exec(line);
     if (heading) { flush(); listIndents = []; blocks.push({ kind: 'heading', level: heading[1]!.length, text: heading[2]! }); continue; }
