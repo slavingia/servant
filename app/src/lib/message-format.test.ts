@@ -99,3 +99,14 @@ test("a person's message is formatted as people type, and an ordinary line stays
   assert.match(read("components/MessageText.tsx"), /messageBlocks\(text, \{ chat \}\)/);
   assert.match(read("components/MessageText.tsx"), /piece\.startsWith\('@'\) \? <Text key=\{i\} style=\{styles\.mention\}>/);
 });
+
+test("a link's preview is the page's words under the message, and opens only a web address", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const read = (file: string) => fs.readFileSync(path.join(import.meta.dirname, "..", file), "utf8");
+  const card = read("components/LinkPreview.tsx");
+  assert.match(card, /const url = safeUrl\(preview\.url\);\s*if \(!url \|\| !preview\.title\) return null;/);
+  assert.doesNotMatch(card, /<Image|uri:|fetch\(/, "words only: showing it contacts nobody");
+  assert.equal(safeUrl("javascript:alert(1)"), undefined);
+  assert.match(read("components/Messaging.tsx"), /\{post\.preview && !post\.deleted \? <LinkPreview preview=\{post\.preview\} \/> : null\}/);
+});

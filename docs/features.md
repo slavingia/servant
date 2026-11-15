@@ -82,6 +82,14 @@ The search runs as the person who asked and is narrowed by who will read the ans
 
 Nothing outside what the asker can read is ever searched, the agent's own earlier replies are left out, and a server with channels or direct messages turned off does not search them. This adds no tool to the agent and changes nothing about where it runs: the server does the search and passes text, as it already does with earlier messages. What the agent is sent goes to the model provider like the rest of the prompt.
 
+## Link previews
+
+Owner's decision, 11/15: when a person posts a message with a link, the server reads that page once and shows its title, description and site name under the message. Readers never contact the site: the preview is words only, with no picture, and the app fetches nothing. Only the first link in a message is read, and not links inside code, plain `http` links, or X/Twitter links (which have their own card). The agent's messages get none. Editing the message drops the preview and reads the new first link; deleting the message removes it.
+
+What leaves the server: one request to the linked site for that page, from the server's address, with no cookie, sign-in or anything about the person or conversation. The site therefore learns that this server looked at that page, and when. Set `"linkPreviews": false` in `config.json` to stop the server reading links at all.
+
+The address comes from a message, so it is treated as hostile (`server/link-preview.mjs`): only `https` on a real host name and the default port; every address the name resolves to must be on the public internet (nothing loopback, private, link-local or reserved, in IPv4 or IPv6); the connection is made to the address that was checked, so a name cannot answer one thing for the check and another for the request; each redirect is checked the same way, three at most; and the read stops at five seconds or 512 KB. Only an HTML page is read, and only text is kept, with markup removed. Pages are read a few at a time and the same address is not read again for ten minutes.
+
 ## Formatting and commands
 
 A person's message is formatted as they type it: `*bold*` or `**bold**`, `_italics_`, `~~strikethrough~~`, `` `code` ``, fenced code, `>` quotes and lists. Typing `/` at the start of a message lists commands; `/help` says what each does. `/feedback what to fix or add` sends feedback about Servant from wherever you are typing and says it was sent; `/feedback` alone opens the Feedback page. Only the words after the command are sent, with the kind of screen, the app build and the platform: nothing from the conversation is attached.

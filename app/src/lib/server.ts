@@ -96,6 +96,8 @@ export type Post = {
   readBy?: { userId: string; readAt: number }[];
   reactions?: { emoji: string; userIds: string[] }[];
   attachments?: Attachment[];
+  /** The first linked page's own title and description, read once by the server when the message was posted. */
+  preview?: LinkPreview;
   activity?: "joined" | "left" | "todo";
   /** One-tap replies the agent offers under its message. */
   suggestions?: string[];
@@ -186,6 +188,7 @@ export type Recording = {
   summary: string | null; error: string | null; openSteps: number; notes: string[]; transcript: string; steps: RecordingStep[]; todos?: TodoItem[];
 };
 export type ResearchCard = { n: number; askedBy: string; question: string; answer: string | null; status: "working" | "done" | "failed"; at: number };
+export type LinkPreview = { url: string; title: string; description: string; site: string };
 export type Conversation = {
   id: string;
   kind: "channel" | "dm";

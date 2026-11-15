@@ -1,5 +1,6 @@
 import { agentTierOf, TIER_TOKEN_LIMITS } from "./usage.mjs";
 import { ftsQuery, parseSearch, SEARCH_SCHEMA } from "./search.mjs";
+import { firstLink } from "./link-preview.mjs";
 import { featureForKind, featureOffMessage } from "./features.mjs";
 import { deepWorkFields, inDeepWork } from "./deep-work.mjs";
 // Channels, direct messages and threads. People talk to each other here; the
@@ -291,7 +292,7 @@ const maybeHidden = text => { const start = text.trim(); return !!start && ("<se
  * @param {() => string} o.agentName
  * @param {(o:{sessionId:string, sessionKey:string, text:string, attachments:Array, onDelta:(t:string)=>void, onStatus:(t:string)=>void}) => Promise<string|{text:string,attachments:Array}>} o.askAgent
  */
-export function createMessaging({ file, users, agentName, emailChecks = () => false, askAgent, onMessage = () => {}, externalWorker = false, onUsage = () => {}, features = () => ({ channels: true, directMessages: true, meetings: true }), messageExtras = () => null, startWorkChat = null, piiWarning = () => false, reportFalseAlarm = null, recordsPreservation = () => false, tierCosts = () => null }) {
+export function createMessaging({ file, users, agentName, emailChecks = () => false, askAgent, onMessage = () => {}, externalWorker = false, onUsage = () => {}, features = () => ({ channels: true, directMessages: true, meetings: true }), linkPreview = null, messageExtras = () => null, startWorkChat = null, piiWarning = () => false, reportFalseAlarm = null, recordsPreservation = () => false, tierCosts = () => null }) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(file);
   db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON');
@@ -314,6 +315,8 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
     }
     // The full-text index for search (search.mjs). Made once and filled from the messages already here;
     // from then on the database keeps it in step with every post, edit and delete.
+    // What a linked page says about itself (link-preview.mjs), kept with the message it was posted in.
+    db.exec("CREATE TABLE IF NOT EXISTS link_previews (message_seq INTEGER PRIMARY KEY REFERENCES messages(seq) ON DELETE CASCADE, url TEXT NOT NULL, title TEXT NOT NULL, description TEXT NOT NULL, site TEXT NOT NULL)");
     const indexed = db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'messages_search'").get();
     db.exec(SEARCH_SCHEMA);
     if (!indexed) db.exec("INSERT INTO messages_search(messages_search) VALUES ('rebuild')");
@@ -510,6 +513,9 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
     removeReaction: q("DELETE FROM reactions WHERE message_seq = ? AND user_id = ? AND emoji = ?"),
     deleteReactions: q("DELETE FROM reactions WHERE message_seq = ?"),
     attachments: q("SELECT id, name, mime, size FROM attachments WHERE message_seq = ?"),
+    preview: q("SELECT url, title, description, site FROM link_previews WHERE message_seq = ?"),
+    setPreview: q("INSERT OR REPLACE INTO link_previews (message_seq, url, title, description, site) VALUES (?, ?, ?, ?, ?)"),
+    dropPreview: q("DELETE FROM link_previews WHERE message_seq = ?"),
     attachment: q("SELECT * FROM attachments WHERE id = ?"),
     insertAttachment: q("INSERT INTO attachments VALUES (?, ?, ?, ?, ?, ?)"),
     deleteAttachments: q("DELETE FROM attachments WHERE message_seq = ?"),
@@ -714,6 +720,8 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
     text: m.deleted_at || m.pending ? "" : m.text,
     reactions: m.deleted_at ? [] : Object.entries(Object.groupBy(st.reactions.all(m.seq), r => r.emoji)).map(([emoji, rows]) => ({ emoji, userIds: rows.map(r => r.user_id) })),
     attachments: m.deleted_at || m.pending ? [] : st.attachments.all(m.seq),
+    // The linked page's own title and description, read once by the server when the message was posted.
+    ...(!m.deleted_at && !m.pending && st.preview.get(m.seq) ? { preview: { ...st.preview.get(m.seq) } } : {}),
     deleted: !!m.deleted_at,
     pending: !!m.pending,
     replyCount: m.reply_count,
@@ -909,6 +917,25 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
   }
 
   function post(...args) { return transaction(() => postInTransaction(...args)); }
+  // After a person's message is saved: read its first link's page, off to the side, and add what it says.
+  // The message is already delivered; the preview arrives as an update, or not at all.
+  function previewLater(seq) {
+    if (!linkPreview) return;
+    const m = st.msg.get(seq);
+    const link = m && !m.deleted_at && !m.pending && !m.activity && m.user_id !== AGENT_ID ? firstLink(m.text) : null;
+    if (!link) return;
+    Promise.resolve().then(() => linkPreview(link)).then(preview => {
+      if (!preview?.title) return;
+      transaction(() => {
+        const current = st.msg.get(seq);
+        // Edited or deleted while the page was being read: this preview is no longer its.
+        if (!current || current.deleted_at || firstLink(current.text) !== link) return;
+        st.setPreview.run(seq, link, String(preview.title).slice(0, 140), String(preview.description ?? "").slice(0, 280), String(preview.site ?? "").slice(0, 60));
+        publish(current.conversation_id, "message.updated", msgView(current));
+      });
+    }).catch(() => { /* no preview */ });
+  }
+
   function postInTransaction(conv, userId, text, threadRoot = null, { pending = false, attachments = [], queueAgent = externalWorker, device, call = null } = {}) {
     conv = userId === AGENT_ID ? st.conv.get(conv.id) : requireConversation(conv.id, userId, true);
     if (!conv || conv.archived_at) throw httpError(404, 'not_found', 'That conversation is gone');
@@ -928,6 +955,7 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
     publish(conv.id, "message.created", msgView(m));
     if (threadRoot) publish(conv.id, "message.updated", msgView(st.msg.get(threadRoot)));
     if (!pending) notifyMessage(m.seq, call);
+    if (!pending && userId !== AGENT_ID) afterCommit(() => previewLater(m.seq));
     if (queueAgent && externalWorker && userId !== AGENT_ID && wantsAgent(conv, m)) {
       db.prepare('INSERT OR IGNORE INTO agent_jobs (trigger_seq, created_at) VALUES (?, ?)').run(m.seq, now());
     }
@@ -1931,6 +1959,9 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
           if (current.user_id !== user.id) throw httpError(403, 'forbidden', 'You can only edit your own messages');
           keepMessage("message_edited", current, user.id, conv, { newTextLength: Math.min(text.length, MAX_TEXT) });
           st.setText.run(text.slice(0, MAX_TEXT), now(), m.seq);
+          // The words changed: the old link's preview goes, and the new first link, if any, is read.
+          st.dropPreview.run(m.seq);
+          afterCommit(() => previewLater(m.seq));
           const value = msgView(st.msg.get(m.seq), true, user.id);
           publish(conv.id, "message.updated", value);
           return value;
@@ -1945,6 +1976,7 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
           if (current.user_id !== user.id && users()[user.id]?.role !== 'owner') throw httpError(403, 'forbidden', 'You can only delete your own messages');
           keepMessage("message_deleted", current, user.id, conv);
           st.softDelete.run(now(), m.seq);
+          st.dropPreview.run(m.seq);
           st.deleteAttachments.run(m.seq);
           st.deleteReactions.run(m.seq);
           publish(conv.id, "message.updated", msgView(st.msg.get(m.seq)));

@@ -53,6 +53,7 @@ import { businessVerdict } from "./business-gate.mjs";
 import { createPushService, preferences, previewText, updatePushRegistration, updateVoipRegistration, updatePreferences } from "./push.mjs";
 import { createPushTransport } from "./push-transport.mjs";
 import { vapidSubject, webPushIdentity } from "./web-push.mjs";
+import { createLinkPreviews } from "./link-preview.mjs";
 import { createSecureTransport, serverIdentity } from "./secure-transport.mjs";
 import { createStateStore } from "./state-store.mjs";
 import { createDeviceLink, previewDeviceLink, approveDeviceLink, denyDeviceLink, pollDeviceLink, createSignInLink } from "./device-links.mjs";
@@ -183,6 +184,8 @@ export function loadConfig() {
     feedbackRepo: typeof cfg.feedbackRepo === "string" ? cfg.feedbackRepo : "slavingia/servant",
     // Shown on the public /privacy page for data deletion and questions. Optional: without it the page says to ask whoever runs the server.
     contactEmail: typeof cfg.contactEmail === "string" ? cfg.contactEmail.trim() : "",
+    // The server reads a posted link's page for its title (link-preview.mjs). `"linkPreviews": false` stops it.
+    linkPreviews: cfg.linkPreviews !== false,
     // Optional one-line note shown at the bottom of the public join and privacy pages, for example who runs this server.
     footer: typeof cfg.footer === "string" ? cfg.footer.trim().slice(0, 300) : "",
     // Where the server can be reached from phones. Filled in by the tunnel script.
@@ -2302,7 +2305,9 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
   glossaryConfig = fixedCfg;
   store();
   let servicePush;
+  const readLink = createLinkPreviews();
   const serviceMessaging = createMessaging({
+    linkPreview: link => (fixedCfg || loadConfig()).linkPreviews === false ? null : readLink(link),
     file: path.join(DATA_DIR, "messages.db"),
     externalWorker,
     users: () => activeUsers(readState()),

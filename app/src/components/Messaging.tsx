@@ -31,6 +31,7 @@ import { SaveMessageAction } from "./SaveMessageAction";
 import { useContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { MessageText } from "./MessageText";
 import { TweetEmbed } from "./TweetEmbed";
+import { LinkPreview } from "./LinkPreview";
 import { tweetIds } from "../lib/tweet-embed";
 import { conversationPreview } from "../lib/conversation-preview";
 import { parseForward } from "../lib/forward";
@@ -318,6 +319,7 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
           post.user.agent ? <MessageText text={post.text} /> : <ForwardedPost text={post.text} />
         ) : null}
         {!post.deleted ? tweetIds(post.text).map(id => <TweetEmbed key={id} id={id} />) : null}
+        {post.preview && !post.deleted ? <LinkPreview preview={post.preview} /> : null}
         {post.editedAt && !post.deleted ? <Text style={styles.edited}>Edited</Text> : null}
         {post.meeting && post.user.agent && !post.deleted ? <MeetingCard meeting={post.meeting} /> : null}
         </View>
