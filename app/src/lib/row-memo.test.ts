@@ -51,7 +51,7 @@ for (const file of ["app/c/[id].tsx", "app/thread.tsx"]) {
 }
 
 test("the conversation's list of rows is built once per change of its messages", () => {
-  assert.match(read("app/c/[id].tsx"), /const data = useMemo\(\(\) => groupActivity\(/);
+  assert.match(read("app/c/[id].tsx"), /const data = useMemo\(\(\) => listOrder\(groupActivity\(/);
 });
 
 test("an agent chat draws only the row that changed", () => {

@@ -1,3 +1,5 @@
+import { FlashList } from "@shopify/flash-list";
+import { RECYCLING_CONVERSATION_LIST, isNewest, listOrder, olderNeighbour } from "../../lib/conversation-list";
 import { showsInConversation, threadOf } from "../../lib/also-in-channel";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, AppState, FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
@@ -398,7 +400,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
   const openThread = (p: Post) => { if (!p.threadRoot) openingThread(account, id, p, { conversation: conv, joined }); router.push({ pathname: "/thread", params: { conv: id, root: threadOf(p), title } }); };
   const askAgent = (p: Post) => { askAgentAbout(account, p, conv).catch(e => setError(errorText(e, "Couldn't start a chat with the agent"))); };
   // Joins and leaves close together read as one line ("Ann and Bo joined the channel").
-  const data = useMemo(() => groupActivity([...(posts ?? []), ...sending].reverse()), [posts, sending]);
+  const data = useMemo(() => listOrder(groupActivity([...(posts ?? []), ...sending].reverse()), RECYCLING_CONVERSATION_LIST), [posts, sending]);
   // Every row gets the same handlers for as long as the screen is open, and the list gets the same
   // rows until the messages change: typing, a presence change or an error line draw no message again.
   const onReact = useStableCallback(react);
@@ -412,14 +414,28 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
   const onSuggest = useStableCallback((text: string) => { void send(text); });
   const onEndReached = useStableCallback(() => { void older(); });
   const role = account.user.role;
+  // What a channel says about itself above its first message, once all of them are loaded.
+  const intro = conv && !more && isChannel ? (
+    <View style={styles.intro}>
+      <View style={[styles.visibility, conv.private && styles.visibilityPrivate]}>
+        <View style={styles.visibilityHeading}>
+          {conv.private ? <AppIcon name="lock" size={16} color={colors.ink} /> : null}
+          <Text style={styles.visibilityLabel}>{channelVisibility(conv.private, account.serverName).label}</Text>
+        </View>
+        <Text style={styles.visibilityBody}>{channelVisibility(conv.private, account.serverName).body}</Text>
+      </View>
+    </View>
+  ) : undefined;
   const newAbove = useMemo(() => unreadLineAbove(posts ?? [], unreadMark, me, more), [posts, unreadMark, me, more]);
   const renderItem = useCallback(({ item, index }: { item: Post; index: number }) => {
-    const above = data[index + 1];
+    const above = olderNeighbour(data, index, RECYCLING_CONVERSATION_LIST);
     const newDay = !above || new Date(item.createdAt).toDateString() !== new Date(above.createdAt).toDateString();
     const isNew = item.id === newAbove;
     const compact = !isNew && canCompactPost(above, item, role);
     return (
-      <View>
+      // The recycling list reuses a row's place for another message; the key gives each message its own row,
+      // so what a row remembers (an open menu, a player that was started) never moves to a different message.
+      <View key={item.id}>
       {isNew ? <UnreadLine /> : null}
       {newDay ? <MessageDate at={item.createdAt} /> : null}
       <PostRow
@@ -430,7 +446,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
         onOpenThread={onOpenThread}
         onAskAgent={onAskAgent}
         onQuote={joined ? onQuote : undefined}
-        onSuggest={joined && index === 0 ? onSuggest : undefined}
+        onSuggest={joined && isNewest(data.length, index, RECYCLING_CONVERSATION_LIST) ? onSuggest : undefined}
         onEdit={setEditing}
         onDelete={onDelete}
       />
@@ -503,30 +519,35 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
         {note ? <Text accessibilityLiveRegion="polite" selectable style={styles.note} onPress={() => setNote(null)}>{note}</Text> : null}
         {posts === null ? (
           <ActivityIndicator style={{ flex: 1 }} color={colors.blue} />
+        ) : RECYCLING_CONVERSATION_LIST ? (
+          <FlashList
+            {...readTracking}
+            data={data as Post[]}
+            keyExtractor={postKey}
+            renderItem={renderItem}
+            // Starts at the newest message, stays there as messages arrive while it is in view, and keeps its
+            // place when older messages are added above.
+            initialScrollIndex={data.length ? data.length - 1 : undefined}
+            maintainVisibleContentPosition={{ startRenderingFromBottom: true, autoscrollToBottomThreshold: 0.2, animateAutoScrollToBottom: false }}
+            onStartReached={onEndReached}
+            onStartReachedThreshold={0.3}
+            keyboardDismissMode="interactive"
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.list}
+            ListHeaderComponent={intro}
+          />
         ) : (
           <FlatList
             {...readTracking}
             inverted
             keyboardDismissMode="interactive"
             keyboardShouldPersistTaps="handled"
-            data={data}
+            data={data as Post[]}
             keyExtractor={postKey}
             onEndReached={onEndReached}
             onEndReachedThreshold={0.3}
             contentContainerStyle={styles.list}
-            ListFooterComponent={
-              conv && !more && isChannel ? (
-                <View style={styles.intro}>
-                  <View style={[styles.visibility, conv.private && styles.visibilityPrivate]}>
-                    <View style={styles.visibilityHeading}>
-                      {conv.private ? <AppIcon name="lock" size={16} color={colors.ink} /> : null}
-                      <Text style={styles.visibilityLabel}>{channelVisibility(conv.private, account.serverName).label}</Text>
-                    </View>
-                    <Text style={styles.visibilityBody}>{channelVisibility(conv.private, account.serverName).body}</Text>
-                  </View>
-                </View>
-              ) : undefined
-            }
+            ListFooterComponent={intro}
             renderItem={renderItem}
           />
         )}
