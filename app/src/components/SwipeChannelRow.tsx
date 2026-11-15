@@ -1,5 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, PanResponder, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { GestureDetector, usePanGesture } from "react-native-gesture-handler";
+import Animated, { cancelAnimation, interpolate, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import { SETTLE_MS, swipePosition, swipeReveals } from "../lib/swipe-row";
 import { api, ServerError, type Account, type Conversation } from "../lib/server";
 import { useLiveActions } from "../lib/live";
 import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
@@ -132,35 +135,42 @@ export function SwipeRow({ name, kind, archived, open, busy, canDelete, locked =
 }) {
   const styles = useStyles();
   const { colors } = useTheme();
-  const [x] = useState(() => new Animated.Value(0));
+  // The row follows the finger without a round trip through the app's script: the drag is recognised by
+  // Gesture Handler and the row is moved by Reanimated, both on the interface thread on a phone.
+  const x = useSharedValue(0);
+  const from = useSharedValue(0);
   const width = canDelete ? 184 : 96;
   const archiveLabel = archived ? "Restore" : "Archive";
-  // The buttons are invisible unless the row has moved, so a closed row never
-  // shows them, whatever happens to the row on top.
-  const actionsOpacity = useMemo(() => x.interpolate({ inputRange: [-1, 0], outputRange: [1, 0], extrapolate: "clamp" }), [x]);
   useEffect(() => {
-    const animation = Animated.timing(x, { toValue: open ? -width : 0, duration: 180, useNativeDriver: true });
-    animation.start();
-    return () => animation.stop();
+    x.set(withTiming(open ? -width : 0, { duration: SETTLE_MS }));
   }, [open, width, x]);
-  const pan = useMemo(() => {
-    const origin = open ? -width : 0;
-    return PanResponder.create({
-    onMoveShouldSetPanResponder: (_, g) => !busy && !locked && Math.abs(g.dx) > 12 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
-    onPanResponderGrant: () => { x.stopAnimation(); },
-    onPanResponderMove: (_, g) => x.setValue(Math.max(-width, Math.min(0, origin + g.dx))),
-    onPanResponderRelease: (_, g) => {
-      const reveal = g.vx < -0.4 || (g.vx <= 0.4 && origin + g.dx < -width / 3);
-      if (reveal) onOpen(); else onClose();
-      // Also settle when the requested open state hasn't changed.
-      Animated.timing(x, { toValue: reveal ? -width : 0, duration: 180, useNativeDriver: true }).start();
+  const settled = (reveal: boolean) => { if (reveal) onOpen(); else onClose(); };
+  const pan = usePanGesture({
+    enabled: !busy && !locked,
+    // Sideways only: a drag that starts up or down belongs to the list.
+    activeOffsetX: [-12, 12],
+    failOffsetY: [-12, 12],
+    onActivate: () => {
+      "worklet";
+      cancelAnimation(x);
+      from.set(x.get());
     },
-    onPanResponderTerminate: () => {
-      onClose();
-      Animated.timing(x, { toValue: 0, duration: 180, useNativeDriver: true }).start();
+    onUpdate: e => {
+      "worklet";
+      x.set(swipePosition(from.get(), e.translationX, width));
+    },
+    onDeactivate: e => {
+      "worklet";
+      const reveal = !e.canceled && swipeReveals(from.get() + e.translationX, e.velocityX, width);
+      // Also settle when the requested open state hasn't changed.
+      x.set(withTiming(reveal ? -width : 0, { duration: SETTLE_MS }));
+      runOnJS(settled)(reveal);
     },
   });
-  }, [busy, locked, onClose, onOpen, open, width, x]);
+  const rowStyle = useAnimatedStyle(() => ({ transform: [{ translateX: x.get() }] }));
+  // The buttons are invisible unless the row has moved, so a closed row never
+  // shows them, whatever happens to the row on top.
+  const actionsOpacity = useAnimatedStyle(() => ({ opacity: interpolate(x.get(), [-1, 0], [1, 0], "clamp") }));
   const bind: RowBindings = {
     onPress: (go) => { if (!busy) { if (open) onClose(); else go(); } },
     onLongPress: () => { if (!busy) onOpen(); },
@@ -172,10 +182,12 @@ export function SwipeRow({ name, kind, archived, open, busy, canDelete, locked =
     <View style={styles.root}>
       {/* Only the row being acted on dims. Dimming every row let the action
           buttons behind each one show through the whole list. */}
-      <Animated.View {...pan.panHandlers} style={{ zIndex: 1, backgroundColor: colors.background, transform: [{ translateX: x }], opacity: busy && open ? 0.5 : 1 }}>
-        {children(bind)}
-      </Animated.View>
-      <Animated.View style={[styles.actions, { width, opacity: actionsOpacity }]} {...(Platform.OS === "web" ? { "aria-hidden": !open } : { accessibilityElementsHidden: !open, importantForAccessibility: open ? "auto" as const : "no-hide-descendants" as const })} pointerEvents={open && !busy ? "auto" : "none"}>
+      <GestureDetector gesture={pan}>
+        <Animated.View style={[{ zIndex: 1, backgroundColor: colors.background, opacity: busy && open ? 0.5 : 1 }, rowStyle]}>
+          {children(bind)}
+        </Animated.View>
+      </GestureDetector>
+      <Animated.View style={[styles.actions, { width }, actionsOpacity]} {...(Platform.OS === "web" ? { "aria-hidden": !open } : { accessibilityElementsHidden: !open, importantForAccessibility: open ? "auto" as const : "no-hide-descendants" as const })} pointerEvents={open && !busy ? "auto" : "none"}>
         <Pressable disabled={!open || busy} accessibilityRole="button" accessibilityLabel={`${archiveLabel} ${name}`} onPress={onArchive} style={[styles.action, styles.archive]}>
           <Text style={styles.label}>{archiveLabel}</Text>
         </Pressable>

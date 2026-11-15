@@ -1,4 +1,5 @@
-import { Platform, Text, View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { Platform, StyleSheet, Text, View } from "react-native";
 import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider as NavigationThemeProvider, usePathname } from "expo-router";
 import { useMemo } from "react";
 import { StatusBar } from "expo-status-bar";
@@ -24,11 +25,14 @@ import { useApplyUpdates } from "../lib/ota";
 export default function RootLayout() {
   useApplyUpdates();
   return (
-    <SafeAreaProvider>
-      <SessionProvider>
-        <SessionNavigation />
-      </SessionProvider>
-    </SafeAreaProvider>
+    // Gestures recognised off the app's script (the swipe on a conversation's row) need this around the app.
+    <GestureHandlerRootView style={styles.gestures}>
+      <SafeAreaProvider>
+        <SessionProvider>
+          <SessionNavigation />
+        </SessionProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
@@ -160,3 +164,5 @@ function SessionNavigation() {
     </NavigationThemeProvider>
   );
 }
+
+const styles = StyleSheet.create({ gestures: { flex: 1 } });
