@@ -105,6 +105,9 @@ export type Post = {
   conversationId: string;
   user: Person;
   threadRoot: string | null;
+  /** A thread reply its author also sent to the conversation, and the first message it answers. */
+  alsoInChannel?: boolean;
+  replyTo?: { user: string; text: string };
   text: string;
   deleted: boolean;
   pending: boolean;
@@ -624,8 +627,8 @@ export const api = {
   posts: (a: Account, id: string, before?: string) =>
     request(a, `/v1/conversations/${id}/messages${before ? `?before=${before}` : ""}`).then(json<{ messages: Post[]; more: boolean }>),
   thread: (a: Account, id: string, root: string) => request(a, `/v1/conversations/${id}/threads/${root}`).then(json<{ root: Post; replies: Post[] }>),
-  post: (a: Account, id: string, text: string, threadRoot?: string, attachments: Upload[] = [], confirmPii: PiiChoice = false) =>
-    request(a, `/v1/conversations/${id}/messages`, { method: "POST", body: JSON.stringify({ text, threadRoot, attachments, ...piiFlags(confirmPii) }) })
+  post: (a: Account, id: string, text: string, threadRoot?: string, attachments: Upload[] = [], confirmPii: PiiChoice = false, alsoInChannel = false) =>
+    request(a, `/v1/conversations/${id}/messages`, { method: "POST", body: JSON.stringify({ text, threadRoot, attachments, ...(threadRoot && alsoInChannel ? { alsoInChannel: true } : {}), ...piiFlags(confirmPii) }) })
       .then(json<{ message: Post }>)
       .then((d) => d.message),
   editPost: (a: Account, postId: string, text: string) =>

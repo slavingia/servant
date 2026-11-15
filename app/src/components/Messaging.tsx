@@ -32,6 +32,7 @@ import { useContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { MessageText } from "./MessageText";
 import { TweetEmbed } from "./TweetEmbed";
 import { LinkPreview } from "./LinkPreview";
+import { replyContext } from "../lib/also-in-channel";
 import { tweetIds } from "../lib/tweet-embed";
 import { conversationPreview } from "../lib/conversation-preview";
 import { parseForward } from "../lib/forward";
@@ -311,6 +312,7 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
             <Text style={styles.time}>{when(post.createdAt)}{deviceLabel && post.sourceDevice?.kind !== "agent" ? <Text testID={`message-device-${post.id}`} accessibilityLabel={`Sent from ${deviceLabel}`}> · {deviceLabel}</Text> : null}</Text>
           </View>
         ) : null}
+        {post.alsoInChannel && !post.deleted ? <Text numberOfLines={onOpenThread ? 1 : undefined} style={styles.alsoSent}>{onOpenThread ? replyContext(post) : "Also sent to the conversation"}</Text> : null}
         {post.deleted ? (
           <Text style={styles.deleted}>Message deleted</Text>
         ) : working || (post.pending && !post.text && !post.attachments?.length) ? (
@@ -342,6 +344,11 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
           })}
         </View> : null}
         {available && Platform.OS === "web" ? <Pressable accessibilityRole="button" accessibilityLabel={`Actions for ${post.user.name}'s message`} onPress={actions} style={styles.more}><Text style={styles.moreText}>•••</Text></Pressable> : null}
+        {onOpenThread && post.alsoInChannel && !post.deleted ? (
+          <Pressable accessibilityRole="button" accessibilityLabel={`${replyContext(post)}. View thread`} onPress={onOpenThread} style={styles.replies}>
+            <Text style={styles.repliesText}>View thread</Text>
+          </Pressable>
+        ) : null}
         {onOpenThread && post.replyCount > 0 ? (
           <Pressable accessibilityRole="button" accessibilityLabel={`${post.replyCount} ${post.replyCount === 1 ? "reply" : "replies"}, open thread`} onPress={onOpenThread} style={styles.replies}>
             <Text style={styles.repliesText}>
@@ -928,6 +935,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   deleted: { ...typography.body, color: colors.muted, fontStyle: "italic" },
   edited: { ...typography.caption, color: colors.muted, marginTop: space.xxs },
   receipt: { alignSelf: "flex-end", marginTop: 2 },
+  // A reply also sent to the conversation: what it answers, above its words. "View thread" under it opens the rest.
+  alsoSent: { ...typography.caption, color: colors.muted },
   replies: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", marginTop: space.xxs, minHeight: 44 },
   repliesText: { ...typography.captionStrong, color: colors.blue, ...linkUnderline },
   composerWrap: { backgroundColor: colors.background, paddingHorizontal: space.sm, paddingTop: space.xs },

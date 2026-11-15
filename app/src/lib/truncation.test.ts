@@ -13,7 +13,7 @@ const files = fs.readdirSync(root, { recursive: true, encoding: "utf8" }).filter
 
 // file: [how many line limits it may have, why they are previews and not content]
 const PREVIEWS: Record<string, [number, string]> = {
-  "components/Messaging.tsx": [3, "a conversation row's last message, the message being acted on in a sheet, and the dictation line"],
+  "components/Messaging.tsx": [4, "a conversation row's last message, the message being acted on in a sheet, the dictation line, and the first message a reply shown in the conversation answers (the thread has all of it)"],
   "app/(tabs)/agent.tsx": [2, "an agent chat row's last line; the chat opens in full"],
   "app/inbox.tsx": [2, "a case row's last message and next action; each opens its full conversation or task"],
   "app/inbox/[id].tsx": [1, "the next follow-up preview; View follow-ups opens the full task"],

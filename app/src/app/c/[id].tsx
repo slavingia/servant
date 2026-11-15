@@ -1,3 +1,4 @@
+import { showsInConversation, threadOf } from "../../lib/also-in-channel";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, AppState, FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Redirect, router, Stack, useIsFocused, useLocalSearchParams } from "expo-router";
@@ -219,7 +220,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
           void load(true);
         } else if (e.event === "message.created" || e.event === "message.updated") {
           const p = e.data;
-          if (p.conversationId !== id || p.threadRoot) return;
+          if (p.conversationId !== id || !showsInConversation(p)) return;
           // My own message arriving while its send is still waiting for an answer: the answer brings it in.
           if (outbox.hold(e.event, p, account.user.id)) return;
           applyPosts([p]);
@@ -393,7 +394,8 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
     setJoining(false);
   };
 
-  const openThread = (p: Post) => { openingThread(account, id, p, { conversation: conv, joined }); router.push({ pathname: "/thread", params: { conv: id, root: p.id, title } }); };
+  // A reply also sent here opens the thread it belongs to, not one of its own.
+  const openThread = (p: Post) => { if (!p.threadRoot) openingThread(account, id, p, { conversation: conv, joined }); router.push({ pathname: "/thread", params: { conv: id, root: threadOf(p), title } }); };
   const askAgent = (p: Post) => { askAgentAbout(account, p, conv).catch(e => setError(errorText(e, "Couldn't start a chat with the agent"))); };
   // Joins and leaves close together read as one line ("Ann and Bo joined the channel").
   const data = useMemo(() => groupActivity([...(posts ?? []), ...sending].reverse()), [posts, sending]);

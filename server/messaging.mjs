@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS messages (
   conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
   user_id TEXT NOT NULL,
   thread_root INTEGER REFERENCES messages(seq),
+  in_channel INTEGER NOT NULL DEFAULT 0,
   text TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   edited_at INTEGER,
@@ -332,6 +333,10 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
     if (!db.prepare('PRAGMA table_info(messages)').all().some(value => value.name === 'suggestions')) {
       db.exec('ALTER TABLE messages ADD COLUMN suggestions TEXT');
     }
+    // A thread reply its author also sent to the conversation ("Also send to #channel").
+    if (!db.prepare('PRAGMA table_info(messages)').all().some(value => value.name === 'in_channel')) {
+      db.exec('ALTER TABLE messages ADD COLUMN in_channel INTEGER NOT NULL DEFAULT 0');
+    }
     for (const column of ['source_device_kind', 'source_device_id']) {
       if (!db.prepare('PRAGMA table_info(messages)').all().some(value => value.name === column)) {
         db.exec(`ALTER TABLE messages ADD COLUMN ${column} TEXT`);
@@ -528,20 +533,21 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
     addMember: q("INSERT OR IGNORE INTO members (conversation_id, user_id, joined_at, last_read_seq) VALUES (?, ?, ?, ?)"),
     removeMember: q("DELETE FROM members WHERE conversation_id = ? AND user_id = ?"),
     lastSeq: q("SELECT COALESCE(MAX(seq), 0) AS seq FROM messages WHERE conversation_id = ?"),
-    insertMsg: q("INSERT INTO messages (conversation_id, user_id, thread_root, text, created_at, pending, source_device_kind, source_device_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"),
+    insertMsg: q("INSERT INTO messages (conversation_id, user_id, thread_root, text, created_at, pending, source_device_kind, source_device_id, in_channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"),
     insertActivity: q("INSERT INTO messages (conversation_id, user_id, text, created_at, activity) VALUES (?, ?, ?, ?, ?)"),
     msg: q("SELECT * FROM messages WHERE seq = ?"),
     bumpThread: q("UPDATE messages SET reply_count = reply_count + 1, last_reply_at = ? WHERE seq = ?"),
-    page: q(`SELECT * FROM messages WHERE conversation_id = ? AND thread_root IS NULL AND seq < ? ORDER BY seq DESC LIMIT ?`),
+    // What the conversation itself shows: its own messages, and thread replies also sent to it.
+    page: q(`SELECT * FROM messages WHERE conversation_id = ? AND (thread_root IS NULL OR in_channel = 1) AND seq < ? ORDER BY seq DESC LIMIT ?`),
     replies: q("SELECT * FROM messages WHERE thread_root = ? ORDER BY seq ASC"),
     setText: q("UPDATE messages SET text = ?, edited_at = ? WHERE seq = ?"),
     setAgentText: q("UPDATE messages SET text = ?, pending = ? WHERE seq = ?"),
     softDelete: q("UPDATE messages SET text = '', deleted_at = ? WHERE seq = ?"),
     markRead: q("UPDATE members SET last_read_seq = MAX(last_read_seq, ?) WHERE conversation_id = ? AND user_id = ?"),
     mine: q(`SELECT c.*, m.last_read_seq,
-               (SELECT COUNT(*) FROM messages x WHERE x.conversation_id = c.id AND x.thread_root IS NULL
+               (SELECT COUNT(*) FROM messages x WHERE x.conversation_id = c.id AND (x.thread_root IS NULL OR x.in_channel = 1)
                   AND x.seq > m.last_read_seq AND x.user_id != m.user_id AND x.deleted_at IS NULL AND x.activity IS NULL) AS unread,
-               (SELECT MAX(seq) FROM messages x WHERE x.conversation_id = c.id AND x.thread_root IS NULL) AS last_seq
+               (SELECT MAX(seq) FROM messages x WHERE x.conversation_id = c.id AND (x.thread_root IS NULL OR x.in_channel = 1)) AS last_seq
              FROM conversations c JOIN members m ON m.conversation_id = c.id
              WHERE m.user_id = ? AND c.archived_at IS NULL AND (m.archived_at IS NULL OR ? = 1)`),
     browse: q(`SELECT c.*, (SELECT COUNT(*) FROM members m WHERE m.conversation_id = c.id) AS member_count
@@ -715,6 +721,8 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
     conversationId: m.conversation_id,
     user: person(m.user_id),
     threadRoot: m.thread_root ? String(m.thread_root) : null,
+    // A reply also sent to the conversation says which message it answers, so it reads on its own there.
+    ...(m.thread_root && m.in_channel ? { alsoInChannel: true, replyTo: replyTarget(m.thread_root) } : {}),
     // Pending drafts remain durable for recovery, but conversations only expose
     // the working placeholder until the reply finishes.
     text: m.deleted_at || m.pending ? "" : m.text,
@@ -733,6 +741,11 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
     // One-tap replies the agent offers under its own message.
     ...(m.user_id === AGENT_ID && !m.deleted_at && m.suggestions ? { suggestions: parseSuggestions(m.suggestions) } : {}),
   });
+  function replyTarget(seq) {
+    const root = st.msg.get(seq);
+    const text = !root || root.deleted_at || root.pending ? "" : root.text.replace(/\s+/g, " ").trim();
+    return { user: root ? person(root.user_id).name : "", text: text.length > 120 ? text.slice(0, 119).trimEnd() + "…" : text };
+  }
   function safeExtras(m) {
     try { return messageExtras(m) || {}; } catch (e) { console.error("[servant] message extras", e); return {}; }
   }
@@ -936,7 +949,7 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
     }).catch(() => { /* no preview */ });
   }
 
-  function postInTransaction(conv, userId, text, threadRoot = null, { pending = false, attachments = [], queueAgent = externalWorker, device, call = null } = {}) {
+  function postInTransaction(conv, userId, text, threadRoot = null, { pending = false, attachments = [], queueAgent = externalWorker, device, call = null, inChannel = false } = {}) {
     conv = userId === AGENT_ID ? st.conv.get(conv.id) : requireConversation(conv.id, userId, true);
     if (!conv || conv.archived_at) throw httpError(404, 'not_found', 'That conversation is gone');
     if (threadRoot) {
@@ -945,7 +958,7 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
       if (root.activity) throw httpError(400, 'channel_activity', 'Channel activity cannot have replies');
     }
     const humanDevice = userId !== AGENT_ID && device?.userId === userId ? device : null;
-    const r = st.insertMsg.run(conv.id, userId, threadRoot, text, now(), pending ? 1 : 0, sourceDeviceKind(humanDevice), humanDevice?.id || null);
+    const r = st.insertMsg.run(conv.id, userId, threadRoot, text, now(), pending ? 1 : 0, sourceDeviceKind(humanDevice), humanDevice?.id || null, threadRoot && inChannel ? 1 : 0);
     const seq = Number(r.lastInsertRowid);
     if (conv.kind === "dm") unarchiveDm(conv.id);
     for (const a of attachments) st.insertAttachment.run(newId("file"), seq, a.name, a.mime, a.data.length, a.data);
@@ -1360,7 +1373,7 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
     // Nor for someone in deep work (deep-work.mjs): no channel message, mention, DM, call or meeting invite. The message still arrives and counts as unread.
     if (inDeepWork(user)) return null;
     // No delayed push after the recipient has already read the top-level post.
-    if (!call && !m.thread_root && membership.last_read_seq >= m.seq) return null;
+    if (!call && (!m.thread_root || m.in_channel) && membership.last_read_seq >= m.seq) return null;
     const participant = !!m.thread_root && !!db.prepare("SELECT 1 FROM messages WHERE conversation_id = ? AND (seq = ? OR thread_root = ?) AND user_id = ? AND deleted_at IS NULL AND seq < ? LIMIT 1").get(c.id, m.thread_root, m.thread_root, user.id, m.seq);
     if (call) {
       const caller = person(call.by).name;
@@ -1862,7 +1875,7 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
             through = membership.last_read_seq;
             for (const m of messages) {
               if (m.deleted_at || m.pending || m.activity) continue;
-              if (!m.thread_root) through = Math.max(through, m.seq);
+              if (!m.thread_root || m.in_channel) through = Math.max(through, m.seq);
               if (m.user_id === user.id || m.user_id === AGENT_ID || user.id === AGENT_ID) continue;
               if (st.addRead.run(m.seq, conv.id, user.id, at).changes) changed.push(String(m.seq));
             }
@@ -1910,7 +1923,7 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
           if (parent.activity) return fail(res, 400, "channel_activity", "Channel activity cannot have replies"), true;
           root = parent.thread_root || parent.seq;
         }
-        const m = post(conv, user.id, text, root, { attachments, device });
+        const m = post(conv, user.id, text, root, { attachments, device, inChannel: !!root && body.alsoInChannel === true });
         send(res, 201, { message: msgView(m, true, user.id) });
         if (!externalWorker && wantsAgent(conv, m)) agentReply(conv, m).catch((e) => console.error("[servant] agent reply", e));
         return true;

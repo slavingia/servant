@@ -82,6 +82,12 @@ The search runs as the person who asked and is narrowed by who will read the ans
 
 Nothing outside what the asker can read is ever searched, the agent's own earlier replies are left out, and a server with channels or direct messages turned off does not search them. This adds no tool to the agent and changes nothing about where it runs: the server does the search and passes text, as it already does with earlier messages. What the agent is sent goes to the model provider like the rest of the prompt.
 
+## A reply also sent to the channel
+
+Under a thread's reply field, **Also send to #channel** (in a direct message, **Also send to this chat**) sends the next reply to the conversation as well, for an answer everyone should see. It is one message: still a reply in its thread, and shown in the conversation with a line saying who and what it answers and a **View thread** link. It counts as unread there like any other message. The box clears after each reply.
+
+The server keeps this as a flag on the reply (`in_channel`); `POST /v1/conversations/:id/messages` takes `alsoInChannel: true` with a `threadRoot`, and the message comes back with `alsoInChannel` and `replyTo` (the first message's author and its first 120 characters, empty once that message is deleted). Editing and deleting it work as for any message.
+
 ## Link previews
 
 Owner's decision, 11/15: when a person posts a message with a link, the server reads that page once and shows its title, description and site name under the message. Readers never contact the site: the preview is words only, with no picture, and the app fetches nothing. Only the first link in a message is read, and not links inside code, plain `http` links, or X/Twitter links (which have their own card). The agent's messages get none. Editing the message drops the preview and reads the new first link; deleting the message removes it.
