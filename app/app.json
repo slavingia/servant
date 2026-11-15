@@ -148,7 +148,8 @@
     ],
     "scheme": "servant",
     "experiments": {
-      "typedRoutes": false
+      "typedRoutes": false,
+      "reactCompiler": true
     },
     "runtimeVersion": {
       "policy": "fingerprint"
