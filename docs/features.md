@@ -88,6 +88,10 @@ Under a thread's reply field, **Also send to #channel** (in a direct message, **
 
 The server keeps this as a flag on the reply (`in_channel`); `POST /v1/conversations/:id/messages` takes `alsoInChannel: true` with a `threadRoot`, and the message comes back with `alsoInChannel` and `replyTo` (the first message's author and its first 120 characters, empty once that message is deleted). Editing and deleting it work as for any message.
 
+## Quoting a message
+
+Touch and hold a message (or open its **•••** menu) and choose **Quote**. Its words go into the reply field as a quote, ahead of anything already typed, with the cursor ready for the answer. Messages over 500 characters are cut, and a quote inside the quoted message is not quoted again. What is sent is an ordinary message that starts with a quote; nothing links it to the message quoted.
+
 ## Link previews
 
 Owner's decision, 11/15: when a person posts a message with a link, the server reads that page once and shows its title, description and site name under the message. Readers never contact the site: the preview is words only, with no picture, and the app fetches nothing. Only the first link in a message is read, and not links inside code, plain `http` links, or X/Twitter links (which have their own card). The agent's messages get none. Editing the message drops the preview and reads the new first link; deleting the message removes it.

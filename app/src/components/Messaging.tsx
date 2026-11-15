@@ -32,6 +32,7 @@ import { useContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { MessageText } from "./MessageText";
 import { TweetEmbed } from "./TweetEmbed";
 import { LinkPreview } from "./LinkPreview";
+import { withQuote } from "../lib/quote";
 import { replyContext } from "../lib/also-in-channel";
 import { tweetIds } from "../lib/tweet-embed";
 import { conversationPreview } from "../lib/conversation-preview";
@@ -194,6 +195,8 @@ type PostProps = {
   onDelete?: (post: Post) => void;
   onReact?: (post: Post, emoji: string, active: boolean) => Promise<void>;
   onAskAgent?: (post: Post) => void;
+  /** Puts the message's words in the reply field as a quote. */
+  onQuote?: (post: Post) => void;
   /** Sends a suggested reply. Given only for the newest message, so old chips go away. */
   onSuggest?: (text: string) => void;
 };
@@ -204,7 +207,8 @@ const REACTIONS = [
   ["👀", "Looking"], ["🔥", "Fire"], ["👏", "Applause"], ["💯", "Hundred"],
 ];
 
-export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpenThread: openThread, onEdit: edit, onDelete: remove, onReact: react, onAskAgent: askAgent, onSuggest }: PostProps) {
+export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpenThread: openThread, onEdit: edit, onDelete: remove, onReact: react, onAskAgent: askAgent, onQuote: quoteIt, onSuggest }: PostProps) {
+  const onQuote = quoteIt && post.text && !post.deleted ? () => quoteIt(post) : undefined;
   const onOpenThread = openThread && (() => openThread(post));
   const onEdit = edit && (() => edit(post));
   const onDelete = remove && (() => remove(post));
@@ -266,6 +270,7 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
   const options = [
     ...(onAskAgent ? [{ text: "Ask the agent", onPress: onAskAgent }] : []),
     ...(onOpenThread ? [{ text: "Reply in thread", onPress: onOpenThread }] : []),
+    ...(onQuote ? [{ text: "Quote", onPress: onQuote }] : []),
     ...(mine && onEdit ? [{ text: "Edit", onPress: onEdit }] : []),
     ...(mine && onDelete ? [{ text: "Delete", onPress: onDelete }] : []),
   ];
@@ -287,6 +292,7 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
         return <Pressable key={emoji} accessibilityRole="button" accessibilityLabel={`${selected ? "Remove" : "Add"} ${name} reaction`} aria-pressed={selected} disabled={busy} onPress={() => { context.close(); void choose(emoji!); }} style={state => [styles.contextEmoji, ((state as { hovered?: boolean }).hovered || selected) && styles.selectedReaction]}><Text style={styles.emoji}>{emoji}</Text></Pressable>;
       })}</View> }, { separator: true as const }] : []),
       ...(onOpenThread ? [{ label: "Reply in thread", onPress: onOpenThread }] : []),
+      ...(onQuote ? [{ label: "Quote", onPress: onQuote }] : []),
       ...(post.text ? [{ label: "Copy text", onPress: () => { void Clipboard.setStringAsync(post.text!); } }] : []),
       ...(account ? [{ label: "Save for later", onPress: () => { void api.saveMessage(account, post.id).catch(() => {}); } }] : []),
       ...(onAskAgent ? [{ label: "Ask the agent", onPress: onAskAgent }] : []),
@@ -436,7 +442,12 @@ export function Composer({
   onStop,
   draftKey: conversationDraftKey,
   projectId,
+  quote,
+  onQuoted,
 }: {
+  onQuoted?: () => void;
+  /** A message to quote: its words are put ahead of what is typed. `at` tells one request from the next. */
+  quote?: { text: string; at: number } | null;
   placeholder: string;
   /** `how` is "queue" when the message should wait for the reply in progress to finish (a held Send, or "/queue …"). */
   onSend: (text: string, attachments?: Upload[], how?: "queue") => Promise<boolean>;
@@ -528,6 +539,19 @@ export function Composer({
     finally { setPicking(false); }
   };
   const input = useRef<ComponentRef<typeof TextInput>>(null);
+  // A new request to quote changes the text once, as it arrives; the screen then forgets the request, so
+  // a reply field shown again later does not quote it a second time.
+  const [quoted, setQuoted] = useState(0);
+  if (quote && quote.at !== quoted) {
+    setQuoted(quote.at);
+    setText(current => withQuote(current, quote.text));
+  }
+  const quoteAt = quote?.at;
+  useEffect(() => {
+    if (!quoteAt) return;
+    input.current?.focus();
+    onQuoted?.();
+  }, [quoteAt, onQuoted]);
   const filesRef = useRef<DraftAttachment[]>([]);
   const pendingPastes = useRef(0);
   useEffect(() => { filesRef.current = files; }, [files]);

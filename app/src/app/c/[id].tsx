@@ -404,6 +404,10 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
   const onReact = useStableCallback(react);
   const onOpenThread = useStableCallback(openThread);
   const onAskAgent = useStableCallback(askAgent);
+  // "Quote" on a message: its words go into the reply field.
+  const [quote, setQuote] = useState<{ text: string; at: number } | null>(null);
+  const quoteTaken = useStableCallback(() => setQuote(null));
+  const onQuote = useStableCallback((p: Post) => { setEditing(null); setQuote({ text: p.text, at: Date.now() }); });
   const onDelete = useStableCallback((p: Post) => { void remove(p); });
   const onSuggest = useStableCallback((text: string) => { void send(text); });
   const onEndReached = useStableCallback(() => { void older(); });
@@ -425,13 +429,14 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
         compact={compact}
         onOpenThread={onOpenThread}
         onAskAgent={onAskAgent}
+        onQuote={joined ? onQuote : undefined}
         onSuggest={joined && index === 0 ? onSuggest : undefined}
         onEdit={setEditing}
         onDelete={onDelete}
       />
       </View>
     );
-  }, [data, joined, me, receipts, role, newAbove, onReact, onOpenThread, onAskAgent, onSuggest, onDelete]);
+  }, [data, joined, me, receipts, role, newAbove, onReact, onOpenThread, onAskAgent, onQuote, onSuggest, onDelete]);
 
   // Wide screens (browser, Mac app) show Details beside the channel, open by default; Details
   // toggles it. Phones open the Details page.
@@ -534,7 +539,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
         ) : editing ? (
           <Composer members={conv?.members} mentionAgent me={me} key={`edit-${editing.id}`} placeholder="Edit message" autoFocus initial={editing.text} sendLabel="Save" onSend={saveEdit} onCancel={() => setEditing(null)} onDeleteEmpty={() => setConfirmDelete(editing)} />
         ) : (
-          <Composer autoFocus={compose === "1"} members={conv?.members} mentionAgent me={me} key={`new-${id}`} draftKey={`c:${id}`} placeholder={conv ? `Message ${title}` : "Message"} onSend={send} onTyping={ping} onEditLast={editLast ? () => setEditing(editLast) : undefined} commands={{ channel: isChannel }} />
+          <Composer autoFocus={compose === "1"} members={conv?.members} mentionAgent me={me} key={`new-${id}`} draftKey={`c:${id}`} quote={quote} onQuoted={quoteTaken} placeholder={conv ? `Message ${title}` : "Message"} onSend={send} onTyping={ping} onEditLast={editLast ? () => setEditing(editLast) : undefined} commands={{ channel: isChannel }} />
         )}
       </ConversationKeyboardView>
       </View>

@@ -302,6 +302,9 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
   // rows until the replies change: typing or an error line draw no message again.
   const onReact = useStableCallback(react);
   const onAskAgent = useStableCallback(askAgent);
+  const [quote, setQuote] = useState<{ text: string; at: number } | null>(null);
+  const quoteTaken = useStableCallback(() => setQuote(null));
+  const onQuote = useStableCallback((p: Post) => { setEditing(null); setQuote({ text: p.text, at: Date.now() }); });
   const onDelete = useStableCallback((p: Post) => { void remove(p); });
   const role = account.user.role;
   // Until the replies have loaded, the first message says how many there are.
@@ -310,7 +313,7 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
     if (item.id === root) return <View style={[styles.head, item.id === focus && styles.searchMatch]}>
       {item.id === focus && matchLabel ? <Text style={styles.searchLabel}>{matchLabel}</Text> : null}
       {title ? <Text style={styles.where}>In {title}</Text> : null}
-      <PostRow post={item} receipt={receipts?.get(item.id)} onReact={onReact} onAskAgent={onAskAgent} me={me} onEdit={setEditing} onDelete={onDelete} />
+      <PostRow post={item} receipt={receipts?.get(item.id)} onReact={onReact} onAskAgent={onAskAgent} onQuote={unavailable ? undefined : onQuote} me={me} onEdit={setEditing} onDelete={onDelete} />
       <Text accessibilityRole="header" style={styles.count}>
         {!replyCount ? "No replies yet" : `${replyCount} ${replyCount === 1 ? "reply" : "replies"}`}
       </Text>
@@ -321,9 +324,9 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
     return <View style={item.id === focus ? styles.searchMatch : undefined}>
       {newDay ? <MessageDate at={item.createdAt} /> : null}
       {item.id === focus && matchLabel ? <Text style={styles.searchLabel}>{matchLabel}</Text> : null}
-      <PostRow post={item} receipt={receipts?.get(item.id)} onReact={onReact} onAskAgent={onAskAgent} me={me} compact={compact && item.id !== focus} onEdit={setEditing} onDelete={onDelete} />
+      <PostRow post={item} receipt={receipts?.get(item.id)} onReact={onReact} onAskAgent={onAskAgent} onQuote={unavailable ? undefined : onQuote} me={me} compact={compact && item.id !== focus} onEdit={setEditing} onDelete={onDelete} />
     </View>;
-  }, [shown, root, focus, matchLabel, title, receipts, me, role, replyCount, styles, onReact, onAskAgent, onDelete]);
+  }, [shown, root, focus, matchLabel, title, receipts, me, role, replyCount, styles, onReact, onAskAgent, onQuote, unavailable, onDelete]);
 
   // Told to the navigator once, not again on every render.
   const header = useMemo(() => ({ title: title ? `Thread · ${title}` : "Thread" }), [title]);
@@ -373,7 +376,7 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
           </Pressable>
         )}
         {unavailable || editing ? null : (
-          <Composer members={conversation?.members} mentionAgent me={me} key="reply" draftKey={`thread:${conv}:${root}`} placeholder="Reply" onSend={send} onTyping={ping} onEditLast={editLast ? () => setEditing(editLast) : undefined} />
+          <Composer members={conversation?.members} mentionAgent me={me} key="reply" draftKey={`thread:${conv}:${root}`} quote={quote} onQuoted={quoteTaken} placeholder="Reply" onSend={send} onTyping={ping} onEditLast={editLast ? () => setEditing(editLast) : undefined} />
         )}
       </ConversationKeyboardView>
       <ConfirmDialog visible={!!confirmDelete} title="Delete message?" description="Your message will be removed for everyone in this conversation." confirmLabel="Delete" onCancel={() => setConfirmDelete(null)}
