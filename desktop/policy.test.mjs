@@ -49,12 +49,13 @@ test('the window may use the camera, microphone and a shared screen for meetings
   assert.equal(allowedPermission('media', { mediaType: 'audio' }), true);
   for (const [p, d] of [['media', {}], ['media', { mediaTypes: ['audio', 'screen'] }], ['clipboard-read', {}], ['geolocation', {}], ['notifications', {}]]) assert.equal(allowedPermission(p, d), false);
 });
-test('frame origins are bare https origins set at build time; tweets can always embed', () => {
+test('frame origins are bare https origins set at build time; tweets and media players can always embed', () => {
   assert.deepEqual(frameOrigins(undefined), []);
   assert.deepEqual(frameOrigins(' https://example-org.github.io, https://example-org.github.io/ https://b.example '), ['https://example-org.github.io', 'https://b.example']);
   for (const bad of ['http://example-org.github.io', 'https://example-org.github.io/prototypes/', 'https://u:p@x.example', 'not a url', "https://x.example;script-src"]) assert.throws(() => frameOrigins(bad), bad);
-  assert.match(contentSecurityPolicy(), /frame-src https:\/\/platform\.twitter\.com;/);
-  assert.match(contentSecurityPolicy(['https://example-org.github.io']), /frame-src https:\/\/example-org\.github\.io https:\/\/platform\.twitter\.com;/);
+  const players = 'https://embed.podcasts.apple.com https://embed.music.apple.com https://open.spotify.com https://www.youtube-nocookie.com https://player.vimeo.com';
+  assert.ok(contentSecurityPolicy().includes(`frame-src https://platform.twitter.com ${players};`));
+  assert.ok(contentSecurityPolicy(['https://example-org.github.io']).includes(`frame-src https://example-org.github.io https://platform.twitter.com ${players};`));
 });
 
 test('multi-server credential files cannot escape storage and the manifest selects one server', async () => {

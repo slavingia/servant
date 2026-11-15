@@ -100,6 +100,14 @@ What leaves the server: one request to the linked site for that page, from the s
 
 The address comes from a message, so it is treated as hostile (`server/link-preview.mjs`): only `https` on a real host name and the default port; every address the name resolves to must be on the public internet (nothing loopback, private, link-local or reserved, in IPv4 or IPv6); the connection is made to the address that was checked, so a name cannot answer one thing for the check and another for the request; each redirect is checked the same way, three at most; and the read stops at five seconds or 512 KB. Only an HTML page is read, and only text is kept, with markup removed. Pages are read a few at a time and the same address is not read again for ten minutes.
 
+## Playing a link in place
+
+A link to an Apple Podcasts show or episode, an Apple Music album, playlist or song, a Spotify track, album, playlist, episode or show, a YouTube video or a Vimeo video gets a **Play here** button under the message, in channels, direct messages, threads and agent chats. Pressing it loads that service's own player in place. The first two such links in a message get a button; the link itself stays in the text, and the page's title and description still show as a [link preview](#link-previews).
+
+Nothing is loaded before the press. Until then no reader's device contacts the service; after it, that one device loads the player from the service, which sees what any visit to its player sees (the device's address and browser, and on the web the address of the site Servant is served from, not the page or conversation). YouTube plays from `youtube-nocookie.com` and Vimeo with its do-not-track setting. Other people in the conversation are not affected by one person pressing Play.
+
+The player's address is built from the checked parts of the link (a country code, a name, ids), never copied from the message, and only these five services' player addresses are ever framed (`app/src/lib/media-embed.ts`); on a phone the player cannot navigate anywhere else, and the Mac app's frame policy lists the same five (`desktop/policy.mjs`).
+
 ## Formatting and commands
 
 A person's message is formatted as they type it: `*bold*` or `**bold**`, `_italics_`, `~~strikethrough~~`, `` `code` ``, fenced code, `>` quotes and lists. Typing `/` at the start of a message lists commands; `/help` says what each does. `/feedback what to fix or add` sends feedback about Servant from wherever you are typing and says it was sent; `/feedback` alone opens the Feedback page. Only the words after the command are sent, with the kind of screen, the app build and the platform: nothing from the conversation is attached.

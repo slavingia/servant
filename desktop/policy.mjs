@@ -47,14 +47,16 @@ export function frameOrigins(value) {
     return url.origin;
   }))];
 }
-// The app window's Content Security Policy. Tweets embed from platform.twitter.com.
+// The app window's Content Security Policy. Tweets embed from platform.twitter.com, and a podcast, song or
+// video plays from its service's own player once someone presses Play (app/src/lib/media-embed.ts lists the same).
+const MEDIA_PLAYERS = ['https://embed.podcasts.apple.com', 'https://embed.music.apple.com', 'https://open.spotify.com', 'https://www.youtube-nocookie.com', 'https://player.vimeo.com'];
 // The app's page as the Mac app serves it: marked, so the skeleton it shows before its script loads
 // (app/public/index.html) leaves room for the window controls, as the sidebar that replaces it does.
 export function desktopPage(html) {
   return String(html).replace(/<html(?=[\s>])/, '<html data-servant-desktop');
 }
 export function contentSecurityPolicy(origins = []) {
-  return `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: data:; font-src 'self' data:; connect-src 'self' https: http://127.0.0.1:* http://localhost:*; object-src 'none'; frame-src ${[...origins, 'https://platform.twitter.com'].join(' ')}; base-uri 'self'; form-action 'none'`;
+  return `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: data:; font-src 'self' data:; connect-src 'self' https: http://127.0.0.1:* http://localhost:*; object-src 'none'; frame-src ${[...origins, 'https://platform.twitter.com', ...MEDIA_PLAYERS].join(' ')}; base-uri 'self'; form-action 'none'`;
 }
 // `codesign -dv` prints the signing team; ad-hoc and unsigned builds have none.
 export function teamIdentifier(codesignOutput) {

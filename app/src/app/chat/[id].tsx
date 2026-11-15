@@ -17,6 +17,8 @@ import { Button, IconButton } from "../../components/Button";
 import { MessageText } from "../../components/MessageText";
 import { withoutContextSummaries } from "../../lib/context-summary";
 import { TweetEmbed } from "../../components/TweetEmbed";
+import { MediaEmbed } from "../../components/MediaEmbed";
+import { mediaEmbeds } from "../../lib/media-embed";
 import { tweetIds } from "../../lib/tweet-embed";
 import { AgentApprovalCard } from "../../components/AgentApprovalCard";
 import { activeAgentTurn, agentTurnLabel, inOrder, joinsReply, liveAgentLine, queuedBelow, splitTurns, withRead, workByMessage, workedFor, type AgentStep, type AgentTurn } from "../../lib/agent-turns";
@@ -1067,6 +1069,7 @@ const ChatRow = memo(function ChatRow({ item, chatId, me, role, canForward, work
       {work ? <AgentWorked turn={work} load={loadSteps} settle={settle} /> : null}
       {mine && !working ? <ForwardedText item={item} /> : !working && item.text ? <ReplyText text={item.text} failed={item.failed} /> : null}
       {!working && !item.failed ? tweetIds(item.text || "").map(id => <TweetEmbed key={id} id={id} />) : null}
+      {!working && !item.failed ? mediaEmbeds(item.text || "").map(embed => <MediaEmbed key={embed.key} embed={embed} />) : null}
       {!working && item.attachments?.length ? <Attachments files={item.attachments} /> : null}
       {item.uploads?.length ? <PendingAttachments files={item.uploads} progress={uploadProgress} /> : null}
       {working ? <AgentProgress line={liveAgentLine(turn, status)} turn={turn} /> : null}
