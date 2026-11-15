@@ -71,6 +71,17 @@ With a filter typed, only messages are listed. A filter that names no channel or
 
 The server keeps a full-text index of message text in `messages.db` (SQLite's own FTS5, so there is still nothing to install). The database keeps it in step inside the same transaction as every post, edit and delete, so an edited or deleted message's old words are never found; a server that already has messages indexes them once when it is first updated. Agent chats are searched by title only. `/feedback` (below) and other commands are not indexed.
 
+### The agent can search too
+
+Owner's decision, 11/15: when someone asks `@agent` something it cannot answer from the message in front of it ("when is the budget review?"), the agent can look up what was said before. It asks the server with a hidden line, once per answer; the server runs the search and sends back up to 10 matching messages (who, where, the date, and up to 600 characters each), and the agent answers from them. The request is never shown.
+
+The search runs as the person who asked and is narrowed by who will read the answer:
+
+- **In a channel or a group message**, only that conversation and public channels are searched. The person asking may be in private channels the other readers are not; nothing from those can reach the answer.
+- **In your own chat with the agent**, which only you read, everything you can read is searched.
+
+Nothing outside what the asker can read is ever searched, the agent's own earlier replies are left out, and a server with channels or direct messages turned off does not search them. This adds no tool to the agent and changes nothing about where it runs: the server does the search and passes text, as it already does with earlier messages. What the agent is sent goes to the model provider like the rest of the prompt.
+
 ## Formatting and commands
 
 A person's message is formatted as they type it: `*bold*` or `**bold**`, `_italics_`, `~~strikethrough~~`, `` `code` ``, fenced code, `>` quotes and lists. Typing `/` at the start of a message lists commands; `/help` says what each does. `/feedback what to fix or add` sends feedback about Servant from wherever you are typing and says it was sent; `/feedback` alone opens the Feedback page. Only the words after the command are sent, with the kind of screen, the app build and the platform: nothing from the conversation is attached.

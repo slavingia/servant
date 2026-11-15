@@ -273,6 +273,17 @@ export const MORE_CONTEXT_TAG = /^\s*<servant-more-context\s*\/?>\s*$/;
 export const MORE_CONTEXT_INSTRUCTIONS = "You only see the message that mentioned you and the one before it. " +
   "If you truly can't answer without more of the conversation, reply with exactly <servant-more-context/> and nothing else; you'll get the earlier messages.";
 
+// The agent can also look up what was said before (owner's decision, 11/15). It asks with this hidden line,
+// once; Servant runs the search as the person who asked and sends back what it found. In a conversation other
+// people read, only that conversation and public channels are searched, so an answer cannot carry a private
+// channel's words to people who are not in it. In a person's own chat with the agent, everything they can read.
+export const SEARCH_TAG = /^\s*<servant-search>([^<>]{1,200})<\/servant-search>\s*$/;
+export const SEARCH_INSTRUCTIONS = "To look up what was said earlier, here or elsewhere, reply with exactly <servant-search>a few words</servant-search> and nothing else; " +
+  "you'll get the matching messages. You may add in:#channel, from:@name, has:link or is:thread. You can search once.";
+export const SEARCH_RESULTS = 10, SEARCH_RESULT_LENGTH = 600;
+// While a reply could still turn out to be one of the hidden lines, it is not shown.
+const maybeHidden = text => { const start = text.trim(); return !!start && ("<servant-more-context/>".startsWith(start.slice(0, 23)) || "<servant-search>".startsWith(start.slice(0, 16)) || start.startsWith("<servant-search>")); };
+
 /**
  * @param {object} o
  * @param {string} o.file          sqlite file
@@ -334,11 +345,14 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
   // Messages for a search (search.mjs), newest first, only from conversations this person is in. One more
   // than a page is read, to say whether there are more.
   const SEARCH_PAGE = 20;
-  function findMessages(userId, asked, plainQuery) {
+  // `within`: a conversation the results may come from besides public channels (the agent answering where
+  // other people read). Without it, anything this person can read.
+  function findMessages(userId, asked, plainQuery, within = null) {
     const { filters, terms } = asked;
     const where = ["c.archived_at IS NULL", "x.deleted_at IS NULL", "x.pending = 0", "x.activity IS NULL"], values = [userId];
+    if (within) { where.push("(x.conversation_id = ? OR (c.kind = 'channel' AND c.private = 0))"); values.push(within); }
     const match = ftsQuery(terms);
-    if (terms.length && !match) return plainQuery.length >= 2 && !asked.filtered ? st.searchMessages.all(userId, plainQuery) : [];
+    if (terms.length && !match) return plainQuery.length >= 2 && !asked.filtered && !within ? st.searchMessages.all(userId, plainQuery) : [];
     if (match) { where.push("x.seq IN (SELECT rowid FROM messages_search WHERE messages_search MATCH ?)"); values.push(match); }
     if (filters.in) {
       const wanted = searchText(filters.in);
@@ -363,7 +377,20 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
       FROM messages x JOIN conversations c ON c.id = x.conversation_id JOIN members m ON m.conversation_id = c.id AND m.user_id = ?
       WHERE ${where.join(" AND ")} ORDER BY x.seq DESC LIMIT ${SEARCH_PAGE + 1}`).all(...values);
     // Words the index has no whole match for (part of a word, a code with punctuation): look for the text as typed.
-    return rows.length || asked.filtered || plainQuery.length < 2 ? rows : st.searchMessages.all(userId, plainQuery);
+    return rows.length || asked.filtered || within || plainQuery.length < 2 ? rows : st.searchMessages.all(userId, plainQuery);
+  }
+  // What the agent gets back for a search: who, where, when and the words, newest first, each cut to a length.
+  function searchForAgent(userId, query, conv, direct) {
+    const asked = parseSearch(query);
+    const found = findMessages(userId, asked, searchText(asked.words), direct ? null : conv.id)
+      .filter(m => m.user_id !== AGENT_ID && !hidden({ kind: m.conversation_kind })).slice(0, SEARCH_RESULTS);
+    if (!found.length) return "[Search results: nothing matched. Answer without them, and say you could not find it if that is the case; don't search again.]";
+    const lines = found.map(m => {
+      const place = m.conversation_kind === "channel" ? `#${m.conversation_name}` : "a direct message";
+      const text = m.text.length > SEARCH_RESULT_LENGTH ? m.text.slice(0, SEARCH_RESULT_LENGTH - 1) + "…" : m.text;
+      return `${person(m.user_id).name} in ${place}, ${new Date(m.created_at).toISOString().slice(0, 10)}: ${text}`;
+    });
+    return `[Search results, newest first. Now answer the latest message; don't search again.]\n\n${lines.join("\n")}`;
   }
 
   let inTransaction = false;
@@ -956,7 +983,7 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
     const admin = users()[trigger.user_id]?.role === "owner" ? ` ${ownerAdminInstructions()}` : "";
     const prompt =
       `[Servant ${where}. ${audience} Answer the latest message in a short reply in this thread, ` +
-      `clearly. Include images when useful.${work}${more}${admin}]\n\n${transcript}`;
+      `clearly. Include images when useful.${work}${more} ${SEARCH_INSTRUCTIONS}${admin}]\n\n${transcript}`;
     // If the agent lost this thread's session (for example after switching
     // agents), it starts over with the whole thread instead of failing.
     const fullThread = thread
@@ -1009,8 +1036,8 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
         attachments: images,
         onDelta: (d) => {
           text += d;
-          // A request for more context is never shown, even half-streamed.
-          if (more && "<servant-more-context/>".startsWith(text.trim().slice(0, 24))) return;
+          // A request for more context or a search is never shown, even half-streamed.
+          if (maybeHidden(text)) return;
           saveReply(false);
         },
         onStatus: () => {},
@@ -1027,7 +1054,20 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
           text: `[Earlier messages, oldest first. Now answer the message that mentioned you; don't ask again.]\n\n${earlier}`,
           attachments: [], onDelta: (d) => { text += d; saveReply(false); }, onStatus: () => {},
         }));
-        if (MORE_CONTEXT_TAG.test(answer.text)) answer.text = "";
+        if (MORE_CONTEXT_TAG.test(answer.text)) { answer.text = ""; text = ""; }
+      }
+      // Asked to search: run it as the person who asked, once, and send back what it found.
+      const wanted = SEARCH_TAG.exec(answer.text);
+      if (wanted) {
+        text = "";
+        answer = read(await askAgent({
+          onUsage: usage => { try { onUsage({ eventId: `channel:${trigger.seq}:search`, userId: trigger.user_id, source: "channel", text: trigger.text, usage }); } catch { /* stats only */ } },
+          sessionId, userId: trigger.user_id, sessionKey: `servant:${conv.id}`, fresh: false,
+          text: searchForAgent(trigger.user_id, wanted[1], conv, direct),
+          attachments: [], onDelta: (d) => { text += d; if (!maybeHidden(text)) saveReply(false); }, onStatus: () => {},
+        }));
+        // Asking again instead of answering: nothing of the request is kept, so it is never posted.
+        if (SEARCH_TAG.test(answer.text) || MORE_CONTEXT_TAG.test(answer.text)) { answer.text = ""; text = ""; }
       }
       attachments = answer.attachments;
       text = answer.text || (attachments.length ? "" : text || "I couldn't come up with an answer");
