@@ -23,8 +23,13 @@ export function sourceDeviceFields(kind, viewer) {
 
 // Private upstream/journal payloads are not a source of trusted device metadata.
 // Only the immutable snapshot associated with the accepted local message ID is.
-export function privateMessageView(message, viewer, snapshots) {
+// `posters` (optional) is { byMessage: Map(messageId -> userId), users, authorId }: a message posted by someone other than
+// the chat's author (the owner joining a shared chat) carries `postedBy` so it is shown under the real poster.
+export function privateMessageView(message, viewer, snapshots, posters) {
   if (!message || typeof message !== 'object') return message;
-  const { sourceDevice: _ignored, ...result } = message;
-  return { ...result, ...(message.role === 'user' ? sourceDeviceFields(snapshots.get(message.id), viewer) : {}) };
+  const { sourceDevice: _ignored, postedBy: _poster, ...result } = message;
+  const posterId = message.role === 'user' ? posters?.byMessage?.get(message.id) : undefined;
+  const poster = posterId && posterId !== posters.authorId ? posters.users?.[posterId] : undefined;
+  return { ...result, ...(message.role === 'user' ? sourceDeviceFields(snapshots.get(message.id), viewer) : {}),
+    ...(poster ? { postedBy: { id: poster.id, name: poster.name } } : {}) };
 }

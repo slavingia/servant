@@ -378,12 +378,14 @@ export function createAgentTurns({ file, execute, clock = Date.now, concurrency 
   // The accepted user message ID is already stable in every compatible worker
   // (chat-media.accept uses chatId:user:turnId). Project this API-owned snapshot
   // without requiring the independent worker to rewrite cached messages/events.
-  const sourceMap = rows => new Map(rows.map(t => [
-    `msg_${crypto.createHash('sha256').update(`${t.chat_id}:user:${t.id}`).digest('hex').slice(0, 32)}`,
-    t.source_device_kind,
-  ]));
+  const messageKey = t => `msg_${crypto.createHash('sha256').update(`${t.chat_id}:user:${t.id}`).digest('hex').slice(0, 32)}`;
+  const sourceMap = rows => new Map(rows.map(t => [messageKey(t), t.source_device_kind]));
+  // Who really posted each message (turn.user_id is the person who sent it, even in someone else's chat).
+  const posterMap = rows => new Map(rows.map(t => [messageKey(t), t.user_id]));
 return { unreadByChat, markChatRead, unreadOthers, markViewed, markAllChatsRead, enqueue, replay, processNext, recoverInterrupted, requestStop, requestApproval, requestSteer, markSteered, requeueSteer, drainOutbox,
     messageSources: chatId => sourceMap(db.prepare('SELECT id,chat_id,source_device_kind FROM private_turns WHERE chat_id=?').all(chatId)),
+    messagePosters: chatId => posterMap(db.prepare('SELECT id,chat_id,user_id FROM private_turns WHERE chat_id=?').all(chatId)),
+    turnMessagePosters: id => posterMap(db.prepare('SELECT id,chat_id,user_id FROM private_turns WHERE id=?').all(id)),
     turnMessageSources: id => sourceMap(db.prepare('SELECT id,chat_id,source_device_kind FROM private_turns WHERE id=?').all(id)),
     get: id => view(row(id)),
     detail: id => detail(row(id)),

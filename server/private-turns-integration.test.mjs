@@ -480,6 +480,11 @@ test('the workspace owner can jump into a chat another person shared with everyo
   await until(async () => f.runs.size === 1);
   const history = await (await f.api('/v1/chats/memberchat/messages', 'GET', undefined, 'owner')).json();
   assert.ok(history.messages.some(m => m.role === 'user' && m.text === 'Owner joining in'));
+  // The message is the owner's, not the chat author's: both the shared view and the author's own view say so.
+  const posted = list => list.messages.find(m => m.role === 'user' && m.text === 'Owner joining in');
+  assert.deepEqual(posted(history).postedBy, { id: 'owner', name: 'Owner' });
+  const authorView = await (await f.api('/v1/chats/memberchat/messages', 'GET', undefined, 'member')).json();
+  assert.deepEqual(posted(authorView).postedBy, { id: 'owner', name: 'Owner' });
   // The author keeps control: a shared chat's settings stay theirs.
   assert.equal((await f.api('/v1/chats/memberchat', 'PATCH', { shared: false }, 'owner')).status, 403);
   assert.equal((await f.api('/v1/chats/memberchat', 'DELETE', undefined, 'owner')).status, 403);

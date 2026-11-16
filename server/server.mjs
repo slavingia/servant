@@ -1873,8 +1873,9 @@ async function handle(req, res, cfg) {
       return send(res, 200, mediaPage(items, url.searchParams));
     }
     const sources = agentTurns.messageSources(visible.id);
+    const posters = { byMessage: agentTurns.messagePosters(visible.id), users: currentState.users, authorId: visible.userId };
     agentTurns.markViewed(user.id, [visible.id]);
-    return send(res, 200, { chat: chatView(visible, viewer, currentState.users), messages: history.map(message => privateMessageView(message, viewer, sources)), latestTurn: null, upstreamUnavailable: false });
+    return send(res, 200, { chat: chatView(visible, viewer, currentState.users), messages: history.map(message => privateMessageView(message, viewer, sources, posters)), latestTurn: null, upstreamUnavailable: false });
   }
   const chat = joining ? visible : mine.find((c) => c.id === parts[2]);
   if (!chat) return fail(res, 404, "not_found", "No such chat");
@@ -2035,7 +2036,8 @@ async function handle(req, res, cfg) {
     messages.sort((a, b) => a.at - b.at);
     const current = requireAuth(req);
     const sources = agentTurns.messageSources(chat.id);
-    return send(res, 200, { messages: messages.map(message => privateMessageView(message, current.user, sources)), latestTurn, upstreamUnavailable });
+    const posters = { byMessage: agentTurns.messagePosters(chat.id), users: readState().users, authorId: chat.userId };
+    return send(res, 200, { messages: messages.map(message => privateMessageView(message, current.user, sources, posters)), latestTurn, upstreamUnavailable });
   }
 
   if (method === "GET" && parts[3] === "media" && parts.length === 4) {
@@ -2162,6 +2164,7 @@ async function handle(req, res, cfg) {
 function streamPrivateTurn(req, res, turnId, authorize, after = 0) {
   authorize();
   const sources = agentTurns.turnMessageSources(turnId);
+  const posterByMessage = agentTurns.turnMessagePosters(turnId);
   res.writeHead(200, { ...CORS, "Content-Type": "text/event-stream; charset=utf-8",
     "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no", Connection: "keep-alive" });
   return new Promise(resolve => {
@@ -2179,10 +2182,12 @@ function streamPrivateTurn(req, res, turnId, authorize, after = 0) {
       try {
         const current = authorize();
         const events = agentTurns.events(turnId, after);
+        const turnChat = readState().chats[agentTurns.get(turnId)?.chatId];
+        const posters = { byMessage: posterByMessage, users: readState().users, authorId: turnChat?.userId };
         for (const event of events) {
           const payload = event.event === 'sent'
-            ? { ...event.payload, message: privateMessageView(event.payload.message, current?.user, sources) }
-            : event.event === 'message' ? privateMessageView(event.payload, current?.user, sources) : event.payload;
+            ? { ...event.payload, message: privateMessageView(event.payload.message, current?.user, sources, posters) }
+            : event.event === 'message' ? privateMessageView(event.payload, current?.user, sources, posters) : event.payload;
           res.write(`event: ${event.event}\ndata: ${JSON.stringify(payload)}\nid: ${event.seq}\n\n`);
           after = event.seq;
           if (event.event === "done") { close(); break; }

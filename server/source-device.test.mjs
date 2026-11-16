@@ -29,3 +29,12 @@ test('an agent sign-in is marked, and its label reaches everyone, unlike mobile 
   for (const role of ['owner', 'member', undefined]) assert.deepEqual(sourceDeviceFields('agent', { role }), { sourceDevice: { kind: 'agent', label: 'Posted by agent' } });
   assert.deepEqual(sourceDeviceFields('mobile', { role: 'member' }), {});
 });
+
+test('a message posted by someone other than the chat author names its real poster', () => {
+  const users = { jo: { id: 'jo', name: 'Jo Park' }, pat: { id: 'pat', name: 'Pat Tester' } };
+  const posters = { byMessage: new Map([['m1', 'pat'], ['m2', 'jo']]), users, authorId: 'jo' };
+  const view = id => privateMessageView({ id, role: 'user', text: 'Hi', postedBy: { id: 'jo', name: 'Forged' } }, { role: 'member' }, new Map(), posters);
+  assert.deepEqual(view('m1').postedBy, { id: 'pat', name: 'Pat Tester' });
+  assert.ok(!('postedBy' in view('m2')));
+  assert.ok(!('postedBy' in privateMessageView({ id: 'm1', role: 'assistant', text: 'Hi' }, { role: 'member' }, new Map(), posters)));
+});

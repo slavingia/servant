@@ -27,6 +27,7 @@ import { useStableCallback } from "../../lib/stable-callback";
 import { AgentProgress, AgentWorked } from "../../components/AgentSteps";
 import { bufferAgentReply } from "../../lib/agent-events";
 import { messageDeviceLabel } from "../../lib/message-device";
+import { messagePerson } from "../../lib/message-poster";
 import { estimateCost, formatCost, formatTokens } from "../../lib/token-format";
 import { helpText, parseSlash } from "../../lib/slash-commands";
 import { sendSlashFeedback } from "../../lib/slash-feedback";
@@ -156,12 +157,13 @@ function SharedChatView() {
           </View> : undefined}
           renderItem={({ item }) => {
             const theirs = item.role === "user";
+            const person = theirs ? messagePerson(item, { id: chat?.author?.id, name: authorName }) : { id: undefined, name: "Agent" };
             const timestamp = typeof item.at === "number" ? item.at : item.at ? new Date(item.at).getTime() : NaN;
-            return <MessageActions item={item} author={theirs ? authorName : "Agent"} canForward={chat?.shared !== false && anyTalk(features)} onForward={setForwarding} chatId={String(id)} style={styles.message} label={theirs ? `${authorName}'s message` : "Agent response"}>
-              <Avatar name={theirs ? authorName : "Agent"} agent={!theirs} userId={theirs ? chat?.author?.id : undefined} size={34} tapToMessage={theirs} />
+            return <MessageActions item={item} author={person.name} canForward={chat?.shared !== false && anyTalk(features)} onForward={setForwarding} chatId={String(id)} style={styles.message} label={theirs ? `${person.name}'s message` : "Agent response"}>
+              <Avatar name={person.name} agent={!theirs} userId={person.id} size={34} tapToMessage={theirs} />
               <View style={styles.messageCopy}>
                 <View style={styles.messageMeta}>
-                  <Text style={styles.author}>{theirs ? authorName : "Agent"}</Text>
+                  <Text style={styles.author}>{person.name}</Text>
                   {Number.isFinite(timestamp) ? <Text style={styles.time}>{when(timestamp)}</Text> : null}
                 </View>
                 {theirs ? <ForwardedText item={item} /> : item.text ? <ReplyText text={item.text} /> : null}
@@ -1093,12 +1095,15 @@ const ChatRow = memo(function ChatRow({ item, chatId, me, role, canForward, work
   const queued = item.queuedTurn;
   const timestamp = typeof item.at === "number" ? item.at : item.at ? new Date(item.at).getTime() : NaN;
   const deviceLabel = messageDeviceLabel(role, item);
-  return <MessageActions item={item} author={mine ? me.name : "Agent"} canForward={!queued && !item.pending && !item.failed && canForward} onForward={onForward} chatId={chatId}
-    label={mine ? `Your message${queued ? (queued.steerRequested ? ", being added to the current reply" : ", waiting for the current reply") : item.pending ? ", not yet received" : deviceLabel ? `, sent from ${deviceLabel}` : ""}` : "Agent response"} style={[styles.message, item.failed && styles.failed, item.pending && mine && styles.unconfirmed, queued && styles.queuedMessage]}>
-    <Avatar name={mine ? me.name : "Agent"} agent={!mine} userId={mine ? me.id : undefined} size={34} />
+  // In a shared chat the owner may have posted: show them, not the chat's author.
+  const person = mine ? messagePerson(item, me) : { id: undefined, name: "Agent" };
+  const byOther = mine && person.id !== me.id;
+  return <MessageActions item={item} author={person.name} canForward={!queued && !item.pending && !item.failed && canForward} onForward={onForward} chatId={chatId}
+    label={mine ? `${byOther ? `${person.name}'s` : "Your"} message${queued ? (queued.steerRequested ? ", being added to the current reply" : ", waiting for the current reply") : item.pending ? ", not yet received" : deviceLabel ? `, sent from ${deviceLabel}` : ""}` : "Agent response"} style={[styles.message, item.failed && styles.failed, item.pending && mine && styles.unconfirmed, queued && styles.queuedMessage]}>
+    <Avatar name={person.name} agent={!mine} userId={person.id} size={34} />
     <View style={styles.messageCopy}>
       <View style={styles.messageMeta}>
-        <Text style={styles.author}>{mine ? me.name : "Agent"}</Text>
+        <Text style={styles.author}>{person.name}</Text>
         {Number.isFinite(timestamp) || deviceLabel ? <Text style={styles.time}>{Number.isFinite(timestamp) ? when(timestamp) : null}{deviceLabel ? <Text testID={`message-device-${item.id}`} accessibilityLabel={`Sent from ${deviceLabel}`}>{Number.isFinite(timestamp) ? " · " : ""}{deviceLabel}</Text> : null}</Text> : null}
       </View>
       {work ? <AgentWorked turn={work} load={loadSteps} settle={settle} /> : null}
