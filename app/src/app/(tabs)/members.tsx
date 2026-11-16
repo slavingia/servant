@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import { Redirect, router, useFocusEffect, useScrollToTop } from "expo-router";
 import { SkeletonRows } from "../../components/Skeleton";
 import { Avatar } from "../../components/Messaging";
@@ -10,6 +11,7 @@ import { PresenceDot, useStatusNow } from "../../components/Presence";
 import { api, ServerError, type Person } from "../../lib/server";
 import { useLivePresence } from "../../lib/live";
 import { sortPeople, PEOPLE_SORTS, type PeopleSort } from "../../lib/people-sort";
+import { canChangeManager, managerChoices, orgLine, orgRows } from "../../lib/org-chart";
 import { presenceDot, presenceLabel } from "../../lib/message-status";
 import { useSession } from "../../lib/session";
 import { landingHref, useFeature, useFeatures } from "../../lib/features";
@@ -67,8 +69,14 @@ export default function Members() {
   // Whose ••• sheet is open: owners set a person's role and daily token limit there, or remove them.
   const [managing, setManaging] = useState<string | null>(null);
   // Which part of that sheet is open. The role first: it decides what a limit is a limit on.
-  const [section, setSection] = useState<"role" | "limit" | null>("role");
-  const manage = (id: string) => { setSection("role"); setManaging(id); };
+  const [section, setSection] = useState<"role" | "limit" | "manager" | null>("role");
+  // "Invite your manager": a name, then a one-use link to send them. Whoever joins with it becomes your manager.
+  const [inviting, setInviting] = useState(false);
+  const [managerName, setManagerName] = useState("");
+  const [managerLink, setManagerLink] = useState<string | null>(null);
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [removing, setRemoving] = useState<Person | null>(null);
   const [removeBusy, setRemoveBusy] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
@@ -94,7 +102,15 @@ export default function Members() {
   const managed = managing ? people?.find(p => p.id === managing) ?? null : null;
   const emailOf = (person: Person) => owner && !person.owner ? emailLine(person, directory?.emailChecks === true) : null;
   const managedEmail = managed ? emailOf(managed) : null;
-  const canManage = (person: Person) => owner && !person.owner && person.id !== account.user.id;
+  const viewer = { id: account.user.id, owner };
+  // Owners manage anyone but owners and themselves. A manager can open the sheet for the people who report to them, to hand them on.
+  const canManage = (person: Person) => person.id !== account.user.id && !person.owner && (owner || canChangeManager(person, viewer));
+  const manage = (id: string) => { setSection(owner ? "role" : "manager"); setManaging(id); };
+  // The chart (org-chart.ts): how deep each person sits and how many report to them.
+  const chart = sort === "org" && people ? new Map(orgRows(people).map(row => [row.person.id, row])) : null;
+  const me = people?.find(p => p.id === account.user.id) ?? null;
+  const myManager = me?.managerId ? people?.find(p => p.id === me.managerId) ?? null : null;
+  const managerOfManaged = managed?.managerId ? people?.find(p => p.id === managed.managerId) ?? null : null;
   // Your own row says only whether you're in deep work (deep-work.ts); everyone else's says what you see of them.
   const statusOf = (person: Person) => person.id === account.user.id ? (deepWork ? "Deep work" : "") : presenceLabel(presence[person.id] ?? { ...person, online: false }, now, connected);
   // One line under the name: role or agent tier, the lifted token limit (owners only), presence.
@@ -103,6 +119,7 @@ export default function Members() {
     owner && !person.owner && person.unlimitedTokens ? "No token limit" : null,
     status || null,
   ].filter(Boolean).join(" · ");
+  const chartLine = (person: Person) => chart && people ? orgLine(person, people, chart.get(person.id)?.reports ?? 0) : "";
   // Owners choose what each person's agent may do: none, file bug reports, build prototypes, or everything.
   const setTier = async (person: Person, tier: number) => {
     if (opening || (person.agentTier ?? 0) === tier) return;
@@ -124,6 +141,37 @@ export default function Members() {
     } catch (e) {
       setError(e instanceof ServerError ? e.message : "Couldn't change that. Try again");
     } finally { setOpening(null); }
+  };
+  // An owner, or the person's current manager, hands them to another manager. The server refuses a loop.
+  const setManagerOf = async (person: Person, managerId: string) => {
+    if (opening || person.managerId === managerId) return;
+    setOpening(person.id); setError(null);
+    try {
+      await api.setManager(account, person.id, managerId);
+      setDirectory(d => d && { ...d, people: d.people.map(p => p.id === person.id ? { ...p, managerId } : p) });
+      // Someone who handed a report on no longer manages them, so their sheet closes.
+      if (!owner) setManaging(null);
+    } catch (e) {
+      setError(e instanceof ServerError ? e.message : "Couldn't change their manager. Try again");
+    } finally { setOpening(null); }
+  };
+  const closeInvite = () => { setInviting(false); setManagerName(""); setManagerLink(null); setInviteError(null); setLinkCopied(false); };
+  const makeManagerInvite = async () => {
+    const name = managerName.replace(/\s+/g, " ").trim();
+    if (inviteBusy) return;
+    if (!name) { setInviteError("Enter your manager's name"); return; }
+    setInviteBusy(true); setInviteError(null);
+    try {
+      const invite = await api.inviteManager(account, name);
+      setManagerLink(invite.webLink ?? invite.link);
+    } catch (e) {
+      setInviteError(e instanceof ServerError ? e.message : "Couldn't make the invite. Try again");
+    } finally { setInviteBusy(false); }
+  };
+  const copyManagerLink = async () => {
+    if (!managerLink) return;
+    try { if (!(await Clipboard.setStringAsync(managerLink))) throw new Error("Clipboard unavailable"); setLinkCopied(true); }
+    catch { setInviteError("Couldn't copy the link. Select it and copy it yourself"); }
   };
   const askRemove = (person: Person) => {
     setRemoveError(null);
@@ -175,6 +223,11 @@ export default function Members() {
             <Text style={[styles.sortText, sort === option.value && styles.selectedSortText]}>{option.label}</Text>
           </Pressable>)}
         </View> : null}
+        {/* The chart's own line: who you report to, and a way to bring your manager in when they aren't here yet. */}
+        {sort === "org" && me && !owner ? <View style={styles.orgNote}>
+          <Text testID="my-manager" style={styles.orgNoteText}>{myManager ? `You report to ${myManager.name}. They decide what your agent may reach.` : "Nobody is set as your manager yet."}</Text>
+          <Button testID="invite-manager" label="Invite your manager" kind="link" onPress={() => setInviting(true)} style={styles.orgNoteAction} />
+        </View> : null}
         {error && !managed ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
       </View>}
       ListEmptyComponent={people === null && !error ? <SkeletonRows label="Loading members" /> : <View style={styles.empty}>
@@ -188,11 +241,14 @@ export default function Members() {
         const manageable = canManage(item);
         const busy = opening === item.id;
         const email = emailOf(item);
-        return <View style={styles.rowWrap}>
-          <Pressable accessibilityRole={self || !dms ? undefined : "button"} accessibilityLabel={`${item.name}${self ? ", you" : ""}, ${detail}${email ? `, ${email.label}` : ""}`} accessibilityHint={self || !dms ? undefined : "Open direct message"} disabled={self || !dms || !!opening} onPress={() => void message(item)}
+        // In the chart each level steps in, up to four levels so a deep chart still fits a phone.
+        const depth = Math.min(chart?.get(item.id)?.depth ?? 0, 4);
+        const reportsTo = chartLine(item);
+        return <View style={[styles.rowWrap, depth ? { paddingLeft: depth * space.lg } : null]}>
+          <Pressable accessibilityRole={self || !dms ? undefined : "button"} accessibilityLabel={`${item.name}${self ? ", you" : ""}, ${detail}${reportsTo ? `, ${reportsTo}` : ""}${email ? `, ${email.label}` : ""}`} accessibilityHint={self || !dms ? undefined : "Open direct message"} disabled={self || !dms || !!opening} onPress={() => void message(item)}
             onLongPress={manageable ? () => manage(item.id) : undefined}
-            accessibilityActions={manageable ? [{ name: "manage", label: `Manage ${item.name}` }, { name: "remove", label: `Remove ${item.name} from ${account.serverName}` }] : undefined}
-            onAccessibilityAction={e => { if (e.nativeEvent.actionName === "manage") manage(item.id); if (e.nativeEvent.actionName === "remove") askRemove(item); }}
+            accessibilityActions={manageable ? [{ name: "manage", label: `Manage ${item.name}` }, ...(owner ? [{ name: "remove", label: `Remove ${item.name} from ${account.serverName}` }] : [])] : undefined}
+            onAccessibilityAction={e => { if (e.nativeEvent.actionName === "manage") manage(item.id); if (e.nativeEvent.actionName === "remove" && owner) askRemove(item); }}
             style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}>
             <View>
               <Avatar name={item.name} userId={item.id} size={40} />
@@ -202,6 +258,7 @@ export default function Members() {
             <View style={styles.copy}>
               <Text style={styles.name}>{item.name}{self ? <Text style={styles.you}> · You</Text> : null}</Text>
               <Text style={[styles.detail, status === "Online" && styles.online]}>{detail}</Text>
+              {reportsTo ? <Text testID={`org-line-${item.id}`} style={styles.detail}>{reportsTo}</Text> : null}
               {email ? <EmailNote line={email} /> : null}
             </View>
             {/* The chat glyph sits where ••• sits on the rows an owner can manage, and on the Messages tab. */}
@@ -232,7 +289,24 @@ export default function Members() {
             {/* The choices scroll; the name above and Remove and Done below stay put, so a small phone, a short window
                 or large text never puts them out of reach. */}
             <ScrollView style={styles.cardScroll} keyboardShouldPersistTaps="handled">
-            <SheetSection title="What their agent can do" summary={roleLabel(managed.agentTier)} open={section === "role"} onToggle={() => setSection(open => open === "role" ? null : "role")}>
+            {/* Who decides this person's entitlement requests. An owner or their current manager can hand them on. */}
+            {canChangeManager(managed, viewer) && people ? <SheetSection title="Manager" summary={managerOfManaged?.name ?? "Nobody yet"} open={section === "manager"} onToggle={() => setSection(open => open === "manager" ? null : "manager")}>
+              <Text style={styles.sectionNote}>{`Their manager decides what ${managed.name}'s agent may reach, and can only pass on what they hold themselves.`}</Text>
+              <View accessibilityRole="radiogroup" accessibilityLabel="Manager">
+                {managerChoices(people, managed.id).map(choice => {
+                  const on = managed.managerId === choice.id;
+                  return <Pressable key={choice.id} testID={`manager-${choice.id}-${managed.id}`} accessibilityRole="radio" accessibilityState={{ checked: on, disabled: !!opening }} aria-checked={on}
+                    accessibilityLabel={`${choice.name} manages ${managed.name}`} disabled={!!opening} onPress={() => void setManagerOf(managed, choice.id)} style={({ pressed }) => [styles.option, pressed && { backgroundColor: colors.surface }]}>
+                    <View style={styles.optionCopy}>
+                      <Text style={[styles.optionLabel, on && styles.optionOn]}>{choice.name}</Text>
+                      {choice.owner ? <Text style={styles.optionHint}>Workspace owner</Text> : null}
+                    </View>
+                    {on ? <AppIcon name="check" size={20} color={colors.blue} /> : null}
+                  </Pressable>;
+                })}
+              </View>
+            </SheetSection> : null}
+            {owner ? <><SheetSection title="What their agent can do" summary={roleLabel(managed.agentTier)} open={section === "role"} onToggle={() => setSection(open => open === "role" ? null : "role")}>
               <View accessibilityRole="radiogroup" accessibilityLabel="What their agent can do">
                 {AGENT_ROLES.map(t => {
                   const on = (managed.agentTier ?? 0) === t.tier;
@@ -269,15 +343,38 @@ export default function Members() {
               </View>
               {/* What the dollar figures assume, once, under the amounts they sit beside. */}
               {costNote(directory?.roleCosts?.[String(managed.agentTier ?? 0)]) ? <Text testID="limit-cost-note" style={[styles.sectionNote, styles.sectionFootnote]}>{costNote(directory?.roleCosts?.[String(managed.agentTier ?? 0)])}</Text> : null}
-            </SheetSection> : null}
+            </SheetSection> : null}</> : null}
             </ScrollView>
             <View style={styles.cardActions}>
-              <Button testID={`remove-${managed.id}`} label="Remove" accessibilityLabel={`Remove ${managed.name}`} kind="danger" disabled={!!opening} onPress={() => askRemove(managed)} style={styles.done} />
+              {owner ? <Button testID={`remove-${managed.id}`} label="Remove" accessibilityLabel={`Remove ${managed.name}`} kind="danger" disabled={!!opening} onPress={() => askRemove(managed)} style={styles.done} /> : null}
               <Button label="Done" kind="secondary" onPress={() => setManaging(null)} style={styles.done} />
             </View>
           </> : null}
         </Pressable>
       </Pressable>
+    </Modal>
+    <Modal visible={inviting} transparent animationType="fade" onRequestClose={closeInvite}>
+      <View style={styles.scrim}>
+        <View accessibilityViewIsModal style={[styles.card, styles.inviteCard]}>
+          <Text accessibilityRole="header" style={styles.cardTitle}>Invite your manager</Text>
+          {managerLink ? <>
+            <Text style={styles.inviteNote}>{`Send this link to ${managerName.trim()}. It works once. When they join ${account.serverName}, they become your manager.`}</Text>
+            <Text testID="manager-link" selectable style={styles.inviteLink}>{managerLink}</Text>
+            {inviteError ? <Text accessibilityRole="alert" style={styles.inviteError}>{inviteError}</Text> : null}
+            {Platform.OS !== "web" ? <Button label="Share invite link" onPress={() => Share.share({ message: `Join ${account.serverName} on Servant as my manager: ${managerLink}` }).catch(() => setInviteError("Couldn't open sharing. Copy the link instead"))} /> : null}
+            <Button label={linkCopied ? "Copied" : "Copy invite link"} kind="secondary" onPress={() => void copyManagerLink()} />
+            <Button label="Done" kind="secondary" onPress={closeInvite} />
+          </> : <>
+            <Text style={styles.inviteNote}>For when your manager isn't on {account.serverName} yet. They join with a link from you and become the person who decides what your agent may reach.</Text>
+            <Text style={styles.inviteLabel}>Their name</Text>
+            <TextInput testID="manager-name" accessibilityLabel="Your manager's name" value={managerName} onChangeText={value => { setManagerName(value); setInviteError(null); }} maxLength={80} editable={!inviteBusy}
+              autoCapitalize="words" autoFocus onSubmitEditing={() => void makeManagerInvite()} style={styles.inviteInput} placeholderTextColor={colors.muted} />
+            {inviteError ? <Text accessibilityRole="alert" style={styles.inviteError}>{inviteError}</Text> : null}
+            <Button testID="make-manager-invite" label="Make invite link" busy={inviteBusy} onPress={() => void makeManagerInvite()} />
+            <Button label="Cancel" kind="secondary" onPress={closeInvite} />
+          </>}
+        </View>
+      </View>
     </Modal>
     <ConfirmDialog visible={!!removing} title={removing ? `Remove ${removing.name}?` : ""}
       description={`They're signed out of every device right away and can't use ${account.serverName} again unless you invite them back. Their messages stay, and #general notes that they left.`}
@@ -285,7 +382,7 @@ export default function Members() {
       onCancel={() => { setRemoving(null); setRemoveError(null); }} onConfirm={() => void remove()} />
   </View>;
 }
-const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
+const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   content: { paddingBottom: space.xxl, flexGrow: 1 },
   // Header, icon button and strip measure the same as on Messages and Agent.
@@ -338,4 +435,14 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   empty: { marginTop: space.xxl, paddingHorizontal: space.lg, alignItems: "center" },
   emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center" },
   emptyAction: { marginTop: space.lg },
+  // The chart's note above the list, and the "Invite your manager" dialog.
+  orgNote: { paddingHorizontal: space.side, paddingTop: space.xs },
+  orgNoteText: { ...typography.caption, color: colors.muted },
+  orgNoteAction: { alignSelf: "flex-start", marginLeft: -space.side },
+  inviteCard: { paddingHorizontal: space.side, gap: space.sm },
+  inviteNote: { ...typography.body, color: colors.muted },
+  inviteLabel: { ...typography.label, color: colors.muted },
+  inviteInput: controls.input,
+  inviteLink: { ...typography.body, color: colors.ink },
+  inviteError: { ...typography.caption, color: colors.red },
 }));

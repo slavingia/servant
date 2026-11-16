@@ -293,7 +293,7 @@ const maybeHidden = text => { const start = text.trim(); return !!start && ("<se
  * @param {() => string} o.agentName
  * @param {(o:{sessionId:string, sessionKey:string, text:string, attachments:Array, onDelta:(t:string)=>void, onStatus:(t:string)=>void}) => Promise<string|{text:string,attachments:Array}>} o.askAgent
  */
-export function createMessaging({ file, users, agentName, emailChecks = () => false, askAgent, onMessage = () => {}, externalWorker = false, onUsage = () => {}, features = () => ({ channels: true, directMessages: true, meetings: true }), linkPreview = null, messageExtras = () => null, startWorkChat = null, piiWarning = () => false, reportFalseAlarm = null, recordsPreservation = () => false, tierCosts = () => null }) {
+export function createMessaging({ file, users, agentName, managerOf = () => null, emailChecks = () => false, askAgent, onMessage = () => {}, externalWorker = false, onUsage = () => {}, features = () => ({ channels: true, directMessages: true, meetings: true }), linkPreview = null, messageExtras = () => null, startWorkChat = null, piiWarning = () => false, reportFalseAlarm = null, recordsPreservation = () => false, tierCosts = () => null }) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(file);
   db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON');
@@ -1567,7 +1567,8 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
     if (method === "GET" && r === "people" && parts.length === 2) {
       expirePresence();
       const list = Object.values(users())
-        .map((u) => ({ ...person(u.id), owner: u.role === "owner", agentTier: agentTierOf(u), ...(u.vibeCoder ? { vibeCoder: true } : {}), ...(u.tokenLimit ? { tokenLimit: u.tokenLimit } : {}), ...(u.unlimitedTokens ? { unlimitedTokens: true } : {}),
+        // managerId: who decides this person's entitlement requests (docs/entitlements.md); the People list draws the chart from it.
+        .map((u) => ({ ...person(u.id), owner: u.role === "owner", agentTier: agentTierOf(u), ...(managerOf(u) ? { managerId: managerOf(u) } : {}), ...(u.vibeCoder ? { vibeCoder: true } : {}), ...(u.tokenLimit ? { tokenLimit: u.tokenLimit } : {}), ...(u.unlimitedTokens ? { unlimitedTokens: true } : {}),
           // Work email and whether it was proven by a code: owners only, and only when this server checks email at all.
           ...(user.role === "owner" && emailChecks() ? { email: u.email || null, emailVerified: !!(u.email && u.emailVerifiedAt) } : {}) }))
         .sort((a, b) => a.name.localeCompare(b.name));

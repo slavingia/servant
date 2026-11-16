@@ -23,7 +23,9 @@ Everyone except an owner has a manager: the person who decides their entitlement
 - **Invite your manager.** Anyone can send a one-use invite to their manager when that person isn't on the server yet (`POST /v1/people/me/manager-invite` with their name). When they join, they become the sender's manager. The new manager reports to an owner until someone says otherwise, so the chart fills in from the bottom up without anyone drawing it. Because a manager can only grant what they hold, inviting someone as your manager does not open anything by itself: they have to be granted the entitlement by their own manager first.
 - When a manager leaves the server, the people they managed go back to whoever invited them, or an owner.
 
-Owners see the whole chart (`org` in `GET /v1/entitlements`); everyone sees their own manager and the people who report to them.
+In the app, **People** has an **Org chart** view beside Name and Last seen: each manager followed by the people who report to them, stepped in a level at a time, with "Reports to Ana Ruiz · 2 reports" under each name. Everyone sees the chart. Someone who isn't an owner also sees who they report to and **Invite your manager**. An owner's ••• sheet for a person has a **Manager** section to choose from everyone who isn't under that person; a manager gets the same sheet for their own reports, with only that section.
+
+`GET /v1/people` carries each person's `managerId`; `GET /v1/entitlements` gives your own `manager` and `reports`, and `org` for owners. `node scripts/org-chart-e2e.mjs` drives all of this in a browser against a temporary server and saves the captures in `docs/shots/org-chart`.
 
 ## How it goes
 
@@ -79,4 +81,4 @@ All under the encrypted `/v1/` API.
 - The confirmation is the person's word, checked by their manager. Servant does not look the person up in the other system.
 - An entitlement opens hosts, not paths or repositories. Holding "GitHub" opens `github.com` for that person's agent; what the agent can do there is whatever the server's own credentials allow. Keep those credentials as narrow as the entitlement is meant to be.
 - Taking an entitlement back from a manager does not take it back from the people they granted it to. Take those back one by one.
-- There is no screen for entitlements or managers in the app yet. Until there is, use the API above.
+- There is no screen for entitlements themselves in the app yet (asking, granting, taking back). Until there is, use the API above.

@@ -2485,6 +2485,7 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
     file: path.join(DATA_DIR, "messages.db"),
     externalWorker,
     users: () => activeUsers(readState()),
+    managerOf: person => managerOf(readState(), person)?.id || null,
     onMessage: event => servicePush.enqueue(event),
     agentName: () => (fixedCfg || loadConfig()).agentName || "Agent",
     features: () => normalizeFeatures((fixedCfg || loadConfig()).features),

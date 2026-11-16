@@ -84,6 +84,9 @@ test("everyone's manager starts as the owner; an owner or the current manager ca
   const org = (await api("owner", "GET", "entitlements")).body.org;
   assert.deepEqual(org.map(p => [p.name, p.manager?.name ?? null]), [["Ana Ruiz", null], ["Jo Park", "Ana Ruiz"], ["Pat Tester", "Jo Park"], ["Sam Lee", "Ana Ruiz"]]);
   assert.equal("org" in (await api("jo", "GET", "entitlements")).body, false);
+  // The People list carries the same chart for everyone, so the app can draw it.
+  const list = (await api("sam", "GET", "people")).body.people;
+  assert.deepEqual(list.map(p => [p.name, p.managerId ?? null]), [["Ana Ruiz", null], ["Jo Park", people.owner.id], ["Pat Tester", people.jo.id], ["Sam Lee", people.owner.id]]);
   await pushed(2);
 });
 

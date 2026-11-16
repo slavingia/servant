@@ -85,7 +85,7 @@ export type Loop = { id: string; name: string; cadence: string; group: LoopGroup
 // deepWork: they switched Deep work on (deep-work.ts); absent while off.
 export type Presence = { userId: string; online: boolean; lastSeenAt: number | null; deepWork?: boolean };
 // photo: version of their profile photo, when they have one.
-export type Person = { email?: string | null; emailVerified?: boolean; agentTier?: number; tokenLimit?: number; vibeCoder?: boolean; unlimitedTokens?: boolean; id: string; name: string; agent?: boolean; owner?: boolean; online?: boolean; lastSeenAt?: number | null; deepWork?: boolean; photo?: string | null };
+export type Person = { /** Who decides this person's entitlement requests; owners have none. */ managerId?: string; email?: string | null; emailVerified?: boolean; agentTier?: number; tokenLimit?: number; vibeCoder?: boolean; unlimitedTokens?: boolean; id: string; name: string; agent?: boolean; owner?: boolean; online?: boolean; lastSeenAt?: number | null; deepWork?: boolean; photo?: string | null };
 export type Attachment = { id: string; name: string; mime: string; size: number };
 // Documents skip base64: `document` points at the local file until it's
 // uploaded in chunks, then `upload` names the server copy.
@@ -551,6 +551,10 @@ export const api = {
   removePerson: (a: Account, userId: string) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "DELETE" }).then(json<{ ok: true }>),
   /** Owner only: one person's daily agent limit (token-limit.ts): a step, their role's default (null), or none. */
   setDailyLimit: (a: Account, userId: string, change: { unlimitedTokens: boolean; tokenLimit?: number | null }) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify(change) }).then(json<{ person: Person }>),
+  // The org chart (docs/entitlements.md): an owner or the person's current manager hands them to another manager.
+  setManager: (a: Account, userId: string, managerId: string) => request(a, `/v1/people/${encodeURIComponent(userId)}/manager`, { method: "PUT", body: JSON.stringify({ managerId }) }).then(json<{ person: { id: string; name: string; manager: { id: string; name: string } } }>),
+  // "Invite your manager": a one-use link; whoever joins with it becomes your manager.
+  inviteManager: (a: Account, name: string) => request(a, "/v1/people/me/manager-invite", { method: "POST", body: JSON.stringify({ name }) }).then(json<{ code: string; link: string; webLink?: string; expiresAt: number }>),
   setAgentTier: (a: Account, userId: string, agentTier: number) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ agentTier }) }).then(json<{ person: Person }>),
   setVibeCoder: (a: Account, userId: string, vibeCoder: boolean) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ vibeCoder }) }).then(json<{ person: Person }>),
   // Invite people to read an agent chat, with how much of the past they see; take someone out again.
