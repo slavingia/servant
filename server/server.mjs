@@ -1208,6 +1208,13 @@ async function handle(req, res, cfg) {
     const attachments = validateUploads(body.attachments || [], { mediaOnly: true });
     return send(res, 200, messaging.notifyFromAgent(target.id, body.text, { attachments }));
   }
+  // The team-visible log of what the agent did: `servant feed`.
+  if (method === "POST" && url.pathname === "/admin/feed") {
+    if (!adminAllowed()) return fail(res, 403, "forbidden", "Not allowed");
+    const body = await readBody(req, MAX_UPLOAD_BODY);
+    const attachments = validateUploads(body.attachments || [], { mediaOnly: true });
+    return send(res, 200, messaging.feedFromAgent(body.text, { attachments }));
+  }
   if (method === "POST" && url.pathname === "/admin/releases") {
     if (!adminAllowed()) return fail(res, 403, "forbidden", "Not allowed");
     const body = await readBody(req);
@@ -2906,6 +2913,17 @@ if (isMain) {
     const attachments = files.map((f) => ({ name: path.basename(f), data: fs.readFileSync(f).toString("base64") }));
     const { r, data } = await adminPost("/admin/notify", { userId: to || undefined, text, attachments });
     if (!r.ok) { console.error(`Couldn't notify (${r.status}): ${data.error?.message || "server not running?"}`); process.exit(1); }
+    console.log(`Posted in ${data.conversationId} (message ${data.messageId})`);
+  } else if (cmd === "feed") {
+    // server.mjs feed [--file <image>]... <text | -> : the agent posts in #agent-feed, which everyone can read.
+    const args = process.argv.slice(3); const files = []; const words = [];
+    for (let i = 0; i < args.length; i++) { if (args[i] === "--file") files.push(args[++i]); else words.push(args[i]); }
+    let text = words.join(" ");
+    if (text === "-" || (!text && !process.stdin.isTTY)) text = fs.readFileSync(0, "utf8");
+    if (!text.trim() && !files.length) { console.error("usage: server.mjs feed [--file <path>]... <text | ->"); process.exit(2); }
+    const attachments = files.map((f) => ({ name: path.basename(f), data: fs.readFileSync(f).toString("base64") }));
+    const { r, data } = await adminPost("/admin/feed", { text, attachments });
+    if (!r.ok) { console.error(`Couldn't post to the feed (${r.status}): ${data.error?.message || "server not running?"}`); process.exit(1); }
     console.log(`Posted in ${data.conversationId} (message ${data.messageId})`);
   } else if (cmd === "release") {
     const [build, file] = process.argv.slice(3);

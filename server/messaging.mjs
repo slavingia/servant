@@ -51,6 +51,7 @@ const CALL_PUSH_MS = 45_000; // matches how long the app rings
 // Every build's notes go here, one post per build, so testers can see what
 // changed and talk about it in that post's thread.
 export const RELEASES_CHANNEL = "whats-new";
+export const FEED_CHANNEL = "agent-feed";
 const PAGE = 50;
 const PRESENCE_LEASE_MS = 60000;
 
@@ -849,6 +850,19 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     });
   }
 
+  /** The agent's activity log for the whole team: one public #agent-feed, posted by the agent. Quiet: it counts as unread but never pushes. */
+  function feedFromAgent(text, { attachments = [] } = {}) {
+    text = String(text || "").trim().slice(0, MAX_TEXT);
+    if (!text && !attachments.length) throw httpError(400, "empty", "Write the message first");
+    return transaction(() => {
+      const conv = ensureChannel(FEED_CHANNEL, "What the agent is doing: messages it sends, things it ships, scheduled jobs. Updated automatically");
+      for (const uid of Object.keys(users())) if (!st.member.get(conv.id, uid)) addChannelMember(conv, uid);
+      const m = post(conv, AGENT_ID, text, null, { attachments, queueAgent: false, quiet: true });
+      publish(conv.id, "conversation.updated", { id: conv.id });
+      return { conversationId: conv.id, messageId: String(m.seq) };
+    });
+  }
+
   function joinDefaults(...args) { return transaction(() => joinDefaultsInTransaction(...args)); }
   /** Startup backfill: everyone into every public channel, then one note in #general. */
   function joinEveryone(userIds) {
@@ -962,7 +976,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     }).catch(() => { /* no preview */ });
   }
 
-  function postInTransaction(conv, userId, text, threadRoot = null, { pending = false, attachments = [], queueAgent = externalWorker, device, call = null, inChannel = false } = {}) {
+  function postInTransaction(conv, userId, text, threadRoot = null, { pending = false, attachments = [], queueAgent = externalWorker, device, call = null, inChannel = false, quiet = false } = {}) {
     conv = userId === AGENT_ID ? st.conv.get(conv.id) : requireConversation(conv.id, userId, true);
     if (!conv || conv.archived_at) throw httpError(404, 'not_found', 'That conversation is gone');
     if (threadRoot) {
@@ -980,7 +994,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     const m = st.msg.get(seq);
     publish(conv.id, "message.created", msgView(m));
     if (threadRoot) publish(conv.id, "message.updated", msgView(st.msg.get(threadRoot)));
-    if (!pending) notifyMessage(m.seq, call);
+    if (!pending && !quiet) notifyMessage(m.seq, call);
     if (!pending && userId !== AGENT_ID) afterCommit(() => previewLater(m.seq));
     if (queueAgent && externalWorker && userId !== AGENT_ID && wantsAgent(conv, m)) {
       db.prepare('INSERT OR IGNORE INTO agent_jobs (trigger_seq, created_at) VALUES (?, ?)').run(m.seq, now());
@@ -2044,7 +2058,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
   function personChanged(userId) { publish('', 'person.updated', { userId }, Object.keys(users())); }
   // Their deep work switch moved: everyone's "Deep work" label and the person's other devices update at once.
   const presenceChanged = userId => publishPresence(userId);
-  return { ...meetingHooks, workLog, channelFor, postActivity, personChanged, presenceChanged, handle, forwardSource, forwardInto, notificationFor, joinDefaults, joinEveryone, welcomeFromAgent, notifyFromAgent, ensureAgentDms, congratulateLimit, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, keep, keepAll, close: () => { closeEvents(); db.close(); }, db };
+  return { ...meetingHooks, workLog, channelFor, postActivity, personChanged, presenceChanged, handle, forwardSource, forwardInto, notificationFor, joinDefaults, joinEveryone, welcomeFromAgent, notifyFromAgent, feedFromAgent, ensureAgentDms, congratulateLimit, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, keep, keepAll, close: () => { closeEvents(); db.close(); }, db };
 }
 
 function httpError(status, code, message) {
