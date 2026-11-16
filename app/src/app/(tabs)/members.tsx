@@ -155,17 +155,16 @@ export default function Members() {
       keyboardShouldPersistTaps="handled"
       refreshControl={<RefreshControl tintColor={colors.blue} colors={[colors.blue]} progressBackgroundColor={colors.surface} refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />}
       ListHeaderComponent={<View>
-        {/* Same header as Messages and Agent: title on the left, one icon button on the right. */}
+        {/* Same header as Messages and Agent: title on the left, one icon button on the right. The count sits beside the title to save a line. */}
         <View style={styles.header}>
-          <Text accessibilityRole="header" style={styles.title}>People</Text>
+          <View style={styles.titleRow}>
+            <Text accessibilityRole="header" style={styles.title}>People</Text>
+            {people ? <Text style={styles.count}>{`${people.length} ${people.length === 1 ? "member" : "members"}`}</Text> : null}
+          </View>
+          <Text aria-hidden={!reconnecting} accessibilityLiveRegion="polite" style={[styles.status, { opacity: reconnecting ? 1 : 0 }]}>Reconnecting…</Text>
           {owner ? <Pressable accessibilityRole="button" accessibilityLabel="Invite people" onPress={() => router.push("/invite")} style={styles.compose}>
             <AppIcon name="addPerson" size={22} color={colors.ink} />
           </Pressable> : null}
-        </View>
-        {/* As tall as the filter pills on the other tabs, so the first row starts on the same line everywhere. */}
-        <View style={styles.strip}>
-          <View style={styles.countBox}>{people ? <Text style={styles.count}>{`${people.length} ${people.length === 1 ? "member" : "members"}`}</Text> : null}</View>
-          <Text aria-hidden={!reconnecting} accessibilityLiveRegion="polite" style={[styles.status, { opacity: reconnecting ? 1 : 0 }]}>Reconnecting…</Text>
         </View>
         {error && !managed ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
       </View>}
@@ -281,12 +280,10 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   content: { paddingBottom: space.xxl, flexGrow: 1 },
   // Header, icon button and strip measure the same as on Messages and Agent.
-  header: { minHeight: 60, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.xs },
+  header: { minHeight: 60, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", gap: space.xs },
   title: { ...typography.title, color: colors.ink, flexShrink: 1 },
   compose: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
-  strip: { flexDirection: "row", alignItems: "center", gap: space.xs, paddingHorizontal: space.side, paddingVertical: space.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
-  // The count stands where a filter pill would: a pill is its 22pt label plus 12pt above and below.
-  countBox: { minHeight: typography.bodyStrong.lineHeight + 2 * space.sm, justifyContent: "center" },
+  titleRow: { flexShrink: 1, flexDirection: "row", alignItems: "baseline", flexWrap: "wrap", columnGap: space.xs },
   count: { ...typography.caption, color: colors.muted },
   status: { ...typography.caption, marginLeft: "auto", color: colors.muted },
   error: { ...typography.caption, marginTop: space.xs, marginHorizontal: space.side, color: colors.red },
