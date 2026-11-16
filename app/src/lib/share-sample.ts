@@ -17,7 +17,7 @@ function paintedPhoto(index: number): string {
   canvas.width = 640; canvas.height = 480;
   const ctx = canvas.getContext("2d");
   if (!ctx) return TINY_PNG;
-  const tones = [["#004C97", "#0071BC"], ["#205493", "#2E8540"], ["#112E51", "#FDB81E"]][index % 3]!;
+  const tones = [["#1E265D", "#4E61D6"], ["#27327A", "#2E8540"], ["#171E4E", "#DEEF51"]][index % 3]!;
   const sky = ctx.createLinearGradient(0, 0, 0, 480);
   sky.addColorStop(0, tones[0]!); sky.addColorStop(1, tones[1]!);
   ctx.fillStyle = sky; ctx.fillRect(0, 0, 640, 480);

@@ -34,7 +34,7 @@ p{margin:0;color:#C9D3E0}
 .muted{color:#8E9BB3;font-size:15px}
 label{font-size:15px;color:#C9D3E0;display:block;margin-bottom:6px}
 input{width:100%;min-height:52px;padding:12px 14px;border-radius:12px;border:1px solid #2A3650;background:#131C2E;color:#fff;font:inherit;font-size:18px}
-input:focus{outline:2px solid #4A9EE8;outline-offset:1px}
+input:focus{outline:2px solid #DEEF51;outline-offset:1px}
 .preview{position:relative;width:100%;aspect-ratio:4/3;max-height:42vh;border-radius:12px;overflow:hidden;background:#1B2433}
 .preview video,.tile video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#1B2433}
 .preview video{transform:scaleX(-1)}
@@ -43,7 +43,7 @@ input:focus{outline:2px solid #4A9EE8;outline-offset:1px}
 button{appearance:none;border:0;border-radius:999px;min-height:52px;padding:0 18px;font:600 17px -apple-system,system-ui,"Segoe UI",Roboto,sans-serif;color:#fff;background:#243045;cursor:pointer;flex:1;touch-action:manipulation}
 button:disabled{opacity:.5;cursor:default}
 button.on{background:#fff;color:#0B1220}
-button.primary{background:#0071BC}
+button.primary{background:#4E61D6}
 button.leave{background:#D11242;flex:1.6;min-height:56px;font-size:18px}
 button.small{min-height:44px;font-size:15px;flex:0 0 auto}
 .consent{font-size:15px;color:#C9D3E0;background:#131C2E;border-radius:12px;padding:12px 14px;border:1px solid #2A3650}
@@ -54,7 +54,7 @@ button.small{min-height:44px;font-size:15px;flex:0 0 auto}
 #enter,#waiting,#done{width:100%;max-width:520px;margin:0 auto}
 #enter{display:flex;flex-direction:column;gap:14px}
 .wait{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:12px}
-.dot{width:12px;height:12px;border-radius:50%;background:#4A9EE8;animation:pulse 1.4s ease-in-out infinite}
+.dot{width:12px;height:12px;border-radius:50%;background:#DEEF51;animation:pulse 1.4s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:.35;transform:scale(.9)}50%{opacity:1;transform:scale(1.15)}}
 .rec{display:inline-block;width:10px;height:10px;border-radius:50%;background:#E5484D;margin-right:6px;vertical-align:1px}
 .top{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:15px;color:#C9D3E0;padding:4px 0}

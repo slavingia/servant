@@ -4,7 +4,7 @@ import * as SystemUI from "expo-system-ui";
 import { createAvatarTones, createColors, normalizeTheme, resolveColorScheme, type ColorScheme, type ThemeColors } from "./theme-colors";
 
 export type { ColorScheme, ThemeColors } from "./theme-colors";
-export { WORDMARK_COLOR, onBrandTint } from "./theme-colors";
+export { WORDMARK_ACCENT, WORDMARK_COLOR, onBrandTint } from "./theme-colors";
 
 // Shared type, space and shape stay constant across appearances.
 export const space = { xxs: 4, xs: 8, sm: 12, md: 16, side: 16, lg: 24, xl: 32, xxl: 48 };

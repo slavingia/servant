@@ -50,7 +50,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     if (!saved.length) return;
     setBusy(true); setError(null);
     try {
-      if (Platform.OS === 'android') await Notifications.setNotificationChannelAsync('messages', { name: 'Messages and mentions', importance: AndroidImportance.HIGH, sound: 'default', vibrationPattern: [0, 200, 100, 200], lightColor: '#0071BC' });
+      if (Platform.OS === 'android') await Notifications.setNotificationChannelAsync('messages', { name: 'Messages and mentions', importance: AndroidImportance.HIGH, sound: 'default', vibrationPattern: [0, 200, 100, 200], lightColor: '#DEEF51' });
       let permission = await Notifications.getPermissionsAsync();
       if (ask && !permission.granted && permission.canAskAgain) permission = await Notifications.requestPermissionsAsync({ ios: { allowAlert: true, allowBadge: true, allowSound: true } });
       const allowed = permission.granted || permission.ios?.status === IosAuthorizationStatus.PROVISIONAL;

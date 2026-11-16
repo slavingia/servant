@@ -39,12 +39,12 @@ export function Toggle({ label, hint, value, onValueChange, disabled, offColor, 
 }
 
 /** The track and thumb alone, for a row that is itself the switch (Deep work). */
-export function SwitchPicture({ on, offColor }: { on: boolean; offColor?: string }) {
+export function SwitchPicture({ on, offColor, onColor, onThumb }: { on: boolean; offColor?: string; onColor?: string; onThumb?: string }) {
   const styles = useStyles();
   const { colors } = useTheme();
   return (
-    <View style={[styles.track, { backgroundColor: on ? colors.primary : offColor ?? colors.borderStrong, alignItems: on ? "flex-end" : "flex-start" }]}>
-      <View style={styles.thumb} />
+    <View style={[styles.track, { backgroundColor: on ? onColor ?? colors.primary : offColor ?? colors.borderStrong, alignItems: on ? "flex-end" : "flex-start" }]}>
+      <View style={[styles.thumb, on && onThumb ? { backgroundColor: onThumb } : null]} />
     </View>
   );
 }

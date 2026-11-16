@@ -236,7 +236,7 @@ const useStyles = createThemedStyles(({ colors: theme }) => { const colors = { .
   quietLabel: { color: colors.muted },
   unreadLabel: { fontWeight: "700" },
   selectedLabel: { fontWeight: "600" },
-  badge: { ...typography.captionStrong, color: theme.navy, backgroundColor: theme.onBrand, minWidth: 20, paddingHorizontal: 6, paddingVertical: 1, borderRadius: radius.pill, textAlign: "center", overflow: "hidden" },
+  badge: { ...typography.captionStrong, color: theme.navy, backgroundColor: theme.onBrandAccent, minWidth: 20, paddingHorizontal: 6, paddingVertical: 1, borderRadius: radius.pill, textAlign: "center", overflow: "hidden" },
   mutedBadge: { color: colors.muted, backgroundColor: "transparent" },
   section: { marginTop: space.md },
   sectionHeader: { flexDirection: "row", alignItems: "center", marginBottom: 2 },

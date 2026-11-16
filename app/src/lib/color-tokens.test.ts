@@ -22,7 +22,7 @@ const luminance = (hex: string) => {
 const contrast = (a: string, b: string) => { const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x); return (light! + 0.05) / (dark! + 0.05); };
 
 test("one scrim dims the page behind every dialog, sheet, menu and search", () => {
-  assert.equal(lightColors.scrim, "rgba(17,46,81,0.42)");
+  assert.equal(lightColors.scrim, "rgba(30,38,93,0.42)");
   assert.equal(darkColors.scrim, "rgba(0,0,0,0.6)", "black dims a dark page; navy would lighten it");
   const users = sources.filter(file => /backgroundColor: colors\.scrim\b/.test(read(file)));
   assert.ok(users.length >= 20, `found ${users.length} scrims`);
@@ -30,7 +30,7 @@ test("one scrim dims the page behind every dialog, sheet, menu and search", () =
   // surfaces of their own and are not backdrops.
   const own = sources.filter(file => /\b(?:overlay|scrim|backdrop|menuOverlay|sheetOverlay)\w*: \{[^{}]*backgroundColor: ["']rgba\(/.test(read(file)));
   assert.deepEqual(own, []);
-  for (const file of sources) assert.doesNotMatch(read(file), /rgba\(17,\s*46,\s*81|rgba\(0,\s*0,\s*0,\s*0\.35\)|rgba\(20,\s*30,\s*45/, `${file} dims the page with a color of its own`);
+  for (const file of sources) assert.doesNotMatch(read(file), /rgba\(30,\s*38,\s*93|rgba\(17,\s*46,\s*81|rgba\(0,\s*0,\s*0,\s*0\.35\)|rgba\(20,\s*30,\s*45/, `${file} dims the page with a color of its own`);
 });
 
 test("white on the brand color comes from one scale", () => {

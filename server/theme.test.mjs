@@ -90,7 +90,7 @@ test("config theme reaches public metadata, pairing, device linking and account 
 test("the server's page colors are the app's, in both appearances and for any workspace color", async () => {
   const { pageColors } = await import("./theme.mjs");
   const { createColors } = await import("../app/src/lib/theme-colors.ts");
-  for (const seed of [undefined, "#0071BC", "#7C3AED", "#FFCC00", "#000000", "#0B6E4F", "#E11D48", "#ABC"]) {
+  for (const seed of [undefined, "#0071BC", "#4E61D6", "#DEEF51", "#1E265D", "#7C3AED", "#FFCC00", "#000000", "#0B6E4F", "#E11D48", "#ABC"]) {
     for (const scheme of ["light", "dark"]) {
       const page = pageColors(scheme, seed), app = createColors(scheme, seed);
       assert.ok(Object.keys(page).length >= 15, "found the page colors");

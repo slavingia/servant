@@ -48,7 +48,7 @@ export function DeepWorkSwitch({ onNavy = false }: { onNavy?: boolean }) {
         <View style={styles.copy}>
           <Text style={[onNavy ? styles.navyLabel : styles.label, { color: ink }, deepWork && styles.on]}>Deep work</Text>
         </View>
-        <SwitchPicture on={deepWork} offColor={onNavy ? onBrandTint.track : undefined} />
+        <SwitchPicture on={deepWork} offColor={onNavy ? onBrandTint.track : undefined} onColor={onNavy ? colors.onBrandAccent : undefined} onThumb={onNavy ? colors.navy : undefined} />
       </Pressable>
       {error ? <Text accessibilityRole="alert" style={[styles.error, { color: onNavy ? colors.onBrand : colors.red }]}>{error}</Text> : null}
       <Modal visible={missed.length > 0} transparent animationType="fade" onRequestClose={() => setMissed([])}>

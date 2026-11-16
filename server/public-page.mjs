@@ -14,7 +14,7 @@ export function publicPage(title, content, footer = "", theme) {
 <meta name="color-scheme" content="light dark"><title>${escapeHtml(title)}</title>
 <style>${pageStyle(theme)}
 header{background:var(--navy);padding:8px max(16px,calc((100% - 728px)/2))}
-header a{display:inline-flex;align-items:center;min-height:44px;color:var(--onPrimary);font-size:22px;line-height:28px;font-weight:700;letter-spacing:-.3px;text-decoration:none}
+header a{display:inline-flex;align-items:center;min-height:44px;color:var(--onPrimary);font-size:22px;line-height:28px;font-weight:700;letter-spacing:-.3px;text-decoration:none;box-shadow:inset 0 -4px 0 var(--onBrandAccent)}
 main{max-width:760px;margin:0 auto;padding:24px 16px 32px}
 .lede{font-size:18px;line-height:24px}
 footer{max-width:760px;margin:0 auto;padding:16px 16px 32px;border-top:1px solid var(--line)}

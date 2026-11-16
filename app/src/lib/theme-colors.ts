@@ -18,15 +18,16 @@ export function resolveColorScheme(system: string | null | undefined): ColorSche
   return system === "dark" ? "dark" : "light";
 }
 
-// Action foregrounds and filled buttons have separate roles: a pale blue link
+// The app icon's three colors: its navy field, the tennis yellow of the ball and the white of the seam.
+// Action foregrounds and filled buttons have separate roles: a yellow link
 // is readable on a dark surface, while a solid button still needs white text.
 export const lightColors = {
-  navy: "#004C97",
-  blue: "#0071BC",
-  blueDark: "#205493",
-  brandText: "#004C97",
-  primary: "#0071BC",
-  primaryPressed: "#205493",
+  navy: "#1E265D",
+  blue: "#4E61D6",
+  blueDark: "#27327A",
+  brandText: "#1E265D",
+  primary: "#4E61D6",
+  primaryPressed: "#4252B6",
   onPrimary: "#FFFFFF",
   onBrand: "#FFFFFF",
   background: "#FFFFFF",
@@ -36,24 +37,24 @@ export const lightColors = {
   borderStrong: "#8B929B",
   surface: "#F7F8FA",
   subtle: "#EEF1F5",
-  blueSoft: "#E8F2FC",
-  gold: "#FDB81E",
+  blueSoft: "#EBEFFC",
+  gold: "#DEEF51",
   green: "#2E8540",
   // Done chips: dark green text on a pale green, like red on redSoft.
   greenDark: "#1F6E35",
   greenSoft: "#E7F4EA",
-  onBrandMuted: "#DCEBFA",
+  onBrandAccent: "#DEEF51",
   white: "#FFFFFF",
   red: "#D11242",
   danger: "#D11242",
   redSoft: "#FDECEF",
-  bubbleMine: "#0071BC",
+  bubbleMine: "#4E61D6",
   bubbleAgent: "#F4F7FA",
   // Settings-style grouped screens: the page sits behind, cards sit on top.
   groupedBackground: "#F7F8FA",
   groupedCard: "#FFFFFF",
   // What dims the page behind a dialog, a sheet, a menu and search.
-  scrim: "rgba(17,46,81,0.42)",
+  scrim: "rgba(30,38,93,0.42)",
   // The second series in a chart, beside blue: 3 to 1 or more against the track it sits on.
   series: "#C2571A",
 };
@@ -62,7 +63,9 @@ export type ThemeColors = typeof lightColors;
 
 // The app icon's navy (app.json), behind the wordmark on Welcome. It is shown before any server is known, so it
 // does not follow a workspace color.
-export const WORDMARK_COLOR = "#112E51";
+export const WORDMARK_COLOR = "#1E265D";
+// The bar under the wordmark: the ball's yellow on the icon's navy.
+export const WORDMARK_ACCENT = lightColors.gold;
 
 // White at set strengths on the brand color: the wide layout's sidebar and the phone's header bar, which are the
 // same in light and dark. One scale, so a row under the pointer, the open page and the search field are the same
@@ -79,9 +82,9 @@ export const onBrandTint = {
 
 export const darkColors: ThemeColors = {
   ...lightColors,
-  blue: "#80C7FF",
-  blueDark: "#A6D6FF",
-  brandText: "#A6D6FF",
+  blue: "#DEEF51",
+  blueDark: "#F3FD8C",
+  brandText: "#F3FD8C",
   background: "#12161C",
   ink: "#F0F3F7",
   muted: "#ADB8C7",
@@ -89,7 +92,7 @@ export const darkColors: ThemeColors = {
   borderStrong: "#748397",
   surface: "#1B222C",
   subtle: "#252F3C",
-  blueSoft: "#19344D",
+  blueSoft: "#27327A",
   green: "#79D492",
   greenDark: "#79D492",
   greenSoft: "#1B3A26",
@@ -105,7 +108,7 @@ export const darkColors: ThemeColors = {
 };
 
 export const lightAvatarTones = [
-  { background: "#E8F2FC", foreground: "#004C97" },
+  { background: "#EBEFFC", foreground: "#1E265D" },
   { background: "#E6EEEB", foreground: "#24634D" },
   { background: "#FFF2CD", foreground: "#6B4E00" },
   { background: "#EEEAF5", foreground: "#584574" },
@@ -113,7 +116,7 @@ export const lightAvatarTones = [
 ];
 
 export const darkAvatarTones = [
-  { background: "#19344D", foreground: "#A6D6FF" },
+  { background: "#27327A", foreground: "#F3FD8C" },
   { background: "#203B33", foreground: "#A3D9BF" },
   { background: "#40371D", foreground: "#F4D780" },
   { background: "#342B46", foreground: "#D3BCEF" },
@@ -179,7 +182,7 @@ export function createColors(scheme: ColorScheme, primaryColor?: unknown): Theme
     blueDark,
     blueSoft,
     brandText: blueDark,
-    onBrandMuted: mix(navy, "#FFFFFF", 0.88),
+    onBrandAccent: mix(navy, "#FFFFFF", 0.88),
     bubbleMine: primary,
   };
 }
