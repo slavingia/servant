@@ -341,7 +341,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   readTitle: { fontWeight: "400" },
   unreadTitle: { fontWeight: "700" },
   unreadWhen: { color: colors.blue },
-  unreadBadge: { minWidth: 22, minHeight: 22, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
+  unreadBadge: { minWidth: 24, height: 24, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", paddingHorizontal: space.xs },
   unreadBadgeText: { ...typography.captionStrong, color: colors.onPrimary },
   // Same filter row as the DM tab.
   filters: { flexDirection: "row", gap: space.xs, paddingHorizontal: space.side, paddingVertical: space.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },

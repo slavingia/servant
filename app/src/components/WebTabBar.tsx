@@ -56,6 +56,6 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   tab: { flex: 1, minHeight: 48, alignItems: "center", justifyContent: "center", gap: 2, cursor: "pointer" },
   label: { ...typography.meta },
   labelActive: { fontWeight: "600" },
-  badge: { position: "absolute", top: -4, left: 14, minWidth: 20, height: 20, borderRadius: radius.pill, paddingHorizontal: 5, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  badge: { position: "absolute", top: -4, left: 14, minWidth: 24, height: 24, borderRadius: radius.pill, paddingHorizontal: space.xs, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   badgeText: { ...typography.captionStrong, color: colors.onPrimary },
 }));

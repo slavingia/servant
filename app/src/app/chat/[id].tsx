@@ -778,6 +778,9 @@ function ChatConversation({ account }: { account: Account }) {
           if (e.type === 'turn') {
             setTurn(e.turn);
             if (e.turn.accepted) accept();
+            // Up next (the agent is busy with something else): the server holds this message, so the box
+            // frees now. Whatever is typed next joins the waiting messages and goes together.
+            else if (e.turn.status === 'queued') onAccepted();
           } else if (e.type === 'approval') {
             setTurn(current => current ? { ...current, approval: e.approval, status: 'waiting_for_approval' } : current);
           } else if (e.type === "sent") {
@@ -978,6 +981,10 @@ function ChatConversation({ account }: { account: Account }) {
             inverted
             data={data}
             keyExtractor={rowKey}
+            // Same as a person's chat: a tap that lands on the list while the keyboard is up goes to what it
+            // touched, so the first tap never only closes the keyboard.
+            keyboardDismissMode="interactive"
+            keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.list}
             ListFooterComponent={
               messages.length === 0 && !firstRow && loadError ? (

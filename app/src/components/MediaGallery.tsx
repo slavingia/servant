@@ -11,6 +11,7 @@ import { radius, space, typography } from "../lib/theme";
 import { downloadDocument } from "../lib/document-upload";
 import { canStartGalleryDismiss, isZoomedIn, shouldDismissGallery } from "../lib/gallery-gestures";
 import { AppIcon } from "./AppIcon";
+import { ZoomableImage } from "./ZoomableImage";
 import { GalleryVideo } from "./VideoMedia";
 import { GalleryContext, useMediaGallery } from "./MediaGalleryContext";
 export { useMediaGallery } from "./MediaGalleryContext";
@@ -287,11 +288,13 @@ function GalleryPage({ item, width, height, active, nearby, playingAllowed, auto
         {/* Pinch works straight away: at 1x the content fits the frame, so a
             one-finger swipe still pages and pulls down to close; past 1x the
             gallery locks paging and dismissal until the image is fit again. */}
-        <ScrollView key={`${item.id}:${fitCount}`} style={styles.zoom} contentContainerStyle={{ width, height }} maximumZoomScale={4} minimumZoomScale={1} centerContent bounces={false} bouncesZoom={false} scrollEventThrottle={16} showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}
-          onScroll={(event) => { if (!active) return; const zoomedIn = isZoomedIn(event.nativeEvent.zoomScale); if (zoomedIn !== zoomMode) onZoomChange(zoomedIn); }}>
-          <Image source={{ uri: content.uri }} resizeMode="contain" accessibilityLabel={item.name} style={{ width, height }} onError={() => setDecodeError(true)} />
-        </ScrollView>
-        {Platform.OS === "ios" && active && zoomMode ? <Pressable accessibilityRole="button" accessibilityLabel="Fit image and return to swipe browsing" onPress={() => { setFitCount((count) => count + 1); onZoomChange(false); }} style={styles.zoomButton}><Text style={styles.actionText}>Fit</Text></Pressable> : null}
+{Platform.OS === "ios"
+          ? <ScrollView key={`${item.id}:${fitCount}`} style={styles.zoom} contentContainerStyle={{ width, height }} maximumZoomScale={4} minimumZoomScale={1} centerContent bounces={false} bouncesZoom={false} scrollEventThrottle={16} showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}
+            onScroll={(event) => { if (!active) return; const zoomedIn = isZoomedIn(event.nativeEvent.zoomScale); if (zoomedIn !== zoomMode) onZoomChange(zoomedIn); }}>
+            <Image source={{ uri: content.uri }} resizeMode="contain" accessibilityLabel={item.name} style={{ width, height }} onError={() => setDecodeError(true)} />
+          </ScrollView>
+          : <ZoomableImage key={`${item.id}:${fitCount}`} uri={content.uri} label={item.name} width={width} height={height} active={active} onZoomChange={onZoomChange} onError={() => setDecodeError(true)} />}
+        {active && zoomMode ? <Pressable accessibilityRole="button" accessibilityLabel="Fit image and return to swipe browsing" onPress={() => { setFitCount((count) => count + 1); onZoomChange(false); }} style={styles.zoomButton}><Text style={styles.actionText}>Fit</Text></Pressable> : null}
       </View> : <View style={styles.center}><ActivityIndicator size="large" color="#FFFFFF" /><Text style={styles.note}>Loading image…</Text></View>
       : <View style={styles.center}><View style={styles.fileSymbol}><AppIcon name="paperclip" color="#C5CFDB" size={42} /></View><Text numberOfLines={3} style={styles.emptyTitle}>{item.name}</Text><Text style={styles.note}>{item.mime} · {formatFileSize(item.size)}</Text><Pressable accessibilityRole="button" accessibilityState={{ disabled: busy, busy }} disabled={busy} onPress={onOpenFile} style={styles.fileAction}><Text style={styles.actionText}>{busy ? "Opening…" : "Open file"}</Text></Pressable></View>}
   </View>;

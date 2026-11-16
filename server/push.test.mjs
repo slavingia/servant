@@ -389,3 +389,9 @@ test('a case alert reads like a direct message, routes by case id and passes onl
   assert.equal(quiet.title, 'Servant'); assert.equal(quiet.body, 'You have a new message');
   assert.equal(notificationPayload(alert, user, 'd_1', { plain: true }).body, 'Confirm it\'s you in Servant to see new messages');
 });
+
+test('a push with no real unread count leaves the app icon alone instead of setting it to 1', () => {
+  assert.equal(notificationPayload({ ...info, badge: 0 }, user, 'd_1').badge, null);
+  assert.equal(notificationPayload({ ...info, badge: undefined }, user, 'd_1').badge, null);
+  assert.equal(notificationPayload({ ...info, badge: 3 }, user, 'd_1').badge, 3);
+});

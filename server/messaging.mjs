@@ -1377,7 +1377,7 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
     const participant = !!m.thread_root && !!db.prepare("SELECT 1 FROM messages WHERE conversation_id = ? AND (seq = ? OR thread_root = ?) AND user_id = ? AND deleted_at IS NULL AND seq < ? LIMIT 1").get(c.id, m.thread_root, m.thread_root, user.id, m.seq);
     if (call) {
       const caller = person(call.by).name;
-      return { kind: c.kind, conversationId: c.id, meetingId: call.id, caller, place: c.kind === "channel" ? `#${c.name}` : "", mentioned: true, participant: false, badge: Math.max(1, st.mine.all(user.id, 0).reduce((n, x) => n + x.unread, 0)),
+      return { kind: c.kind, conversationId: c.id, meetingId: call.id, caller, place: c.kind === "channel" ? `#${c.name}` : "", mentioned: true, participant: false, badge: st.mine.all(user.id, 0).reduce((n, x) => n + x.unread, 0),
         title: `${caller} is calling`, body: c.kind === "channel" ? `In #${c.name}. Tap to join` : "Tap to join" };
     }
     const sender = person(m.user_id).name;
@@ -1386,7 +1386,7 @@ export function createMessaging({ file, users, agentName, emailChecks = () => fa
     const unread = st.mine.all(user.id, 0).reduce((n, c) => n + c.unread, 0);
     // Tapping a build's notes opens its thread, where testers discuss it.
     return { kind: c.kind, conversationId: c.id, messageId: String(m.seq), threadRoot: release ? m.seq : m.thread_root,
-      mentioned: !!release || isMention(m.text, user), participant, badge: Math.max(1, unread),
+      mentioned: !!release || isMention(m.text, user), participant, badge: unread,
       title: release ? `Build ${release.build} is out` : c.kind === "channel" ? `${sender} in #${c.name}` : sender,
       body: m.text || (st.attachments.all(m.seq).length ? "Sent an attachment" : ""), };
   }
