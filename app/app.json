@@ -36,6 +36,68 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-font",
+        {
+          "ios": {
+            "fonts": [
+              "./assets/fonts/Allo-Regular.otf",
+              "./assets/fonts/Allo-Oblique.otf",
+              "./assets/fonts/Allo-Medium.otf",
+              "./assets/fonts/Allo-MediumOblique.otf",
+              "./assets/fonts/Allo-SemiBold.otf",
+              "./assets/fonts/Allo-SemiBoldOblique.otf",
+              "./assets/fonts/Allo-Bold.otf",
+              "./assets/fonts/Allo-BoldOblique.otf"
+            ]
+          },
+          "android": {
+            "fonts": [
+              {
+                "fontFamily": "Allo",
+                "fontDefinitions": [
+                  {
+                    "path": "./assets/fonts/Allo-Regular.otf",
+                    "weight": 400
+                  },
+                  {
+                    "path": "./assets/fonts/Allo-Oblique.otf",
+                    "weight": 400,
+                    "style": "italic"
+                  },
+                  {
+                    "path": "./assets/fonts/Allo-Medium.otf",
+                    "weight": 500
+                  },
+                  {
+                    "path": "./assets/fonts/Allo-MediumOblique.otf",
+                    "weight": 500,
+                    "style": "italic"
+                  },
+                  {
+                    "path": "./assets/fonts/Allo-SemiBold.otf",
+                    "weight": 600
+                  },
+                  {
+                    "path": "./assets/fonts/Allo-SemiBoldOblique.otf",
+                    "weight": 600,
+                    "style": "italic"
+                  },
+                  {
+                    "path": "./assets/fonts/Allo-Bold.otf",
+                    "weight": 700
+                  },
+                  {
+                    "path": "./assets/fonts/Allo-BoldOblique.otf",
+                    "weight": 700,
+                    "style": "italic"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
       "./plugins/with-launch-skeleton",
       [
         "expo-splash-screen",

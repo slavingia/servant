@@ -480,7 +480,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
   // The header is told what to show only when that changes. Told again on every render, the whole navigator
   // re-rendered and the header's buttons were rebuilt each time a message arrived.
   const header = useMemo(() => {
-    const headerButton = { type: "button" as const, tintColor: colors.blue, labelStyle: { color: colors.blue, fontSize: typography.label.fontSize, fontWeight: "600" as const }, hidesSharedBackground: true };
+    const headerButton = { type: "button" as const, tintColor: colors.blue, labelStyle: { fontFamily: typography.label.fontFamily, color: colors.blue, fontSize: typography.label.fontSize, fontWeight: "600" as const }, hidesSharedBackground: true };
     return {
       title,
       // Keep channel management quiet beside the conversation title.

@@ -12,7 +12,7 @@ import { IncomingCall } from "../components/IncomingCall";
 import { PhotoProvider } from "../lib/photos";
 import { AppChrome } from "../components/AppChrome";
 import { Button } from "../components/Button";
-import { headerTitleType, typography, useTheme } from "../lib/theme";
+import { headerTitleType, navigationFonts, typography, useTheme } from "../lib/theme";
 import { accountId } from "../lib/accounts-store";
 import { validServerKey } from "../lib/tunnel-crypto";
 import { useWideLayout } from "../lib/layout";
@@ -22,9 +22,11 @@ import { SessionExpiryGate } from "../components/SessionExpiryGate";
 import { ShareGate } from "../components/ShareGate";
 import { LaunchScreen } from "../components/LaunchScreen";
 import { useApplyUpdates } from "../lib/ota";
+import { useAppFonts } from "../lib/use-app-fonts";
 
 export default function RootLayout() {
   useApplyUpdates();
+  useAppFonts();
   return (
     <GestureRoot>
       <SafeAreaProvider>
@@ -47,6 +49,7 @@ function SessionNavigation() {
   const childScreen = wide ? { headerBackVisible: false, headerLeft: () => <WideBack /> } : {};
   const navigationTheme = useMemo(() => ({
     ...(scheme === "dark" ? DarkTheme : DefaultTheme),
+    fonts: navigationFonts,
     colors: {
       ...(scheme === "dark" ? DarkTheme.colors : DefaultTheme.colors),
       primary: colors.blue,

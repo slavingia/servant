@@ -947,7 +947,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   menuAction: { minHeight: 48, paddingVertical: space.sm, justifyContent: "center", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   menuActionText: { ...typography.body, color: colors.blue },
   avatar: { backgroundColor: colors.blueSoft, alignItems: "center", justifyContent: "center" },
-  avatarText: { color: colors.blueDark, fontWeight: "600" },
+  avatarText: { fontFamily: typography.captionStrong.fontFamily, color: colors.blueDark, fontWeight: "600" },
   post: { flexDirection: "row", paddingHorizontal: space.side, paddingTop: space.sm, paddingBottom: space.xxs },
   postCompact: { paddingTop: space.xxs },
   postContent: { flex: 1, minWidth: 0, minHeight: Platform.OS === "web" ? 44 : undefined, paddingRight: Platform.OS === "web" ? space.xl : 0 },

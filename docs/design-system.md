@@ -1,7 +1,7 @@
 # Servant design system
 
 Servant uses Slack-like workspace navigation and message density with brand blue
-and native system type. Home acts as a workspace sidebar:
+and the Allo typeface. Home acts as a workspace sidebar:
 compact channels and direct messages lead into a shared message stream. Navigation,
 status, and management actions help people reach conversations without competing
 with their content.
@@ -14,7 +14,16 @@ in `app/src/components/`. Use those tokens and components for new screens.
 
 ### Type
 
-Keep the platform's system font and text scaling. Do not disable font scaling or
+The typeface is [Allo](https://allo.joshpuckett.me), a free, open source family
+under the SIL Open Font License (`app/assets/fonts/OFL.txt`). The app bundles its
+static Regular, Medium, SemiBold and Bold faces with their obliques; every role
+names the family through `APP_FONT` in `app/src/lib/fonts.ts`, and `fontWeight`
+and `fontStyle` pick the face. Phone builds embed the faces with the `expo-font`
+plugin in `app/app.json`, so changing them needs a new native build; a browser
+and the Mac app load them at start and show the system font until they arrive.
+Code blocks keep the platform's monospace font and emoji keep the system's.
+
+Keep the platform's text scaling. Do not disable font scaling or
 shrink text to fit fixed-height controls. Let labels wrap and controls grow.
 
 | Role | Size / line height | Weight | Use |

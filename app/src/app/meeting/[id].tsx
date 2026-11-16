@@ -290,7 +290,7 @@ const styles = StyleSheet.create({
   tileSmall: { width: 128, height: 96 },
   tile: { aspectRatio: 4 / 3, maxHeight: 560, borderRadius: radius.lg, overflow: "hidden", backgroundColor: "#1B2433" },
   noVideo: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center", backgroundColor: "#1B2433" },
-  initial: { fontSize: 44, fontWeight: "700", color: "#FFFFFF" },
+  initial: { fontFamily: typography.display.fontFamily, fontSize: 44, fontWeight: "700", color: "#FFFFFF" },
   name: { position: "absolute", left: space.xs, bottom: space.xs, ...typography.label, color: "#FFFFFF", backgroundColor: "rgba(0,0,0,0.45)", paddingHorizontal: space.xs, paddingVertical: 2, borderRadius: radius.sm, overflow: "hidden" },
   selfRow: { alignItems: "flex-end", paddingHorizontal: 20, paddingBottom: space.sm },
   self: { width: 160, height: 120, borderRadius: radius.md, overflow: "hidden", backgroundColor: "#1B2433", borderWidth: 1, borderColor: "rgba(255,255,255,0.25)" },

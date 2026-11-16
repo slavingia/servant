@@ -8,6 +8,7 @@ import { useLiveUnread } from "../../lib/live";
 import { badgeText as badge } from "../../lib/agent-unread";
 import { tabsFor, useFeatures, type TabName } from "../../lib/features";
 import { useTheme } from "../../lib/theme";
+import { APP_FONT } from "../../lib/fonts";
 
 const Icon = NativeTabs.Trigger.Icon;
 type SfIcon = Extract<ComponentProps<typeof Icon>, { sf?: unknown }>["sf"];
@@ -35,7 +36,7 @@ export default function TabsLayout() {
       tintColor={colors.blue}
       backgroundColor={colors.background}
       iconColor={{ default: colors.muted, selected: colors.blue }}
-      labelStyle={{ default: { color: colors.muted }, selected: { color: colors.blue } }}
+      labelStyle={{ default: { fontFamily: APP_FONT, color: colors.muted }, selected: { fontFamily: APP_FONT, color: colors.blue } }}
       badgeBackgroundColor={colors.primary}
       badgeTextColor={colors.onPrimary}
       minimizeBehavior="never"

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Animated, Easing, Platform, StyleSheet, Text, View } from "react-native";
-import { createThemedStyles } from "../lib/theme";
+import { createThemedStyles, typography } from "../lib/theme";
 
 /** Three rings that swell and fade around a centred initial: the call is ringing, even with the phone silent. */
 export function CallPulse({ initial, size = 112 }: { initial: string; size?: number }) {
@@ -28,5 +28,5 @@ export function CallPulse({ initial, size = 112 }: { initial: string; size?: num
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   ring: { position: "absolute", backgroundColor: colors.primary },
   core: { backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
-  initial: { color: colors.onPrimary, fontWeight: "700" },
+  initial: { fontFamily: typography.display.fontFamily, color: colors.onPrimary, fontWeight: "700" },
 }));
