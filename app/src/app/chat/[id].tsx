@@ -229,7 +229,7 @@ function filesHeader(id: string, title: string, tint: string, extra: HeaderLink[
   const links: HeaderLink[] = [...extra, ...(withFiles ? [{ label: "Files", testID: "open-files", onPress: open }] : [])];
   return Platform.OS === "ios"
     ? { unstable_headerRightItems: () => links.map(link => ({ type: "button" as const, label: link.accessibilityLabel ?? link.label, accessibilityLabel: link.accessibilityLabel,
-        ...(link.icon && link.icon in HEADER_SYMBOL ? { icon: { type: "sfSymbol" as const, name: HEADER_SYMBOL[link.icon as keyof typeof HEADER_SYMBOL] } } : {}), tintColor: tint, labelStyle: { color: tint, fontSize: typography.label.fontSize, fontWeight: "600" as const }, hidesSharedBackground: true, onPress: link.onPress })) }
+        ...(link.icon && link.icon in HEADER_SYMBOL ? { icon: { type: "sfSymbol" as const, name: HEADER_SYMBOL[link.icon as keyof typeof HEADER_SYMBOL] } } : {}), tintColor: tint, labelStyle: { fontFamily: typography.label.fontFamily, color: tint, fontSize: typography.label.fontSize, fontWeight: "600" as const }, hidesSharedBackground: true, onPress: link.onPress })) }
     : { headerRight: () => <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs, paddingRight: Platform.OS === "web" ? space.xs : 0 }}>
         {links.map(link => <Pressable key={link.testID} testID={link.testID} accessibilityRole="button" accessibilityLabel={link.accessibilityLabel ?? link.label} onPress={link.onPress} style={{ minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center" }}>
           {link.icon ? <AppIcon name={link.icon} size={20} color={tint} /> : <Text style={{ ...typography.label, color: tint }}>{link.label}</Text>}

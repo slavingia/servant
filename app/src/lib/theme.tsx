@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
 import { Platform, useColorScheme, type TextStyle } from "react-native";
 import * as SystemUI from "expo-system-ui";
+import { APP_FONT } from "./fonts";
 import { createAvatarTones, createColors, normalizeTheme, resolveColorScheme, type ColorScheme, type ThemeColors } from "./theme-colors";
 
 export type { ColorScheme, ThemeColors } from "./theme-colors";
@@ -15,23 +16,31 @@ export const radius = { sm: 6, md: 10, lg: 12, xl: 24, pill: 999 };
 export const linkUnderline: TextStyle = Platform.OS === "web" ? { textDecorationLine: "underline" } : {};
 
 export const typography = {
-  display: { fontSize: 28, lineHeight: 34, fontWeight: "700", letterSpacing: -0.5 },
-  title: { fontSize: 22, lineHeight: 28, fontWeight: "700", letterSpacing: -0.3 },
-  heading: { fontSize: 18, lineHeight: 24, fontWeight: "700", letterSpacing: -0.15 },
-  workspace: { fontSize: 20, lineHeight: 26, fontWeight: "700", letterSpacing: -0.2 },
-  body: { fontSize: 15, lineHeight: 22, fontWeight: "400" },
-  bodyStrong: { fontSize: 15, lineHeight: 22, fontWeight: "600" },
-  label: { fontSize: 13, lineHeight: 18, fontWeight: "600" },
-  caption: { fontSize: 13, lineHeight: 18, fontWeight: "400" },
-  captionStrong: { fontSize: 13, lineHeight: 18, fontWeight: "600" },
-  meta: { fontSize: 12, lineHeight: 16, fontWeight: "400" },
+  display: { fontFamily: APP_FONT, fontSize: 28, lineHeight: 34, fontWeight: "700", letterSpacing: -0.5 },
+  title: { fontFamily: APP_FONT, fontSize: 22, lineHeight: 28, fontWeight: "700", letterSpacing: -0.3 },
+  heading: { fontFamily: APP_FONT, fontSize: 18, lineHeight: 24, fontWeight: "700", letterSpacing: -0.15 },
+  workspace: { fontFamily: APP_FONT, fontSize: 20, lineHeight: 26, fontWeight: "700", letterSpacing: -0.2 },
+  body: { fontFamily: APP_FONT, fontSize: 15, lineHeight: 22, fontWeight: "400" },
+  bodyStrong: { fontFamily: APP_FONT, fontSize: 15, lineHeight: 22, fontWeight: "600" },
+  label: { fontFamily: APP_FONT, fontSize: 13, lineHeight: 18, fontWeight: "600" },
+  caption: { fontFamily: APP_FONT, fontSize: 13, lineHeight: 18, fontWeight: "400" },
+  captionStrong: { fontFamily: APP_FONT, fontSize: 13, lineHeight: 18, fontWeight: "600" },
+  meta: { fontFamily: APP_FONT, fontSize: 12, lineHeight: 16, fontWeight: "400" },
 } satisfies Record<string, TextStyle>;
 
 /** A screen header's title: the heading role in the wide layout, bodyStrong on a phone. A header takes a size and a weight, not a line height. */
 export const headerTitleType = (wide: boolean) => {
   const role = wide ? typography.heading : typography.bodyStrong;
-  return { fontSize: role.fontSize, fontWeight: role.fontWeight };
+  return { fontFamily: role.fontFamily, fontSize: role.fontSize, fontWeight: role.fontWeight };
 };
+
+/** React Navigation's own text (a header's back label, the web stack's titles) in the app's typeface. */
+export const navigationFonts = {
+  regular: { fontFamily: APP_FONT, fontWeight: "400" },
+  medium: { fontFamily: APP_FONT, fontWeight: "500" },
+  bold: { fontFamily: APP_FONT, fontWeight: "600" },
+  heavy: { fontFamily: APP_FONT, fontWeight: "700" },
+} as const;
 
 function createControls(colors: ThemeColors) {
   return {
