@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { WORDMARK_COLOR } from "./theme-colors.ts";
+import { APP_ICON_COLOR } from "./theme-colors.ts";
 
 const app = path.join(import.meta.dirname, "../..");
 const config = JSON.parse(fs.readFileSync(path.join(app, "app.json"), "utf8")).expo;
@@ -22,12 +22,12 @@ test("the app icon is 1024 square with no transparency", () => {
   assert.deepEqual(header(config.icon), { width: 1024, height: 1024, alpha: false });
 });
 
-test("Android's adaptive icon is a clear foreground and themed shape over an opaque field in the wordmark's navy", () => {
+test("Android's adaptive icon is a clear foreground and themed shape over an opaque field in the icon's navy", () => {
   const icon = config.android.adaptiveIcon;
   assert.deepEqual(header(icon.foregroundImage), { width: 1024, height: 1024, alpha: true });
   assert.deepEqual(header(icon.monochromeImage), { width: 1024, height: 1024, alpha: true });
   assert.deepEqual(header(icon.backgroundImage), { width: 1024, height: 1024, alpha: false });
-  assert.equal(icon.backgroundColor, WORDMARK_COLOR, "the color shown before the picture loads is the Welcome band's navy");
+  assert.equal(icon.backgroundColor, APP_ICON_COLOR, "the color shown before the picture loads is the icon's navy");
 });
 
 test("the status-bar icon is a clear shape and the favicon is square", () => {

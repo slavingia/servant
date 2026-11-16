@@ -1,7 +1,7 @@
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { ApproveFromPhone } from "./ApproveFromPhone";
-import { Band } from "./Band";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "./Button";
 import type { DesktopWorkspace } from "../lib/desktop";
 import { useSession } from "../lib/session";
@@ -14,9 +14,9 @@ import { ProjectCredit } from "./ProjectCredit";
 export function DesktopSignIn({ workspace, onUseInvite, device = "Mac" }: { workspace: DesktopWorkspace; onUseInvite: () => void; device?: "Mac" | "Browser" }) {
   const styles = useStyles();
   const { setAccount } = useSession();
+  const insets = useSafeAreaInsets();
   return (
-    <View style={styles.root}>
-      <Band wordmark />
+    <View style={[styles.root, { paddingTop: insets.top }]}>
       <ScrollView contentContainerStyle={styles.body}>
         <Text accessibilityRole="header" style={styles.title}>{device === "Mac" ? "Sign in on your Mac" : "Sign in to Servant"}</Text>
         <ApproveFromPhone side key={`${workspace.server}:${workspace.serverKey}:${workspace.discovery}`} workspace={workspace} device={device}

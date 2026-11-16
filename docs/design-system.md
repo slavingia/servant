@@ -124,9 +124,9 @@ White on the brand color (the sidebar and the phone's header bar) comes from
 one scale, `onBrandTint`: `muted` for supporting labels and icons, `border`,
 `hover` for a row under the pointer, `field` for the search field and the
 workspace mark, `selected` for the open page, `pressed`, and `track` for a
-switch that is off. Do not write out a white of your own there. `WORDMARK_COLOR`
-is the app icon's navy from `app.json`; the wordmark band on Welcome uses it,
-and it does not follow a workspace color because no server is known yet. A
+switch that is off. Do not write out a white of your own there. `APP_ICON_COLOR`
+is the app icon's navy from `app.json`; it does not follow a workspace color.
+Welcome and sign-in have no logo or band: they open on the page title. A
 chart's legend shows each color beside what
 it measures and never names the color, since a workspace can change it
 (`color-tokens.test.ts`).
