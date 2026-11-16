@@ -38,3 +38,11 @@ test('a case notification opens the case, and nothing on a server that turned Ca
   assert.equal(notificationRoute({ ...base, caseId: 'inbox_../x' }, 'u', 'd'), null);
   assert.equal(notificationRoute(base, 'u', 'd', { channels: true, directMessages: true, meetings: true, secureInbox: false }), null);
 });
+
+test('a code request opens its entry screen, and only a well-formed id does', () => {
+  const base = { userId: 'u', deviceId: 'd', codeRequestId: 'code_abcDEF123_-x' };
+  assert.deepEqual(notificationRoute(base, 'u', 'd'), { pathname: '/code/[id]', params: { id: 'code_abcDEF123_-x' } });
+  assert.equal(notificationRoute(base, 'u', 'other'), null);
+  assert.equal(notificationRoute({ ...base, codeRequestId: 'code_../../x' }, 'u', 'd'), null);
+  assert.equal(notificationRoute({ ...base, codeRequestId: 'https://example.gov' }, 'u', 'd'), null);
+});

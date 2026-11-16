@@ -64,6 +64,7 @@ import { tierCosts } from "./usage-cost.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { createEgressProxy, createEgressStore, egressSettings } from "./egress.mjs";
 import { createEntitlements } from "./entitlements.mjs";
+import { createCodeRequests } from "./code-requests.mjs";
 import { supportsDurableRuns, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
 import { createReadmeCache } from "./project-readme.mjs";
 import { createGlossaryStore } from "./glossary.mjs";
@@ -515,7 +516,7 @@ function removePerson(state, targetId) {
   target.removedAt = now();
   for (const d of Object.values(state.devices)) if (d.userId === targetId && !d.revokedAt) revokeDevice(d);
   // Everything they held is revoked and their agent's network tokens stop working.
-  entitlementStore().forget(targetId, "server"); egressStore().forget(targetId);
+  entitlementStore().forget(targetId, "server"); egressStore().forget(targetId); codeRequests.forget(targetId);
   // Out of every project; projects they owned stay (admins can still edit them).
   projects().mutate(data => { for (const p of data.projects) removeAccess(p, targetId, state.users, data.people); });
   return target.name;
@@ -866,6 +867,8 @@ let workChatStarter = null;
 let otaServer;
 const ota = () => otaServer ??= createOta({ dir: path.join(DATA_DIR, "ota") });
 let entitlementDb = null, egressDb = null, egressProxy = null;
+// One-time codes an automation asks its own person for (docs/code-requests.md). Memory only: a restart forgets them.
+const codeRequests = createCodeRequests({ clock: () => now() });
 // Entitlements (docs/entitlements.md): who holds which named access, and who decides. The agent's outbound gate asks here.
 const entitlementStore = () => entitlementDb ??= createEntitlements(path.join(DATA_DIR, "entitlements.db"), {
   known: userId => { const u = readState().users[userId]; return !!u && !isRemoved(u); },
@@ -1692,6 +1695,32 @@ async function handle(req, res, cfg) {
       if (out.manager.id !== user.id) tellAbout([out.manager.id], "Entitlements", `You now decide ${out.name}'s entitlement requests`);
       return send(res, 200, { person: out });
     } catch (error) { if (!error.status) throw error; return fail(res, error.status, error.code, error.message); }
+  }
+  // Code requests (docs/code-requests.md): an automation signed in as you asks for a one-time code; your phone answers.
+  if (parts[1] === "code-requests") {
+    const guard = fn => { try { return fn(); } catch (error) { if (!error.status) throw error; return fail(res, error.status, error.code, error.message), undefined; } };
+    if (method === "GET" && parts.length === 2) return send(res, 200, { requests: codeRequests.list(user) });
+    if (method === "POST" && parts.length === 2) {
+      const body = await readAuthorizedBody(req);
+      const made = guard(() => codeRequests.create(user, device, body));
+      if (!made) return;
+      try { push?.enqueue({ kind: "code", eventId: made.id, to: user.id, requestId: made.id }); } catch (error) { console.error("[servant] code request alert", error.message); }
+      return send(res, 201, { request: made });
+    }
+    if (method === "GET" && parts.length === 3) return guard(() => send(res, 200, { request: codeRequests.get(parts[2], user) }));
+    if (method === "POST" && parts.length === 4 && parts[3] === "answer") {
+      const body = await readAuthorizedBody(req);
+      return guard(() => send(res, 200, { request: codeRequests.answer(parts[2], user, device, body?.code) }));
+    }
+    if (method === "POST" && parts.length === 4 && parts[3] === "claim") {
+      await readAuthorizedBody(req);
+      return guard(() => send(res, 200, codeRequests.claim(parts[2], user, device)));
+    }
+    if (method === "POST" && parts.length === 4 && parts[3] === "cancel") {
+      await readAuthorizedBody(req);
+      return guard(() => send(res, 200, { request: codeRequests.cancel(parts[2], user) }));
+    }
+    return fail(res, 404, "not_found", "Not found");
   }
   // Entitlements (docs/entitlements.md): named access people ask for and their manager grants. Everyone sees the list and
   // their own standing; a manager also sees their reports'; owners see everyone's and make, edit and retire them.
@@ -2595,6 +2624,11 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
       if (event.kind === "case") return normalizeFeatures((fixedCfg || loadConfig()).features).secureInbox && !inDeepWork(user) ? inbox().notificationFor(user, event.caseId, event.sequence) : null;
       // An entitlement request, decision or refusal: only for the people it names.
       if (event.kind === "entitlement") return Array.isArray(event.to) && event.to.includes(user.id) ? { kind: "agent", title: event.title, body: event.body } : null;
+      // A code request: only its own person, only while it still waits, and never the code itself (there is none yet).
+      if (event.kind === "code") {
+        const request = event.to === user.id && codeRequests.pending(event.requestId, user.id);
+        return request ? { kind: "agent", codeRequestId: request.id, title: "Code needed", body: `${request.device} is waiting for your ${request.label} code` } : null;
+      }
       const chat = readState().chats[event.chatId];
       if (event.userId !== user.id || !chat || chat.deletedAt || chat.userId !== user.id) return null;
       return { kind: "agent", chatId: chat.id, title: "Agent · " + chat.title, body: event.text };

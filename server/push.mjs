@@ -41,13 +41,13 @@ export function notificationPayload(info, user, deviceId, { plain = false } = {}
   return {
     title: title || 'Servant',
     body: body || (plain ? 'Confirm it\'s you in Servant to see new messages' : 'You have a new message'),
-    group: info.conversationId || info.chatId || info.caseId,
+    group: info.conversationId || info.chatId || info.caseId || info.codeRequestId,
     ...(info.meetingId ? { call: { meetingId: info.meetingId, caller: info.caller || '', place: info.place || '' } } : {}),
     // The app icon shows the person's real unread total. When there is none to give (nothing unread, or a kind of
     // push that has no count), leave the icon alone: a made-up 1 put a cleared badge back.
     badge: Number.isSafeInteger(info.badge) && info.badge > 0 ? info.badge : null,
     // A case from the secure inbox routes by its own id: it is neither a conversation nor an agent chat.
-    data: { userId: user.id, deviceId, ...(info.conversationId ? { conversationId: info.conversationId } : info.caseId ? { caseId: info.caseId } : { chatId: info.chatId }),
+    data: { userId: user.id, deviceId, ...(info.conversationId ? { conversationId: info.conversationId } : info.caseId ? { caseId: info.caseId } : info.codeRequestId ? { codeRequestId: info.codeRequestId } : { chatId: info.chatId }),
       ...(info.meetingId ? { meetingId: info.meetingId } : {}), ...(info.threadRoot ? { threadRoot: String(info.threadRoot) } : {}), ...(info.messageId ? { messageId: String(info.messageId) } : {}) },
   };
 }

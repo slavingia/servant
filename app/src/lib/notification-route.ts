@@ -1,6 +1,6 @@
 import { ALL_FEATURES, conversationHidden, type Features } from './features.ts';
 
-export type NotificationRoute = { pathname: '/meeting/[id]'; params: { id: string } } | { pathname: '/c/[id]' | '/chat/[id]' | '/inbox/[id]'; params: { id: string } } | { pathname: '/thread'; params: { conv: string; root: string; focus?: string; from?: 'push' } };
+export type NotificationRoute = { pathname: '/meeting/[id]' | '/code/[id]'; params: { id: string } } | { pathname: '/c/[id]' | '/chat/[id]' | '/inbox/[id]'; params: { id: string } } | { pathname: '/thread'; params: { conv: string; root: string; focus?: string; from?: 'push' } };
 // `features`: what this server uses (features.ts). A tap must never open a call on a server without
 // meetings, or a channel or DM it has turned off, even from a notification sent before the change.
 export function notificationRoute(data: Record<string, unknown>, userId: string, deviceId: string, features: Features = ALL_FEATURES): NotificationRoute | null {
@@ -17,6 +17,8 @@ export function notificationRoute(data: Record<string, unknown>, userId: string,
   }
   // A visitor wrote to a case in the secure inbox. A server that turned Cases off opens nothing.
   if (typeof data.caseId === 'string' && /^inbox_[A-Za-z0-9_-]{1,80}$/.test(data.caseId)) return features.secureInbox ? { pathname: '/inbox/[id]', params: { id: data.caseId } } : null;
+  // An automation signed in as you is waiting for a one-time code: open the screen to type it.
+  if (typeof data.codeRequestId === 'string' && /^code_[A-Za-z0-9_-]{12}$/.test(data.codeRequestId)) return { pathname: '/code/[id]', params: { id: data.codeRequestId } };
   if (typeof data.chatId === 'string' && /^cht_[A-Za-z0-9_-]{1,80}$/.test(data.chatId)) return { pathname: '/chat/[id]', params: { id: data.chatId } };
   return null;
 }

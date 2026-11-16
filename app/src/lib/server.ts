@@ -468,6 +468,8 @@ export async function listen(account: Account, onEvent: (e: LiveEvent) => void, 
 }
 
 const json = <T,>(r: SecureResponse) => r.json() as Promise<T>;
+// A one-time code an automation signed in as you is waiting for (server: code-requests.mjs). Never holds the code.
+export type CodeRequest = { id: string; label: string; hint?: string; device: string; status: "pending" | "answered" | "claimed" | "cancelled" | "expired"; createdAt: number; expiresAt: number };
 
 // A build's notes, posted in #whats-new. Testers discuss it in the post's thread.
 export type Release = { build: string; conversationId: string; messageId: string; text: string; createdAt: number };
@@ -622,6 +624,10 @@ export const api = {
   },
   emailRequired: (a: Account) => request(a, "/v1/me").then(json<{ emailRequired?: boolean }>).then(d => d.emailRequired === true),
   // Sessions that end (server: session-expiry.mjs): a code to the email on file, then this same device is fresh again.
+  codeRequests: (a: Account) => request(a, "/v1/code-requests").then(json<{ requests: CodeRequest[] }>),
+  codeRequest: (a: Account, id: string) => request(a, `/v1/code-requests/${encodeURIComponent(id)}`).then(json<{ request: CodeRequest }>),
+  answerCodeRequest: (a: Account, id: string, code: string) => request(a, `/v1/code-requests/${encodeURIComponent(id)}/answer`, { method: "POST", body: JSON.stringify({ code }) }).then(json<{ request: CodeRequest }>),
+  cancelCodeRequest: (a: Account, id: string) => request(a, `/v1/code-requests/${encodeURIComponent(id)}/cancel`, { method: "POST", body: "{}" }).then(json<{ request: CodeRequest }>),
   sessionEmail: (a: Account) => request(a, "/v1/session/email", { method: "POST", body: "{}" }).then(json<{ challenge: string; email: string; expiresInSeconds: number; resendAfterSeconds: number }>),
   sessionVerify: (a: Account, challenge: string, code: string) => request(a, "/v1/session/verify", { method: "POST", body: JSON.stringify({ challenge, code }) }).then(json<{ ok: boolean; session: SessionInfo | null }>),
   sendMyEmailCode: (a: Account, email: string) => request(a, "/v1/people/me/email", { method: "POST", body: JSON.stringify({ email }) }).then(json<{ challenge: string; email: string }>),
