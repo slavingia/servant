@@ -978,6 +978,10 @@ function ChatConversation({ account }: { account: Account }) {
             inverted
             data={data}
             keyExtractor={rowKey}
+            // Same as a person's chat: a tap that lands on the list while the keyboard is up goes to what it
+            // touched, so the first tap never only closes the keyboard.
+            keyboardDismissMode="interactive"
+            keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.list}
             ListFooterComponent={
               messages.length === 0 && !firstRow && loadError ? (

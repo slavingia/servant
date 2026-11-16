@@ -51,3 +51,12 @@ test("the working line is calm: plain steps, no clock, and it stands still for R
   assert.match(live, /aria-live="polite" accessibilityLiveRegion="polite"/);
   assert.match(live, /AccessibilityInfo\.announceForAccessibility\(line\)/, "VoiceOver has no live regions, so the line is spoken");
 });
+
+test("one tap on Send is enough in an agent chat, as in a person's chat", () => {
+  // The conversation list must not spend the first tap on closing the keyboard.
+  const list = chat.slice(chat.indexOf("<FlatList"), chat.indexOf("renderItem={renderItem}"));
+  assert.match(list, /keyboardShouldPersistTaps="handled"/);
+  assert.match(list, /keyboardDismissMode="interactive"/);
+  // Send's own box is the hit area: at least 44pt (the app avoids hitSlop).
+  assert.match(composer, /send: \{ minHeight: 44, minWidth: 44,/);
+});
