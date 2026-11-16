@@ -921,7 +921,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   // The same row as the day's, in the unread badges' color: a rule across, ending in a filled "New".
   unreadSeparator: { flexDirection: "row", alignItems: "center", gap: space.xs, paddingHorizontal: space.side, paddingVertical: space.xs },
   unreadRule: { flex: 1, height: 1, backgroundColor: colors.primary },
-  unreadLabel: { ...typography.captionStrong, color: colors.onPrimary, backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: space.xs, overflow: "hidden" },
+  unreadLabel: { ...typography.captionStrong, color: colors.onPrimary, backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: space.sm, paddingVertical: space.xxs, overflow: "hidden" },
   reactions: { flexDirection: "row", flexWrap: "wrap", gap: space.xxs, marginTop: 0 },
   reaction: { minHeight: 44, minWidth: 44, justifyContent: "center" },
   reactionPill: { minHeight: 28, minWidth: 42, paddingHorizontal: space.xs, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
@@ -1026,6 +1026,6 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   rowTitle: { ...typography.body, flex: 1, color: colors.ink },
   bold: { fontWeight: "700" },
   preview: { ...typography.caption, flex: 1, marginTop: space.xxs, color: colors.muted },
-  badge: { minWidth: 22, minHeight: 22, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
+  badge: { minWidth: 24, height: 24, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", paddingHorizontal: space.xs },
   badgeText: { ...typography.captionStrong, color: colors.onPrimary },
 }));

@@ -275,7 +275,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   filterText: { ...typography.bodyStrong, color: colors.muted },
   selectedFilterText: { color: colors.blueDark },
   // Same blue circle with a white number as the unread badges on each row.
-  filterCount: { minWidth: 22, minHeight: 22, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", paddingHorizontal: space.xxs },
+  filterCount: { minWidth: 24, height: 24, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", paddingHorizontal: space.xs },
   filterCountText: { ...typography.captionStrong, color: colors.onPrimary },
   section: { flexDirection: "row", alignItems: "center", paddingLeft: space.side, paddingRight: space.xs, marginTop: space.sm },
   sectionToggle: { minHeight: 44, flex: 1, flexDirection: "row", alignItems: "center", gap: space.xs },

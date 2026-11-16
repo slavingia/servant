@@ -47,12 +47,12 @@
     "components/PhotoCropper.web.tsx": 1
   },
   "spacing": {
-    "app/(tabs)/agent.tsx": 2,
+    "app/(tabs)/agent.tsx": 1,
     "app/c/[id].tsx": 1,
     "app/chat/[id].tsx": 7,
     "app/feedback.tsx": 1,
     "app/files.tsx": 3,
-    "app/inbox.tsx": 4,
+    "app/inbox.tsx": 3,
     "app/inbox/[id].tsx": 1,
     "app/leaderboard.tsx": 2,
     "app/meeting/[id].tsx": 10,
@@ -72,7 +72,7 @@
     "components/ForwardSheet.tsx": 2,
     "components/GuestInvite.tsx": 1,
     "components/IncomingCall.tsx": 2,
-    "components/Messaging.tsx": 7,
+    "components/Messaging.tsx": 6,
     "components/Omnibar.tsx": 4,
     "components/OtherDeviceNote.tsx": 1,
     "components/PiiConfirm.tsx": 2,
@@ -80,12 +80,12 @@
     "components/Presence.tsx": 1,
     "components/ProjectReleases.tsx": 4,
     "components/ProjectSheet.tsx": 1,
-    "components/Sidebar.tsx": 4,
+    "components/Sidebar.tsx": 2,
     "components/TodoList.tsx": 1,
     "components/Toggle.tsx": 1,
     "components/TweetEmbed.tsx": 1,
     "components/VideoMedia.tsx": 4,
-    "components/WebTabBar.tsx": 3,
+    "components/WebTabBar.tsx": 2,
     "lib/typing.tsx": 1
   }
 }

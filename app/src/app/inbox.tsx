@@ -165,7 +165,7 @@ const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create
   rowMeta: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.xs, marginTop: space.xxs },
   meta: { ...typography.meta, color: colors.muted, flexShrink: 1 },
   status: { ...typography.meta, color: colors.muted, backgroundColor: colors.surface, paddingHorizontal: space.xs, paddingVertical: 2, borderRadius: radius.sm },
-  badge: { marginLeft: "auto", minWidth: 22, minHeight: 22, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
+  badge: { marginLeft: "auto", minWidth: 24, height: 24, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", paddingHorizontal: space.xs },
   badgeText: { ...typography.captionStrong, color: colors.onPrimary },
   nextAction: { marginTop: space.xs, paddingVertical: space.xs, paddingHorizontal: space.sm, minHeight: 44, justifyContent: "center", borderRadius: radius.sm, backgroundColor: colors.surface },
   nextText: { ...typography.captionStrong, color: colors.ink },
