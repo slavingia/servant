@@ -7,7 +7,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { darkColors, lightColors, onBrandTint, WORDMARK_COLOR } from "./theme-colors.ts";
+import { darkColors, lightColors, onBrandTint, APP_ICON_COLOR } from "./theme-colors.ts";
 
 const root = path.join(import.meta.dirname, "..");
 const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
@@ -54,8 +54,12 @@ test("the usage chart's second bar is a palette color that shows against its tra
   assert.match(board, /styles\.swatch[^\n]*Share of survey comments/);
 });
 
-test("the wordmark band on Welcome is the app icon's color", () => {
+test("Welcome and sign-in open on the page itself: no logo and no band above the title", () => {
   const icon = JSON.parse(read("../app.json")).expo.android.adaptiveIcon.backgroundColor;
-  assert.equal(icon.toUpperCase(), WORDMARK_COLOR);
-  assert.match(read("components/Band.tsx"), /brandBand: \{ backgroundColor: WORDMARK_COLOR \}/);
+  assert.equal(icon.toUpperCase(), APP_ICON_COLOR);
+  assert.equal(fs.existsSync(path.join(root, "components/ServantWordmark.tsx")), false);
+  for (const file of ["app/welcome.tsx", "components/DesktopSignIn.tsx"]) {
+    assert.doesNotMatch(read(file), /<Band\b|ServantWordmark/, `${file} has no logo header`);
+    assert.match(read(file), /paddingTop: insets\.top/, `${file} still clears the status bar`);
+  }
 });

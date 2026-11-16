@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import { Band, PageTitle } from "../components/Band";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { PageTitle } from "../components/Band";
 import { Button } from "../components/Button";
 import { INVITE_EXAMPLE, parseInvite } from "../lib/invite";
 import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
@@ -14,6 +15,7 @@ import { ProjectCredit } from "../components/ProjectCredit";
 export default function Welcome() {
   const styles = useStyles();
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const { account } = useSession();
   const params = useLocalSearchParams<{ new?: string }>();
   const [text, setText] = useState("");
@@ -45,8 +47,7 @@ export default function Welcome() {
   if (webWorkspace && !useInvite && !reconnect) return <DesktopSignIn workspace={webWorkspace} device="Browser" onUseInvite={() => setUseInvite(true)} />;
 
   return (
-    <View style={styles.root}>
-      <Band wordmark />
+    <View style={[styles.root, { paddingTop: insets.top }]}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
           <PageTitle description={reconnect ? "Ask your admin for a new invite for your existing account to enable encryption and keep your conversations." : undefined}>{reconnect ? "Reconnect securely" : "Join a server"}</PageTitle>
