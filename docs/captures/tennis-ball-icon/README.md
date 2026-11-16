@@ -15,9 +15,11 @@ The icon, the Android adaptive icon in a round launcher mask, the one-color shap
 
 ## Join a server
 
-Real browser screenshots from the running app at phone size (390 wide, device scale 2), cropped above the footer.
+Real browser screenshots from the running app at phone size (390 wide) and desktop size (1280 wide), device scale 2, cropped above the footer.
 
 | | Before | After |
 | --- | --- | --- |
-| Light | ![The Servant wordmark on a navy band above the title](before/join-phone-light.png) | ![The title at the top of the page, no logo](after/join-phone-light.png) |
-| Dark | ![The same band on the dark page](before/join-phone-dark.png) | ![The title at the top of the dark page, no logo](after/join-phone-dark.png) |
+| Phone, light | ![The Servant wordmark on a navy band above the title](before/join-phone-light.png) | ![The title at the top of the page, no logo](after/join-phone-light.png) |
+| Phone, dark | ![The same band on the dark page](before/join-phone-dark.png) | ![The title at the top of the dark page, no logo](after/join-phone-dark.png) |
+| Desktop, light | ![The wordmark band across the top of the window](before/join-desktop-light.png) | ![The title at the top of the window, no logo](after/join-desktop-light.png) |
+| Desktop, dark | ![The same band on the dark page](before/join-desktop-dark.png) | ![The title at the top of the dark window, no logo](after/join-desktop-dark.png) |
