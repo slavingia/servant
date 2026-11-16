@@ -60,3 +60,7 @@ test("one tap on Send is enough in an agent chat, as in a person's chat", () => 
   // Send's own box is the hit area: at least 44pt (the app avoids hitSlop).
   assert.match(composer, /send: \{ minHeight: 44, minWidth: 44,/);
 });
+
+test('a message the server holds as up next frees the composer, so the next one can be sent', () => {
+  assert.match(chat, /else if \(e\.turn\.status === 'queued'\) onAccepted\(\);/);
+});
