@@ -92,6 +92,7 @@ Open the invite link, or in the Mac app choose **Paste an invite link**. On a ph
 - [Public testing](docs/public-testing.md): a public TestFlight link and Play open testing, from the release scripts
 - [Email sign-in](docs/email-sign-in.md): work-email codes, allowed domains and the mailer command
 - [Encryption](docs/encryption.md) and [member security](docs/member-security.md): the protocol and the restricted member agent
+- [Entitlements](docs/entitlements.md) and the [agent's network gate](docs/agent-egress.md): who may have the agent work with what, and a sandbox that refuses everything else
 - [Records preservation](docs/records-management.md) and the [business information filter](docs/business-info-filter.md)
 - [Projects](docs/projects.md), [OTA updates](docs/ota.md), [call ringing](docs/call-ringing.md) and the [design system](docs/design-system.md)
 
