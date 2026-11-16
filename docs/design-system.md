@@ -1,7 +1,7 @@
 # Servant design system
 
-Servant uses Slack-like workspace navigation and message density with the app
-icon's three colors (navy, tennis yellow and white) and native system type. Home acts as a workspace sidebar:
+Servant uses Slack-like workspace navigation and message density with brand blue
+and native system type. Home acts as a workspace sidebar:
 compact channels and direct messages lead into a shared message stream. Navigation,
 status, and management actions help people reach conversations without competing
 with their content.
@@ -65,9 +65,8 @@ remain shared across appearances.
 
 The server owner can set `"theme": { "primaryColor": "#7C3AED" }` in the
 server's `config.json`; there is no color picker in the app. Omit it to keep the
-default palette below. Opaque `#RGB` and `#RRGGBB` values are accepted; invalid
-values fall back to the default. `#0071BC`, the default before the tennis ball
-icon, is what a server sends when no color is set, so it also means the default. Each saved workspace keeps its own color. Restart or
+default blue (`#0071BC`). Opaque `#RGB` and `#RRGGBB` values are accepted; invalid
+values fall back to blue. Each saved workspace keeps its own color. Restart or
 reload the app after changing the config to refresh it from the server, without
 rebuilding the app or restarting the server.
 
@@ -80,7 +79,7 @@ theme object, not just by light/dark mode, so switching workspaces updates them.
 
 The values below describe the default light palette. In dark mode, `background` is
 `#12161C`, `surface` is `#1B222C`, `ink` is `#F0F3F7`, `muted` is `#ADB8C7`,
-and actionable `blue` is tennis yellow, `#DEEF51`. Use `background` for content surfaces;
+and actionable `blue` is `#80C7FF`. Use `background` for content surfaces;
 `white` remains literal white for QR codes and media overlays. Use `primary` /
 `onPrimary` for filled actions, `danger` for destructive fills, and `brandText`
 for brand-colored text. These are separate from link and error foregrounds so
@@ -92,44 +91,28 @@ The full-screen media viewer retains its dark canvas in both modes.
 
 | Token | Value | Purpose |
 | --- | --- | --- |
-| `navy` | `#1E265D` | The icon's field: the sidebar, the wordmark band and other brand surfaces |
-| `blue` | `#4E61D6` | Links, icons and other action foregrounds: the icon's navy, lit until white reads on it. `#DEEF51` in dark mode |
-| `blueDark` | `#27327A` | Selected foregrounds; `#F3FD8C` in dark mode |
-| `blueSoft` | `#EBEFFC` | Selected filters and quiet brand surfaces; `#27327A` in dark mode |
-| `gold` | `#DEEF51` | Tennis yellow, the ball. A fill with dark words on it (the server banner) and the bar under the wordmark. The same in every workspace |
+| `navy` | `#004C97` | Brand blue (navy) fixed search strip and brand surfaces |
+| `blue` | `#0071BC` | Primary actions, links, and unread badges |
+| `blueDark` | `#205493` | Pressed actions and selected foregrounds |
+| `blueSoft` | `#E8F2FC` | Selected filters and quiet blue surfaces |
+| `gold` | `#FDB81E` | Retained brand accent token; unused by the fixed search strip |
 | `green` | `#2E8540` | Online presence indicator, accompanied by text |
-| `onBrandAccent` | `#DEEF51` | What signals on navy: the sidebar's unread counts, the Deep work switch when on, and the agent's mark. A workspace color replaces it with a pale tint of itself |
+| `onBrandMuted` | `#DCEBFA` | Retained supporting brand color; unused by the fixed search strip |
 | `ink` | `#1D1C1D` | Main content |
 | `muted` | `#5B616B` | Supporting text and icons |
 | `background` | `#FFFFFF` | Main content and message backgrounds |
 | `white` | `#FFFFFF` | Fixed white for QR codes and media overlays |
-| `primary` / `onPrimary` | `#4E61D6` / `#FFFFFF` | Filled actions and their labels; pressed is `#4252B6` |
+| `primary` / `onPrimary` | `#0071BC` / `#FFFFFF` | Filled actions and their labels |
 | `surface` | `#F7F8FA` | Quiet fills and pressed rows |
 | `subtle` | `#EEF1F5` | Disabled send and supporting fills |
 | `line` | `#E6E7EB` | Quiet separators |
 | `borderStrong` | `#8B929B` | Fields and secondary button boundaries |
 | `red` | `#D11242` | Destructive actions and errors |
 | `redSoft` | `#FDECEF` | Failed-message background |
-| `bubbleMine` | `#4E61D6` | Retained token; current message streams do not use bubbles |
+| `bubbleMine` | `#0071BC` | Retained token; current message streams do not use bubbles |
 | `bubbleAgent` | `#F4F7FA` | Retained token; current message streams do not use bubbles |
 | `scrim` | navy at 42% | What dims the page behind a dialog, a sheet, a menu and search; black at 60% in dark mode, where navy would lighten the page |
 | `series` | `#C2571A` | The second series in a chart, beside `blue`; `#E07B39` in dark mode. At least 3 to 1 against the track and the page |
-
-The three colors come from the app icon: a tennis ball on a navy field whose
-seam is a white S (Servant helps people serve). Navy is every brand surface.
-White is the light page and the label on every fill. Tennis yellow signals on
-navy, and in dark mode it is what can be pressed: links, icons, the chosen tab
-and focus borders. Yellow on a white page is 1.27 to 1, and white on yellow is
-the same, so yellow is never words, an icon or a line on a light surface and
-never sits under a white label (`brand-palette.test.ts`). Green stays the
-color of presence and done; yellow is never a status.
-
-The icon itself is `app/assets/icon.png`. Every other icon file is cut from it
-by `scripts/make-icons.py` (run it only when `icon.png` changes): the Android
-adaptive foreground (the ball and its shadow) and background (the field), the
-one-color shape for Android themed icons and the status bar (the ball with the
-seam cut out), and the favicon. `icon-files.test.ts` holds their sizes and that
-`icon.png` has no transparency, which an iPhone refuses.
 
 A fill with words or an icon on it uses `primary` (or `danger`): those keep
 enough contrast for white in both appearances. `blue`, `green` and `red` are
@@ -143,8 +126,7 @@ one scale, `onBrandTint`: `muted` for supporting labels and icons, `border`,
 workspace mark, `selected` for the open page, `pressed`, and `track` for a
 switch that is off. Do not write out a white of your own there. `WORDMARK_COLOR`
 is the app icon's navy from `app.json`; the wordmark band on Welcome uses it,
-with `WORDMARK_ACCENT` (tennis yellow) for the bar under the wordmark. Neither
-follows a workspace color because no server is known yet. A
+and it does not follow a workspace color because no server is known yet. A
 chart's legend shows each color beside what
 it measures and never names the color, since a workspace can change it
 (`color-tokens.test.ts`).
@@ -166,7 +148,7 @@ avatars, buttons, and reaction chips use small rounded corners. Unread badges an
 date labels use pills. A circle or a capsule (a dot, a bar, a switch's track, a
 round mark) is `radius.pill`, not half its size written out. The signed-in
 content shell uses `radius.xl` on its top-left and top-right corners, with
-brand navy behind it. Content is clipped to those corners; bottom corners remain
+brand blue behind it. Content is clipped to those corners; bottom corners remain
 square.
 
 Controls have at least a 44-point target by their own size. Do not use
@@ -200,14 +182,14 @@ Agent avatars use rounded squares. A stable name hash selects one of five
 
 | Background | Foreground |
 | --- | --- |
-| `#EBEFFC` | `#1E265D` |
+| `#E8F2FC` | `#004C97` |
 | `#E6EEEB` | `#24634D` |
 | `#FFF2CD` | `#6B4E00` |
 | `#EEEAF5` | `#584574` |
 | `#E9EDF2` | `#3B4B63` |
 
 Compact DM rows use 26-point avatars, standard conversation rows use 40, and
-message authors use 34. Agent avatars show the sparkle mark in tennis yellow on the brand navy.
+message authors use 34. Agent avatars show `AI` in white on the brand blue.
 
 ### Values that are not tokens
 
@@ -224,7 +206,7 @@ apart.
 ## Shared components
 
 - `Band`: small brand header for Welcome before pairing.
-- `AppChrome` and `Omnibar`: a fixed brand navy search strip above navigation on
+- `AppChrome` and `Omnibar`: a fixed brand blue search strip above navigation on
   every signed-in screen. Its 44-point search control uses the placeholder
   **Search**. Consume the top safe inset once; conversation keyboard offsets
   include the measured chrome height. The search panel supports Cmd/Ctrl+K,
