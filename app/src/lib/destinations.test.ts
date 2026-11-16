@@ -32,12 +32,12 @@ test("You lists the same places under the same names, plus the ones a wide windo
   assert.deepEqual(labels("you"), [
     ["Conversations", ["Cases"]],
     ["Your work", ["To-dos", "Saved", "Meetings", "Archived"]],
-    ["Team", ["People", "Invite people", "Feedback", "Wiki", "Loops", "Agent usage"]],
+    ["Team", ["People", "Invite people", "Feedback", "Wiki", "Agent feed", "Loops", "Agent usage"]],
   ]);
   assert.deepEqual(labels("you", member), [
     ["Conversations", ["Cases"]],
     ["Your work", ["To-dos", "Saved", "Meetings", "Archived"]],
-    ["Team", ["People", "Wiki", "Loops", "Agent usage"]],
+    ["Team", ["People", "Wiki", "Agent feed", "Loops", "Agent usage"]],
   ], "a member sees no invites and, without the role, no surveys");
 });
 

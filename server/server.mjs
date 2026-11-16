@@ -1885,6 +1885,12 @@ async function handle(req, res, cfg) {
     isAuthorized: () => authenticate(req, readState())?.user.id === user.id,
   }))) return undefined;
 
+  // ----- feed: what the agent did lately, from #agent-feed (everyone on the server can see it) -----
+  if (method === "GET" && parts[1] === "feed" && parts.length === 2) {
+    requireAuth(req, readState());
+    return send(res, 200, messaging ? messaging.feedItems() : { items: [] });
+  }
+
   // ----- loops: the agent's recurring automations (everyone on the server can see them) -----
   if (method === "GET" && parts[1] === "loops" && parts.length === 2) {
     requireAuth(req, readState());

@@ -1,3 +1,4 @@
+import { shapeFeed } from "./feed.mjs";
 import { agentTierOf, TIER_TOKEN_LIMITS } from "./usage.mjs";
 import { ftsQuery, parseSearch, SEARCH_SCHEMA } from "./search.mjs";
 import { firstLink } from "./link-preview.mjs";
@@ -861,6 +862,15 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
       publish(conv.id, "conversation.updated", { id: conv.id });
       return { conversationId: conv.id, messageId: String(m.seq) };
     });
+  }
+
+  /** What the agent did lately, as items for the Feed screen (everyone on the server can see it). */
+  function feedItems({ days = 14 } = {}) {
+    const conv = st.convByName.get(FEED_CHANNEL);
+    if (!conv) return { items: [] };
+    const rows = db.prepare("SELECT seq, text, created_at FROM messages WHERE conversation_id = ? AND user_id = ? AND deleted_at IS NULL AND thread_root IS NULL AND created_at > ? ORDER BY seq DESC LIMIT 500")
+      .all(conv.id, AGENT_ID, now() - days * 86400_000);
+    return { items: shapeFeed(rows), conversationId: conv.id };
   }
 
   function joinDefaults(...args) { return transaction(() => joinDefaultsInTransaction(...args)); }
@@ -2058,7 +2068,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
   function personChanged(userId) { publish('', 'person.updated', { userId }, Object.keys(users())); }
   // Their deep work switch moved: everyone's "Deep work" label and the person's other devices update at once.
   const presenceChanged = userId => publishPresence(userId);
-  return { ...meetingHooks, workLog, channelFor, postActivity, personChanged, presenceChanged, handle, forwardSource, forwardInto, notificationFor, joinDefaults, joinEveryone, welcomeFromAgent, notifyFromAgent, feedFromAgent, ensureAgentDms, congratulateLimit, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, keep, keepAll, close: () => { closeEvents(); db.close(); }, db };
+  return { ...meetingHooks, workLog, channelFor, postActivity, personChanged, presenceChanged, handle, forwardSource, forwardInto, notificationFor, joinDefaults, joinEveryone, welcomeFromAgent, notifyFromAgent, feedFromAgent, feedItems, ensureAgentDms, congratulateLimit, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, keep, keepAll, close: () => { closeEvents(); db.close(); }, db };
 }
 
 function httpError(status, code, message) {

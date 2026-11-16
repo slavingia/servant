@@ -79,6 +79,8 @@ export type Leaderboard = { period: LeaderboardPeriod; since: number; topics?: T
 
 // ----- loops: the agent's recurring automations -----
 export type LoopGroup = "hourly" | "daily" | "weekly" | "monthly" | "other";
+export type FeedKind = "sent" | "shipped" | "ran" | "note";
+export type FeedItem = { id: string; kind: FeedKind; text: string; time: string | null; url: string | null; at: number };
 export type Loop = { id: string; name: string; cadence: string; group: LoopGroup; on: boolean; lastRunAt: number | null; lastOk: boolean | null; nextRunAt: number | null };
 
 // ----- channels, direct messages, threads -----
@@ -508,6 +510,7 @@ export const api = {
   chats: (a: Account, m?: (a: Account) => void) => request(a, "/v1/chats", {}, m).then((r) => r.json()).then((d) => d.chats as Chat[]),
   // Your chats plus other people's shared ones (all of them, for the owner).
   orgChats: (a: Account, m?: (a: Account) => void) => request(a, "/v1/chats?scope=org", {}, m).then((r) => r.json()).then((d) => ({ mine: d.chats as Chat[], others: (d.orgChats ?? []) as Chat[] })),
+  feed: (a: Account) => request(a, "/v1/feed").then((r) => r.json()) as Promise<{ items: FeedItem[]; conversationId?: string }>,
   loops: (a: Account) => request(a, "/v1/loops").then((r) => r.json()) as Promise<{ loops: Loop[]; available: boolean }>,
   leaderboard: (a: Account, period: LeaderboardPeriod) => request(a, `/v1/leaderboard?period=${period}`).then((r) => r.json()) as Promise<Leaderboard>,
   // The author has seen every finished reply in this agent conversation.

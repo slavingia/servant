@@ -32,3 +32,22 @@ test('an existing #agent-feed channel is reused, not duplicated', () => {
     assert.equal(m.feedFromAgent('hello').conversationId, made.id);
   } finally { m.close(); }
 });
+
+test('the Feed screen gets one item per line the agent posted, newest first, with links pulled out', () => {
+  const m = createMessaging({ file: ':memory:', users: () => people, agentName: () => 'Agent' });
+  try {
+    m.feedFromAgent('Sent\n- 1:54pm · Messaged Bo Kim\n\nShipped\n- 3:01pm · Servant: Fix it (https://github.com/x/y/commit/abc)');
+    m.feedFromAgent('Feed is live');
+    const { items } = m.feedItems();
+    assert.deepEqual(items.map(i => [i.kind, i.text, i.time, i.url]), [
+      ['note', 'Feed is live', null, null],
+      ['shipped', 'Servant: Fix it', '3:01pm', 'https://github.com/x/y/commit/abc'],
+      ['sent', 'Messaged Bo Kim', '1:54pm', null],
+    ]);
+  } finally { m.close(); }
+});
+
+test('no #agent-feed yet means an empty feed', () => {
+  const m = createMessaging({ file: ':memory:', users: () => people, agentName: () => 'Agent' });
+  try { assert.deepEqual(m.feedItems().items, []); } finally { m.close(); }
+});
