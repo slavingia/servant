@@ -388,6 +388,8 @@ return { unreadByChat, markChatRead, unreadOthers, markViewed, markAllChatsRead,
     turnMessagePosters: id => posterMap(db.prepare('SELECT id,chat_id,user_id FROM private_turns WHERE id=?').all(id)),
     turnMessageSources: id => sourceMap(db.prepare('SELECT id,chat_id,source_device_kind FROM private_turns WHERE id=?').all(id)),
     get: id => view(row(id)),
+    /** Whose agent is working right now (the outbound gate judges unattributed traffic for all of them). */
+    workingFor: () => db.prepare("SELECT DISTINCT user_id FROM private_turns WHERE status IN ('running','waiting_for_approval','stopping')").all().map(r => r.user_id),
     detail: id => detail(row(id)),
     owns: (id, chatId, userId) => { const t = row(id); return !!t && t.chat_id === chatId && t.user_id === userId; },
     latest: chatId => db.prepare('SELECT * FROM private_turns WHERE chat_id=? ORDER BY seq DESC LIMIT 20').all(chatId).map(view),

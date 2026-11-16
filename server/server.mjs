@@ -62,6 +62,8 @@ import { createChatMediaStore } from "./chat-media.mjs";
 import { createUsageStore, limitMessage, agentTierOf, AGENT_TIERS, RESEARCHER_TIER, TOKEN_LIMIT_CHOICES, MAX_AGENT_TIER } from "./usage.mjs";
 import { tierCosts } from "./usage-cost.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
+import { createEgressProxy, createEgressStore, egressSettings } from "./egress.mjs";
+import { createEntitlements } from "./entitlements.mjs";
 import { supportsDurableRuns, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
 import { createReadmeCache } from "./project-readme.mjs";
 import { createGlossaryStore } from "./glossary.mjs";
@@ -170,6 +172,8 @@ export function loadConfig() {
     // "full" (default): everyone's agent has full Hermes access. "limited":
     // non-owners use the restricted member bridge (docs/member-security.md).
     agentAccess: cfg.agentAccess === "limited" ? "limited" : "full",
+    // The agent's way out to the network (docs/agent-egress.md). Off unless mode is "ask".
+    agentEgress: egressSettings(cfg.agentEgress),
     // Where new people start: 0 = no agent until an owner sets a tier (1 tester, 2 business owner, 3 software engineer, 4 researcher, 5 product manager).
     defaultAgentTier: [0, 1, 2, 3, 4, 5].includes(cfg.defaultAgentTier) ? cfg.defaultAgentTier : 0,
     // Email code sign-in (docs/email-sign-in.md). Off unless enabled.
@@ -289,6 +293,8 @@ export function mutateStateForTest(fn) {
   return mutateState(fn);
 }
 
+/** Tests only: where the agent's network gate listens, and a token that makes traffic count as one person's. */
+export const egressForTest = () => ({ port: egressProxy?.port, mint: (userId, chatId) => egressStore().mintToken(userId, chatId) });
 export function createInvite({ name, role = "member", userId }) {
   return mutateState(state => {
     if (!["owner", "member"].includes(role)) throw new Error("role must be owner or member");
@@ -312,12 +318,12 @@ export function joinLink({ fresh = false } = {}) {
   return mutateState(state => makeJoinLink(state, { fresh }));
 }
 
-function makeJoinLink(state, { fresh }) {
+function makeJoinLink(state, { fresh, createdBy }) {
   const live = Object.values(state.invites).find((i) => i.reusable && !i.revokedAt && i.expiresAt > now());
   if (live && !fresh) return { code: live.code, expiresAt: live.expiresAt };
   if (live) live.revokedAt = now();
   const code = inviteCode();
-  state.invites[sha256(normalizeCode(code))] = { reusable: true, code, role: "member", uses: 0, createdAt: now(), expiresAt: now() + INVITE_TTL_MS };
+  state.invites[sha256(normalizeCode(code))] = { reusable: true, code, role: "member", uses: 0, createdAt: now(), expiresAt: now() + INVITE_TTL_MS, ...(createdBy ? { createdBy } : {}) };
   return { code, expiresAt: now() + INVITE_TTL_MS };
 }
 
@@ -508,6 +514,8 @@ function removePerson(state, targetId) {
   if (isRemoved(target)) return null;
   target.removedAt = now();
   for (const d of Object.values(state.devices)) if (d.userId === targetId && !d.revokedAt) revokeDevice(d);
+  // Everything they held is revoked and their agent's network tokens stop working.
+  entitlementStore().forget(targetId, "server"); egressStore().forget(targetId);
   // Out of every project; projects they owned stay (admins can still edit them).
   projects().mutate(data => { for (const p of data.projects) removeAccess(p, targetId, state.users, data.people); });
   return target.name;
@@ -857,6 +865,63 @@ let todosStore = null;
 let workChatStarter = null;
 let otaServer;
 const ota = () => otaServer ??= createOta({ dir: path.join(DATA_DIR, "ota") });
+let entitlementDb = null, egressDb = null, egressProxy = null;
+// Entitlements (docs/entitlements.md): who holds which named access, and who decides. The agent's outbound gate asks here.
+const entitlementStore = () => entitlementDb ??= createEntitlements(path.join(DATA_DIR, "entitlements.db"), {
+  known: userId => { const u = readState().users[userId]; return !!u && !isRemoved(u); },
+  isOwner: userId => readState().users[userId]?.role === "owner",
+  manages: (by, userId) => { const state = readState(); return managerOf(state, state.users[userId])?.id === by; },
+});
+// Everyone but an owner has a manager, who decides their entitlement requests: whoever was chosen for them, else
+// whoever invited them, else the server's first owner. Someone who has left is skipped.
+function managerOf(state, user) {
+  if (!user || user.role === "owner" || isRemoved(user)) return null;
+  const here = userId => { const m = userId && state.users[userId]; return m && !isRemoved(m) && m.id !== user.id ? m : null; };
+  return here(user.managerId) || here(user.invitedBy) || Object.values(state.users).filter(u => u.role === "owner" && !isRemoved(u)).sort((a, b) => a.createdAt - b.createdAt)[0] || null;
+}
+// Following managers upward from `candidate` must never come back to `user`: nobody is, even indirectly, their own manager.
+function wouldLoop(state, user, candidate) {
+  const seen = new Set();
+  for (let at = candidate; at && !seen.has(at.id); at = managerOf(state, at)) { if (at.id === user.id) return true; seen.add(at.id); }
+  return false;
+}
+function setManager(state, user, manager) {
+  if (user.role === "owner") throw requestError(400, "bad_request", "An owner has no manager");
+  if (!manager || isRemoved(manager)) throw requestError(400, "bad_request", "A manager must be someone on this server");
+  if (manager.id === user.id) throw requestError(400, "bad_request", "Nobody is their own manager");
+  if (wouldLoop(state, user, manager)) throw requestError(400, "manager_loop", `${manager.name} reports up to ${user.name}, so can't also be their manager`);
+  user.managerId = manager.id;
+}
+const egressStore = () => egressDb ??= createEgressStore(path.join(DATA_DIR, "egress.db"));
+// One alert to named people about an entitlement: who asked, what was decided, or what the agent was refused.
+function tellAbout(to, title, body) {
+  const people = [...new Set(to)].filter(Boolean);
+  if (!people.length) return;
+  try { push?.enqueue({ kind: "entitlement", eventId: id("ent"), to: people, title, body }); } catch (error) { console.error("[servant] entitlement alert", error.message); }
+}
+const ownerIds = state => Object.values(activeUsers(state)).filter(u => u.role === "owner").map(u => u.id);
+// What the app shows for one entitlement: your own standing, and that of the people whose requests are yours to decide
+// (your reports; everyone for an owner).
+function entitlementView(entitlement, viewer, users) {
+  const store = entitlementStore();
+  const person = userId => ({ id: userId, name: users[userId]?.name || (userId === "server" ? "Servant" : "Former member") });
+  const people = store.grants(entitlement.id).filter(g => g.userId !== viewer.id && store.decides(viewer.id, g.userId));
+  return { id: entitlement.id, name: entitlement.name, description: entitlement.description, hosts: entitlement.hosts, confirmation: entitlement.confirmation,
+    mine: store.grant(entitlement.id, viewer.id), people: people.map(g => ({ ...g, name: person(g.userId).name, ...(g.decidedBy ? { decidedByName: person(g.decidedBy).name } : {}) })) };
+}
+// The agent was refused a host: tell whoever can do something about it, once (egress.mjs repeats at most daily).
+function egressBlocked(attempt) {
+  const state = readState();
+  const who = state.users[attempt.userId]?.name || "Someone";
+  const covering = entitlementStore().covering(attempt.host);
+  if (covering.length) return tellAbout([attempt.userId], "Agent · access needed", `The agent couldn't reach ${attempt.host}. Ask for ${covering.map(e => e.name).join(" or ")} in Entitlements`);
+  tellAbout(ownerIds(state), "Agent · blocked", `${who}'s agent tried ${attempt.host}, which no entitlement covers`);
+}
+const egressHint = host => {
+  const covering = entitlementStore().covering(host);
+  return covering.length ? `it needs the entitlement ${covering.map(e => JSON.stringify(e.name)).join(" or ")}, which the person you are working for does not hold. They can ask for it in Servant under Entitlements.`
+    : "no entitlement covers it. The person can ask an owner to add it to one.";
+};
 const usageStore = () => usageDb ??= createUsageStore(path.join(DATA_DIR, "usage.db"));
 // Tier 0 has no agent; otherwise the message names this person's own daily limit.
 const limitText = user => agentTierOf(user) === 0 ? noAgentMessage : limitMessage(usageStore().limitFor(user));
@@ -1083,7 +1148,13 @@ async function handle(req, res, cfg) {
       // Every acceptance is kept: who, which version, which checks, when, on which device.
       user.termsAcceptances = [...(user.termsAcceptances || []), { ...terms, acceptedAt: now(), deviceId }];
       if (verifiedEmail) { user.email = verifiedEmail; user.emailVerifiedAt = now(); }
+      // Who decides this person's entitlement requests starts as whoever invited them (managerOf falls back to an owner).
+      if (!existing && invite.createdBy && !invite.managerFor) user.invitedBy = invite.createdBy;
       state.users[user.id] = user;
+      // "Invite your manager": the person who sent this invite now reports to whoever accepted it. Skipped quietly
+      // when it can't hold (they left, became an owner, or it would make a loop); joining never fails over it.
+      const report = invite.managerFor && state.users[invite.managerFor];
+      if (report && !isRemoved(report) && report.role !== "owner") { try { setManager(state, report, user); } catch { /* the join still stands */ } }
       state.devices[sha256(token)] = {
         id: deviceId, userId: user.id, label: String(body.device || "Phone").slice(0, 80),
         createdAt: now(), lastSeenAt: now(), ...(verifiedEmail ? { sessionVerifiedAt: now() } : {}),
@@ -1258,7 +1329,7 @@ async function handle(req, res, cfg) {
     if (user.role !== "owner") return fail(res, 403, "forbidden", "Only the owner can do that");
     if (method === "POST" && parts[1] === "invites" && parts.length === 2) {
       const body = await readBody(req);
-      const { code, expiresAt } = mutateAuthenticated(req, state => makeJoinLink(state, { fresh: body.fresh === true }), true);
+      const { code, expiresAt } = mutateAuthenticated(req, (state, auth) => makeJoinLink(state, { fresh: body.fresh === true, createdBy: auth.user.id }), true);
       return send(res, 200, { code, link: pairLink(code, cfg), webLink: joinWebLink(code, cfg), expiresAt });
     }
     if (method === "GET" && parts[1] === "devices" && parts.length === 2) {
@@ -1589,6 +1660,92 @@ async function handle(req, res, cfg) {
       }
     }
     return fail(res, 404, "not_found", "Not found");
+  }
+  // "Invite your manager": a one-use invite for someone who isn't here yet. When they join, they become the manager of
+  // the person who sent it, so the chart fills in from the bottom up. Their own manager is an owner until someone says otherwise.
+  if (method === "POST" && parts[1] === "people" && parts[2] === "me" && parts[3] === "manager-invite" && parts.length === 4) {
+    const body = await readAuthorizedBody(req);
+    const name = String(body.name || "").replace(/\s+/g, " ").trim().slice(0, 80);
+    if (!name) return fail(res, 400, "name_required", "Enter your manager's name");
+    try {
+      const code = mutateAuthenticated(req, (state, auth) => {
+        if (auth.user.role === "owner") throw requestError(400, "bad_request", "An owner has no manager");
+        if (Object.values(state.users).some(u => !isRemoved(u) && u.name.toLowerCase() === name.toLowerCase())) throw requestError(409, "name_taken", `${name} is already on this server. Ask your manager or an owner to make them your manager`);
+        const made = inviteCode();
+        state.invites[sha256(normalizeCode(made))] = { name, role: "member", createdAt: now(), expiresAt: now() + INVITE_TTL_MS, createdBy: auth.user.id, managerFor: auth.user.id };
+        return made;
+      });
+      return send(res, 201, { code, link: pairLink(code, cfg), webLink: joinWebLink(code, cfg), expiresAt: now() + INVITE_TTL_MS });
+    } catch (error) { if (!error.status) throw error; return fail(res, error.status, error.code, error.message); }
+  }
+  // Change who someone's manager is: an owner, or their current manager handing them on.
+  if (method === "PUT" && parts[1] === "people" && parts[3] === "manager" && parts.length === 4) {
+    const body = await readAuthorizedBody(req);
+    try {
+      const out = mutateAuthenticated(req, (state, auth) => {
+        const target = state.users[parts[2]];
+        if (!target || isRemoved(target)) throw requestError(404, "not_found", "No such person");
+        if (auth.user.role !== "owner" && managerOf(state, target)?.id !== auth.user.id) throw requestError(403, "forbidden", `Only ${target.name}'s manager or an owner can change their manager`);
+        setManager(state, target, state.users[String(body.managerId || "")]);
+        return { id: target.id, name: target.name, manager: { id: target.managerId, name: state.users[target.managerId].name } };
+      });
+      if (out.manager.id !== user.id) tellAbout([out.manager.id], "Entitlements", `You now decide ${out.name}'s entitlement requests`);
+      return send(res, 200, { person: out });
+    } catch (error) { if (!error.status) throw error; return fail(res, error.status, error.code, error.message); }
+  }
+  // Entitlements (docs/entitlements.md): named access people ask for and their manager grants. Everyone sees the list and
+  // their own standing; a manager also sees their reports'; owners see everyone's and make, edit and retire them.
+  if (parts[1] === "entitlements") {
+    const store = entitlementStore();
+    const guard = fn => { try { return fn(); } catch (error) { if (!error.status) throw error; return fail(res, error.status, error.code, error.message), undefined; } };
+    const users = readState().users;
+    if (method === "GET" && parts.length === 2) {
+      const state = readState();
+      const brief = u => u && ({ id: u.id, name: u.name });
+      const everyone = Object.values(activeUsers(state));
+      return send(res, 200, { entitlements: store.list().map(e => entitlementView(e, user, users)), canCreate: user.role === "owner", waiting: store.waitingOn(user.id).length,
+        manager: brief(managerOf(state, user)) || null, reports: everyone.filter(u => managerOf(state, u)?.id === user.id).map(brief),
+        // Owners see the whole chart: each person and who decides for them.
+        ...(user.role === "owner" ? { org: everyone.map(u => ({ ...brief(u), role: u.role, manager: brief(managerOf(state, u)) || null })) } : {}),
+        egress: { mode: egressSettings(cfg.agentEgress).mode, ...(user.role === "owner" ? { always: egressSettings(cfg.agentEgress).always, refused: egressStore().recent(50).map(a => ({ ...a, name: users[a.userId]?.name || "Former member" })) } : {}) } });
+    }
+    if (method === "POST" && parts.length === 2) {
+      const body = await readAuthorizedBody(req);
+      if (user.role !== "owner") return fail(res, 403, "forbidden", "Only an owner can make an entitlement");
+      const made = guard(() => store.create(body, user.id));
+      return made && send(res, 201, { entitlement: entitlementView(made, user, users) });
+    }
+    if (method === "GET" && parts.length === 4 && parts[3] === "history") {
+      const entitlement = store.get(parts[2]);
+      if (!entitlement) return fail(res, 404, "not_found", "No such entitlement");
+      if (user.role !== "owner") return fail(res, 403, "forbidden", "Only an owner can see an entitlement's history");
+      return send(res, 200, { history: store.history(entitlement.id).map(h => ({ ...h, byName: users[h.by]?.name || (h.by === "server" ? "Servant" : "Former member"), ...(h.userId ? { name: users[h.userId]?.name || "Former member" } : {}) })) });
+    }
+    if ((method === "PATCH" || method === "DELETE") && parts.length === 3) {
+      const body = method === "PATCH" ? await readAuthorizedBody(req) : (requireAuth(req), {});
+      if (user.role !== "owner") return fail(res, 403, "forbidden", "Only an owner can change an entitlement");
+      if (method === "DELETE") return guard(() => store.retire(parts[2], user.id)) && send(res, 200, { ok: true });
+      const changed = guard(() => store.update(parts[2], body, user.id));
+      return changed && send(res, 200, { entitlement: entitlementView(changed, user, users) });
+    }
+    // The person asks, confirming they have this access themselves. Their manager is told once.
+    if (method === "POST" && parts.length === 4 && parts[3] === "request") {
+      const body = await readAuthorizedBody(req);
+      const asked = guard(() => store.request(parts[2], user.id, { confirmed: body.confirmed, note: body.note }));
+      if (!asked) return;
+      if (asked.fresh) tellAbout([managerOf(readState(), user)?.id], "Entitlement request", `${user.name} asked for ${asked.entitlement.name}`);
+      return send(res, asked.fresh ? 201 : 200, { entitlement: entitlementView(asked.entitlement, user, users) });
+    }
+    // The person's manager (or an owner) grants or declines a request, or takes the entitlement back. The person is told.
+    if (method === "POST" && parts.length === 5 && parts[3] === "people") {
+      const body = await readAuthorizedBody(req);
+      const decided = guard(() => store.decide(parts[2], parts[4], { decision: body.decision, by: user.id, reason: body.reason }));
+      if (!decided) return;
+      const { entitlement, grant } = decided;
+      if (parts[4] !== user.id) tellAbout([parts[4]], "Entitlements", grant.status === "granted" ? `You now have ${entitlement.name}` : grant.status === "denied" ? `Your request for ${entitlement.name} was declined` : `${entitlement.name} was taken back`);
+      return send(res, 200, { entitlement: entitlementView(entitlement, user, users) });
+    }
+    return fail(res, 404, "not_found", "No such route");
   }
   // Owners mark people as vibe coders (not programmers).
   // Owner: remove someone who has left the team. Their devices sign out at once.
@@ -2435,6 +2592,8 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
       if (event.kind === "message") return serviceMessaging.notificationFor(event.messageId, user, event);
       // A visitor wrote to the secure inbox: the team hears as it would for a direct message, and not at all in deep work.
       if (event.kind === "case") return normalizeFeatures((fixedCfg || loadConfig()).features).secureInbox && !inDeepWork(user) ? inbox().notificationFor(user, event.caseId, event.sequence) : null;
+      // An entitlement request, decision or refusal: only for the people it names.
+      if (event.kind === "entitlement") return Array.isArray(event.to) && event.to.includes(user.id) ? { kind: "agent", title: event.title, body: event.body } : null;
       const chat = readState().chats[event.chatId];
       if (event.userId !== user.id || !chat || chat.deletedAt || chat.userId !== user.id) return null;
       return { kind: "agent", chatId: chat.id, title: "Agent · " + chat.title, body: event.text };
@@ -2540,6 +2699,15 @@ export function startServer(fixedCfg) {
     }, 250);
   }
   secureTransport ??= createSecureTransport(DATA_DIR);
+  // The agent's sandbox has one way out: this proxy on localhost (egress.mjs). It only listens when the gate is on at
+  // start; what is allowed is read for every connection.
+  if (egressSettings(cfg.agentEgress).mode === "ask" && !egressProxy) {
+    egressProxy = createEgressProxy({ store: egressStore(), settings: () => egressSettings((fixedCfg || loadConfig()).agentEgress), allowed: (userId, host) => entitlementStore().allows(userId, host),
+      active: () => agentTurns?.workingFor() || [], known: userId => { const u = readState().users[userId]; return !!u && !isRemoved(u); }, blocked: egressBlocked, hint: egressHint,
+      ...(globalThis.__servantEgressTest || {}) });
+    egressProxy.listen(egressSettings(cfg.agentEgress).port).then(port => { egressProxy.port = port; console.log(`[servant] agent network gate on 127.0.0.1:${port}`); },
+      error => console.error(`[servant] agent network gate could not start on port ${egressSettings(cfg.agentEgress).port}: ${error.message}. Sandboxed agents will have no network until it does`));
+  }
   inboxConfig = () => fixedCfg || loadConfig();
   // Checked every few seconds; a short configured delay (a test or a demonstration) is checked as often as it asks.
   if (!inboxNoticeTimer) { inboxNoticeTimer = setInterval(() => void inboxNotices.sweep(), Math.max(1000, Math.min(5000, inboxNoticeSettings(cfg).delayMs))); inboxNoticeTimer.unref(); }
@@ -2627,6 +2795,8 @@ export function startServer(fixedCfg) {
     messaging?.close(); messaging = null;
     agentTurns?.close(); agentTurns = null;
     chatMedia?.close(); chatMedia = null; usageDb?.close(); usageDb = null;
+    await egressProxy?.close(); egressProxy = null;
+    entitlementDb?.close(); entitlementDb = null; egressDb?.close(); egressDb = null;
     secureTransport?.close(); secureTransport = null;
     stateStore?.close(); stateStore = null;
   })();
