@@ -101,6 +101,13 @@ The feature guide, [docs/features.md](docs/features.md), covers each of these:
 
 - [Reliable agent conversations](docs/features.md#reliable-agent-conversations)
 - [Last seen and read receipts](docs/features.md#last-seen-and-read-receipts)
+- [The New line](docs/features.md#the-new-line)
+- [Search](docs/features.md#search)
+- [A reply also sent to the channel](docs/features.md#a-reply-also-sent-to-the-channel)
+- [Quoting a message](docs/features.md#quoting-a-message)
+- [Link previews](docs/features.md#link-previews)
+- [Playing a link in place](docs/features.md#playing-a-link-in-place)
+- [Formatting and commands](docs/features.md#formatting-and-commands)
 - [Saved messages](docs/features.md#saved-messages)
 - [Attachments](docs/features.md#attachments)
 - [Roles](docs/features.md#roles)
