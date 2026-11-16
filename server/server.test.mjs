@@ -2099,6 +2099,13 @@ test("release notes can only be posted from this Mac with the admin key", async 
   assert.equal(r2.status, 403);
 });
 
+test("agent notices can only be posted from this Mac with the admin key", async () => {
+  const r = await fetch(`${base}/admin/notify`, { method: "POST", headers: { "Content-Type": "application/json", "cf-connecting-ip": "1.2.3.4", "X-Servant-Admin": "x" }, body: JSON.stringify({ text: "n" }) });
+  assert.equal(r.status, 403);
+  const r2 = await fetch(`${base}/admin/notify`, { method: "POST", headers: { "Content-Type": "application/json", "X-Servant-Admin": "" }, body: JSON.stringify({ text: "n" }) });
+  assert.equal(r2.status, 403);
+});
+
 test("feedback accepts paired reports once and never leaks another user's history", async () => {
   const a = await pair("member", "Reporter");
   const b = await pair("member", "Other reporter");

@@ -836,6 +836,19 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     });
   }
 
+  /** Scripts on this Mac (cron, alerts) tell someone something: the agent posts it in their own agent conversation, so it notifies like any message. */
+  function notifyFromAgent(userId, text, { attachments = [] } = {}) {
+    text = String(text || "").trim().slice(0, MAX_TEXT);
+    if (!text && !attachments.length) throw httpError(400, "empty", "Write the message first");
+    return transaction(() => {
+      if (!users()[userId]) throw httpError(404, "not_found", "No such person");
+      const conv = welcomeFromAgentInTransaction(userId);
+      const m = post(conv, AGENT_ID, text, null, { attachments, queueAgent: false });
+      publish(conv.id, "conversation.updated", { id: conv.id });
+      return { conversationId: conv.id, messageId: String(m.seq) };
+    });
+  }
+
   function joinDefaults(...args) { return transaction(() => joinDefaultsInTransaction(...args)); }
   /** Startup backfill: everyone into every public channel, then one note in #general. */
   function joinEveryone(userIds) {
@@ -2031,7 +2044,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
   function personChanged(userId) { publish('', 'person.updated', { userId }, Object.keys(users())); }
   // Their deep work switch moved: everyone's "Deep work" label and the person's other devices update at once.
   const presenceChanged = userId => publishPresence(userId);
-  return { ...meetingHooks, workLog, channelFor, postActivity, personChanged, presenceChanged, handle, forwardSource, forwardInto, notificationFor, joinDefaults, joinEveryone, welcomeFromAgent, ensureAgentDms, congratulateLimit, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, keep, keepAll, close: () => { closeEvents(); db.close(); }, db };
+  return { ...meetingHooks, workLog, channelFor, postActivity, personChanged, presenceChanged, handle, forwardSource, forwardInto, notificationFor, joinDefaults, joinEveryone, welcomeFromAgent, notifyFromAgent, ensureAgentDms, congratulateLimit, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, keep, keepAll, close: () => { closeEvents(); db.close(); }, db };
 }
 
 function httpError(status, code, message) {
