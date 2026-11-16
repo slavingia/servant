@@ -469,6 +469,16 @@ const mutateAuthenticated = (req, fn, owner = false) => mutateState(state => {
   auth.device.lastSeenAt = now();
   return fn(state, auth);
 });
+// The workspace owner may jump into any chat its author shared with everyone and take part: send messages and
+// get the agent's replies. Everything else about someone's chat (rename, share, archive, delete) stays theirs.
+function mayTakePart(chat, user) {
+  return !!chat && !chat.deletedAt && !!user && (chat.userId === user.id || (user.role === "owner" && chat.shared === true));
+}
+function requireChatParticipant(state, userId, chatId) {
+  const chat = state.chats[chatId];
+  if (!mayTakePart(chat, state.users[userId])) throw requestError(404, "not_found", "No such chat");
+  return chat;
+}
 function requireChat(state, userId, chatId) {
   const chat = state.chats[chatId];
   if (!chat || chat.deletedAt || chat.userId !== userId) throw requestError(404, "not_found", "No such chat");
@@ -1842,7 +1852,9 @@ async function handle(req, res, cfg) {
 
   const viewer = currentState.users[user.id] || user;
   const visible = currentState.chats[parts[2]];
-  if (visible && visible.userId !== user.id && canReadChat(visible, viewer)) {
+  const joining = !!visible && visible.userId !== user.id && mayTakePart(visible, viewer)
+    && ((parts[3] === "messages" && parts.length === 4 && method === "POST") || parts[3] === "uploads" || parts[3] === "turns");
+  if (visible && visible.userId !== user.id && !joining && canReadChat(visible, viewer)) {
     // Someone else's shared chat (or any chat, for the owner): read only.
     // A shared chat's messages can be forwarded to a channel or DM for feedback.
     if (method === "POST" && parts[3] === "messages" && parts[5] === "forward" && parts.length === 6 && chatShared(visible)) {
@@ -1864,7 +1876,7 @@ async function handle(req, res, cfg) {
     agentTurns.markViewed(user.id, [visible.id]);
     return send(res, 200, { chat: chatView(visible, viewer, currentState.users), messages: history.map(message => privateMessageView(message, viewer, sources)), latestTurn: null, upstreamUnavailable: false });
   }
-  const chat = mine.find((c) => c.id === parts[2]);
+  const chat = joining ? visible : mine.find((c) => c.id === parts[2]);
   if (!chat) return fail(res, 404, "not_found", "No such chat");
 
   if (method === "GET" && parts.length === 3) return send(res, 200, { chat: chatView(chat, user) });
@@ -1982,7 +1994,7 @@ async function handle(req, res, cfg) {
   const syncChatHistory = async (allowOffline = false) => {
     const cached = () => {
       const latest = readState();
-      requireChat(latest, requireAuth(req, latest).user.id, chat.id);
+      requireChatParticipant(latest, requireAuth(req, latest).user.id, chat.id);
       upstreamUnavailable = true;
       return chatMediaStore().history(chat.id);
     };
@@ -2000,7 +2012,7 @@ async function handle(req, res, cfg) {
     if (!r.ok) throw requestError(502, "agent_error", `Couldn't load messages (${r.status})`);
     const data = await r.json();
     const latest = readState();
-    requireChat(latest, requireAuth(req, latest).user.id, chat.id);
+    requireChatParticipant(latest, requireAuth(req, latest).user.id, chat.id);
     const messages = data.messages ?? data.data;
     if (!Array.isArray(messages)) throw requestError(502, "agent_error", "The agent returned invalid message history");
     return chatMediaStore().sync(chat.id, messages, generation);
@@ -2008,7 +2020,7 @@ async function handle(req, res, cfg) {
 
   // The author has seen every finished reply (others reading a shared chat never get here).
   if (method === "POST" && parts[3] === "read" && parts.length === 4) {
-    requireChat(readState(), requireAuth(req).user.id, chat.id);
+    requireChatParticipant(readState(), requireAuth(req).user.id, chat.id);
     agentTurns.markChatRead(chat.id, user.id);
     return send(res, 200, { unread: 0 });
   }
@@ -2035,7 +2047,7 @@ async function handle(req, res, cfg) {
   const ownTurn = turnId => {
     const latest = readState();
     const current = requireAuth(req, latest);
-    requireChat(latest, current.user.id, chat.id);
+    requireChatParticipant(latest, current.user.id, chat.id);
     if (!agentTurns.owns(turnId, chat.id, current.user.id)) throw requestError(404, "not_found", "No such turn");
     return current;
   };
@@ -2123,7 +2135,7 @@ async function handle(req, res, cfg) {
     // Establish history before the worker records new accepted deliveries.
     await syncChatHistory();
     const turn = mutateAuthenticated(req, (state, current) => {
-      const active = requireChat(state, current.user.id, chat.id);
+      const active = requireChatParticipant(state, current.user.id, chat.id);
       if (privateForward && (chatShared(active) || active.projectShared || active.members?.length)) throw requestError(409, "forward_private", "Messages from private conversations go into a private chat");
       const queued = agentTurns.enqueue({ chat: active, user: current.user, device: current.device, text, attachments, requestId: body.requestId });
       if (privateForward) active.privateForward = true;
@@ -2139,7 +2151,7 @@ async function handle(req, res, cfg) {
       // makes deleted attachments downloadable or opens a new subscription.
       const latest = readState();
       const current = requireAuth(req, latest);
-      if (latest.chats[chat.id]?.userId !== current.user.id) throw requestError(404, "not_found", "No such chat");
+      if (!mayTakePart(latest.chats[chat.id], current.user)) throw requestError(404, "not_found", "No such chat");
       return current;
     });
   }
@@ -2188,7 +2200,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
   const initial = readState();
   const user = initial.users[turn.user_id];
   const device = Object.values(initial.devices).find(d => d.id === turn.device_id && d.userId === turn.user_id && !d.revokedAt);
-  const chat = requireChat(initial, turn.user_id, turn.chat_id);
+  const chat = requireChatParticipant(initial, turn.user_id, turn.chat_id);
   if (!user || !device || (chat.role === "owner" && user.role !== "owner")) throw requestError(403, "forbidden", "Access changed before this turn started");
   // Someone moved to Researcher can't keep using an older chat that runs on the full or member agent.
   if (user.role !== "owner" && agentTierOf(user) === RESEARCHER_TIER && chat.role !== "researcher") throw requestError(403, "forbidden", "Your access changed. Start a new chat");
@@ -2209,7 +2221,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
     if (assistantMessage) return;
     const latest = readState();
     const active = latest.chats[turn.chat_id];
-    if (!active || active.userId !== turn.user_id) throw requestError(404, "not_found", "That chat is gone");
+    if (!mayTakePart(active, latest.users[turn.user_id])) throw requestError(404, "not_found", "That chat is gone");
     const normalized = normalizeMediaContent(content);
     const marked = readDoneTag(normalized.text);
     todoFinished = marked.done;
@@ -2221,7 +2233,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
   };
   const onAccepted = () => {
     const latest = readState();
-    requireChat(latest, turn.user_id, turn.chat_id);
+    requireChatParticipant(latest, turn.user_id, turn.chat_id);
     if (!Object.values(latest.devices).some(d => d.id === turn.device_id && d.userId === turn.user_id && !d.revokedAt)) throw requestError(401, "unauthorized", "Device removed");
     const message = chatMediaStore().accept(turn.chat_id, "user", turn.text, turn.attachments, turn.id);
     chatMediaStore().identifyInput(message.id, input);

@@ -79,9 +79,9 @@ async function fixture(t, { durable = true, restricted = false, steer = false } 
   const up = { url: `http://127.0.0.1:${upstream.address().port}`, key: 'fixture-key' };
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ host: '127.0.0.1', port: 0, agentAccess: restricted ? 'limited' : 'full', upstreams: { owner: up, member: up } }));
   fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify({
-    users: { owner: { id: 'owner', role: 'owner', name: 'Owner' }, stranger: { id: 'stranger', role: 'owner', name: 'Stranger' } },
-    devices: Object.fromEntries(['owner', 'stranger'].map(id => [crypto.createHash('sha256').update(id).digest('hex'), { id: `device_${id}`, userId: id }])),
-    chats: { chat: { id: 'chat', userId: 'owner', role: restricted ? 'member' : 'owner', hermesSessionId: 'session', title: 'Test', createdAt: 1, updatedAt: 1 } }, invites: {},
+    users: { owner: { id: 'owner', role: 'owner', name: 'Owner' }, stranger: { id: 'stranger', role: 'owner', name: 'Stranger' }, member: { id: 'member', role: 'member', name: 'Member' } },
+    devices: Object.fromEntries(['owner', 'stranger', 'member'].map(id => [crypto.createHash('sha256').update(id).digest('hex'), { id: `device_${id}`, userId: id }])),
+    chats: { chat: { id: 'chat', userId: 'owner', role: restricted ? 'member' : 'owner', hermesSessionId: 'session', title: 'Test', createdAt: 1, updatedAt: 1 }, memberchat: { id: 'memberchat', userId: 'member', role: 'owner', hermesSessionId: 'session', title: 'Member chat', createdAt: 1, updatedAt: 1 } }, invites: {},
   }));
   let apiChild, workerChild, base;
   const start = async name => {
@@ -460,4 +460,29 @@ test('conversations never close themselves: only the person archives, and a new 
   await next.body.cancel();
   assert.equal((await chat()).archived, false);
   assert.equal((await (await f.api('/v1/chats/chat/restore', 'POST', {})).json()).chat.archived, false);
+});
+
+test('the workspace owner can jump into a chat another person shared with everyone, and only then', { timeout: 15000 }, async t => {
+  const f = await fixture(t);
+  const read = async user => (await f.api('/v1/chats/memberchat', 'GET', undefined, user)).status;
+  // Private chat: the owner can still read it (admin view) but cannot post.
+  assert.equal(await read('owner'), 200);
+  const closed = await f.api('/v1/chats/memberchat/messages', 'POST', { text: 'Hi', requestId: 'request_closed' }, 'owner');
+  assert.equal(closed.status, 403);
+  await closed.body?.cancel();
+  // Shared with everyone: the author's choice.
+  assert.equal((await f.api('/v1/chats/memberchat', 'PATCH', { shared: true }, 'member')).status, 200);
+  const listed = await (await f.api('/v1/chats?scope=org', 'GET', undefined, 'owner')).json();
+  assert.ok(JSON.stringify(listed).includes('memberchat'));
+  const joined = await f.api('/v1/chats/memberchat/messages', 'POST', { text: 'Owner joining in', requestId: 'request_join' }, 'owner');
+  assert.equal(joined.status, 200);
+  await joined.body.cancel();
+  await until(async () => f.runs.size === 1);
+  const history = await (await f.api('/v1/chats/memberchat/messages', 'GET', undefined, 'owner')).json();
+  assert.ok(history.messages.some(m => m.role === 'user' && m.text === 'Owner joining in'));
+  // The author keeps control: a shared chat's settings stay theirs.
+  assert.equal((await f.api('/v1/chats/memberchat', 'PATCH', { shared: false }, 'owner')).status, 403);
+  assert.equal((await f.api('/v1/chats/memberchat', 'DELETE', undefined, 'owner')).status, 403);
+  // A member who is not the owner never gets in.
+  assert.equal((await f.api('/v1/chats/chat/messages', 'POST', { text: 'No' }, 'member')).status, 404);
 });

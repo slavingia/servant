@@ -109,6 +109,28 @@ function SharedChatView() {
     const timer = setTimeout(() => { void load(); }, 0);
     return () => clearTimeout(timer);
   }, [load]);
+  // The workspace owner can jump into any chat shared with everyone: the composer is theirs to use there.
+  const canJoin = account?.user.role === "owner" && chat?.shared === true;
+  const polling = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => () => { if (polling.current) clearInterval(polling.current); }, []);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const join = async (text: string) => {
+    if (!account || !id) return false;
+    const controller = new AbortController();
+    let queued = false;
+    try {
+      await sendMessage(account, String(id), text, e => { if (e.type === "turn") { queued = true; controller.abort(); } }, controller.signal, undefined, [], randomUUID());
+    } catch (e) {
+      if (!queued) { setJoinError(e instanceof ServerError ? e.message : "Couldn't send your message. Try again."); return false; }
+    }
+    setJoinError(null);
+    // The agent answers in the author's chat: look for its reply for a couple of minutes.
+    void load();
+    if (polling.current) clearInterval(polling.current);
+    let ticks = 0;
+    polling.current = setInterval(() => { void load(); if (++ticks >= 40 && polling.current) clearInterval(polling.current); }, 3000);
+    return true;
+  };
   const authorName = chat?.author?.name || author || "Someone";
   const media = useMemo(() => mediaFromMessages(messages ?? [], authorName, "Agent"), [messages, authorName]);
   if (!account) return null;
@@ -120,10 +142,11 @@ function SharedChatView() {
       {showTitle ? <FullTitle title={chat?.title || title || "Conversation"} onClose={() => setShowTitle(false)} /> : null}
       <View style={styles.sharedBanner}>
         <Text style={styles.turnLabel}>{authorName}'s conversation</Text>
-        <Text style={styles.turnDetail}>{chat?.shared === true ? `Shared with ${account.serverName}. Read only.`
+        <Text style={styles.turnDetail}>{chat?.shared === true ? canJoin ? `Shared with ${account.serverName}. You can join in.` : `Shared with ${account.serverName}. Read only.`
           : chat?.projectShared ? "Shared with their project. Read only."
             : "Private · Admin access"}</Text>
       </View>
+      <ConversationKeyboardView>
       {messages === null ? <SkeletonRows label="Loading messages" count={8} style={{ flex: 1 }} /> : (
         <FlatList inverted data={data} keyExtractor={(m) => m.id} contentContainerStyle={[styles.list, styles.readOnlyList]}
           ListFooterComponent={messages.length === 0 ? <View style={styles.empty}>
@@ -147,6 +170,11 @@ function SharedChatView() {
             </MessageActions>;
           }} />
       )}
+      {canJoin && messages !== null ? <>
+        {joinError ? <Text accessibilityRole="alert" style={styles.aboutError}>{joinError}</Text> : null}
+        <Composer draftKey={`chat:${id}`} placeholder={`Message in ${authorName}'s conversation`} allowAttachments={false} onSend={join} />
+      </> : null}
+      </ConversationKeyboardView>
       {forwarding ? <ForwardSheet target={forwarding} onClose={() => setForwarding(null)} /> : null}
     </View>
     </MediaGalleryProvider>
