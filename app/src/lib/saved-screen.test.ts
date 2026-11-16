@@ -21,8 +21,8 @@ test("the screen has one title, the one the sidebar opens it with, and no slogan
 test("its sections are the section tabs of Project and Files, with counts after a dot", () => {
   const project = read("app/project.tsx");
   for (const style of [
-    'tabs: { flexDirection: "row", backgroundColor: colors.surface, borderRadius: radius.md, padding: 3,',
-    'tab: { flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, paddingHorizontal: space.xs },',
+    'tabs: { flexDirection: "row", backgroundColor: colors.surface, borderRadius: radius.pill, padding: 3,',
+    'tab: { flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: radius.pill, paddingHorizontal: space.xs },',
     "tabOn: { backgroundColor: colors.background, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },",
     "tabText: { ...typography.captionStrong, color: colors.muted },",
     "tabTextOn: { color: colors.ink },",

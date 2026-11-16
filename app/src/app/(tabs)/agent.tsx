@@ -364,7 +364,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   unreadBadgeText: { ...typography.captionStrong, color: colors.onPrimary },
   // Same filter row as the DM tab.
   filters: { flexDirection: "row", gap: space.xs, paddingHorizontal: space.side, paddingVertical: space.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
-  filter: { flexDirection: "row", alignItems: "center", minHeight: 44, paddingHorizontal: space.md, paddingVertical: space.sm, justifyContent: "center", borderRadius: radius.md },
+  filter: { flexDirection: "row", alignItems: "center", minHeight: 44, paddingHorizontal: space.lg, paddingVertical: space.sm, justifyContent: "center", borderRadius: radius.pill, backgroundColor: colors.surface },
   selectedFilter: { backgroundColor: colors.blueSoft },
   filterText: { ...typography.bodyStrong, color: colors.muted },
   selectedFilterText: { color: colors.blueDark },

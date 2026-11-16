@@ -190,8 +190,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   statusText: { ...typography.captionStrong, color: colors.ink },
   // The same segmented tabs as Saved and a project, sized by their words so four fit a phone.
   tabsRow: { paddingHorizontal: space.side, paddingVertical: space.xs },
-  tabs: { flexDirection: "row", backgroundColor: colors.surface, borderRadius: radius.md, padding: 3, width: "100%", maxWidth: 520 },
-  tab: { flexGrow: 1, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, paddingHorizontal: space.xs },
+  tabs: { flexDirection: "row", backgroundColor: colors.surface, borderRadius: radius.pill, padding: 3, width: "100%", maxWidth: 520 },
+  tab: { flexGrow: 1, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: radius.pill, paddingHorizontal: space.xs },
   tabOn: { backgroundColor: colors.background, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
   tabText: { ...typography.captionStrong, color: colors.muted },
   tabTextOn: { color: colors.ink },

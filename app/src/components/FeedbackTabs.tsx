@@ -29,8 +29,8 @@ export function FeedbackTabs({ current, survey, disabled }: { current: FeedbackV
 }
 
 const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
-  tabs: { flexDirection: "row", gap: space.xxs, padding: space.xxs, borderRadius: radius.md, backgroundColor: colors.surface, width: "100%", maxWidth: 400 },
-  tab: { flex: 1, minWidth: 0, minHeight: 44, alignItems: "center", justifyContent: "center", paddingHorizontal: space.xs, borderRadius: radius.sm },
+  tabs: { flexDirection: "row", gap: space.xxs, padding: space.xxs, borderRadius: radius.pill, backgroundColor: colors.surface, width: "100%", maxWidth: 400 },
+  tab: { flex: 1, minWidth: 0, minHeight: 44, alignItems: "center", justifyContent: "center", paddingHorizontal: space.xs, borderRadius: radius.pill },
   tabOn: { backgroundColor: colors.background },
   tabText: { ...typography.label, color: colors.muted },
   tabTextOn: { color: colors.ink },

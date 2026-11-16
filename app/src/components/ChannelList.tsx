@@ -271,7 +271,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   content: { paddingBottom: space.xxl },
   status: { ...typography.caption, marginLeft: "auto", alignSelf: "center", color: colors.muted },
   filters: { flexDirection: "row", gap: space.xs, paddingHorizontal: space.side, paddingVertical: space.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
-  filter: { minHeight: 44, paddingHorizontal: space.md, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", gap: space.xs, borderRadius: radius.md },
+  filter: { minHeight: 44, paddingHorizontal: space.lg, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", gap: space.xs, borderRadius: radius.pill, backgroundColor: colors.surface },
   selectedFilter: { backgroundColor: colors.blueSoft },
   filterText: { ...typography.bodyStrong, color: colors.muted },
   selectedFilterText: { color: colors.blueDark },

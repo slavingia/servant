@@ -127,8 +127,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   inlineError: { ...typography.caption, color: colors.red, marginTop: space.xs },
   // The same segmented control as Files.
   header: { paddingHorizontal: space.side, paddingTop: space.sm, paddingBottom: space.xs },
-  tabs: { flexDirection: "row", backgroundColor: colors.surface, borderRadius: radius.md, padding: 3, width: "100%", maxWidth: 400, alignSelf: "center" },
-  tab: { flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, paddingHorizontal: space.xs },
+  tabs: { flexDirection: "row", backgroundColor: colors.surface, borderRadius: radius.pill, padding: 3, width: "100%", maxWidth: 400, alignSelf: "center" },
+  tab: { flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: radius.pill, paddingHorizontal: space.xs },
   tabOn: { backgroundColor: colors.background, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
   tabText: { ...typography.captionStrong, color: colors.muted },
   tabTextOn: { color: colors.ink },

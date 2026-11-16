@@ -20,7 +20,7 @@ test("the list starts with what to do, then the cases: no second title, no card,
   assert.doesNotMatch(list, /Let people reach your team/);
   assert.match(list, /<ButtonGroup>\s*<Button label="New case" compact /, "New case and Copy public link sit together");
   // Status divides the list like the tabs on Saved; which cases to show is one choice of four, so those are radios.
-  assert.match(style(list, "tabs"), /backgroundColor: colors\.surface, borderRadius: radius\.md, padding: 3/);
+  assert.match(style(list, "tabs"), /backgroundColor: colors\.surface, borderRadius: radius\.pill, padding: 3/);
   assert.match(list, /accessibilityRole="radiogroup" accessibilityLabel="Cases to show"/);
   assert.match(list, /accessibilityRole="radio" accessibilityLabel=\{item\.label\} accessibilityState=\{\{ checked: scope === item\.id \}\} aria-checked=\{scope === item\.id\}/);
   assert.match(style(list, "chip"), /minHeight: 44/);
@@ -47,7 +47,7 @@ test("a wide window puts the case's details beside the conversation; a narrower 
 test("the tabs are the app's segmented tabs, and the third is named for what it holds", () => {
   assert.match(screen, /\{ id: "tasks", label: "Follow-ups" \}/);
   assert.doesNotMatch(screen, /label: "Tasks"/);
-  assert.match(style(screen, "tabs"), /backgroundColor: colors\.surface, borderRadius: radius\.md, padding: 3/);
+  assert.match(style(screen, "tabs"), /backgroundColor: colors\.surface, borderRadius: radius\.pill, padding: 3/);
   assert.doesNotMatch(screen, /borderBottomWidth: 2/, "not an underline of their own");
   assert.match(screen, /` · \$\{workspace\.openTaskCount\}`/, "a count is written like Chats · 1");
 });
