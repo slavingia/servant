@@ -70,8 +70,8 @@ test("every page takes the workspace's color", () => {
   for (const [name, render] of Object.entries(pages)) {
     const html = render({ primaryColor: "#7C3AED" });
     assert.match(html, /--primary:#7C3AED/, name);
-    assert.doesNotMatch(styleOf(html), /#(?:4E61D6|0071BC)/i, `${name} has no default color left`);
-    assert.match(render({ primaryColor: "not a color" }), /--primary:#4E61D6/, `${name} falls back to the default`);
+    assert.doesNotMatch(styleOf(html), /#0071BC/i, `${name} has no default blue left`);
+    assert.match(render({ primaryColor: "not a color" }), /--primary:#0071BC/, `${name} falls back to blue`);
   }
 });
 

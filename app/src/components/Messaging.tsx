@@ -105,7 +105,7 @@ function AvatarFace({ name, agent, size, userId, onBrand }: { name: string; agen
       importantForAccessibility="no"
       style={[styles.avatar, { width: size, height: size, borderRadius: agent ? radius.sm : size / 2, backgroundColor: agent ? (onBrand ? colors.onBrand : colors.navy) : tone.background }]}
     >
-      {agent ? <AppIcon name="sparkles" size={size * 0.5} color={onBrand ? colors.navy : colors.onBrandAccent} /> : <Text style={[styles.avatarText, { fontSize: Math.round(size * (small ? 0.55 : 0.4)), color: tone.foreground }]}>{initials || "?"}</Text>}
+      {agent ? <AppIcon name="sparkles" size={size * 0.5} color={onBrand ? colors.navy : colors.onBrand} /> : <Text style={[styles.avatarText, { fontSize: Math.round(size * (small ? 0.55 : 0.4)), color: tone.foreground }]}>{initials || "?"}</Text>}
     </View>
   );
 }

@@ -315,7 +315,7 @@ test('the public page uses the shared stylesheet: the app\'s palette in light an
   // A workspace with its own color gets it on the public page too.
   const themed = surveyPage({ primaryColor: '#7C3AED' });
   assert.match(themed, /--primary:#7C3AED/);
-  assert.doesNotMatch(themed, /#(?:4E61D6|0071BC)/i, 'no default color left behind');
+  assert.doesNotMatch(themed, /#0071BC/i, 'no default blue left behind');
 });
 
 test('successful submission immediately replaces the raw draft with the sanitized server answer', async () => {

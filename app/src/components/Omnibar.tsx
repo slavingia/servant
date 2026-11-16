@@ -257,7 +257,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   sidebarTrigger: { minHeight: 34, paddingLeft: space.sm, paddingRight: 6, flexDirection: "row", alignItems: "center", gap: space.xs, borderRadius: radius.pill, backgroundColor: onBrandTint.field },
   sidebarTriggerHovered: { backgroundColor: onBrandTint.pressed },
   sidebarPlaceholder: { ...typography.caption, color: colors.onBrand, flex: 1 },
-  sidebarShortcut: { ...typography.meta, color: colors.onBrand, paddingHorizontal: 7, paddingVertical: 1, borderRadius: radius.pill, backgroundColor: onBrandTint.hover, overflow: "hidden" },
+  sidebarShortcut: { ...typography.meta, color: colors.onBrand, paddingHorizontal: 7, paddingVertical: 1, borderRadius: radius.pill, backgroundColor: onBrandTint.pressed, overflow: "hidden" },
   modalRoot: { flex: 1 },
   overlay: { flex: 1, paddingHorizontal: space.sm, alignItems: "center", backgroundColor: colors.scrim },
   mobileOverlay: { paddingHorizontal: 0, backgroundColor: colors.background },

@@ -6,8 +6,8 @@ const escape = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', 
 // and dark, system type in its roles (28/34 title, 18/24 heading, 15/22 body, 13/18 labels and hints), 6-pixel
 // buttons and 10-pixel fields at 48 points, underlined links and no decoration. Text fields use 16 pixels so iOS
 // does not zoom the page on focus. A conversation reads top to bottom as author, time and words, as it does in the app.
-const PAGE_STYLE = `:root{color-scheme:light dark;--background:#FFFFFF;--surface:#F7F8FA;--ink:#1D1C1D;--muted:#5B616B;--line:#E6E7EB;--borderStrong:#8B929B;--blue:#4E61D6;--blueSoft:#EBEFFC;--primary:#4E61D6;--onPrimary:#FFFFFF;--red:#D11242;--redSoft:#FDECEF}
-@media (prefers-color-scheme:dark){:root{--background:#12161C;--surface:#1B222C;--ink:#F0F3F7;--muted:#ADB8C7;--line:#303945;--borderStrong:#748397;--blue:#DEEF51;--blueSoft:#27327A;--red:#FF8FA5;--redSoft:#3D202B}}
+const PAGE_STYLE = `:root{color-scheme:light dark;--background:#FFFFFF;--surface:#F7F8FA;--ink:#1D1C1D;--muted:#5B616B;--line:#E6E7EB;--borderStrong:#8B929B;--blue:#0071BC;--blueSoft:#E8F2FC;--primary:#0071BC;--onPrimary:#FFFFFF;--red:#D11242;--redSoft:#FDECEF}
+@media (prefers-color-scheme:dark){:root{--background:#12161C;--surface:#1B222C;--ink:#F0F3F7;--muted:#ADB8C7;--line:#303945;--borderStrong:#748397;--blue:#80C7FF;--blueSoft:#19344D;--red:#FF8FA5;--redSoft:#3D202B}}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 html{font:15px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:var(--ink);background:var(--background);-webkit-text-size-adjust:100%}

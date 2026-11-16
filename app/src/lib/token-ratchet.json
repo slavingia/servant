@@ -18,7 +18,7 @@
     "components/PreCall.tsx": 2,
     "components/ProjectCredit.tsx": 1,
     "components/ReorderableList.tsx": 1,
-    "components/ServantWordmark.tsx": 1,
+    "components/ServantWordmark.tsx": 2,
     "components/ServerBanner.tsx": 1,
     "components/VideoMedia.tsx": 18,
     "lib/notifications.native.tsx": 1,

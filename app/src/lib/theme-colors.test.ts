@@ -18,7 +18,7 @@ test("one configured color drives both appearances without changing semantic col
     const base = createColors(scheme);
     const colors = createColors(scheme, "#7C3AED");
     assert.equal(colors.primary, "#7C3AED");
-    for (const key of ["navy", "blue", "blueDark", "brandText", "primaryPressed", "blueSoft", "onBrandAccent", "bubbleMine"] as const) assert.notEqual(colors[key], base[key], key);
+    for (const key of ["navy", "blue", "blueDark", "brandText", "primaryPressed", "blueSoft", "onBrandMuted", "bubbleMine"] as const) assert.notEqual(colors[key], base[key], key);
     for (const key of ["background", "ink", "muted", "green", "greenSoft", "danger", "red", "redSoft", "white", "onPrimary", "onBrand"] as const) assert.equal(colors[key], base[key], key);
     assert.deepEqual(createAvatarTones(scheme, colors)[0], { background: colors.blueSoft, foreground: colors.brandText });
     assert.equal(createColors(scheme), base, "a custom server never mutates the default palette");
@@ -93,7 +93,7 @@ test("custom hues, very light colors and very dark colors retain readable action
       assertContrast(c.onPrimary, c.primary, `${seed} primary`);
       assertContrast(c.onPrimary, c.primaryPressed, `${seed} pressed`);
       assertContrast(c.onBrand, c.navy, `${seed} brand`);
-      assertContrast(c.onBrandAccent, c.navy, `${seed} accent on the brand surface`);
+      assertContrast(c.onBrandMuted, c.navy, `${seed} supporting brand text`);
       for (const alpha of [0, 0.12, 0.2]) {
         const surface = whiteOverlay(c.navy, alpha);
         assertContrast(whiteOverlay(surface, 0.72), surface, `${seed} sidebar supporting label`);
