@@ -11,6 +11,7 @@ Servant is agents for public servants, with self-hosted secure team messaging: a
 | `desktop/` | Electron Mac app (`servant-desktop`) that packages the app's web build. |
 | `relay/` | Optional Cloudflare Worker relay (`servant-relay`) that gives a server a stable address; tested with Miniflare. |
 | `mcp/` | MCP server and client library (`servant-mcp`) so other tools can sign in like the Mac app. |
+| `skills/` | Skills for coding agents working with a Servant team. `review-handoff` hands work to reviewers in Servant and acts on their replies, using `mcp/src/handoff.ts`. |
 | `deploy/` | Mac installer (`deploy/mac`) and Linux installer and systemd units (`deploy/linux`). |
 | `config/` | Reproducible restricted member agent profiles (`config/profiles`) and the supported Hermes versions (`hermes-versions.json`). |
 | `scripts/` | Release helpers (TestFlight, Firebase App Distribution, Play, App Store Connect notes, OTA publish), Hermes compatibility tests, and `scrub-check.sh` with its denylist. |
