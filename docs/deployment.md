@@ -410,8 +410,11 @@ Set the app's primary color in the server's `config.json`:
 "theme": { "primaryColor": "#7C3AED" }
 ```
 
-The default is blue (`#0071BC`). Use an opaque `#RRGGBB` or `#RGB` hex color;
-missing or invalid values fall back to blue. The app derives matching light and
+The default is the app icon's colors: navy, tennis yellow and white
+([design system](design-system.md#color)). Use an opaque `#RRGGBB` or `#RGB` hex
+color; missing or invalid values fall back to the default. `#0071BC`, the
+default before the tennis ball icon, also means the default: it is what a server
+sends when no color is set. The app derives matching light and
 dark colors for links, buttons, selected items and brand surfaces. Very light
 colors are darkened for readable white labels. This is an operator setting only;
 there is no color picker in the app.
