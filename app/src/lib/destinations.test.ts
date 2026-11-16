@@ -42,16 +42,17 @@ test("You lists the same places under the same names, plus the ones a wide windo
 });
 
 test("a place a server has turned off is not offered anywhere", () => {
-  const quiet = { ...everyone, features: { channels: false, directMessages: false, meetings: false, secureInbox: false, people: true } };
+  const quiet = { ...everyone, features: { channels: false, directMessages: false, meetings: false, secureInbox: false, people: true, home: false } };
   assert.deepEqual(labels("sidebar", quiet)[0], ["Conversations", ["Agent"]]);
   assert.ok(!destinationGroups("you", quiet).flatMap(entry => entry.places).some(place => ["Meetings", "Archived", "Cases"].includes(place.label)));
   // Deep work hides People (and its invite) from the sidebar and You, not just the talk places.
   const deep = { ...everyone, features: withDeepWork(ALL_FEATURES, true) };
   assert.ok(!destinationGroups("sidebar", deep).concat(destinationGroups("you", deep)).flatMap(entry => entry.places).some(place => ["People", "Invite people"].includes(place.label)));
+  assert.deepEqual(labels("sidebar", deep)[0], ["Conversations", ["Home", "Agent"]], "Deep work keeps Home for projects");
   const noCases = { ...everyone, features: { ...ALL_FEATURES, secureInbox: false } };
   assert.deepEqual(labels("sidebar", noCases)[0], ["Conversations", ["Home", "Agent", "Chats"]], "Cases follows its own switch");
   assert.ok(!destinationGroups("you", noCases).some(entry => entry.title === "Conversations"), "and a group with nothing in it is left out");
-  assert.equal(reachable(DESTINATIONS.find(place => place.id === "archive")!, { ...everyone, features: { ...ALL_FEATURES, channels: false } }), true, "the archive needs channels or direct messages");
+  assert.equal(reachable(DESTINATIONS.find(place => place.id === "archive")!, { ...everyone, features: { ...ALL_FEATURES, channels: false, home: false } }), true, "the archive needs channels or direct messages");
 });
 
 test("the sidebar marks the place that is open, including the screens under it", () => {
@@ -59,7 +60,7 @@ test("the sidebar marks the place that is open, including the screens under it",
   assert.equal(placeIsOpen(place("agent"), "/chat/abc", undefined, ALL_FEATURES), true);
   assert.equal(placeIsOpen(place("agent"), "/files", "chat", ALL_FEATURES), true);
   assert.equal(placeIsOpen(place("home"), "/", undefined, ALL_FEATURES), true);
-  assert.equal(placeIsOpen(place("agent"), "/", undefined, { ...ALL_FEATURES, channels: false }), true, "without channels the agent is the landing place");
+  assert.equal(placeIsOpen(place("agent"), "/", undefined, { ...ALL_FEATURES, channels: false, home: false }), true, "without channels the agent is the landing place");
   assert.equal(placeIsOpen(place("members"), "/invite", undefined, ALL_FEATURES), true);
   assert.equal(placeIsOpen(place("meetings"), "/meetings/m1", undefined, ALL_FEATURES), true);
   assert.equal(placeIsOpen(place("inbox"), "/inbox", undefined, ALL_FEATURES), true);

@@ -64,7 +64,7 @@ test("/help lists exactly the commands that work in that kind of conversation", 
 });
 
 test("commands for a feature the server turned off are not offered, parsed or listed in /help", () => {
-  const off = { channels: false, directMessages: false, meetings: false, secureInbox: false, people: true };
+  const off = { channels: false, directMessages: false, meetings: false, secureInbox: false, people: true, home: false };
   const names = (list: { name: string }[] | null) => (list ?? []).map(c => c.name);
   assert.ok(names(slashMatches("/", true, false, off)).every(n => !["call", "dm", "new", "browse"].includes(n)));
   assert.ok(names(slashMatches("/", true, false, { ...off, channels: true })).includes("browse"), "browse stays while channels are on");

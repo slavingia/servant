@@ -103,7 +103,7 @@ const ChannelRows = memo(function ChannelRows({ archived, conversations, error, 
   const archivedCount = archivedChannels.length + archivedDms.length;
   const shownChannels = activeChannels.filter(c => !unreadOnly || c.unread > 0);
   const shownDms = dms.filter(c => !unreadOnly || c.unread > 0);
-  const unreadCount = [...activeChannels, ...dms].filter(c => c.unread > 0).length;
+  const unreadCount = [...(features.channels ? activeChannels : []), ...(features.directMessages ? dms : [])].filter(c => c.unread > 0).length;
   const joinedIds = new Set(channels.map(c => c.id));
   const others = discovery.channels.filter(c => !joinedIds.has(c.id));
   const rows: HomeRow[] = [];
@@ -120,8 +120,9 @@ const ChannelRows = memo(function ChannelRows({ archived, conversations, error, 
         rows.push({ kind: "action", id: "new-project" });
       }
     }
-    rows.push({ kind: "section", id: "channels-section" });
-    if (channelsOpen) {
+    // Deep work keeps Home for projects and hides the channels and chats under them.
+    if (features.channels) rows.push({ kind: "section", id: "channels-section" });
+    if (features.channels && channelsOpen) {
       if (shownChannels.length) rows.push({ kind: "channels", id: "channels", channels: shownChannels });
       if (!shownChannels.length) rows.push({ kind: "note", id: "empty-channels", text: unreadOnly ? "No unread channels" : "No channels" });
       if (!unreadOnly) {
@@ -134,8 +135,8 @@ const ChannelRows = memo(function ChannelRows({ archived, conversations, error, 
       }
       rows.push({ kind: "action", id: "archive-link" });
     }
-    rows.push({ kind: "section", id: "dms-section" });
-    if (dmsOpen) {
+    if (features.directMessages) rows.push({ kind: "section", id: "dms-section" });
+    if (features.directMessages && dmsOpen) {
       rows.push(...shownDms.map(c => ({ kind: "dm" as const, id: c.id, conversation: c })));
       if (!shownDms.length) rows.push({ kind: "note", id: "empty-dms", text: unreadOnly ? "No unread chats" : "No chats" });
       if (!unreadOnly) rows.push({ kind: "action", id: "new-message" });
@@ -177,7 +178,7 @@ const ChannelRows = memo(function ChannelRows({ archived, conversations, error, 
           <View style={styles.empty}>
             <AppIcon name="archive" size={28} color={colors.muted} />
             <Text accessibilityRole="header" style={styles.emptyTitle}>No archived conversations</Text>
-            <Button label={features.channels ? "Back to Home" : "Back to the agent"} kind="secondary" onPress={() => router.dismissTo(landingHref(features))} />
+            <Button label={features.home ? "Back to Home" : "Back to the agent"} kind="secondary" onPress={() => router.dismissTo(landingHref(features))} />
           </View>}
         renderItem={({ item }) => {
           if (item.kind === "channels") return <ReorderableList items={item.channels}

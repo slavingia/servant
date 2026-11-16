@@ -40,7 +40,7 @@ test("saved messages are discoverable as a personal checklist even when conversa
 
 test("quick actions that lead to a feature the server turned off are not offered", () => {
   const ids = (features: Features) => omnibarShortcuts("", true, features).map(item => item.id);
-  const off = { channels: false, directMessages: false, meetings: false, secureInbox: false, people: true };
+  const off = { channels: false, directMessages: false, meetings: false, secureInbox: false, people: true, home: false };
   assert.ok(ids({ ...off, channels: true, directMessages: true, meetings: true }).includes("new-message"));
   assert.deepEqual(ids(off).filter(id => ["new-message", "new-channel", "archive"].includes(id)), []);
   assert.deepEqual(ids({ ...off, channels: true }).filter(id => ["new-message", "new-channel", "archive"].includes(id)), ["new-channel", "archive"]);

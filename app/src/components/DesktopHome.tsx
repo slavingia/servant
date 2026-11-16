@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View, type PressableStateCallb
 import { router, useFocusEffect, type Href } from "expo-router";
 import { useLiveActions, useLiveList } from "../lib/live";
 import { useSession } from "../lib/session";
-import { useFeatures } from "../lib/features";
+import { conversationHidden, useFeatures } from "../lib/features";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 import { AppIcon, type AppIconName } from "./AppIcon";
 import { ConversationRow } from "./Messaging";
@@ -22,7 +22,7 @@ export function DesktopHome() {
   if (!account) return null;
   // Still waiting for the first list, not a list that failed to load.
   const loading = conversations === null && !error;
-  const recent = (conversations ?? []).filter(c => !c.archived).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 6);
+  const recent = (conversations ?? []).filter(c => !c.archived && !conversationHidden(c.id, features)).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 6);
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>

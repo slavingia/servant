@@ -33,7 +33,7 @@ export type Destination = {
 };
 
 export const DESTINATIONS: Destination[] = [
-  { id: "home", label: "Home", icon: "home", path: "/channels", group: "talk", needs: "channels", sidebar: true, you: false, detail: "Channels and recent conversations", keywords: "channels home" },
+  { id: "home", label: "Home", icon: "home", path: "/channels", group: "talk", needs: "home", sidebar: true, you: false, detail: "Projects, channels and recent conversations", keywords: "channels home" },
   { id: "agent", label: "Agent", icon: "sparkles", path: "/agent", group: "talk", sidebar: true, you: false, detail: "Your private agent chats", keywords: "assistant ai help ask" },
   { id: "messages", label: "Chats", icon: "chat", path: "/messages", group: "talk", needs: "directMessages", sidebar: true, you: false, detail: "Direct and group conversations", keywords: "chats dm dms direct messages" },
   { id: "inbox", label: "Cases", icon: "lock", path: "/inbox", group: "talk", needs: "secureInbox", sidebar: true, you: true, detail: "Conversations with the public, team notes and follow-ups", keywords: "cases casework follow-up task notes inbox support visitor guest live chat external contact customer public" },
@@ -68,7 +68,7 @@ export function destinationGroups(where: "sidebar" | "you", viewer: Viewer): { g
 export function placeIsOpen(place: Destination, pathname: string, kind: string | undefined, features: Features): boolean {
   switch (place.id) {
     case "home": return pathname === "/channels" || pathname === "/";
-    case "agent": return pathname === "/agent" || (!features.channels && pathname === "/") || pathname.startsWith("/chat/") || (pathname === "/files" && kind === "chat");
+    case "agent": return pathname === "/agent" || (!features.home && pathname === "/") || pathname.startsWith("/chat/") || (pathname === "/files" && kind === "chat");
     case "members": return pathname === "/members" || pathname === "/invite";
     case "meetings": return pathname === "/meetings" || pathname.startsWith("/meetings/");
     case "inbox": return pathname === "/inbox" || pathname.startsWith("/inbox/");
