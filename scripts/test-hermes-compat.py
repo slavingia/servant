@@ -368,6 +368,101 @@ class HermesContractTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((memory_directory / name).read_text(), sentinel)
 
 
+class EgressNamingTest(unittest.TestCase):
+    """With the network gate on, each session's commands carry that session's token to the gate (hermes_egress.py)."""
+
+    PROXY = ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "https_proxy", "http_proxy", "all_proxy", "SERVANT_EGRESS_PORT", "TERMINAL_ENV")
+
+    def setUp(self):
+        import hermes_egress
+        from tools import terminal_tool
+        self.egress, self.terminal = hermes_egress, terminal_tool
+        self.saved = {name: os.environ.get(name) for name in self.PROXY}
+        os.environ["TERMINAL_ENV"] = "local"
+        os.environ["SERVANT_EGRESS_PORT"] = "8790"
+        for name in self.PROXY[:6]:
+            os.environ[name] = "http://127.0.0.1:8790"
+        self.sessions = []
+
+    def tearDown(self):
+        for session in self.sessions:
+            self.egress.forget(session)
+            try:
+                self.terminal.cleanup_vm(session)
+            except Exception:
+                pass
+            self.terminal._task_env_overrides.pop(session, None)
+        for name, value in self.saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+    def run_in(self, session, command):
+        if session not in self.sessions:
+            self.sessions.append(session)
+        result = json.loads(self.terminal.terminal_tool(command, task_id=session, force=True))
+        return (result.get("output") or result.get("error") or "").strip()
+
+    def bind(self, session, token):
+        if session not in self.sessions:
+            self.sessions.append(session)
+        return self.egress.bind(session, token)
+
+    def test_each_session_presents_its_own_token_and_nothing_leaks_between_them(self):
+        pat, jo = "pat" + "A" * 24, "jo" + "B" * 24
+        self.assertTrue(self.bind("servant_egress_pat", pat))
+        self.assertTrue(self.bind("servant_egress_jo", jo))
+        for _ in range(2):  # the second command re-reads what the first exported
+            self.assertEqual(self.run_in("servant_egress_pat", "echo $HTTPS_PROXY $all_proxy"), "http://%s:@127.0.0.1:8790 http://%s:@127.0.0.1:8790" % (pat, pat))
+            self.assertEqual(self.run_in("servant_egress_jo", "echo $HTTPS_PROXY"), "http://%s:@127.0.0.1:8790" % jo)
+            self.assertEqual(self.run_in("servant_egress_none", "echo $HTTPS_PROXY"), "http://127.0.0.1:8790", "a session without a token stays unnamed")
+        self.run_in("servant_egress_pat", "export SERVANT_EGRESS_PROBE=pat")
+        self.assertEqual(self.run_in("servant_egress_jo", "echo [$SERVANT_EGRESS_PROBE]"), "[]", "one session's shell is not another's")
+        self.assertEqual(self.run_in("servant_egress_pat", "echo [$SERVANT_EGRESS_PROBE]"), "[pat]", "a session keeps its own shell")
+
+    def test_a_shared_thread_starts_a_fresh_shell_for_the_next_person(self):
+        pat, jo = "pat" + "C" * 24, "jo" + "D" * 24
+        self.assertTrue(self.bind("servant_egress_thread", pat))
+        self.assertEqual(self.run_in("servant_egress_thread", "export SERVANT_EGRESS_PROBE=pat; echo $HTTPS_PROXY"), "http://%s:@127.0.0.1:8790" % pat)
+        self.assertTrue(self.bind("servant_egress_thread", pat), "the same person again keeps the shell")
+        self.assertEqual(self.run_in("servant_egress_thread", "echo [$SERVANT_EGRESS_PROBE]"), "[pat]")
+        self.assertTrue(self.bind("servant_egress_thread", jo))
+        self.assertEqual(self.run_in("servant_egress_thread", "echo $HTTPS_PROXY [$SERVANT_EGRESS_PROBE]"), "http://%s:@127.0.0.1:8790 []" % jo, "the last person's token is not remembered")
+
+    def test_a_session_that_already_ran_commands_is_named_from_its_next_command(self):
+        self.assertEqual(self.run_in("servant_egress_late", "echo $HTTPS_PROXY"), "http://127.0.0.1:8790")
+        token = "late" + "E" * 24
+        self.assertTrue(self.bind("servant_egress_late", token))
+        self.assertEqual(self.run_in("servant_egress_late", "echo $HTTPS_PROXY"), "http://%s:@127.0.0.1:8790" % token)
+
+    def test_nothing_is_named_without_the_gate_or_with_a_token_that_could_break_the_address(self):
+        for bad in ("short", "has space " + "F" * 24, "at@sign" + "F" * 24, "slash/" + "F" * 24, "", None, 7):
+            self.assertFalse(self.egress.bind("servant_egress_bad", bad), repr(bad))
+        self.assertFalse(self.egress.bind("", "ok" + "G" * 24))
+        os.environ.pop("SERVANT_EGRESS_PORT")
+        self.assertFalse(self.egress.bind("servant_egress_off", "ok" + "G" * 24), "not started through the sandbox wrapper")
+        os.environ["SERVANT_EGRESS_PORT"] = "8790"
+        os.environ["HTTPS_PROXY"] = "http://proxy.example.gov:3128"
+        self.assertFalse(self.egress.bind("servant_egress_off", "ok" + "G" * 24), "the bridge's own proxy is not the gate")
+        self.assertNotIn("servant_egress_off", self.terminal._task_env_overrides, "a session that wasn't named keeps the shared shell")
+
+    def test_the_bridge_binds_the_header_for_the_full_agent_only(self):
+        class Request:
+            def __init__(self, token):
+                self.headers = {"X-Servant-Egress-Token": token} if token else {}
+        token = "hdr" + "H" * 24
+        full = ServantAPIServerAdapter(PlatformConfig(enabled=True, extra={"host": "127.0.0.1", "port": 0, "key": KEY}))
+        member = ServantAPIServerAdapter(PlatformConfig(enabled=True, extra={"host": "127.0.0.1", "port": 0, "key": KEY}), restricted_member=True)
+        self.sessions += ["servant_egress_full", "servant_egress_member", "servant_egress_plain"]
+        full._servant_bind_egress(Request(token), "servant_egress_full")
+        member._servant_bind_egress(Request(token), "servant_egress_member")
+        full._servant_bind_egress(Request(None), "servant_egress_plain")
+        self.assertEqual(self.run_in("servant_egress_full", "echo $HTTPS_PROXY"), "http://%s:@127.0.0.1:8790" % token)
+        self.assertEqual(self.run_in("servant_egress_member", "echo $HTTPS_PROXY"), "http://127.0.0.1:8790")
+        self.assertEqual(self.run_in("servant_egress_plain", "echo $HTTPS_PROXY"), "http://127.0.0.1:8790")
+
+
 if __name__ == "__main__":
     verify_contract()
     unittest.main(verbosity=2)

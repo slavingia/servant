@@ -44,19 +44,28 @@ test("a connection is judged for its token's person, else for everyone whose age
   assert.equal(judge({ settings, host: "api.example.gov", token: "pat-token", whose, allowed, known: () => false }).reason, "nobody", "someone who left has no say");
 });
 
-test("tokens are kept as hashes, expire, and stop when the person leaves; refusals tell people once a day", () => {
+test("a chat's token is signed, never changes, and can't be made up; refusals tell people once a day", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "servant-egress-"));
   let now = 1_800_000_000_000;
-  const store = createEgressStore(path.join(dir, "egress.db"), { clock: () => now });
-  const token = store.mintToken("usr_pat", "chat_1", 1);
+  const file = path.join(dir, "egress.db");
+  const store = createEgressStore(file, { clock: () => now });
+  const token = store.tokenFor("usr_pat", "chat_1");
+  assert.match(token, /^[A-Za-z0-9._-]{20,600}$/, "safe to put in a proxy address");
   assert.deepEqual(store.whose(token), { userId: "usr_pat", chatId: "chat_1" });
-  assert.equal(store.whose("wrong"), null);
-  assert.equal(fs.readFileSync(path.join(dir, "egress.db")).includes(token), false, "the token itself is not on disk");
-  now += 3600_001;
-  assert.equal(store.whose(token), null, "expired");
-  const second = store.mintToken("usr_pat");
-  store.forget("usr_pat");
-  assert.equal(store.whose(second), null);
+  assert.equal(store.tokenFor("usr_pat", "chat_1"), token, "the same chat always gets the same token");
+  assert.notEqual(store.tokenFor("usr_pat", "chat_2"), token);
+  assert.deepEqual(store.whose(store.tokenFor("usr_pat")), { userId: "usr_pat" });
+  // Swapping in someone else's id, or guessing, fails the signature.
+  const [, chat, signature] = token.split(".");
+  assert.equal(store.whose(`${Buffer.from("usr_ana").toString("base64url")}.${chat}.${signature}`), null);
+  for (const bad of ["", "wrong", "a.b", "a.b.c", `${token}x`, null]) assert.equal(store.whose(bad), null, String(bad));
+  // Another server (another secret) doesn't accept it; reopening the same file does.
+  const other = createEgressStore(path.join(dir, "other.db"));
+  assert.equal(other.whose(token), null);
+  other.close();
+  const reopened = createEgressStore(file);
+  assert.deepEqual(reopened.whose(token), { userId: "usr_pat", chatId: "chat_1" });
+  reopened.close();
 
   assert.equal(store.refused({ userId: "usr_pat", host: "api.example.gov", port: 443, chatId: "chat_1" }).fresh, true);
   const again = store.refused({ userId: "usr_pat", host: "api.example.gov", port: 443 });
@@ -67,6 +76,22 @@ test("tokens are kept as hashes, expire, and stop when the person leaves; refusa
   now += 24 * 3600_000;
   assert.equal(store.refused({ userId: "usr_pat", host: "api.example.gov", port: 443 }).fresh, true, "a day later people are told again");
   assert.deepEqual(store.recent().map(a => a.userId), ["usr_pat", "usr_jo"]);
+  store.close(); fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("work outside an agent chat counts while it lasts, and a row nobody ended ages out", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "servant-egress-"));
+  let now = 1_800_000_000_000;
+  const store = createEgressStore(path.join(dir, "egress.db"), { clock: () => now });
+  const endPat = store.working("usr_pat"), endPatAgain = store.working("usr_pat"), endJo = store.working("usr_jo");
+  assert.deepEqual(store.workingFor().sort(), ["usr_jo", "usr_pat"]);
+  endPat();
+  assert.deepEqual(store.workingFor().sort(), ["usr_jo", "usr_pat"], "Pat's second reply is still going");
+  endPatAgain(); endJo();
+  assert.deepEqual(store.workingFor(), []);
+  store.working("usr_sam");
+  now += 3600_001;
+  assert.deepEqual(store.workingFor(), [], "a crashed reply stops counting after an hour");
   store.close(); fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -101,7 +126,7 @@ test("the proxy refuses, tells people once, then tunnels after the entitlement i
     hint: host => `it needs the entitlement "Tax data API" for ${host}.`, resolve: async host => [{ address: host === "inside.example.gov" ? "10.0.0.5" : "203.0.113.9" }],
     connect: (port, address) => { dialed.push(`${address}:${port}`); return net.connect(echo.address().port, "127.0.0.1"); } });
   const port = await proxy.listen(0);
-  const pat = store.mintToken("usr_pat", "chat_1");
+  const pat = store.tokenFor("usr_pat", "chat_1");
 
   const first = await connectThrough(port, "api.example.gov:443", { token: pat });
   assert.equal(first.status, 403);

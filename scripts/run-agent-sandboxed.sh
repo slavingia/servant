@@ -17,6 +17,8 @@ fi
 port="${SERVANT_EGRESS_PORT:-8790}"
 case "$port" in ''|*[!0-9]*) echo "SERVANT_EGRESS_PORT must be a port number, got: $port" >&2; exit 2;; esac
 proxy="http://127.0.0.1:${port}"
+# The bridge reads this to give each person's commands their own token for the gate (server/hermes_egress.py).
+export SERVANT_EGRESS_PORT="$port"
 
 # Well-behaved tools read these; the sandbox below is what stops the ones that don't.
 export HTTPS_PROXY="$proxy" HTTP_PROXY="$proxy" ALL_PROXY="$proxy" https_proxy="$proxy" http_proxy="$proxy" all_proxy="$proxy"
