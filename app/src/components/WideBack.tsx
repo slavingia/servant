@@ -11,7 +11,7 @@ function parentOf(pathname: string, params: { id?: string; conv?: string; kind?:
   if (pathname === "/files" && params.id) return params.kind === "chat" ? { pathname: "/chat/[id]", params: { id: params.id } } : { pathname: "/c/[id]", params: { id: params.id } };
   if (pathname.startsWith("/chat/")) return "/agent";
   if (pathname === "/invite") return "/members";
-  if (pathname === "/notifications" || pathname === "/leaderboard" || pathname === "/loops" || pathname === "/feedback") return "/you";
+  if (pathname === "/notifications" || pathname === "/leaderboard" || pathname === "/loops" || pathname === "/entitlements" || pathname === "/feedback") return "/you";
   return landingHref(features);
 }
 

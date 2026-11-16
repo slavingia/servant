@@ -39,6 +39,18 @@ Nobody can be given an entitlement they did not ask for: the confirmation is the
 
 When a person is removed from the server, everything they held or were waiting on is revoked. Changing an entitlement's hosts applies at once to everyone who holds it. Retiring an entitlement closes it for everyone.
 
+## In the app
+
+**Entitlements** is on You (and in search), and People's Org chart view links to it.
+
+- Everyone sees the list: each entitlement's name, description, the hosts it opens, and where they stand ("Waiting for Jo Park", "You have this", "Declined", "Taken back").
+- **Ask for this** opens the confirmation as a checkbox that has to be ticked, and an optional note. After a refusal or a revocation the button reads **Ask again**.
+- **Waiting on you** lists the requests that are yours to decide, oldest first, with the note and the words the person confirmed, and **Grant** and **Decline**. A manager who doesn't hold the entitlement is told why they can't grant it.
+- Under each entitlement, the people you decide for who hold it, each with **Take back** (confirmed first).
+- Owners get **New entitlement**, **Edit** and **Retire**, a line saying whether the network gate is on, and the hosts agents were recently refused. Hosts can be pasted as addresses; only the host name is kept.
+
+`node scripts/entitlements-e2e.mjs` drives the whole exchange in a browser against a temporary server and saves the captures in `docs/shots/entitlements`.
+
 ## What it controls
 
 With the agent's network gate on ([agent-egress.md](agent-egress.md)), a person's agent can reach a host only when that person holds an entitlement that covers it. Without the gate, entitlements are a record of who asked for and was given what, and open nothing by themselves.
@@ -81,4 +93,3 @@ All under the encrypted `/v1/` API.
 - The confirmation is the person's word, checked by their manager. Servant does not look the person up in the other system.
 - An entitlement opens hosts, not paths or repositories. Holding "GitHub" opens `github.com` for that person's agent; what the agent can do there is whatever the server's own credentials allow. Keep those credentials as narrow as the entitlement is meant to be.
 - Taking an entitlement back from a manager does not take it back from the people they granted it to. Take those back one by one.
-- There is no screen for entitlements themselves in the app yet (asking, granting, taking back). Until there is, use the API above.

@@ -128,7 +128,7 @@ export function Sidebar() {
       {/* Your Deep work switch (deep-work.ts), just above your name. */}
       <DeepWorkSwitch onNavy />
       <Pressable accessibilityRole="button" accessibilityLabel={`${account.user.name}${connected && deepWork ? ", Deep work" : ""}, your profile and settings`} onPress={() => go(pathname, "/you")}
-        style={state => [styles.footer, (hovered(state) || ["/you", "/notifications", "/feedback", "/leaderboard", "/loops"].includes(pathname)) && styles.hovered]}>
+        style={state => [styles.footer, (hovered(state) || ["/you", "/notifications", "/feedback", "/leaderboard", "/loops", "/entitlements"].includes(pathname)) && styles.hovered]}>
         <View>
           <Avatar name={account.user.name} userId={account.user.id} size={30} />
           {/* Your own badge: the moon while you're in deep work (deep-work.ts), so the quiet you chose is what you see too. */}

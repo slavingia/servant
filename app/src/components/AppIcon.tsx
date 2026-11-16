@@ -28,6 +28,7 @@ const paths = {
   project: "M4 7h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Z M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2 M3 12h18 M12 11v3",
   archive: "M3 3h18v5H3V3Z M5 8v13h14V8 M10 12h4",
   bookmark: "M6 3h12v18l-6-4-6 4V3Z",
+  key: "M8 11a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z M11 12.5 20 4 M16 8l3 3 M13.5 10.5l2 2",
   // A closed book: the wiki.
   book: "M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4Z M5 17a3 3 0 0 1 3-3h11",
   compose: "M14 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-9 M17 3l4 4 M10 14l1-5 8-8 4 4-8 8-5 1Z",
