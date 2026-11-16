@@ -9,6 +9,7 @@ import { AppIcon } from "../../components/AppIcon";
 import { PresenceDot, useStatusNow } from "../../components/Presence";
 import { api, ServerError, type Person } from "../../lib/server";
 import { useLivePresence } from "../../lib/live";
+import { sortPeople, PEOPLE_SORTS, type PeopleSort } from "../../lib/people-sort";
 import { presenceDot, presenceLabel } from "../../lib/message-status";
 import { useSession } from "../../lib/session";
 import { landingHref, useFeature, useFeatures } from "../../lib/features";
@@ -58,6 +59,7 @@ export default function Members() {
   const features = useFeatures();
   const { presence, connected } = useLivePresence();
   const now = useStatusNow();
+  const [sort, setSort] = useState<PeopleSort>("name");
   const [directory, setDirectory] = useState<{ token: string; people: Person[]; emailChecks?: boolean; roleLimits?: RoleLimits; roleCosts?: RoleCosts } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [opening, setOpening] = useState<string | null>(null);
@@ -86,6 +88,7 @@ export default function Members() {
   if (!account) return null;
   if (!features.people) return <Redirect href={landingHref(features)} />;
   const people = directory?.token === account.token ? directory.people : null;
+  const shown = people ? sortPeople(people, sort, presence, connected, account.user.id) : [];
   const owner = account.user.role === "owner";
   const reconnecting = !connected && people !== null;
   const managed = managing ? people?.find(p => p.id === managing) ?? null : null;
@@ -150,7 +153,7 @@ export default function Members() {
   };
   return <View style={styles.root}>
     <FlatList ref={scrollRef} contentInsetAdjustmentBehavior="automatic"
-      data={people ?? []}
+      data={shown}
       keyExtractor={person => person.id}
       keyboardShouldPersistTaps="handled"
       refreshControl={<RefreshControl tintColor={colors.blue} colors={[colors.blue]} progressBackgroundColor={colors.surface} refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />}
@@ -166,6 +169,12 @@ export default function Members() {
             <AppIcon name="addPerson" size={22} color={colors.ink} />
           </Pressable> : null}
         </View>
+        {people && people.length > 1 ? <View accessibilityRole="tablist" accessibilityLabel="Sort people" style={styles.sorts}>
+          <Text style={styles.sortLabel}>Sort</Text>
+          {PEOPLE_SORTS.map(option => <Pressable key={option.value} accessibilityRole="tab" accessibilityState={{ selected: sort === option.value }} aria-selected={sort === option.value} onPress={() => setSort(option.value)} style={({ pressed }) => [styles.sort, sort === option.value && styles.selectedSort, pressed && { opacity: 0.7 }]}>
+            <Text style={[styles.sortText, sort === option.value && styles.selectedSortText]}>{option.label}</Text>
+          </Pressable>)}
+        </View> : null}
         {error && !managed ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
       </View>}
       ListEmptyComponent={people === null && !error ? <SkeletonRows label="Loading members" /> : <View style={styles.empty}>
@@ -282,6 +291,12 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   // Header, icon button and strip measure the same as on Messages and Agent.
   header: { minHeight: 60, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", gap: space.xs },
   title: { ...typography.title, color: colors.ink, flexShrink: 1 },
+  sorts: { flexDirection: "row", alignItems: "center", gap: space.xs, paddingHorizontal: space.side },
+  sortLabel: { ...typography.caption, color: colors.muted, marginRight: space.xs },
+  sort: { minHeight: 44, paddingHorizontal: space.md, justifyContent: "center", borderRadius: radius.md },
+  selectedSort: { backgroundColor: colors.blueSoft },
+  sortText: { ...typography.bodyStrong, color: colors.muted },
+  selectedSortText: { color: colors.blueDark },
   compose: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
   titleRow: { flexShrink: 1, flexDirection: "row", alignItems: "baseline", flexWrap: "wrap", columnGap: space.xs },
   count: { ...typography.caption, color: colors.muted },
