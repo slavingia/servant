@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activeAgentTurn, inOrder, joinsReply, liveAgentLine, patientLine, queuedBelow, parseAgentTurn, readableSteps, splitTurns, shortDuration, spokenDuration, withRead, workByMessage, workedFor, workingFor, type AgentTurn } from './agent-turns.ts';
+import { activeAgentTurn, inOrder, joinsReply, liveAgentLine, patientLine, queuedBelow, parseAgentTurn, readableSteps, replyTime, splitTurns, shortDuration, spokenDuration, withRead, workByMessage, workedFor, workingFor, type AgentTurn } from './agent-turns.ts';
 import { createAgentEventDecoder, type StreamEvent } from './agent-events.ts';
 
 const turn = { id: 'turn_1', chatId: 'chat_1', status: 'waiting_for_approval', accepted: true, text: 'Prepare notes', assistantText: 'Ready', canStop: true, createdAt: 10, updatedAt: 20 };
@@ -128,6 +128,89 @@ test('the live line stays quiet for the first minute, then says how long in whol
   assert.equal(workingFor(queuedTurn('a', 'running', 1, { steps: [{ label: 'Thinking', at: 5_000 }] }), 5_000 + 61_000), '1 min', 'from the first step when the start is unknown');
   assert.equal(workingFor(queuedTurn('a', 'running', 1), 9e9), '');
   assert.equal(workingFor(null, 9e9), '');
+});
+
+// How long is left (docs/agent-turns.md). The server says how long replies like this one usually work; the app
+// counts the work against it. A reply that started at `start`, usually 18 minutes:
+const start = 1_000_000, min = 60_000;
+const estimated = queuedTurn('a', 'running', 1, { startedAt: start, usualMs: 18 * min, pausedMs: 0, pausedAt: null });
+const nothingYet = { text: '', spoken: '', progress: null, paused: false, estimated: true };
+
+test('with an estimate it says about how long is left: whole minutes, rounded up, after a quiet first minute', () => {
+  // The first minute says nothing about time, estimate or not.
+  assert.deepEqual(replyTime(estimated, start + 59_000), nothingYet);
+  assert.deepEqual(replyTime(estimated, start + min), { text: 'about 17 min left', spoken: 'about 17 minutes left', progress: 1 / 18, paused: false, estimated: true });
+  assert.equal(replyTime(estimated, start + min + 1).text, 'about 17 min left', 'never rounded down: it does not promise less than it knows');
+  assert.deepEqual(replyTime(estimated, start + 9 * min), { text: 'about 9 min left', spoken: 'about nine minutes left', progress: 0.5, paused: false, estimated: true });
+  assert.equal(replyTime(estimated, start + 16 * min + 1).text, 'about 2 min left');
+  // The last minute of the usual time reads one minute, not zero and not seconds.
+  assert.equal(replyTime(estimated, start + 17 * min).text, 'about 1 min left');
+  assert.deepEqual(replyTime(estimated, start + 18 * min - 1_000), { text: 'about 1 min left', spoken: 'about one minute left', progress: (18 * min - 1_000) / (18 * min), paused: false, estimated: true });
+  // A long one reads like every other length of time in the app.
+  const long = { ...estimated, usualMs: 66 * min };
+  assert.equal(replyTime(long, start + min).text, 'about 1 hr 5 min left');
+  assert.equal(replyTime(long, start + min).spoken, 'about one hour and five minutes left');
+  assert.equal(replyTime(long, start + 6 * min).text, 'about 1 hr left');
+});
+
+test('past the usual time nothing counts down: it says how long it has been and that this is longer than usual', () => {
+  assert.deepEqual(replyTime(estimated, start + 18 * min), { text: '18 min, longer than usual', spoken: '18 minutes so far, longer than usual', progress: null, paused: false, estimated: true });
+  assert.deepEqual(replyTime(estimated, start + 21 * min + 40_000), { text: '21 min, longer than usual', spoken: '21 minutes so far, longer than usual', progress: null, paused: false, estimated: true });
+  assert.equal(replyTime(estimated, start + 95 * min).text, '1 hr 35 min, longer than usual');
+  // From the first second to long past the estimate: never "0 min", never a negative, never seconds, never a full bar.
+  for (let at = 0; at <= 40 * min; at += 7_000) {
+    const time = replyTime(estimated, start + at);
+    assert.doesNotMatch(time.text, /\b0 |-|sec/, `at ${at} ms it read "${time.text}"`);
+    assert.ok(time.progress === null || (time.progress > 0 && time.progress < 1), `at ${at} ms the bar was at ${time.progress}`);
+    assert.equal(time.progress === null, !time.text.includes('left'), 'the bar is there exactly while there is time left to say');
+  }
+});
+
+test('waiting for an OK stops the clock: the bar stands where it was, and the wait is left out afterwards', () => {
+  // Six minutes in, it asks. However long the answer takes, it is a third of the way and nothing counts down.
+  const waiting: AgentTurn = { ...estimated, status: 'waiting_for_approval', pausedAt: start + 6 * min };
+  const held = { text: 'paused', spoken: 'paused', progress: 6 / 18, paused: true, estimated: true };
+  assert.deepEqual(replyTime(waiting, start + 6 * min), held);
+  assert.deepEqual(replyTime(waiting, start + 50 * min), held);
+  // Answered after 20 minutes: it picks up from the same third, with the same 12 minutes left.
+  const answered = { ...estimated, pausedMs: 20 * min, pausedAt: null };
+  assert.deepEqual(replyTime(answered, start + 26 * min), { text: 'about 12 min left', spoken: 'about 12 minutes left', progress: 6 / 18, paused: false, estimated: true });
+  assert.equal(replyTime(answered, start + 38 * min).text, '38 min, longer than usual', 'the time so far is the time on the wall');
+  // Asked within the first minute of work: there was no bar yet, so there is none to hold, however long the wait.
+  assert.deepEqual(replyTime({ ...waiting, pausedAt: start + 30_000 }, start + 30 * min), { ...nothingYet, paused: true });
+  assert.deepEqual(replyTime({ ...estimated, pausedMs: 30 * min }, start + 30 * min + 40_000), nothingYet);
+  // Asked when the usual time was already spent: no bar to hold either, and nothing to say but the wait itself.
+  assert.deepEqual(replyTime({ ...waiting, pausedAt: start + 19 * min }, start + 25 * min), { ...nothingYet, paused: true });
+});
+
+test('without an estimate the time is what it was: how long so far, beside the line, after the first minute', () => {
+  const plain = queuedTurn('a', 'running', 1, { startedAt: start });
+  const soFar = (text: string, spoken: string) => ({ text, spoken, progress: null, paused: false, estimated: false });
+  assert.deepEqual(replyTime(plain, start + 59_000), soFar('', ''));
+  assert.deepEqual(replyTime(plain, start + 179_000), soFar('2 min', 'two minutes so far'));
+  assert.deepEqual(replyTime(null, start), soFar('', ''));
+  // Only a reply that is working (or waiting for an OK) is estimated: one that is stopping, waiting its turn or done is not.
+  assert.deepEqual(replyTime({ ...estimated, status: 'stopping' }, start + 5 * min), soFar('5 min', 'five minutes so far'));
+  assert.deepEqual(replyTime({ ...estimated, status: 'queued', startedAt: null }, start + 5 * min), soFar('', ''));
+  assert.equal(replyTime({ ...estimated, status: 'completed' }, start + 5 * min).estimated, false);
+  // The Agent tab's turns arrive as the server sent them: anything that is not a usable number means no estimate.
+  for (const usualMs of ['1080000', 0, -5, NaN, null, undefined]) {
+    assert.deepEqual(replyTime({ ...estimated, usualMs } as unknown as AgentTurn, start + 5 * min), soFar('5 min', 'five minutes so far'), `usualMs ${String(usualMs)}`);
+  }
+  assert.equal(replyTime({ ...estimated, pausedMs: 'x' } as unknown as AgentTurn, start + 9 * min).text, 'about 9 min left');
+  assert.deepEqual(replyTime({ ...estimated, startedAt: null }, start + 9 * min), soFar('', ''));
+});
+
+test('the estimate rides on a turn only as numbers', () => {
+  const live = { id: 't', chatId: 'c', status: 'running', createdAt: 1, updatedAt: 2, startedAt: start };
+  assert.deepEqual([parseAgentTurn({ ...live, usualMs: 18 * min, pausedMs: 5_000, pausedAt: 7_000 })].map(t => [t?.usualMs, t?.pausedMs, t?.pausedAt]), [[18 * min, 5_000, 7_000]]);
+  assert.deepEqual([parseAgentTurn({ ...live, usualMs: 18 * min })].map(t => [t?.usualMs, t?.pausedMs, t?.pausedAt]), [[18 * min, 0, null]]);
+  assert.deepEqual([parseAgentTurn({ ...live, usualMs: 18 * min, pausedMs: 'x', pausedAt: 'y' })].map(t => [t?.usualMs, t?.pausedMs, t?.pausedAt]), [[18 * min, 0, null]]);
+  // A server that sends none (an older one, or one with too little to go on) leaves the turn as it always was.
+  for (const none of [{}, { usualMs: 'soon', pausedMs: 5_000 }, { usualMs: 0 }, { usualMs: -1 }]) {
+    const parsed = parseAgentTurn({ ...live, ...none });
+    assert.equal(parsed && ('usualMs' in parsed || 'pausedMs' in parsed || 'pausedAt' in parsed), false);
+  }
 });
 
 test('a finished reply says how long the agent worked, and only a finished, timed one does', () => {

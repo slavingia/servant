@@ -160,3 +160,25 @@ both joining the reply and waiting its turn. Existing media, shutdown,
 state and deployment tests cover the retained behavior. The Python bridge suite
 executes its media/history/policy/approval contract against supported Hermes
 versions without model credentials.
+
+## How long is left
+
+When a chat's replies have a habit, a running reply shows "about 17 min left"
+beside its live line, with a thin bar under it, in the chat and on the Agent
+tab's rows. The server works the habit out from times only (`server/turn-estimate.mjs`):
+this person's last 20 completed replies in the chat (or on the same agent
+across their chats, until the chat has 5 of its own) that ran past the first
+minute, less the time they waited for an OK. `usualMs` is the time three in four
+finished within. No estimate is made for fewer than 5 replies, when the usual
+time is under 2 min, or when the slow quarter took over 4 times the quick one.
+The turn view carries `usualMs`, `pausedMs` and `pausedAt` while it is active.
+
+The app (`replyTime` in `app/src/lib/agent-turns.ts`) counts work, not waiting:
+
+- First minute: nothing new.
+- Then "about 17 min left" and a bar, rounded up to the minute, looked at every 5 sec.
+- Waiting for an OK: "paused", the bar stays put in grey.
+- Past the usual time: "21 min, longer than usual", no bar. It never reads 0.
+- Queued, or no history: what it showed before.
+
+The bar has no number and is hidden from screen readers; the words are read.

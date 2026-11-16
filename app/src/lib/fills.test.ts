@@ -17,6 +17,7 @@ const MARKS: Record<string, string> = {
   "components/MeetingRecorder.tsx:dot": "the recording dot",
   "app/leaderboard.tsx:bar": "a usage bar",
   "components/ProjectReleases.tsx:barFill": "a release's progress bar",
+  "components/ReplyBar.tsx:fill": "how far a reply is through its usual time",
 };
 
 test("a fill that carries words or an icon is primary or danger, never a foreground color", () => {

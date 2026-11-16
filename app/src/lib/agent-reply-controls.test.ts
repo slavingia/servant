@@ -64,3 +64,32 @@ test("one tap on Send is enough in an agent chat, as in a person's chat", () => 
 test('a message the server holds as up next frees the composer, so the next one can be sent', () => {
   assert.match(chat, /else if \(e\.turn\.status === 'queued'\) onAccepted\(\);/);
 });
+
+// "About 17 min left" beside the line and a thin bar under it, in the chat and on the Agent tab's rows, when the
+// server has an estimate (docs/agent-turns.md, "How long is left"). The rules for the numbers are tested in
+// agent-turns.test.ts; these are the rules for how they are drawn.
+test("how long is left is words and a bar with no number on it: a slow tick, still for Reduce Motion, silent as a percentage", () => {
+  const bar = read("components/ReplyBar.tsx"), tab = read("app/(tabs)/agent.tsx"), clock = read("lib/use-now.ts");
+  // The chat and the Agent tab ask the same function, so the two can't say different things.
+  assert.match(steps, /const time = replyTime\(turn, now\);/);
+  assert.match(tab, /return children\(estimated \? replyTime\(turn, now\) : null\);/);
+  // The bar is there only while an estimate has time left on it: never before, and never sitting full afterwards.
+  assert.match(steps, /const bar = time\.progress === null \? null : <ReplyBar progress=\{time\.progress\} paused=\{time\.paused\}/);
+  assert.match(tab, /\{time && time\.progress !== null \? <ReplyBar progress=\{time\.progress\} paused=\{time\.paused\}/);
+  // Nobody measured a percentage, so none is drawn or read out: a screen reader hears the words.
+  assert.match(bar, /aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants"/);
+  assert.doesNotMatch(bar, /progressbar|accessibilityValue|accessibilityLabel|<Text/);
+  assert.match(steps, /\{time\.text \? <Text accessibilityLabel=\{time\.spoken\} style=\{styles\.since\}>· \{time\.text\}<\/Text> : null\}/);
+  assert.match(steps, /accessibilityLabel=\{`\$\{line\}\$\{time\.spoken \? `, \$\{time\.spoken\}` : ""\}`\}/);
+  assert.match(tab, /\$\{activeAgentTurn\(item\.latestTurn\) \? `\. \$\{turnLine\(item\.latestTurn!\)\}\$\{time\?\.spoken \? `, \$\{time\.spoken\}` : ""\}` : ""\}/, "the row's button says what its reply is doing and how long is left");
+  // Still calm: the time is looked at every few seconds, only by a row that has an estimate, and nothing counts seconds.
+  assert.match(steps, /const now = useNow\(5_000\);/);
+  assert.match(tab, /const estimated = activeAgentTurn\(turn\) && typeof turn\?\.usualMs === "number";\n\s+const now = useNow\(estimated \? 5_000 : null\);/);
+  assert.match(clock, /if \(!every\) return;/, "a row with nothing to estimate never ticks");
+  assert.doesNotMatch(bar + clock, /tabular-nums|setInterval\([^)]*, 1_?000\)/);
+  // Reduce Motion gets the same bar, placed without the glide. The glide runs natively on a phone.
+  assert.match(bar, /const still = useReduceMotion\(\);/);
+  assert.match(bar, /if \(still\) \{ at\.setValue\(progress\); return; \}/);
+  assert.match(bar, /const native = Platform\.OS !== "web";/);
+  assert.match(bar, /Animated\.timing\(at, \{ toValue: progress, duration: 600, easing: Easing\.out\(Easing\.quad\), useNativeDriver: native \}\)/);
+});

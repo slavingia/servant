@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, AppState, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect, useScrollToTop } from "expo-router";
 import { shortTime as when } from "../../lib/time-label";
@@ -18,8 +18,10 @@ import { openingChat, warmChats } from "../../lib/chat-cache";
 import { reuseEqual } from "../../lib/reuse-equal";
 import { setRowChange, withRowChanges, type RowChanges } from "../../lib/row-changes";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../../lib/theme";
-import { activeAgentTurn, agentTurnLabel, liveAgentLine } from '../../lib/agent-turns';
+import { activeAgentTurn, agentTurnLabel, liveAgentLine, replyTime, type AgentTurn, type ReplyTime } from '../../lib/agent-turns';
+import { useNow } from "../../lib/use-now";
 import { LiveStatus } from "../../components/LiveStatus";
+import { ReplyBar } from "../../components/ReplyBar";
 
 // The line under the title, like the last message in a DM list.
 function lastLine(chat: Chat, author: string, agent = "") {
@@ -29,6 +31,16 @@ function lastLine(chat: Chat, author: string, agent = "") {
   return last.role === "user" ? `${author}: ${body}` : agent ? `${agent}: ${body}` : body;
 }
 
+// What a row says about the reply in progress: what the agent is doing, or what it is waiting for.
+const turnLine = (turn: AgentTurn) => turn.status === "running" ? liveAgentLine(turn) : agentTurnLabel(turn);
+
+// A row whose reply has an estimate looks at the clock itself, every few seconds, so what it says about time
+// stays true, on screen and for a screen reader, without the list being drawn again. No other row ticks.
+function ReplyClock({ turn, children }: { turn: AgentTurn | null | undefined; children: (time: ReplyTime | null) => ReactNode }) {
+  const estimated = activeAgentTurn(turn) && typeof turn?.usualMs === "number";
+  const now = useNow(estimated ? 5_000 : null);
+  return children(estimated ? replyTime(turn, now) : null);
+}
 
 export default function Chats() {
   const styles = useStyles();
@@ -261,9 +273,10 @@ export default function Chats() {
               onOpen={() => setOpenId(item.id)} onClose={closeRow} onArchive={() => { void act(item); }} onDelete={() => { setActionError(null); setDeleting(item); }}>
               {(bind) => (
                 <View style={styles.rowWrap}>
+                <ReplyClock turn={item.latestTurn}>{(time) => (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`${title}${unread ? `, ${unread} unread ${unread === 1 ? "reply" : "replies"}` : ""}${item.shared === true ? ", shared with everyone" : ""}${lastLine(item, "You") ? `. ${lastLine(item, "You")}` : ""}`}
+                  accessibilityLabel={`${title}${unread ? `, ${unread} unread ${unread === 1 ? "reply" : "replies"}` : ""}${item.shared === true ? ", shared with everyone" : ""}${lastLine(item, "You") ? `. ${lastLine(item, "You")}` : ""}${activeAgentTurn(item.latestTurn) ? `. ${turnLine(item.latestTurn!)}${time?.spoken ? `, ${time.spoken}` : ""}` : ""}`}
                   onPress={() => bind.onPress(() => {
                     // Clear the badge right away; the chat screen tells the server.
                     if (unread) setChats(list => list?.map(chat => chat.id === item.id ? { ...chat, unread: 0 } : chat) ?? list);
@@ -282,8 +295,13 @@ export default function Chats() {
                     {item.mode === "vibe" || item.project ? <Text style={styles.projectTag}>{[item.project?.name, item.mode === "vibe" ? "Prototyping" : null].filter(Boolean).join(" · ")}</Text> : null}
                     <View style={styles.rowTop}>
                       {activeAgentTurn(item.latestTurn) ? <View style={styles.turnLive}>{item.latestTurn!.status === 'running'
-                          ? <LiveStatus text={liveAgentLine(item.latestTurn)} style={styles.turnLiveText} />
-                          : <Text style={styles.turnLabel}>{agentTurnLabel(item.latestTurn!)}</Text>}</View>
+                          ? <View style={styles.turnLine}>
+                            <LiveStatus text={liveAgentLine(item.latestTurn)} style={styles.turnLiveText} />
+                            {/* About how long is left, when the server has an estimate (lib/agent-turns.ts, replyTime). */}
+                            {time?.text ? <Text style={styles.turnTime}>· {time.text}</Text> : null}
+                          </View>
+                          : <Text style={styles.turnLabel}>{agentTurnLabel(item.latestTurn!)}</Text>}
+                          {time && time.progress !== null ? <ReplyBar progress={time.progress} paused={time.paused} style={styles.turnBar} /> : null}</View>
                         : <View style={styles.privateTag}>
                           {item.shared === true ? <AppIcon name="people" size={12} color={colors.muted} /> : null}
                           <Text style={[styles.preview, unread > 0 && { color: colors.ink }]} numberOfLines={1}>{lastLine(item, "You") || (item.shared === true ? "Shared" : "")}</Text>
@@ -292,6 +310,7 @@ export default function Chats() {
                     </View>
                   </View>
                 </Pressable>
+                )}</ReplyClock>
                 {/* Beside the row, not inside it: a button can't hold a button on the web. */}
                 {bind.trailing}
                 </View>
@@ -314,7 +333,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   inbox: { marginHorizontal: space.side, marginBottom: space.md, padding: space.md, backgroundColor: colors.blueSoft, borderRadius: radius.lg },
   inboxTitle: { ...typography.bodyStrong, color: colors.brandText, marginBottom: space.xs },
   approvalRow: { paddingVertical: space.xs, gap: space.xxs }, approvalDetail: { ...typography.caption, color: colors.ink }, review: { ...typography.captionStrong, color: colors.blue, ...linkUnderline },
-  rowCopy: { flex: 1, minWidth: 0 }, rowTop: { flexDirection: "row", alignItems: "center" }, byline: { ...typography.meta, color: colors.muted, marginTop: space.xxs }, privateTag: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space.xxs, marginTop: space.xxs, marginRight: space.sm }, preview: { ...typography.caption, color: colors.muted, flexShrink: 1 }, turnLive: { flex: 1, minWidth: 0, marginTop: space.xxs, marginRight: space.sm }, turnLiveText: { ...typography.meta, color: colors.blue }, turnLabel: { ...typography.meta, flex: 1, color: colors.blue, marginTop: space.xxs, marginRight: space.sm },
+  rowCopy: { flex: 1, minWidth: 0 }, rowTop: { flexDirection: "row", alignItems: "center" }, byline: { ...typography.meta, color: colors.muted, marginTop: space.xxs }, privateTag: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space.xxs, marginTop: space.xxs, marginRight: space.sm }, preview: { ...typography.caption, color: colors.muted, flexShrink: 1 }, turnLive: { flex: 1, minWidth: 0, marginTop: space.xxs, marginRight: space.sm }, turnLiveText: { ...typography.meta, color: colors.blue }, turnLine: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: space.xxs }, turnTime: { ...typography.meta, color: colors.muted }, turnBar: { marginTop: space.xxs }, turnLabel: { ...typography.meta, flex: 1, color: colors.blue, marginTop: space.xxs, marginRight: space.sm },
   header: { minHeight: 60, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.xs },
   title: { ...typography.title, color: colors.ink, flexShrink: 1 },
   compose: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },

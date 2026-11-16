@@ -14,6 +14,10 @@ export type AgentTurn = {
   steps?: AgentStep[]; stepCount?: number;
   // When it started running and when it ended, for "Worked for 12 seconds".
   startedAt?: number | null; finishedAt?: number | null;
+  // While it runs: how long replies like it usually work, when the server has enough of this person's finished
+  // replies to say. Waiting for an OK is not work: pausedMs is how long it has waited so far, pausedAt when the
+  // wait it is in now began.
+  usualMs?: number; pausedMs?: number; pausedAt?: number | null;
   // The reply this turn wrote.
   messageId?: string | null;
   createdAt: number; updatedAt: number;
@@ -59,6 +63,7 @@ export function parseAgentTurn(value: unknown): AgentTurn | null {
     activity: typeof t.activity === 'string' && t.activity ? t.activity.slice(0, 80) : null,
     steps, stepCount: typeof t.stepCount === 'number' && t.stepCount > steps.length ? Math.floor(t.stepCount) : steps.length,
     startedAt: typeof t.startedAt === 'number' ? t.startedAt : null, finishedAt: typeof t.finishedAt === 'number' ? t.finishedAt : null,
+    ...(typeof t.usualMs === 'number' && t.usualMs > 0 ? { usualMs: t.usualMs, pausedMs: typeof t.pausedMs === 'number' && t.pausedMs > 0 ? t.pausedMs : 0, pausedAt: typeof t.pausedAt === 'number' ? t.pausedAt : null } : {}),
     messageId: typeof t.messageId === 'string' && t.messageId ? t.messageId : null, createdAt: t.createdAt, updatedAt: t.updatedAt };
 }
 function parseSteps(value: unknown): AgentStep[] {
@@ -95,6 +100,45 @@ export function workingFor(turn: AgentTurn | null | undefined, now: number, spok
   const start = turn?.startedAt ?? turn?.steps?.[0]?.at;
   if (!start || now - start < 60_000) return '';
   return (spoken ? spokenDuration : shortDuration)(Math.floor((now - start) / 60_000) * 60_000);
+}
+// What is said about time while a reply runs, and the bar that goes with it.
+export type ReplyTime = {
+  // "about 17 min left", "21 min, longer than usual", "paused", "2 min", or nothing.
+  text: string;
+  // The same for a screen reader: "about 17 minutes left", "21 minutes so far, longer than usual", "two minutes so far".
+  spoken: string;
+  // How much of the usual time is spent, from 0 to 1. Null when there is no bar to draw.
+  progress: number | null;
+  // Waiting for the person's OK: the bar stands where it was.
+  paused: boolean;
+  // The server said how long replies like this usually work. The words then sit beside the bar, under the
+  // line; without an estimate they are how long it has been, beside the line as before.
+  estimated: boolean;
+};
+// How long is likely left, when the server could say how long replies like this usually work (usualMs); how
+// long it has been, as before, when it couldn't. Nothing in the first minute either way.
+//
+// It is an estimate and says so ("about"), in whole minutes rounded up so it never promises less than it
+// knows. It counts work, so it stands still while the agent waits for an OK. Once the usual time is spent
+// there is nothing left to count down: it says how long it has been and that this is longer than usual, and
+// the bar goes. It never reads 0, and never sits full.
+export function replyTime(turn: AgentTurn | null | undefined, now: number): ReplyTime {
+  const since = workingFor(turn, now), sinceSpoken = workingFor(turn, now, true);
+  const waiting = turn?.status === 'waiting_for_approval';
+  // The Agent tab's turns come as the server sent them, so the numbers are checked here.
+  if (!turn || (turn.status !== 'running' && !waiting) || typeof turn.usualMs !== 'number' || !(turn.usualMs > 0) || typeof turn.startedAt !== 'number') {
+    return { text: since, spoken: sinceSpoken && `${sinceSpoken} so far`, progress: null, paused: false, estimated: false };
+  }
+  const paused = typeof turn.pausedMs === 'number' && turn.pausedMs > 0 ? turn.pausedMs : 0;
+  const worked = (waiting && typeof turn.pausedAt === 'number' ? turn.pausedAt : now) - turn.startedAt - paused;
+  const left = turn.usualMs - worked;
+  const estimate = (text: string, spoken: string, progress: number | null): ReplyTime => ({ text, spoken, progress, paused: waiting, estimated: true });
+  // No bar yet in the first minute of work, and none once the usual time is spent, waiting or not.
+  if (worked < 60_000 || (waiting && left <= 0)) return estimate('', '', null);
+  if (waiting) return estimate('paused', 'paused', worked / turn.usualMs);
+  if (left <= 0) return estimate(`${since}, longer than usual`, `${sinceSpoken} so far, longer than usual`, null);
+  const minutes = Math.ceil(left / 60_000) * 60_000;
+  return estimate(`about ${shortDuration(minutes)} left`, `about ${spokenDuration(minutes)} left`, worked / turn.usualMs);
 }
 // What a finished reply keeps of its work: "Worked for 12 sec" ("12 seconds" when spoken). Null when the server
 // didn't time it.

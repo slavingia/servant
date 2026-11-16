@@ -1,39 +1,43 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import { patientLine, readableSteps, workedFor, workingFor, type AgentStep, type AgentTurn } from "../lib/agent-turns";
+import { patientLine, readableSteps, replyTime, workedFor, type AgentStep, type AgentTurn } from "../lib/agent-turns";
+import { useNow } from "../lib/use-now";
 import { FadeIn, LiveStatus, useReduceMotion } from "./LiveStatus";
+import { ReplyBar } from "./ReplyBar";
 import { AppIcon } from "./AppIcon";
 import { createThemedStyles, space, typography, useTheme } from "../lib/theme";
 
-// While the agent works: one calm line saying what it is doing ("Reading a file…"), and for how long once it
-// has been a while. Tap it for the steps so far, told plainly: what it did and, for the owner, what it worked
-// on (the command, search, file or thought).
+// While the agent works: one calm line saying what it is doing ("Reading a file…"), and after the first minute
+// a word about time. When the server can say how long replies like this usually take, that is about how long
+// is left, with a thin bar under the line; when it can't, it is how long it has been. Tap the line for the
+// steps so far, told plainly: what it did and, for the owner, what it worked on (the command, search, file or
+// thought).
 export function AgentProgress({ line: current, turn }: { line: string; turn: AgentTurn | null }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const [open, setOpen] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
   // Nothing here counts seconds, so a slow tick is enough.
-  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 5_000); return () => clearInterval(timer); }, []);
+  const now = useNow(5_000);
   const steps = readableSteps(turn?.steps ?? []);
-  const since = workingFor(turn, now);
-  const sinceSpoken = workingFor(turn, now, true);
+  const time = replyTime(turn, now);
   // A bare "Thinking" that has gone on a while says so in friendlier words.
   const line = patientLine(current, now - (turn?.startedAt ?? turn?.steps?.[0]?.at ?? now));
   const words = <>
     <LiveStatus text={line} style={styles.line} announce />
-    {since ? <Text accessibilityLabel={sinceSpoken} style={styles.since}>· {since}</Text> : null}
+    {time.text ? <Text accessibilityLabel={time.spoken} style={styles.since}>· {time.text}</Text> : null}
   </>;
+  const bar = time.progress === null ? null : <ReplyBar progress={time.progress} paused={time.paused} style={styles.bar} />;
   // Nothing to open yet: plain words, not a button that does nothing.
-  if (!steps.length) return <View testID="agent-progress" style={[styles.wrap, styles.head]}>{words}</View>;
+  if (!steps.length) return <View style={styles.wrap}><View testID="agent-progress" style={styles.head}>{words}</View>{bar}</View>;
   return (
     <View style={styles.wrap}>
       <Pressable testID="agent-progress" accessibilityRole="button" accessibilityState={{ expanded: open }} aria-expanded={open}
-        accessibilityLabel={`${line}${sinceSpoken ? `, ${sinceSpoken} so far` : ""}`} accessibilityHint={open ? "Hides the steps" : "Shows what it has done so far"}
+        accessibilityLabel={`${line}${time.spoken ? `, ${time.spoken}` : ""}`} accessibilityHint={open ? "Hides the steps" : "Shows what it has done so far"}
         onPress={() => setOpen(o => !o)} style={({ pressed }) => [styles.head, pressed && styles.pressed]}>
         {words}
         <View style={open && styles.flip}><AppIcon name="chevronDown" size={14} color={colors.muted} /></View>
       </Pressable>
+      {bar}
       {open ? <Steps steps={steps} /> : null}
     </View>
   );
@@ -101,6 +105,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   pressed: { opacity: 0.6 },
   line: { ...typography.body, color: colors.muted, flexShrink: 1 },
   since: { ...typography.body, color: colors.muted },
+  // Under the words. The line's 44-point control overhangs it, so the bar sits close; what follows keeps its distance.
+  bar: { marginBottom: space.xs },
   flip: { transform: [{ rotate: "180deg" }] },
   plain: { paddingTop: space.xxs, paddingBottom: space.xs },
   summary: { ...typography.caption, color: colors.muted },
