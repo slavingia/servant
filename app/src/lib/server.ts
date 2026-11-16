@@ -205,6 +205,8 @@ export type Conversation = {
   private: boolean;
   createdBy: string;
   archived: boolean;
+  /** You muted it (like Slack): it stays in your list, greyed, adds nothing to your badges, and only @mentions of you and your threads alert you. */
+  muted?: boolean;
   /** Where this person dragged the channel; null until they sort by hand. */
   position?: number | null;
   memberCount: number;
@@ -606,6 +608,7 @@ export const api = {
     request(a, `/v1/conversations/${id}`, { method: "PATCH", body: JSON.stringify(body) }).then(json<{ conversation: Conversation }>),
   setChannelOrder: (a: Account, ids: string[]) => request(a, "/v1/conversations/order", { method: "POST", body: JSON.stringify({ ids }) }),
   archiveChannel: (a: Account, id: string) => request(a, `/v1/conversations/${id}/archive`, { method: "POST", body: "{}" }),
+  muteConversation: (a: Account, id: string, muted: boolean) => request(a, `/v1/conversations/${id}/${muted ? "mute" : "unmute"}`, { method: "POST", body: "{}" }),
   restoreChannel: (a: Account, id: string) => request(a, `/v1/conversations/${id}/restore`, { method: "POST", body: "{}" }),
   deleteChannel: (a: Account, id: string) => request(a, `/v1/conversations/${id}`, { method: "DELETE" }),
   join: (a: Account, id: string) => request(a, `/v1/conversations/${id}/join`, { method: "POST", body: "{}" }),

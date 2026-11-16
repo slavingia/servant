@@ -880,13 +880,13 @@ export function ConversationRow({ c, onPress, onLongPress, longPressHint, access
   const me = useSession().account?.user.id;
   const preview = conversationPreview(c, me);
   const groupPeople = (c.members ?? []).filter(p => !p.agent && p.id !== me);
-  const bold = c.unread > 0 && !c.archived;
+  const bold = c.unread > 0 && !c.archived && !c.muted;
   const title = c.kind === "channel" ? `#${c.title}` : c.title;
   return (
     <View style={[styles.rowContainer, compact && styles.compactRowContainer]}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${title}${c.private && c.kind === "channel" ? ", private" : ""}${bold ? `, ${c.unread} unread` : ""}${compact ? "" : `. ${preview}`}`}
+        accessibilityLabel={`${title}${c.private && c.kind === "channel" ? ", private" : ""}${c.muted ? ", muted" : ""}${bold ? `, ${c.unread} unread` : ""}${compact ? "" : `. ${preview}`}`}
         onPress={onPress}
         onLongPress={onLongPress}
         accessibilityHint={longPressHint ?? (onLongPress ? "Swipe left or long press to archive or delete" : undefined)}
@@ -897,7 +897,8 @@ export function ConversationRow({ c, onPress, onLongPress, longPressHint, access
         {c.kind === "dm" ? (groupPeople.length > 1 ? <GroupAvatar people={groupPeople} size={compact ? 26 : 40} /> : <Avatar name={c.title} agent={c.agentDm} userId={dmPeer(c, me)} size={compact ? 26 : 40} />) : <View style={[styles.channelGlyph, compact && styles.compactChannelGlyph]}><AppIcon name={c.private ? "lock" : "hash"} size={compact ? 19 : 22} color={bold ? colors.ink : colors.muted} /></View>}
         <View style={styles.rowCopy}>
           <View style={styles.rowTop}>
-            <Text style={[styles.rowTitle, bold && styles.bold]}>{c.title}</Text>
+            <Text style={[styles.rowTitle, bold && styles.bold, c.muted && { color: colors.muted }]}>{c.title}</Text>
+            {c.muted ? <AppIcon name="bellOff" size={15} color={colors.muted} /> : null}
             {!compact ? <Text style={styles.time}>{when(c.updatedAt)}</Text> : null}
             {compact && bold ? <View style={styles.badge}><Text style={styles.badgeText}>{c.unread > 99 ? "99+" : c.unread}</Text></View> : null}
           </View>

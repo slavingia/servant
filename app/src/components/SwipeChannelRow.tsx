@@ -56,11 +56,29 @@ export function useConversationActions(account: Account | null, refresh: () => u
       setBusyId(null);
     }
   };
+  // Mute is yours alone and changes nothing for anyone else, so it just flips and the list refreshes.
+  const mute = async (c: Conversation) => {
+    if (!account || busy.current) return;
+    busy.current = true;
+    setBusyId(c.id);
+    setActionError(null);
+    closeRow();
+    try {
+      await api.muteConversation(account, c.id, !c.muted);
+      await refresh();
+    } catch (e) {
+      setActionError(e instanceof ServerError ? e.message : `Couldn't ${c.muted ? "unmute" : "mute"} the ${kindName(c)}. Try again.`);
+    } finally {
+      busy.current = false;
+      setBusyId(null);
+    }
+  };
   const rowProps = (c: Conversation) => ({
     c, open: openId === c.id, busy: busyId !== null,
     canDelete: !!account && canDeleteConversation(c, account),
     onOpen: () => setOpenId(c.id), onClose: closeRow,
     onArchive: () => { void act(c); },
+    onMute: c.archived ? undefined : () => { void mute(c); },
     onDelete: () => { setActionError(null); setDeleting(c); },
   });
   const dialog = <ConfirmDialog visible={!!deleting}
@@ -71,8 +89,9 @@ export function useConversationActions(account: Account | null, refresh: () => u
   return { openId, busyId, closeRow, rowProps, dialog, actionError: deleting ? null : actionError };
 }
 
-export function SwipeChannelRow({ c, compact = false, open, busy, canDelete, onOpen, onClose, onPress, onArchive, onDelete, drag, reordering = false }: {
+export function SwipeChannelRow({ c, compact = false, open, busy, canDelete, onOpen, onClose, onPress, onArchive, onDelete, onMute, drag, reordering = false }: {
   c: Conversation;
+  onMute?: () => void;
   /** Channels on Home: long press lifts the row to drag it instead of opening actions. */
   drag?: DragBindings;
   /** Reorder mode: swiping and opening are off and each row shows a grip. */
@@ -87,7 +106,7 @@ export function SwipeChannelRow({ c, compact = false, open, busy, canDelete, onO
   onArchive: () => void;
   onDelete: () => void;
 }) {
-  return <SwipeRow name={rowName(c)} kind={kindName(c)} archived={!!c.archived} open={open} busy={busy} canDelete={canDelete} locked={reordering}
+  return <SwipeRow name={rowName(c)} kind={kindName(c)} archived={!!c.archived} muted={!!c.muted} onMute={onMute} open={open} busy={busy} canDelete={canDelete} locked={reordering}
     onOpen={onOpen} onClose={onClose} onArchive={onArchive} onDelete={onDelete}>
     {({ onPress: press, onLongPress, accessibilityActions, onAccessibilityAction, trailing }) =>
       <ConversationRow c={c} compact={compact} lifted={drag?.lifted} onPress={() => { if (!reordering) press(onPress); }}
@@ -117,8 +136,11 @@ type RowBindings = {
 
 // Swipe left to reveal Archive (or Restore) and Delete. Long press and the
 // VoiceOver actions open the same choices; on web a "⋯" button does.
-export function SwipeRow({ name, kind, archived, open, busy, canDelete, locked = false, onOpen, onClose, onArchive, onDelete, children }: {
+export function SwipeRow({ name, kind, archived, muted, open, busy, canDelete, locked = false, onOpen, onClose, onArchive, onDelete, onMute, children }: {
   name: string;
+  /** With onMute: a Mute (or Unmute) action first, like Slack's. */
+  muted?: boolean;
+  onMute?: () => void;
   locked?: boolean;
   kind: string;
   archived: boolean;
@@ -133,14 +155,15 @@ export function SwipeRow({ name, kind, archived, open, busy, canDelete, locked =
 }) {
   const styles = useStyles();
   const { colors } = useTheme();
-  const width = canDelete ? 184 : 96;
+  const width = (canDelete ? 184 : 96) + (onMute ? 88 : 0);
+  const muteLabel = muted ? "Unmute" : "Mute";
   const archiveLabel = archived ? "Restore" : "Archive";
   const settled = useCallback((reveal: boolean) => { if (reveal) onOpen(); else onClose(); }, [onClose, onOpen]);
   const bind: RowBindings = {
     onPress: (go) => { if (!busy) { if (open) onClose(); else go(); } },
     onLongPress: () => { if (!busy) onOpen(); },
-    accessibilityActions: [{ name: "archive", label: archiveLabel }, ...(canDelete ? [{ name: "delete", label: `Delete ${kind}` }] : [])],
-    onAccessibilityAction: (e) => { if (!busy) { if (e.nativeEvent.actionName === "archive") onArchive(); if (e.nativeEvent.actionName === "delete" && canDelete) onDelete(); } },
+    accessibilityActions: [...(onMute ? [{ name: "mute", label: muteLabel }] : []), { name: "archive", label: archiveLabel }, ...(canDelete ? [{ name: "delete", label: `Delete ${kind}` }] : [])],
+    onAccessibilityAction: (e) => { if (!busy) { if (e.nativeEvent.actionName === "mute") onMute?.(); if (e.nativeEvent.actionName === "archive") onArchive(); if (e.nativeEvent.actionName === "delete" && canDelete) onDelete(); } },
     trailing: Platform.OS === "web" && !locked ? <Pressable disabled={busy} accessibilityRole="button" accessibilityLabel={`Actions for ${name}`} accessibilityState={{ expanded: open, disabled: busy }} aria-expanded={open} onPress={open ? onClose : onOpen} style={styles.more}><AppIcon name="more" size={18} color={colors.muted} /></Pressable> : undefined,
   };
   return (
@@ -152,6 +175,9 @@ export function SwipeRow({ name, kind, archived, open, busy, canDelete, locked =
         behindStyle={styles.actions}
         behindProps={{ ...(Platform.OS === "web" ? { "aria-hidden": !open } : { accessibilityElementsHidden: !open, importantForAccessibility: open ? "auto" as const : "no-hide-descendants" as const }), pointerEvents: open && !busy ? "auto" : "none" }}
         behind={<>
+          {onMute ? <Pressable disabled={!open || busy} accessibilityRole="button" accessibilityLabel={`${muteLabel} ${name}`} onPress={onMute} style={[styles.action, styles.mute]}>
+            <Text style={styles.label}>{muteLabel}</Text>
+          </Pressable> : null}
           <Pressable disabled={!open || busy} accessibilityRole="button" accessibilityLabel={`${archiveLabel} ${name}`} onPress={onArchive} style={[styles.action, styles.archive]}>
             <Text style={styles.label}>{archiveLabel}</Text>
           </Pressable>
@@ -170,6 +196,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   actions: { zIndex: 0, position: "absolute", right: 0, top: 0, bottom: 0, flexDirection: "row" },
   action: { flex: 1, minHeight: 44, paddingHorizontal: space.xs, alignItems: "center", justifyContent: "center" },
   archive: { backgroundColor: colors.primary },
+  mute: { backgroundColor: colors.muted },
   delete: { backgroundColor: colors.danger },
   label: { ...typography.label, color: colors.onPrimary },
   more: { minHeight: 44, minWidth: 44, justifyContent: "center", alignItems: "center", marginRight: space.xs },

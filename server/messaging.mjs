@@ -329,6 +329,10 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     if (!db.prepare("PRAGMA table_info(members)").all().some(column => column.name === "position")) {
       db.exec("ALTER TABLE members ADD COLUMN position INTEGER");
     }
+    // Muted (like Slack): the conversation stays, but only mentions and threads you're in alert you, and it adds nothing to your badges.
+    if (!db.prepare("PRAGMA table_info(members)").all().some(column => column.name === "muted_at")) {
+      db.exec("ALTER TABLE members ADD COLUMN muted_at INTEGER");
+    }
     if (!db.prepare("PRAGMA table_info(messages)").all().some(column => column.name === "activity")) {
       db.exec("ALTER TABLE messages ADD COLUMN activity TEXT");
     }
@@ -546,7 +550,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     setAgentText: q("UPDATE messages SET text = ?, pending = ? WHERE seq = ?"),
     softDelete: q("UPDATE messages SET text = '', deleted_at = ? WHERE seq = ?"),
     markRead: q("UPDATE members SET last_read_seq = MAX(last_read_seq, ?) WHERE conversation_id = ? AND user_id = ?"),
-    mine: q(`SELECT c.*, m.last_read_seq,
+    mine: q(`SELECT c.*, m.last_read_seq, m.muted_at,
                (SELECT COUNT(*) FROM messages x WHERE x.conversation_id = c.id AND (x.thread_root IS NULL OR x.in_channel = 1)
                   AND x.seq > m.last_read_seq AND x.user_id != m.user_id AND x.deleted_at IS NULL AND x.activity IS NULL) AS unread,
                (SELECT MAX(seq) FROM messages x WHERE x.conversation_id = c.id AND (x.thread_root IS NULL OR x.in_channel = 1)) AS last_seq
@@ -577,6 +581,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     updateConv: q("UPDATE conversations SET name = ?, topic = ? WHERE id = ?"),
     archive: q("UPDATE conversations SET archived_at = ? WHERE id = ?"),
     archiveMember: q("UPDATE members SET archived_at = ? WHERE conversation_id = ? AND user_id = ?"),
+    muteMember: q("UPDATE members SET muted_at = ? WHERE conversation_id = ? AND user_id = ?"),
     setPosition: q("UPDATE members SET position = ? WHERE conversation_id = ? AND user_id = ?"),
     deleteConv: q("DELETE FROM conversations WHERE id = ?"),
     deleteAgentThreads: q("DELETE FROM agent_threads WHERE substr(key, 1, length(?) + 1) = ? || ':'"),
@@ -770,6 +775,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
       private: !!c.private,
       createdBy: c.created_by,
       archived: !!membership?.archived_at,
+      muted: !!membership?.muted_at,
       // This person's own place for the channel when they sort by hand.
       position: membership?.position ?? null,
       memberCount: memberIds.length,
@@ -1411,19 +1417,23 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     if (inDeepWork(user)) return null;
     // No delayed push after the recipient has already read the top-level post.
     if (!call && (!m.thread_root || m.in_channel) && membership.last_read_seq >= m.seq) return null;
+    const badge = () => st.mine.all(user.id, 0).reduce((n, x) => n + (x.muted_at ? 0 : x.unread), 0);
     const participant = !!m.thread_root && !!db.prepare("SELECT 1 FROM messages WHERE conversation_id = ? AND (seq = ? OR thread_root = ?) AND user_id = ? AND deleted_at IS NULL AND seq < ? LIMIT 1").get(c.id, m.thread_root, m.thread_root, user.id, m.seq);
     if (call) {
       const caller = person(call.by).name;
-      return { kind: c.kind, conversationId: c.id, meetingId: call.id, caller, place: c.kind === "channel" ? `#${c.name}` : "", mentioned: true, participant: false, badge: st.mine.all(user.id, 0).reduce((n, x) => n + x.unread, 0),
+      return { kind: c.kind, conversationId: c.id, meetingId: call.id, caller, place: c.kind === "channel" ? `#${c.name}` : "", mentioned: true, participant: false, badge: badge(),
         title: `${caller} is calling`, body: c.kind === "channel" ? `In #${c.name}. Tap to join` : "Tap to join" };
     }
     const sender = person(m.user_id).name;
     // New build notes reach everyone, like an @here.
     const release = !m.thread_root && st.releaseBySeq.get(m.seq);
-    const unread = st.mine.all(user.id, 0).reduce((n, c) => n + c.unread, 0);
+    const mentioned = !!release || isMention(m.text, user);
+    // Muted: only an @mention of you by name, or a reply in a thread you're in, still alerts. Not @here, @channel or build notes. Calls (above) always ring.
+    if (membership.muted_at && !participant && !isMention(m.text.replace(/@(channel|here)\b/gi, ""), user)) return null;
+    const unread = badge();
     // Tapping a build's notes opens its thread, where testers discuss it.
     return { kind: c.kind, conversationId: c.id, messageId: String(m.seq), threadRoot: release ? m.seq : m.thread_root,
-      mentioned: !!release || isMention(m.text, user), participant, badge: unread,
+      mentioned, participant, badge: unread,
       title: release ? `Build ${release.build} is out` : c.kind === "channel" ? `${sender} in #${c.name}` : sender,
       body: m.text || (st.attachments.all(m.seq).length ? "Sent an attachment" : ""), };
   }
@@ -1783,6 +1793,17 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
           publish(conv.id, "conversation.updated", { id: conv.id }, [user.id]);
         });
         send(res, 200, { ok: true });
+        return true;
+      }
+      if ((sub === "mute" || sub === "unmute") && method === "POST") {
+        if (!isMember)
+          return fail(res, 403, "forbidden", conv.kind === "dm" ? "You're not in this conversation" : "Join the channel first"), true;
+        transaction(() => {
+          requireConversation(conv.id, user.id, true);
+          st.muteMember.run(sub === "mute" ? now() : null, conv.id, user.id);
+          publish(conv.id, "conversation.updated", { id: conv.id }, [user.id]);
+        });
+        send(res, 200, { ok: true, muted: sub === "mute" });
         return true;
       }
       if (!sub && method === "DELETE" && conv.kind === "dm") {

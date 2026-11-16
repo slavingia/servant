@@ -286,6 +286,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
           await api.updateChannel(account, id, { name: cmd.args }); setError(null); void load(); return true;
         }
         case "leave": await api.leave(account, id); router.replace("/"); return true;
+        case "mute": { const next = !conv?.muted; await api.muteConversation(account, id, next); setConv(c => c ? { ...c, muted: next } : c); setError(null); return true; }
         case "call": void startCall(); return true;
         case "archive": await (conv?.archived ? api.restoreChannel(account, id) : api.archiveChannel(account, id)); setError(null); router.replace("/"); return true;
         case "new": router.push("/new-message"); return true;
