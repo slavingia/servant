@@ -21,14 +21,17 @@ test("the person sheet's choices scroll between the name and the actions", () =>
 
 // The owner asked for the limit to read like the role list, with only one of the two open at a time so the open one
 // has room to say what each choice means.
-test("the role and the limit are two sections, and only one is open at a time", () => {
-  assert.match(source, /const \[section, setSection\] = useState<"role" \| "limit" \| null>\("role"\);/, "one value: opening one closes the other; the role is open first");
-  assert.equal((sheet.match(/<SheetSection /g) ?? []).length, 2);
+test("the manager, the role and the limit are sections, and only one is open at a time", () => {
+  assert.match(source, /const \[section, setSection\] = useState<"role" \| "limit" \| "manager" \| null>\("role"\);/, "one value: opening one closes the others; the role is open first");
+  assert.equal((sheet.match(/<SheetSection /g) ?? []).length, 3);
+  assert.match(sheet, /\{canChangeManager\(managed, viewer\) && people \? <SheetSection title="Manager" summary=\{managerOfManaged\?\.name \?\? "Nobody yet"\} open=\{section === "manager"\}/, "only someone who may change the manager sees the choice");
+  assert.match(sheet, /\{owner \? <><SheetSection title="What their agent can do"/, "a manager who isn't an owner gets neither the role nor the limit");
+  assert.match(sheet, /\{owner \? <Button testID=\{`remove-\$\{managed\.id\}`\}/, "nor Remove");
   assert.match(sheet, /<SheetSection title="What their agent can do" summary=\{roleLabel\(managed\.agentTier\)\} open=\{section === "role"\}/);
   assert.match(sheet, /<SheetSection title="Daily token limit" summary=\{limitSummary\(managed, directory\?\.roleLimits, directory\?\.roleCosts\)\} open=\{section === "limit"\}/);
   assert.match(source, /accessibilityState=\{\{ expanded: open \}\} aria-expanded=\{open\}/, "each header says whether it is open");
   assert.match(source, /\{!open && summary \? <Text style=\{styles\.optionHint\}>\{summary\}<\/Text> : null\}/, "a closed section says what is chosen");
-  assert.match(source, /const manage = \(id: string\) => \{ setSection\("role"\); setManaging\(id\); \};/, "every sheet opens on the role");
+  assert.match(source, /const manage = \(id: string\) => \{ setSection\(owner \? "role" : "manager"\); setManaging\(id\); \};/, "an owner's sheet opens on the role; a manager's on the one section they have");
 });
 
 test("nothing on People is cut off with an ellipsis", () => {

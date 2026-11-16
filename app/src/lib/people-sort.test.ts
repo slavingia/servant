@@ -30,3 +30,8 @@ test("you are online to yourself, and the input is not changed", () => {
   assert.deepEqual(ids(sortPeople(list, "seen", {}, true, "me")), ["me", "a"]);
   assert.deepEqual(ids(list), ["a", "me"]);
 });
+
+test("org chart: each manager is followed by their reports", () => {
+  const team = [{ id: "pat", name: "Pat Tester", managerId: "jo" }, { id: "jo", name: "Jo Park", managerId: "ana" }, { id: "ana", name: "Ana Ruiz", owner: true }, { id: "sam", name: "Sam Lee", managerId: "ana" }];
+  assert.deepEqual(sortPeople(team, "org").map(p => p.name), ["Ana Ruiz", "Jo Park", "Pat Tester", "Sam Lee"]);
+});
