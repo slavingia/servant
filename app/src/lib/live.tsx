@@ -14,6 +14,7 @@ import { createSharedRequest } from "./shared-request";
 import { countLiveEvent } from "./live-counts";
 import { followLive, warmConversations } from "./conversation-cache";
 import { warmChats } from "./chat-cache";
+import { applyReadNotes, noteRead, readNotes } from "./read-cache";
 
 // What a screen can ask the connection to do. These never change while you stay signed in, so a
 // screen that only listens or refreshes (an open conversation, a thread) is not re-rendered when
@@ -56,6 +57,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [presenceState, setPresenceState] = useState<{ identity: string; people: Record<string, Presence> }>({ identity: "", people: {} });
   const subs = useRef(new Set<(e: LiveEvent) => void>());
   const open = useRef<string | null>(null);
+  // What was read belongs to one person on one server; never carry it over to the next.
+  const noteOwner = useRef("");
+  const latest = useRef<Conversation[] | null>(null);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshVersion = useRef(0);
   const resume = useRef<{ identity: string; cursor?: string } | null>(null);
@@ -90,12 +94,15 @@ export function LiveProvider({ children }: { children: ReactNode }) {
 
   const fetchList = useCallback(async () => {
     if (!account?.serverKey) return;
+    if (noteOwner.current !== identity) { readNotes.clear(); noteOwner.current = identity; }
     const version = ++refreshVersion.current;
     try {
-      const list = await api.conversations(account, setAccount);
+      const answered = await api.conversations(account, setAccount);
       if (version !== refreshVersion.current) return;
       // The list is refetched after every message and on every visit. Keep what did not change, so
       // only the rows that did are drawn again (and nothing is when the list says the same thing).
+      const list = applyReadNotes(answered, readNotes, Date.now());
+      if (open.current && AppState.currentState === "active") noteRead(readNotes, open.current, list.find(c => c.id === open.current)?.lastMessage?.id, Date.now());
       setConversations(current => reuseEqual(current, list.map((c) => (c.id === open.current && AppState.currentState === "active" ? { ...c, unread: 0 } : c))));
       setError(null);
       // The conversations most likely to be opened next (unread first) are loaded quietly, one at a time, so
@@ -109,7 +116,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       // Keep what's on screen; only say the refresh failed.
       setError(e instanceof ServerError ? e.message : "Couldn't load conversations");
     }
-  }, [account, setAccount, signOut]);
+  }, [account, identity, setAccount, signOut]);
   // Leaving a conversation asks for the list, and Home coming back into view asks in the same moment: calls
   // that land together share one request (lib/shared-request.ts).
   const sharing = useRef<{ start: () => Promise<void>; shared: ReturnType<typeof createSharedRequest> } | null>(null);
@@ -292,6 +299,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setOpen = useCallback((id: string | null) => {
+    // Opening or leaving: what you have seen here stays read, whatever an older list answer says.
+    const seen = id ?? open.current;
+    if (seen) noteRead(readNotes, seen, latest.current?.find(c => c.id === seen)?.lastMessage?.id, Date.now());
     open.current = id;
     if (id) setConversations((list) => list && list.some(c => c.id === id && c.unread) ? list.map((c) => (c.id === id ? { ...c, unread: 0 } : c)) : list);
   }, []);
@@ -300,7 +310,6 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const change = useCallback((id: string, next: RowChange | null) => setChanges(waiting => setRowChange(waiting, id, next)), []);
   // After sign-out, never show the previous person's conversations.
   const shown = useMemo(() => account && conversations ? withRowChanges(conversations, changes) : null, [account, conversations, changes]);
-  const latest = useRef(shown);
   useEffect(() => { latest.current = shown; }, [shown]);
   const peek = useCallback((id: string) => latest.current?.find(c => c.id === id), []);
   const presence = useMemo(() => presenceState.identity === identity ? presenceState.people : {}, [presenceState, identity]);
