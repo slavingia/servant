@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { actionLine, askLabel, canAsk, checksLine, holders, hostsLine, parseHosts, refusedLine, requestLine, standingLine, waitingOnYou } from "./entitlements.ts";
+import { actionLine, askLabel, canAsk, checksLine, holders, hostsLine, parseHosts, reachedLine, refusedLine, requestLine, standingLine, waitingOnYou } from "./entitlements.ts";
 import type { Entitlement, EntitlementStanding } from "./server.ts";
 
 const standing = (status: EntitlementStanding["status"], extra: Partial<EntitlementStanding> = {}): EntitlementStanding => ({ entitlementId: "ent_1", userId: "usr_pat", status, note: "", requestedAt: 1, ...extra });
@@ -64,4 +64,9 @@ test("a line of the agent action log says how it ended and what it needed", () =
   assert.equal(actionLine({ verdict: "waiting", needs: ["github-write", "fs-write"] }), "Waiting for an answer · GitHub write, Filesystem write");
   assert.equal(actionLine({ verdict: "allowed-owner", needs: ["fs-read"] }), "Allowed (owner) · Filesystem read");
   assert.equal(actionLine({ verdict: "denied", needs: [] }), "Declined");
+});
+
+test("a reached host says who, where, how many and when", () => {
+  assert.equal(reachedLine({ name: "Pat Tester", host: "api.example.gov", connections: 3, day: "2026-11-17" }), "Pat Tester · api.example.gov · 3 connections on 2026-11-17");
+  assert.equal(reachedLine({ name: "The agent itself", host: "models.example.gov", connections: 1, day: "2026-11-17" }), "The agent itself · models.example.gov · 1 connection on 2026-11-17");
 });

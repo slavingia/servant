@@ -35,11 +35,11 @@ test("a connection is judged for its token's person, else for everyone whose age
   const whose = token => token === "pat-token" ? { userId: "usr_pat", chatId: "chat_1" } : token === "jo-token" ? { userId: "usr_jo" } : null;
   const ask = (host, token, active = []) => judge({ settings, host, token, whose, active: () => active, allowed });
   assert.equal(ask("models.example.gov", "", []).verdict, "allow", "the always list needs nobody");
-  assert.deepEqual(ask("api.example.gov", "", []), { verdict: "deny", blocked: [], reason: "nobody" });
+  assert.deepEqual(ask("api.example.gov", "", []), { verdict: "deny", blocked: [], for: [], reason: "nobody" });
   assert.equal(ask("api.example.gov", "pat-token").verdict, "allow");
-  assert.deepEqual(ask("api.example.gov", "jo-token"), { verdict: "deny", blocked: [{ userId: "usr_jo" }] });
+  assert.deepEqual(ask("api.example.gov", "jo-token"), { verdict: "deny", blocked: [{ userId: "usr_jo" }], for: ["usr_jo"] });
   assert.equal(ask("api.example.gov", "", ["usr_pat"]).verdict, "allow");
-  assert.deepEqual(ask("api.example.gov", "", ["usr_pat", "usr_jo"]), { verdict: "deny", blocked: [{ userId: "usr_jo" }] }, "one person without it closes it for unattributed traffic");
+  assert.deepEqual(ask("api.example.gov", "", ["usr_pat", "usr_jo"]), { verdict: "deny", blocked: [{ userId: "usr_jo" }], for: ["usr_pat", "usr_jo"] }, "one person without it closes it for unattributed traffic");
   assert.equal(ask("api.example.gov", "pat-token", ["usr_pat", "usr_jo"]).verdict, "allow", "a token is judged on its own");
   assert.equal(judge({ settings, host: "api.example.gov", token: "pat-token", whose, allowed, known: () => false }).reason, "nobody", "someone who left has no say");
 });
@@ -149,6 +149,10 @@ test("the proxy refuses, tells people once, then tunnels after the entitlement i
 
   const always = await connectThrough(port, "models.example.gov:443", { send: "ping" });
   assert.equal(always.status, 200, "the always list needs no person");
+  // What was let through is on the record: who it was for (or nobody: the agent itself), where, and how many.
+  await connectThrough(port, "api.example.gov:443", { token: pat, send: "ping" });
+  assert.deepEqual(store.recentReached().map(r => [r.userId, r.host, r.connections]).sort(), [["", "models.example.gov", 1], ["usr_pat", "api.example.gov", 2]]);
+  assert.equal(store.recentReached().some(r => r.host === "other.example.gov"), false, "a refused host is not a reached one");
 
   // A name that points at a private address stays closed even when the entitlement covers it.
   grants.add("usr_pat inside.example.gov");
@@ -203,4 +207,38 @@ test("a refused attempt can wait for a manager and carry on when the entitlement
   assert.equal(held.status, 200);
   assert.equal(waits, 2);
   await proxy.close(); echo.close(); store.close(); fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// A new release of the server starts while the old one still holds the port.
+test("the listener keeps trying while its port is taken and comes up the moment it is free", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "servant-egress-"));
+  const store = createEgressStore(path.join(dir, "egress.db"));
+  const holder = net.createServer();
+  await new Promise(done => holder.listen(0, "127.0.0.1", done));
+  const port = holder.address().port;
+  const proxy = createEgressProxy({ store, settings: () => egressSettings({ mode: "ask" }), allowed: () => false, active: () => [] });
+  await assert.rejects(proxy.listen(port), /EADDRINUSE/, "one try fails, as before");
+  const waits = [];
+  let bound = null;
+  const listening = proxy.listenWhenFree(port, { retryMs: 20, onWait: error => waits.push(error.code) }).then(p => { bound = p; });
+  await new Promise(r => setTimeout(r, 150));
+  assert.equal(bound, null, "still waiting while the old server holds the port");
+  assert.deepEqual(waits, ["EADDRINUSE"], "said once, not on every try");
+  await new Promise(done => holder.close(done));
+  await listening;
+  assert.equal(bound, port);
+  assert.equal((await connectThrough(port, "api.example.gov:443")).status, 403, "and it answers");
+  await proxy.close();
+  // Closed while still waiting: it stops trying.
+  const again = net.createServer();
+  await new Promise(done => again.listen(port, "127.0.0.1", done));
+  const second = createEgressProxy({ store, settings: () => egressSettings({ mode: "ask" }), allowed: () => false, active: () => [] });
+  let late = false;
+  void second.listenWhenFree(port, { retryMs: 20 }).then(() => { late = true; });
+  await new Promise(r => setTimeout(r, 60));
+  await second.close();
+  await new Promise(done => again.close(done));
+  await new Promise(r => setTimeout(r, 100));
+  assert.equal(late, false);
+  store.close(); fs.rmSync(dir, { recursive: true, force: true });
 });

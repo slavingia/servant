@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { commentCount, commentWhere, looksLikeEmail, orderShares, shareLine, shareStatus } from "./prototype-reviews.ts";
+import { commentBy, commentCount, commentWhere, looksLikeEmail, numberedComments, orderShares, pageOf, pinsOn, shareLine, shareStatus } from "./prototype-reviews.ts";
 
 const share = (extra = {}) => ({ id: "rev_1", email: "jo@example.gov", createdAt: 10, comments: [], ...extra });
 const comment = { id: "cmt_1", page: "index.html", anchor: "Pay now", text: "Say Pay in full", createdAt: 20 };
@@ -26,4 +26,20 @@ test("where a comment was made, and the order of the list", () => {
 test("a quick look at an address before sending", () => {
   assert.equal(looksLikeEmail(" jo@example.gov "), true);
   for (const bad of ["", "jo", "jo@", "jo@example", "jo example@example.gov"]) assert.equal(looksLikeEmail(bad), false, bad);
+});
+
+test("the builder's preview numbers every reviewer's comments in the order they were made, and pins them on their page", () => {
+  const shares = [
+    share({ id: "a", email: "jo@example.gov", comments: [{ ...comment, id: "c2", createdAt: 30, x: 0.4, y: 0.2 }, { ...comment, id: "c4", createdAt: 50, page: "plans/compare.html", x: 0.1, y: 0.9 }] }),
+    share({ id: "b", email: "sam@example.gov", endedAt: 99, comments: [{ ...comment, id: "c1", createdAt: 10, x: 0.5, y: 0.5, anchor: "" }, { ...comment, id: "c3", createdAt: 40 }] }),
+  ];
+  const all = numberedComments(shares);
+  assert.deepEqual(all.map(c => [c.n, c.id, c.email]), [[1, "c1", "sam@example.gov"], [2, "c2", "jo@example.gov"], [3, "c3", "sam@example.gov"], [4, "c4", "jo@example.gov"]]);
+  assert.deepEqual(pinsOn(all, "index.html"), [{ id: "c1", n: 1, x: 0.5, y: 0.5 }, { id: "c2", n: 2, x: 0.4, y: 0.2 }], "a comment from an older server has no spot and no pin");
+  assert.deepEqual(pinsOn(all, "plans/compare.html"), [{ id: "c4", n: 4, x: 0.1, y: 0.9 }]);
+  assert.equal(commentBy(all[1]!), "jo@example.gov · On \u201cPay now\u201d · index.html");
+  assert.equal(commentBy(all[0]!), "sam@example.gov · index.html");
+  assert.equal(pageOf("/p/proto-0123456789abcdef01/"), "index.html");
+  assert.equal(pageOf("/p/proto-0123456789abcdef01/plans/compare.html?review=1"), "plans/compare.html");
+  assert.equal(pageOf("/p/proto-0123456789abcdef01/plans/"), "plans/index.html");
 });

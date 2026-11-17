@@ -118,6 +118,12 @@ else {
       storageQueue = result.catch(() => {});
       return result;
     });
+    ipcMain.handle('servant:focus', event => {
+      if (!validSender(event) || !window) return false;
+      if (window.isMinimized()) window.restore();
+      window.show(); window.focus(); app.focus({ steal: true });
+      return true;
+    });
     ipcMain.handle('servant:badge', (event, count) => {
       if (!validSender(event) || !Number.isSafeInteger(count) || count < 0) throw new Error('Invalid badge');
       app.setBadgeCount(Math.min(count, 9999));

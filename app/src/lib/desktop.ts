@@ -9,6 +9,7 @@ declare global {
       workspace?: DesktopWorkspace;
       takeInvite?: () => string | null;
       onInvite?: (callback: (link: string) => void) => () => void;
+      focus?: () => Promise<boolean>;
       notifications?: {
         show(value: DesktopNotice): Promise<boolean>;
         setBadge(count: number): Promise<void>;

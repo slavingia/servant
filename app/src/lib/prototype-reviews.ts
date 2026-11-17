@@ -17,3 +17,20 @@ export function orderShares<T extends Pick<PrototypeShare, "endedAt" | "createdA
 }
 /** A quick look before sending: the server decides which addresses are allowed. */
 export const looksLikeEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+
+/** Every comment on a prototype, oldest first, numbered, with who made it: what the builder's own preview pins. */
+export type PinnedComment = PrototypeComment & { email: string; n: number };
+export function numberedComments(shares: readonly PrototypeShare[]): PinnedComment[] {
+  return shares.flatMap(share => share.comments.map(comment => ({ ...comment, email: share.email })))
+    .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id)).map((comment, i) => ({ ...comment, n: i + 1 }));
+}
+/** The page a prototype's frame says it is on ("/p/<folder>/plans/compare.html"), as comments name it ("plans/compare.html"). */
+export function pageOf(pathname: string): string {
+  const page = String(pathname || "").replace(/^\/p\/[^/]+\//, "").replace(/[?#].*$/, "");
+  return !page || page.endsWith("/") ? `${page}index.html` : page;
+}
+/** The pins to draw on one page: only comments made there that have a spot. */
+export const pinsOn = (comments: readonly PinnedComment[], page: string) =>
+  comments.filter(c => c.page === page && typeof c.x === "number" && typeof c.y === "number").map(c => ({ id: c.id, n: c.n, x: c.x as number, y: c.y as number }));
+/** Under a comment in the builder's preview: who said it and where. */
+export const commentBy = (comment: PinnedComment) => [comment.email, commentWhere(comment)].filter(Boolean).join(" · ");

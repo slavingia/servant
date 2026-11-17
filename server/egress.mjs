@@ -85,6 +85,7 @@ export function createEgressStore(file, { clock = Date.now } = {}) {
   db.exec(`PRAGMA journal_mode=WAL;
     CREATE TABLE IF NOT EXISTS attempts (user_id TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL, chat_id TEXT,
       attempts INTEGER NOT NULL, first_at INTEGER NOT NULL, last_at INTEGER NOT NULL, told_at INTEGER NOT NULL, PRIMARY KEY(user_id, host));
+    CREATE TABLE IF NOT EXISTS reached (user_id TEXT NOT NULL, host TEXT NOT NULL, day TEXT NOT NULL, connections INTEGER NOT NULL, first_at INTEGER NOT NULL, last_at INTEGER NOT NULL, PRIMARY KEY(user_id, host, day));
     CREATE TABLE IF NOT EXISTS secret (id INTEGER PRIMARY KEY CHECK (id = 1), value BLOB NOT NULL);
     CREATE TABLE IF NOT EXISTS working (key TEXT PRIMARY KEY, user_id TEXT NOT NULL, started_at INTEGER NOT NULL);`);
   db.prepare("INSERT OR IGNORE INTO secret(id, value) VALUES (1, ?)").run(crypto.randomBytes(32));
@@ -102,6 +103,18 @@ export function createEgressStore(file, { clock = Date.now } = {}) {
           told_at=CASE WHEN ? THEN excluded.told_at ELSE told_at END`).run(String(userId), host, port, chatId ?? null, now, now, now, fresh ? 1 : 0);
       return { attempt: view(db.prepare("SELECT * FROM attempts WHERE user_id=? AND host=?").get(String(userId), host)), fresh };
     },
+    /**
+     * Write down a connection that was let through: one line per person, host and day, with how many. `userId` is
+     * "" when it was for nobody in particular (a host on the "always" list with no agent working).
+     */
+    reached({ userId = "", host }) {
+      const now = clock(), day = new Date(now).toISOString().slice(0, 10);
+      db.prepare(`INSERT INTO reached(user_id,host,day,connections,first_at,last_at) VALUES (?,?,?,1,?,?)
+        ON CONFLICT(user_id, host, day) DO UPDATE SET connections=connections+1, last_at=excluded.last_at`).run(String(userId), host, day, now, now);
+    },
+    /** What agents reached, newest first: who (or "" for the agent itself), which host, which day, how many connections. */
+    recentReached: (limit = 100) => db.prepare("SELECT * FROM reached ORDER BY last_at DESC LIMIT ?").all(Math.max(1, Math.min(500, limit)))
+      .map(r => ({ userId: r.user_id, host: r.host, day: r.day, connections: r.connections, lastAt: r.last_at })),
     /** The most recent refusals, newest first. */
     recent: (limit = 100) => db.prepare("SELECT * FROM attempts ORDER BY last_at DESC LIMIT ?").all(Math.max(1, Math.min(500, limit))).map(view),
     /** What a sandboxed command presents to the proxy so its traffic counts as this person's, in this chat. */
@@ -144,20 +157,23 @@ export function createEgressStore(file, { clock = Date.now } = {}) {
  *  - one that carries none is judged for everyone whose agent is working right now, and goes out only when every
  *    one of them may reach the host (with nobody working, only the "always" list applies).
  * `allowed(userId, host)` is the entitlements' answer. Owners are not exempt: they hold entitlements like anyone else.
- * Returns { verdict: "allow" | "deny", blocked: [{ userId, chatId? }], reason? }.
+ * Returns { verdict: "allow" | "deny", blocked: [{ userId, chatId? }], for: [user ids it was judged for], reason? }.
  */
 export function judge({ settings, host, token, whose = () => null, active = () => [], known = () => true, allowed }) {
-  if (settings.always.some(p => hostMatches(p, host))) return { verdict: "allow", blocked: [] };
   const named = whose(token);
   const people = (named ? [named] : [...new Set(active())].map(userId => ({ userId }))).filter(p => known(p.userId));
-  if (!people.length) return { verdict: "deny", blocked: [], reason: "nobody" };
+  const whom = people.map(p => p.userId);
+  if (settings.always.some(p => hostMatches(p, host))) return { verdict: "allow", blocked: [], for: whom };
+  if (!people.length) return { verdict: "deny", blocked: [], for: [], reason: "nobody" };
   const blocked = people.filter(p => !allowed(p.userId, host));
-  return { verdict: blocked.length ? "deny" : "allow", blocked };
+  return { verdict: blocked.length ? "deny" : "allow", blocked, for: whom };
 }
 
 // ---------- the proxy ----------
 
-const refusal = (host, reason, hint) => reason === "nobody"
+const refusal = (host, reason, hint) => reason === "unrecorded"
+  ? `Servant blocked ${host}: it could not record this connection, so it was not made. Try again in a moment.\n`
+  : reason === "nobody"
   ? `Servant blocked ${host}: no agent turn is running, so there is nobody whose entitlements could allow it. An owner can add it to "agentEgress.always" if the agent itself needs it.\n`
   : `Servant blocked ${host}: ${hint || "the person you are working for does not hold an entitlement that covers it."} Don't look for another route. Tell the person, and try again once a manager has granted it.\n`;
 
@@ -201,6 +217,12 @@ export function createEgressProxy({ store, settings, allowed, active, known, blo
     const until = Date.now() + settings().holdSeconds * 1000;
     while (result.verdict === "deny" && result.blocked.length && Date.now() < until) { await sleep(500); result = ask(); }
     if (result.verdict === "deny" && result.blocked.length) { try { result.hint = hint(host, result.blocked); } catch { /* the plain refusal still goes out */ } }
+    // Every connection let through is on the record: for whom, where, and how many that day. One that can't be
+    // written down is not made.
+    if (result.verdict === "allow") {
+      try { for (const userId of result.for?.length ? result.for : [""]) store.reached({ userId, host }); }
+      catch (error) { log("[egress] could not record a connection:", error.message); return { verdict: "deny", blocked: [], reason: "unrecorded" }; }
+    }
     return result;
   }
   const target = async host => allowInternal ? host : publicAddress(host, resolve);
@@ -263,10 +285,26 @@ export function createEgressProxy({ store, settings, allowed, active, known, blo
   });
   server.on("clientError", (_error, socket) => socket.destroy());
 
+  let closed = false;
   return {
     server,
     /** Localhost only: the sandbox is the only thing meant to reach it. */
     listen(port = settings().port) { return new Promise((done, fail) => { server.once("error", fail); server.listen(port, "127.0.0.1", () => { server.off("error", fail); done(server.address().port); }); }); },
-    close() { return new Promise(done => { server.close(() => done()); server.closeAllConnections?.(); }); },
+    /**
+     * Listen, and if the port is taken keep trying until it is free. A new release of the server starts while the
+     * old one is still up and holding this port; a single try would fail and leave nothing listening once the old
+     * one goes, and every agent would be refused. `onWait(error)` is told once, when the first try fails.
+     */
+    listenWhenFree(port = settings().port, { retryMs = 500, onWait = () => {} } = {}) {
+      let told = false;
+      return new Promise(done => {
+        const attempt = () => {
+          if (closed) return;
+          this.listen(port).then(done, error => { if (!told) { told = true; try { onWait(error); } catch { /* keep trying */ } } const timer = setTimeout(attempt, retryMs); timer.unref?.(); });
+        };
+        attempt();
+      });
+    },
+    close() { closed = true; return new Promise(done => { if (!server.listening) { done(); return; } server.close(() => done()); server.closeAllConnections?.(); }); },
   };
 }

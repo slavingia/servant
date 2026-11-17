@@ -16,6 +16,7 @@
 
 import { joinPage } from "./join-page.mjs";
 import { newFolder, removePrototype, savePrototypePage, servePrototype } from "./prototypes.mjs";
+import { previewInfo, serveAppPreview } from "./app-preview.mjs";
 import { privacyPage } from "./privacy-page.mjs";
 import { landingPage, supportPage } from "./public-page.mjs";
 import { termsPage } from "./terms-page.mjs";
@@ -84,6 +85,8 @@ import { createDocumentStore, DOCUMENT_CHUNK, DOCUMENT_CHUNK_BODY } from "./docu
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.SERVANT_DATA_DIR || path.join(HERE, "data");
 const PROTOTYPES_DIR = path.join(DATA_DIR, "prototypes");
+// Each project's app exported for the web, served at /a/<project id>/ (app-preview.mjs, docs/app-preview.md).
+const APP_PREVIEWS_DIR = path.join(DATA_DIR, "app-previews");
 const CONFIG_FILE = path.join(DATA_DIR, "config.json");
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -1018,6 +1021,7 @@ async function agentUse(body, config = loadConfig) {
   };
   if (person.role === "owner") return logged("allowed-owner", { verdict: "allow" });
   const until = Date.now() + capabilitySettings(config().agentCapabilities).waitSeconds * 1000;
+  let told = false;
   for (;;) {
     // Look at everything the action needs before spending anything: a single allowance for one entitlement is not
     // used up while another is still waiting. Whatever is missing is asked for together.
@@ -1027,6 +1031,8 @@ async function agentUse(body, config = loadConfig) {
     if (refused) return logged("denied", { verdict: "deny", capability: refused.capability, message: `Servant blocked this: ${person.name} asked for ${refused.entitlement.name} and was declined. Tell them so, and don't look for another way to do it. They can ask again in Servant under Entitlements.` });
     const missing = looked.filter(r => r.verdict === "wait");
     for (const r of missing) if (r.fresh) tellAbout([manager?.id], "Entitlement request", `${person.name}'s agent needs ${r.entitlement.name}`);
+    // The person watching the reply sees why it has stopped, not "Working".
+    if (missing.length && !told) { told = true; try { agentTurns?.noteForChat(who.chatId, `Waiting for ${manager?.name || "an owner"} to allow ${missing.map(r => r.entitlement.name).join(" and ")}`); } catch { /* the wait still happens */ } }
     if (!missing.length) {
       const used = needs.map(capability => store.use(person.id, capability, detail));
       // Something changed between looking and using (taken back in that instant): look again.
@@ -1122,11 +1128,13 @@ async function handle(req, res, cfg) {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" });
     return res.end(joinPage(cfg.downloads, cfg.webUrl, cfg.footer, cfg.theme));
   }
-  if (url.pathname === "/robots.txt") { res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" }); res.end("User-agent: *\nDisallow: /p/\nDisallow: /review/\n"); return undefined; }
+  if (url.pathname === "/robots.txt") { res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" }); res.end("User-agent: *\nDisallow: /p/\nDisallow: /a/\nDisallow: /review/\n"); return undefined; }
   // A prototype shared with a business owner (prototype-reviews.mjs): the page at /review/<link> and its calls.
   if (url.pathname.startsWith("/review/") && (await handleReview(req, res, url, cfg))) return undefined;
   // Prototypes built in Prototyping chats (prototypes.mjs): public by unguessable folder name, sandboxed.
   if (url.pathname.startsWith("/p/") && servePrototype(req, res, url, { dir: PROTOTYPES_DIR, kitDir: expandPath(vibeProject()?.path), ip: clientIp(req) })) return undefined;
+  // A project's app, running in the browser for App preview (app-preview.mjs): public by project id, sandboxed, sample data only.
+  if (url.pathname.startsWith("/a/") && serveAppPreview(req, res, url, { dir: APP_PREVIEWS_DIR, ip: clientIp(req) })) return undefined;
   // Public app-store pages remain readable without an account or JavaScript.
   const publicPages = { "/": landingPage, "/support": supportPage, "/privacy": privacyPage, "/terms": termsPage };
   const pagePath = url.pathname === "/" ? "/" : url.pathname.replace(/\/$/, "");
@@ -1678,7 +1686,10 @@ async function handle(req, res, cfg) {
         // Teammates' chats appear only when their author shared them with the project.
         const sharedChats = allChats().filter(c => c.projectId === pid && c.userId !== user.id && !c.deletedAt && c.projectShared)
           .sort((a, b) => b.updatedAt - a.updatedAt).map(c => chatView(c, users()[user.id] || user, users()));
-        return send(res, 200, { ...wrap(true, project), sharedChats });
+        // The project's app in the browser (docs/app-preview.md), when one has been exported for it.
+        const preview = previewInfo(APP_PREVIEWS_DIR, pid);
+        const appPreview = preview ? { ...preview, url: `${publicOrigin(cfg) || ""}${preview.path}` } : null;
+        return send(res, 200, { ...wrap(true, project), sharedChats, appPreview });
       }
       // The repo's README from GitHub (cached; stale copy while GitHub is unreachable). Anyone who can see the project.
       if (method === "GET" && parts.length === 4 && parts[3] === "readme") {
@@ -1872,6 +1883,8 @@ async function handle(req, res, cfg) {
       if (!made) return;
       // The alert names the device and what the code is for; the worker that sends it cannot see this process's memory.
       try { push?.enqueue({ kind: "code", eventId: made.id, to: user.id, requestId: made.id, device: made.device, label: made.label, expiresAt: made.expiresAt }); } catch (error) { console.error("[servant] code request alert", error.message); }
+      // And straight onto the screen of any Servant app they have open.
+      try { messaging?.codeRequested(user.id, made.id); } catch (error) { console.error("[servant] code request live event", error.message); }
       return send(res, 201, { request: made });
     }
     if (method === "GET" && parts.length === 3) return guard(() => send(res, 200, { request: codeRequests.get(parts[2], user) }));
@@ -1905,7 +1918,9 @@ async function handle(req, res, cfg) {
         ...(user.role === "owner" ? { org: everyone.map(u => ({ ...brief(u), role: u.role, manager: brief(managerOf(state, u)) || null })) } : {}),
         // Whether built-in entitlements are checked before the agent reads or changes files or GitHub.
         capabilities: { mode: capabilitySettings(cfg.agentCapabilities).mode },
-        egress: { mode: egressSettings(cfg.agentEgress).mode, ...(user.role === "owner" ? { always: egressSettings(cfg.agentEgress).always, refused: egressStore().recent(50).map(a => ({ ...a, name: users[a.userId]?.name || "Former member" })) } : {}) } });
+        egress: { mode: egressSettings(cfg.agentEgress).mode, ...(user.role === "owner" ? { always: egressSettings(cfg.agentEgress).always, refused: egressStore().recent(50).map(a => ({ ...a, name: users[a.userId]?.name || "Former member" })),
+          // What agents did reach: per person (or the agent itself), host and day.
+          reached: egressStore().recentReached(100).map(a => ({ ...a, name: a.userId ? users[a.userId]?.name || "Former member" : "The agent itself" })) } : {}) } });
     }
     if (method === "POST" && parts.length === 2) {
       const body = await readAuthorizedBody(req);
@@ -2275,7 +2290,7 @@ async function handle(req, res, cfg) {
     const listing = () => {
       const comments = reviews.comments({ chatId: chat.id });
       return { shares: reviews.forChat(chat.id).map(s => ({ id: s.id, email: s.email, createdAt: s.createdAt, ...(s.verifiedAt ? { verifiedAt: s.verifiedAt } : {}), ...(s.lastSeenAt ? { lastSeenAt: s.lastSeenAt } : {}), ...(s.endedAt ? { endedAt: s.endedAt } : {}),
-        comments: comments.filter(c => c.shareId === s.id).map(c => ({ id: c.id, page: c.page, anchor: c.anchor, text: c.text, createdAt: c.createdAt, ...(c.todoId ? { todoId: c.todoId } : {}) })) })) };
+        comments: comments.filter(c => c.shareId === s.id).map(c => ({ id: c.id, page: c.page, x: c.x, y: c.y, anchor: c.anchor, text: c.text, createdAt: c.createdAt, ...(c.todoId ? { todoId: c.todoId } : {}) })) })) };
     };
     if (method === "GET" && parts.length === 5) return send(res, 200, listing());
     if (method === "POST" && parts.length === 5) {
@@ -2946,8 +2961,11 @@ export function startServer(fixedCfg) {
     egressProxy = createEgressProxy({ store: egressStore(), settings: () => egressSettings((fixedCfg || loadConfig()).agentEgress), allowed: (userId, host) => entitlementStore().allows(userId, host),
       active: () => [...(agentTurns?.workingFor() || []), ...egressStore().workingFor()], known: userId => { const u = readState().users[userId]; return !!u && !isRemoved(u); }, blocked: egressBlocked, hint: egressHint, local: (req, res) => agentDoor(req, res, () => fixedCfg || loadConfig()),
       ...(globalThis.__servantEgressTest || {}) });
-    egressProxy.listen(egressSettings(cfg.agentEgress).port).then(port => { egressProxy.port = port; console.log(`[servant] agent ${egressSettings(cfg.agentEgress).mode === "ask" ? "network gate" : "entitlement checks"} on 127.0.0.1:${port}`); },
-      error => console.error(`[servant] agent network gate could not start on port ${egressSettings(cfg.agentEgress).port}: ${error.message}. Sandboxed agents will have no network until it does`));
+    // A new release starts while the old one still holds the port, so this keeps trying until the port is free.
+    const what = egressSettings(cfg.agentEgress).mode === "ask" ? "network gate" : "entitlement checks";
+    const wanted = egressSettings(cfg.agentEgress).port, proxy = egressProxy;
+    proxy.listenWhenFree(wanted, { onWait: error => console.error(`[servant] agent ${what}: port ${wanted} is busy (${error.message}); trying again until it is free. Until then agents are refused`) })
+      .then(port => { proxy.port = port; console.log(`[servant] agent ${what} on 127.0.0.1:${port}`); });
   }
   inboxConfig = () => fixedCfg || loadConfig();
   // Checked every few seconds; a short configured delay (a test or a demonstration) is checked as often as it asks.

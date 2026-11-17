@@ -216,6 +216,13 @@ test("a turn tells the agent whose it is, and while it runs unnamed traffic coun
   assert.equal(turns[0].token, mod.egressForTest().mint(people.sam.id, chat.id), "the token is Sam's, for this chat");
   assert.equal(turns[0].door, String(mod.egressForTest().port), "and where to ask before a tool call");
   await pushed(0); pushes.length = 0;
+  // While this turn runs, a tool call that needs something Sam doesn't hold shows on the reply as waiting on Sam's manager.
+  const samToken = turns[0].token;
+  const waited = await (await fetch(`http://127.0.0.1:${mod.egressForTest().port}/use`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: samToken, needs: ["fs-write"], detail: "Write report.md" }) })).json();
+  assert.equal(waited.verdict, "wait");
+  const running = (await api("sam", "GET", `chats/${chat.id}`)).body.latestTurn ?? (await api("sam", "GET", `chats/${chat.id}/turns`)).body;
+  assert.match(JSON.stringify(running), /Waiting for .+ to allow Filesystem write/, "the reply says who it is waiting on and for what");
+  await pushed(1); pushes.length = 0;
   // A command that presents the token is Sam's.
   assert.equal((await connectThrough("named.example.org:443", turns[0].token)).status, 403);
   assert.deepEqual(await pushed(1), [{ to: "push-owner", title: "Agent · blocked", body: "Sam Lee's agent tried named.example.org, which no entitlement covers" }]);
@@ -317,7 +324,7 @@ test("built-in entitlements: the first use asks the manager, who allows once or 
 
   // The action log has every checked call with how it ended: the owner's own, the waits, the single allowance, the no.
   assert.equal((await api("pat", "GET", "entitlements/actions")).status, 403, "owners only");
-  const log = (await api("owner", "GET", "entitlements/actions?limit=200")).body.actions.reverse();
+  const log = (await api("owner", "GET", "entitlements/actions?limit=200")).body.actions.reverse().filter(a => a.name !== "Sam Lee");
   assert.deepEqual(log.slice(0, 6).map(a => [a.name, a.verdict, a.needs.join("+"), a.detail]), [
     ["Ana Ruiz", "allowed-owner", "github-write+fs-write", "Run: git push"],
     ["Pat Tester", "waiting", "github-write+fs-write", "Run: git commit -am fix && git push"],

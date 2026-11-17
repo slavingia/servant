@@ -85,11 +85,11 @@ export type Person = { /** Who decides this person's entitlement requests; owner
 export type EntitlementStanding = { entitlementId: string; userId: string; status: "requested" | "granted" | "once" | "used" | "denied" | "revoked"; note: string; requestedAt: number; /** "use": the agent asked by trying; `detail` is what it was about to do. */ via?: "use"; detail?: string; decidedBy?: string; decidedAt?: number; reason?: string; name?: string; decidedByName?: string };
 export type Entitlement = { /** Built in: on every server, asked for by use. */ native?: boolean; capability?: string; id: string; name: string; description: string; hosts: string[]; confirmation: string; mine: EntitlementStanding | null; people: EntitlementStanding[] };
 export type AgentAction = { seq: number; userId: string; name: string; chatId?: string; needs: string[]; verdict: "allowed" | "allowed-once" | "allowed-owner" | "denied" | "waiting"; detail: string; at: number };
-export type PrototypeComment = { id: string; page: string; anchor: string; text: string; createdAt: number; todoId?: string };
+export type PrototypeComment = { id: string; page: string; /** Where on the page, as a share of its width and height. */ x?: number; y?: number; anchor: string; text: string; createdAt: number; todoId?: string };
 export type PrototypeShare = { id: string; email: string; createdAt: number; verifiedAt?: number; lastSeenAt?: number; endedAt?: number; comments: PrototypeComment[] };
 export type EntitlementDraft = { name: string; description: string; hosts: string[]; confirmation: string };
 export type EntitlementsPage = { /** Whether built-in entitlements are checked before the agent acts. */ capabilities?: { mode: "ask" | "off" }; entitlements: Entitlement[]; canCreate: boolean; waiting: number; manager: { id: string; name: string } | null; reports: { id: string; name: string }[];
-  egress: { mode: "ask" | "off"; always?: string[]; refused?: { userId: string; name: string; host: string; attempts: number; lastAt: number }[] } };
+  egress: { mode: "ask" | "off"; always?: string[]; refused?: { userId: string; name: string; host: string; attempts: number; lastAt: number }[]; /** What agents did reach: per person (or the agent itself), host and day. */ reached?: { userId: string; name: string; host: string; day: string; connections: number; lastAt: number }[] } };
 // width, height: a picture's size in pixels as it is shown, read by the server when the file was stored. Absent
 // for a file from before the server kept sizes and for one that is not a picture (lib/picture-box.ts).
 export type Attachment = { id: string; name: string; mime: string; size: number; width?: number; height?: number };
@@ -201,6 +201,7 @@ export type LiveEvent =
   | { event: "presence.updated"; data: Presence }
   | { event: "person.updated"; data: Person }
   | { event: "typing"; data: { conversationId: string; threadRoot: string | null; user: Person } }
+  | { event: "code.requested"; data: { requestId: string } }
   | { event: "ready"; data: { cursor?: string; reset?: boolean } }
   | { event: "checkpoint"; data: { cursor: string } };
 
@@ -489,7 +490,7 @@ export const api = {
   setChatShared: (a: Account, id: string, shared: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ shared }) }).then((r) => r.json()).then((d) => d.chat as Chat),
   // Projects: shared bodies of work with notes, files, rules and who can read, write or merge (docs/projects.md).
   projects: (a: Account) => request(a, "/v1/projects").then(json<{ projects: Project[]; vibeCoder: boolean; vibe: boolean; vibeProject?: string; vibeLinks?: { primary: string; backup: string } }>),
-  project: (a: Account, id: string) => request(a, `/v1/projects/${encodeURIComponent(id)}`).then(json<{ project: Project; sharedChats: Chat[] }>),
+  project: (a: Account, id: string) => request(a, `/v1/projects/${encodeURIComponent(id)}`).then(json<{ project: Project; sharedChats: Chat[]; appPreview?: { path: string; url: string; builtAt: string | null; commit: string | null } | null }>),
   createProject: (a: Account, body: { name: string; description?: string; notes?: string }) => request(a, "/v1/projects", { method: "POST", body: JSON.stringify(body) }).then(json<{ project: Project }>).then(d => d.project),
   updateProject: (a: Account, id: string, change: Partial<Pick<Project, "name" | "description" | "notes" | "repo" | "path" | "pages" | "workflow" | "rules" | "stages">> & { reviewers?: Record<string, string[]> }) => request(a, `/v1/projects/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(change) }).then(json<{ project: Project }>).then(d => d.project),
   projectReadme: (a: Account, id: string) => request(a, `/v1/projects/${encodeURIComponent(id)}/readme`).then(json<{ readme: { repo: string; name: string; text: string; fetchedAt: number; stale: boolean } | null }>).then(d => d.readme),

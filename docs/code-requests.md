@@ -7,6 +7,8 @@ Automation you run as yourself sometimes hits a step that needs a one-time code:
 3. You tap it and enter the code in Servant. A complete code sends itself: as many characters as the automation said to expect, or six digits when it said nothing. You can still tap **Send code**, or **Cancel request** if you did not start it. A code the server turns down stays on screen to correct; it is never sent again by itself.
 4. The automation picks the code up and continues.
 
+If Servant is already open on a phone, in a browser or on the Mac, you don't need the alert: the **Enter code** screen comes up by itself with the box ready to type in, and the Mac app comes to the front. It also comes up for a request still waiting when you switch back to Servant. Each request comes up once; if you close the screen, the alert still opens it. The open app learns of the request from its live connection, which carries only the request's id; it then fetches the request like the alert does.
+
 From a script:
 
 ```sh
