@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { BOX, FAR_SCALE, serveFrame, serveKeyframes } from "./serve-loop.ts";
+import { BOX, FAR_SCALE, LOADER_DELAY_MS, LOADER_FADE_MS, serveFrame, serveKeyframes } from "./serve-loop.ts";
 
 const close = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 
@@ -67,4 +67,16 @@ test("it keeps serving: the component restarts each loop itself, and rests round
   assert.doesNotMatch(loader, /Animated\.loop/);
   assert.match(loader, /if \(finished\) serve\(\)/);
   assert.match(loader, /reduced \? null : ball\b/);
+});
+
+test("it waits a moment before it shows, in its place, so a quick load never flashes a ball", () => {
+  const loader = fs.readFileSync(path.join(import.meta.dirname, "../components/ServeLoader.tsx"), "utf8");
+  assert.ok(LOADER_DELAY_MS >= 200 && LOADER_DELAY_MS <= 400, "long enough to cover a quick answer, short enough that a slow one is not left unexplained");
+  assert.ok(LOADER_FADE_MS > 0 && LOADER_FADE_MS <= 250);
+  assert.match(loader, /new Animated\.Value\(0\)/, "starts not drawn");
+  assert.match(loader, /Animated\.timing\(shown, \{ toValue: 1, duration: LOADER_FADE_MS, delay: LOADER_DELAY_MS,/);
+  // Its box is laid out from the first frame, so nothing moves when it appears, and the role is on the outer
+  // view, so a screen reader hears "Loading" without waiting.
+  assert.match(loader, /<Animated\.View style=\{\[box, \{ opacity: shown \}\]\} \{\.\.\.hidden\}>/);
+  assert.match(loader, /accessibilityRole="progressbar"\n\s+accessibilityLabel=\{accessibilityLabel\}/);
 });

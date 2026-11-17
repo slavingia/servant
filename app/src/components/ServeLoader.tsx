@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { AccessibilityInfo, Animated, Easing, Platform, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import Svg, { ClipPath, Circle, Defs, Ellipse, G, Path, RadialGradient, Stop } from "react-native-svg";
-import { BOX, SERVE_LOOP_MS, serveKeyframes } from "../lib/serve-loop";
+import { BOX, LOADER_DELAY_MS, LOADER_FADE_MS, SERVE_LOOP_MS, serveKeyframes } from "../lib/serve-loop";
 import { SERVANT_BALL } from "../lib/theme-colors";
 
 // What the app shows while something loads: the icon's tennis ball, bouncing a few times, served away into the
@@ -10,6 +10,9 @@ import { SERVANT_BALL } from "../lib/theme-colors";
 //
 // It takes ActivityIndicator's place where a page, a list or a picture is loading. A spinner inside a button,
 // a check box or at the end of a row stays a system spinner: the ball needs room to be served.
+//
+// It is not drawn for the first quarter of a second (lib/serve-loop.ts says why): it holds its place, and a
+// screen reader is told at once that something is loading, but a load that is quick never flashes a ball.
 
 const hidden = Platform.OS === "web" ? { "aria-hidden": true } as const : { accessible: false, accessibilityElementsHidden: true, importantForAccessibility: "no-hide-descendants" } as const;
 
@@ -45,6 +48,12 @@ export function ServeLoader({ size = "small", accessibilityLabel = "Loading", st
   const reduced = useReduceMotion();
   const [t] = useState(() => new Animated.Value(0));
   const keys = useMemo(() => serveKeyframes(), []);
+  const [shown] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    const appear = Animated.timing(shown, { toValue: 1, duration: LOADER_FADE_MS, delay: LOADER_DELAY_MS, easing: Easing.linear, useNativeDriver: Platform.OS !== "web" });
+    appear.start();
+    return () => appear.stop();
+  }, [shown]);
 
   useEffect(() => {
     if (reduced) return;
@@ -90,7 +99,7 @@ export function ServeLoader({ size = "small", accessibilityLabel = "Loading", st
       accessibilityState={{ busy: true }}
       style={[styles.center, style]}
     >
-      <View style={box} {...hidden}>
+      <Animated.View style={[box, { opacity: shown }]} {...hidden}>
         <Animated.View style={[styles.layer, shadowBox, shadowMotion]}>
           <Svg width="100%" height="100%" viewBox="0 0 110 30">
             <Defs>
@@ -123,7 +132,7 @@ export function ServeLoader({ size = "small", accessibilityLabel = "Loading", st
             </Svg>
           </Animated.View>
         </Animated.View>
-      </View>
+      </Animated.View>
     </View>
   );
 }

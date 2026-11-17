@@ -97,3 +97,11 @@ export function serveKeyframes(steps = 160) {
     shadowY: pick("shadowY"), shadowScale: pick("shadowScale"), shadowOpacity: pick("shadowOpacity"),
   };
 }
+
+// Most things load within a moment. A ball that comes up and is gone again inside that moment is a flicker on
+// every screen opened (measured with a fifth of a second added to each answer from the server: the ball was up
+// for 80 to 330 ms on a thread, an agent chat, To-dos, Saved, Meetings, the wiki, the feed). So it waits before
+// it shows, keeping its place meanwhile so nothing moves when it does, and then fades in: a load that finishes
+// in time never shows it, and one that takes longer shows it a quarter of a second later than before.
+export const LOADER_DELAY_MS = 250;
+export const LOADER_FADE_MS = 150;
