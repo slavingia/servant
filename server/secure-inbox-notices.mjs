@@ -3,10 +3,10 @@
 // Two emails exist. A code, once, to prove the visitor reads mail at the address they typed. Then, when the team
 // replies and the visitor has not seen it, a notice with the private link back to their conversation. Neither
 // carries message text, a subject line, a file name, a teammate's name or a case reference: the conversation
-// stays on the page. The sender is the owner's mailer command, as for sign-in codes and surveys; with no mailer
+// stays on the page. The sender is the owner's mailer command, as for sign-in codes; with no mailer
 // nothing is sent and the page does not offer email.
 import { secureInboxPublicUrl } from './secure-inbox.mjs';
-import { magicLinkSender } from './surveys.mjs';
+import { mailerSender } from './mailer.mjs';
 
 export const NOTICE_DELAY_SECONDS = 60;
 
@@ -37,7 +37,7 @@ export function noticeMail({ team, url }) {
   };
 }
 
-export function createInboxNotices({ inbox, config, send = magicLinkSender, log = message => console.error(message) }) {
+export function createInboxNotices({ inbox, config, send = mailerSender, log = message => console.error(message) }) {
   let current = null;
   // One pass over the replies that are due an email. Resolves to how many were sent; it never rejects.
   async function pass() {

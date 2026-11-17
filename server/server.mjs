@@ -35,9 +35,7 @@ import { screenMessage } from "./business-gate.mjs";
 import { recordsPreservationEnabled, listPreserved, preservedFile, verifyChain } from "./records-preserve.mjs";
 import { inDeepWork, setDeepWork } from "./deep-work.mjs";
 import { createOta } from "./ota.mjs";
-import { createSurveys, magicLinkSender } from "./surveys.mjs";
-import { redactSurveyText } from "./survey-pii.mjs";
-import { createSurveyRoutes, surveyPermissionsFor } from "./survey-routes.mjs";
+import { mailerSender } from "./mailer.mjs";
 import { createSecureInbox, INBOX_BODY_LIMIT, secureInboxPublicUrl } from "./secure-inbox.mjs";
 import { secureInboxPage, secureInboxScript } from "./secure-inbox-page.mjs";
 import { createInboxNotices, inboxNoticeSettings } from "./secure-inbox-notices.mjs";
@@ -77,7 +75,6 @@ import { autoTitle, cleanChatTitle } from "./chat-title.mjs";
 import { cleanGuessRequest, guessAbbreviations, learnAbbreviations, LEARN_SOURCE } from "./lexicon-guess.mjs";
 import { verifyMemberUpstream, verifyResearcherUpstream } from "./member-policy.mjs";
 import { composeForward } from "./forward.mjs";
-import { shapeLoops } from "./loops.mjs";
 import { stepDetail, THINKING_LINE, toolStatusLine, WRITING_LINE } from "./agent-status.mjs";
 import { validateUploads, normalizeMediaContent, hermesInput, mediaPage, createMediaDeltaFilter, MAX_UPLOAD_BODY, TEXT_PART_CHARS } from "./media.mjs";
 import { createDocumentStore, DOCUMENT_CHUNK, DOCUMENT_CHUNK_BODY } from "./documents.mjs";
@@ -181,7 +178,6 @@ export function loadConfig() {
     defaultAgentTier: [0, 1, 2, 3, 4, 5].includes(cfg.defaultAgentTier) ? cfg.defaultAgentTier : 0,
     // Email code sign-in (docs/email-sign-in.md). Off unless enabled.
     emailVerification: cfg.emailVerification || {},
-    surveys: cfg.surveys || {},
     // The secure inbox's own settings (docs/secure-inbox.md): the mailer for reply emails and the wait before one is sent.
     secureInbox: cfg.secureInbox && typeof cfg.secureInbox === "object" ? cfg.secureInbox : {},
     // Sessions end after this many hours and need a code sent to the work email on file (session-expiry.mjs). 0/absent: never.
@@ -560,7 +556,6 @@ function upstreamFor(user, cfg) {
 // the researcher has web, search, vision and read-only skills but no shell and no files (so no GitHub).
 const verifyUpstream = (lane, up) => lane === "researcher" ? verifyResearcherUpstream(up) : lane === "owner" ? Promise.resolve() : verifyMemberUpstream(up);
 
-let loopsCache = { at: 0, body: null };
 
 async function hermes(up, method, pathname, body, extraHeaders = {}, signal) {
   const res = await fetch(new URL(pathname, up.url), {
@@ -735,7 +730,6 @@ function notifyTeamOfVisitor(message) {
   catch (error) { console.warn("[inbox] could not queue the team's alert:", error?.code || error?.name || "error"); }
 }
 let feedback;
-let surveyStore;
 let inboxStore;
 const inbox = () => inboxStore ??= createSecureInbox({ directory: DATA_DIR, users: () => activeUsers(readState()) });
 // Reply emails for visitors (secure-inbox-notices.mjs). The config is re-read like everywhere else; with the
@@ -745,17 +739,9 @@ let inboxNoticeTimer;
 const inboxNotices = createInboxNotices({
   inbox,
   config: () => { const cfg = inboxConfig(); return normalizeFeatures(cfg.features).secureInbox ? cfg : { ...cfg, publicUrl: "" }; },
-  send: (message, settings) => (globalThis.__servantInboxEmailSend || magicLinkSender)(message, settings),
+  send: (message, settings) => (globalThis.__servantInboxEmailSend || mailerSender)(message, settings),
 });
 const withNotices = result => ({ ...result, notify: { available: inboxNotices.available(), ...result.notify } });
-const surveyRoutes = createSurveyRoutes({
-  store: () => surveyStore ??= createSurveys({
-    file: path.join(DATA_DIR, "surveys.db"),
-    send: (message, settings) => (globalThis.__servantSurveyEmailSend || magicLinkSender)(message, settings),
-    redact: text => (globalThis.__servantSurveyRedact || redactSurveyText)(text),
-  }),
-  readBody, send, fail, clientIp, requireAuth,
-});
 let businessReports;
 const reports = () => businessReports ??= createBusinessReports({ file: path.join(DATA_DIR, "business-reports.db") });
 let messaging = null;
@@ -1000,10 +986,6 @@ async function handle(req, res, cfg) {
     res.writeHead(204, CORS);
     return res.end();
   }
-
-  // Public surveys use separate, scoped email verification before submission.
-  // Staff access stays encrypted; public sessions never grant staff access.
-  if (await surveyRoutes.public(req, res, cfg)) return;
 
   if (method === "GET" && url.pathname === "/health") {
     return send(res, 200, { ok: true, name: cfg.name });
@@ -1268,13 +1250,6 @@ async function handle(req, res, cfg) {
     const attachments = validateUploads(body.attachments || [], { mediaOnly: true });
     return send(res, 200, messaging.notifyFromAgent(target.id, body.text, { attachments }));
   }
-  // The team-visible log of what the agent did: `servant feed`.
-  if (method === "POST" && url.pathname === "/admin/feed") {
-    if (!adminAllowed()) return fail(res, 403, "forbidden", "Not allowed");
-    const body = await readBody(req, MAX_UPLOAD_BODY);
-    const attachments = validateUploads(body.attachments || [], { mediaOnly: true });
-    return send(res, 200, messaging.feedFromAgent(body.text, { attachments }));
-  }
   if (method === "POST" && url.pathname === "/admin/releases") {
     if (!adminAllowed()) return fail(res, 403, "forbidden", "Not allowed");
     const body = await readBody(req);
@@ -1288,7 +1263,6 @@ async function handle(req, res, cfg) {
   const state = readState();
   const auth = requireAuth(req, state);
   const { user, device } = auth;
-  if (await surveyRoutes.staff(req, res, cfg)) return;
   const readAuthorizedBody = async (...args) => {
     const body = await readBody(...args);
     requireAuth(req);
@@ -1357,7 +1331,7 @@ async function handle(req, res, cfg) {
 
   if (method === "GET" && url.pathname === "/v1/me") {
     mutateAuthenticated(req, (_state, current) => { current.device.lastSeenAt = now(); });
-    return send(res, 200, { user: { id: user.id, name: user.name, role: user.role, ...(user.emailVerifiedAt ? { emailVerified: true } : {}) }, emailRequired: emailSettings(cfg).enabled && !user.emailVerifiedAt, device: { id: device.id, label: device.label }, session: sessions.view(device, user), surveyPermissions: surveyPermissionsFor(user), server: { name: cfg.name }, hub: { name: cfg.name }, features: normalizeFeatures(cfg.features), banner: cfg.banner ?? null, theme: normalizeTheme(cfg.theme), deepWork: inDeepWork(user), ...(recordsPreservationEnabled(cfg.recordsPreservation) ? { recordsKept: true } : {}) });
+    return send(res, 200, { user: { id: user.id, name: user.name, role: user.role, ...(user.emailVerifiedAt ? { emailVerified: true } : {}) }, emailRequired: emailSettings(cfg).enabled && !user.emailVerifiedAt, device: { id: device.id, label: device.label }, session: sessions.view(device, user), server: { name: cfg.name }, hub: { name: cfg.name }, features: normalizeFeatures(cfg.features), banner: cfg.banner ?? null, theme: normalizeTheme(cfg.theme), deepWork: inDeepWork(user), ...(recordsPreservationEnabled(cfg.recordsPreservation) ? { recordsKept: true } : {}) });
   }
 
   if (method === "POST" && url.pathname === "/v1/signout") {
@@ -1960,25 +1934,6 @@ async function handle(req, res, cfg) {
     isAuthorized: () => authenticate(req, readState())?.user.id === user.id,
   }))) return undefined;
 
-  // ----- feed: what the agent did lately, from #agent-feed (everyone on the server can see it) -----
-  if (method === "GET" && parts[1] === "feed" && parts.length === 2) {
-    requireAuth(req, readState());
-    return send(res, 200, messaging ? messaging.feedItems() : { items: [] });
-  }
-
-  // ----- loops: the agent's recurring automations (everyone on the server can see them) -----
-  if (method === "GET" && parts[1] === "loops" && parts.length === 2) {
-    requireAuth(req, readState());
-    const up = loadConfig().upstreams?.owner;
-    if (!up?.url || !up?.key) return send(res, 200, { loops: [], available: false });
-    if (loopsCache.at > now() - 30_000) return send(res, 200, loopsCache.body);
-    try {
-      const r = await hermes(up, "GET", "/api/jobs?include_disabled=true", undefined, {}, AbortSignal.timeout(5000));
-      if (!r.ok) return send(res, 200, { loops: [], available: false });
-      loopsCache = { at: now(), body: { loops: shapeLoops((await r.json()).jobs), available: true } };
-      return send(res, 200, loopsCache.body);
-    } catch { return send(res, 200, { loops: [], available: false }); }
-  }
 
   // ----- token leaderboard (everyone on the server can see it) -----
   if (method === "GET" && parts[1] === "leaderboard" && parts.length === 2) {
@@ -1991,7 +1946,6 @@ async function handle(req, res, cfg) {
     return send(res, 200, {
       period, since,
       totals: board.totals,
-      topics: usageStore().topics({ since }),
       people: board.people.map((row, index) => ({
         rank: index + 1,
         user: { id: row.userId, name: state.users[row.userId]?.name || "Former member" },
@@ -2887,7 +2841,6 @@ export function startServer(fixedCfg) {
     await push?.shutdown();
     push = null;
     feedback?.close(); feedback = null;
-    surveyStore?.close(); surveyStore = null;
     inboxStore?.close(); inboxStore = null;
     businessReports?.close(); businessReports = null;
     glossaryStore?.close(); glossaryStore = null;
@@ -2997,17 +2950,7 @@ if (isMain) {
     const { r, data } = await adminPost("/admin/notify", { userId: to || undefined, text, attachments });
     if (!r.ok) { console.error(`Couldn't notify (${r.status}): ${data.error?.message || "server not running?"}`); process.exit(1); }
     console.log(`Posted in ${data.conversationId} (message ${data.messageId})`);
-  } else if (cmd === "feed") {
-    // server.mjs feed [--file <image>]... <text | -> : the agent posts in #agent-feed, which everyone can read.
-    const args = process.argv.slice(3); const files = []; const words = [];
-    for (let i = 0; i < args.length; i++) { if (args[i] === "--file") files.push(args[++i]); else words.push(args[i]); }
-    let text = words.join(" ");
-    if (text === "-" || (!text && !process.stdin.isTTY)) text = fs.readFileSync(0, "utf8");
-    if (!text.trim() && !files.length) { console.error("usage: server.mjs feed [--file <path>]... <text | ->"); process.exit(2); }
-    const attachments = files.map((f) => ({ name: path.basename(f), data: fs.readFileSync(f).toString("base64") }));
-    const { r, data } = await adminPost("/admin/feed", { text, attachments });
-    if (!r.ok) { console.error(`Couldn't post to the feed (${r.status}): ${data.error?.message || "server not running?"}`); process.exit(1); }
-    console.log(`Posted in ${data.conversationId} (message ${data.messageId})`);
+
   } else if (cmd === "release") {
     const [build, file] = process.argv.slice(3);
     if (!build || !file) {

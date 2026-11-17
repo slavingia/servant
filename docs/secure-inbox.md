@@ -52,7 +52,7 @@ The email never contains message text, the subject, a file name, a teammate's na
 
 In a case, the details say whether the visitor will be told: "Emailed at … when the team replies", or that they see a reply when they come back to the page. A contact address reads **Confirmed** only when the visitor confirmed that same address. **Activity** records when reply emails were turned on or off, each one that was sent and to which address, and one that could not be sent.
 
-Reply emails use the owner's mailer command, the same kind used for [email sign-in](email-sign-in.md) and [surveys](surveys.md), and need the direct HTTPS `publicUrl` that the email links to:
+Reply emails use the owner's mailer command, the same kind used for [email sign-in](email-sign-in.md), and need the direct HTTPS `publicUrl` that the email links to:
 
 ```json
 {

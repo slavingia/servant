@@ -13,7 +13,6 @@ export type ServerProfile = {
   deepWork?: unknown;
   session?: unknown;
   recordsKept?: unknown;
-  surveyPermissions?: unknown;
 };
 
 /** Reconcile one response against the latest saved account, retaining offline settings until it arrives. */

@@ -51,7 +51,7 @@ test("theme refresh preserves an in-flight Deep work choice and reconciles other
 });
 
 
-test("theme reconciliation leaves live survey permissions out of saved account metadata", () => {
+test("theme reconciliation leaves unknown server fields out of saved account metadata", () => {
   const updated = reconcileAccountProfile(account, {
     user: account.user, theme: { primaryColor: "#663399" },
     surveyPermissions: { canView: true, canManage: true },

@@ -55,7 +55,7 @@ const drag = { dataSet: { servantDrag: "on" } } as object;
 export function Sidebar() {
   const styles = useStyles();
   const colors = useSidebarColors();
-  const { account, deepWork, surveyPermissions } = useSession();
+  const { account, deepWork } = useSession();
   const { conversations, error, connected } = useLiveList();
   const unread = useLiveUnread();
   const { expired: sessionExpired } = useSessionExpiry();
@@ -77,7 +77,7 @@ export function Sidebar() {
   // What this server uses (features.ts): sections and entries for the rest never render.
   const features = useFeatures();
   useEffect(() => { if (account) void refreshProjects(account); }, [pathname, account]);
-  const viewer = { features, owner: account?.user.role === "owner", canViewSurveys: surveyPermissions.canView };
+  const viewer = { features, owner: account?.user.role === "owner" };
   const counts: Record<string, number> = { home: unread.channels, agent: unread.agent, messages: unread.messages };
   if (!account) return null;
 
@@ -127,7 +127,7 @@ export function Sidebar() {
       {/* Your Deep work switch (deep-work.ts), just above your name. */}
       <DeepWorkSwitch onNavy />
       <Pressable accessibilityRole="button" accessibilityLabel={`${account.user.name}${connected && deepWork ? ", Deep work" : ""}, your profile and settings`} onPress={() => go(pathname, "/you")}
-        style={state => [styles.footer, (hovered(state) || ["/you", "/notifications", "/feedback", "/leaderboard", "/loops", "/feed", "/entitlements"].includes(pathname)) && styles.hovered]}>
+        style={state => [styles.footer, (hovered(state) || ["/you", "/notifications", "/feedback", "/leaderboard", "/entitlements"].includes(pathname)) && styles.hovered]}>
         <View>
           <Avatar name={account.user.name} userId={account.user.id} size={30} />
           {/* Your own badge: the moon while you're in deep work (deep-work.ts), so the quiet you chose is what you see too. */}

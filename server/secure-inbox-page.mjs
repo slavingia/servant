@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 
 const escape = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
-// The page follows docs/design-system.md, like the public survey page: the app's palette (theme-colors.ts) in light
+// The page follows docs/design-system.md, like the other public pages: the app's palette (theme-colors.ts) in light
 // and dark, system type in its roles (28/34 title, 18/24 heading, 15/22 body, 13/18 labels and hints), 6-pixel
 // buttons and 10-pixel fields at 48 points, underlined links and no decoration. Text fields use 16 pixels so iOS
 // does not zoom the page on focus. A conversation reads top to bottom as author, time and words, as it does in the app.

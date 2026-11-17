@@ -19,8 +19,6 @@ export type Destination = {
   group: DestinationGroup;
   /** A server feature without which the place would be a dead link; "talk" means channels or direct messages. */
   needs?: FeatureName | "talk";
-  /** Only for people who may view surveys. */
-  surveys?: true;
   /** Only for the owner. */
   owner?: true;
   /** In the sidebar of a wide window. Places reached from You's page there (usage, invites, the archive) are not. */
@@ -44,19 +42,15 @@ export const DESTINATIONS: Destination[] = [
   { id: "members", label: "People", icon: "people", path: "/members", group: "team", needs: "people", sidebar: true, you: true, detail: "Everyone on your server", keywords: "people members directory" },
   { id: "entitlements", label: "Entitlements", icon: "key", path: "/entitlements", group: "team", sidebar: false, you: true, detail: "What your agent may reach, and the requests waiting on you", keywords: "entitlements access permissions approve approval request grant manager network hosts gate sandbox" },
   { id: "invite", label: "Invite people", icon: "addPerson", path: "/invite", group: "team", needs: "people", owner: true, sidebar: false, you: true, detail: "Share an invite to your server", keywords: "people invite join link teammates" },
-  // Surveys and the responses to them are one place, with a tab for each on the screen.
-  { id: "feedback", label: "Feedback", icon: "smile", path: "/surveys", group: "team", surveys: true, sidebar: true, you: true, detail: "Surveys and the private responses to review", keywords: "feedback survey surveys queue responses review faces ratings results share private" },
   { id: "wiki", label: "Wiki", icon: "book", path: "/wiki", group: "team", sidebar: true, you: true, detail: "Pages your team writes together, and the abbreviations that expand as you type", keywords: "wiki pages documents docs notes knowledge handbook guide text shortcuts abbreviations lexicon glossary expand" },
-  { id: "feed", label: "Agent feed", icon: "activity", path: "/feed", group: "team", sidebar: false, you: true, detail: "What the agent did lately: messages, releases and checks", keywords: "feed activity agent log history did done shipped sent ran recent" },
-  { id: "loops", label: "Loops", icon: "loop", path: "/loops", group: "team", sidebar: false, you: true, detail: "What the agent does on its own, every hour, day and week", keywords: "loops automations schedule scheduled recurring cron releases hourly daily weekly agent" },
   { id: "usage", label: "Agent usage", icon: "clock", path: "/leaderboard", group: "team", sidebar: false, you: true, detail: "How much each person uses the agent", keywords: "agent usage tokens leaderboard" },
 ];
 
-export type Viewer = { features: Features; owner: boolean; canViewSurveys: boolean };
+export type Viewer = { features: Features; owner: boolean };
 
 /** Whether this person, on this server, has this place. */
 export const reachable = (place: Destination, viewer: Viewer) =>
-  (!place.owner || viewer.owner) && (!place.surveys || viewer.canViewSurveys)
+  (!place.owner || viewer.owner)
   && (!place.needs || (place.needs === "talk" ? anyTalk(viewer.features) : viewer.features[place.needs]));
 
 /** The places for the sidebar or for You, grouped and in order; a group with nothing in it is left out. */
@@ -74,7 +68,6 @@ export function placeIsOpen(place: Destination, pathname: string, kind: string |
     case "members": return pathname === "/members" || pathname === "/invite";
     case "recordings": return pathname === "/recordings" || pathname.startsWith("/recordings/");
     case "inbox": return pathname === "/inbox" || pathname.startsWith("/inbox/");
-    case "feedback": return pathname === "/surveys" || pathname === "/queue";
     case "wiki": return pathname === "/wiki" || pathname === "/lexicon";
     default: return pathname === place.path;
   }

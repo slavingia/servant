@@ -10,8 +10,8 @@ import { ALL_FEATURES, withDeepWork } from "./features.ts";
 import { omnibarShortcuts } from "./omnibar.ts";
 
 const read = (file: string) => fs.readFileSync(path.join(import.meta.dirname, "..", file), "utf8");
-const everyone = { features: ALL_FEATURES, owner: true, canViewSurveys: true };
-const member = { features: ALL_FEATURES, owner: false, canViewSurveys: false };
+const everyone = { features: ALL_FEATURES, owner: true };
+const member = { features: ALL_FEATURES, owner: false };
 const labels = (where: "sidebar" | "you", viewer = everyone) => destinationGroups(where, viewer).map(entry => [entry.title, entry.places.map(place => place.label)]);
 
 test("every place has one name, its own icon and its own address", () => {
@@ -24,7 +24,7 @@ test("the sidebar is three short groups: where people talk, your work, the team"
   assert.deepEqual(labels("sidebar"), [
     ["Conversations", ["Home", "Agent", "Chats", "Cases"]],
     ["Your work", ["To-dos", "Saved", "Recordings"]],
-    ["Team", ["People", "Feedback", "Wiki"]],
+    ["Team", ["People", "Wiki"]],
   ]);
 });
 
@@ -32,13 +32,13 @@ test("You lists the same places under the same names, plus the ones a wide windo
   assert.deepEqual(labels("you"), [
     ["Conversations", ["Cases"]],
     ["Your work", ["To-dos", "Saved", "Recordings", "Archived"]],
-    ["Team", ["People", "Entitlements", "Invite people", "Feedback", "Wiki", "Agent feed", "Loops", "Agent usage"]],
+    ["Team", ["People", "Entitlements", "Invite people", "Wiki", "Agent usage"]],
   ]);
   assert.deepEqual(labels("you", member), [
     ["Conversations", ["Cases"]],
     ["Your work", ["To-dos", "Saved", "Recordings", "Archived"]],
-    ["Team", ["People", "Entitlements", "Wiki", "Agent feed", "Loops", "Agent usage"]],
-  ], "a member sees no invites and, without the role, no surveys");
+    ["Team", ["People", "Entitlements", "Wiki", "Agent usage"]],
+  ], "a member sees no invites");
 });
 
 test("a place a server has turned off is not offered anywhere", () => {
@@ -76,7 +76,6 @@ test("search finds every place by its name", () => {
   }
   assert.ok(omnibarShortcuts("to-dos", false, ALL_FEATURES, false).some(item => item.path === "/todos"), "To-dos was not in search at all");
   assert.ok(omnibarShortcuts("shortcuts", false, ALL_FEATURES, false).some(item => item.path === "/wiki"));
-  assert.ok(!omnibarShortcuts("surveys", false, ALL_FEATURES, false).some(item => item.path === "/surveys"), "still only for people who may view surveys");
 });
 
 test("the sidebar and You draw the list instead of keeping their own", () => {
