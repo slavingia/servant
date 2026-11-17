@@ -89,10 +89,10 @@ export type Loop = { id: string; name: string; cadence: string; group: LoopGroup
 export type Presence = { userId: string; online: boolean; lastSeenAt: number | null; deepWork?: boolean };
 // photo: version of their profile photo, when they have one.
 export type Person = { /** Who decides this person's entitlement requests; owners have none. */ managerId?: string; email?: string | null; emailVerified?: boolean; agentTier?: number; tokenLimit?: number; vibeCoder?: boolean; unlimitedTokens?: boolean; id: string; name: string; agent?: boolean; owner?: boolean; online?: boolean; lastSeenAt?: number | null; deepWork?: boolean; photo?: string | null };
-export type EntitlementStanding = { entitlementId: string; userId: string; status: "requested" | "granted" | "denied" | "revoked"; note: string; requestedAt: number; decidedBy?: string; decidedAt?: number; reason?: string; name?: string; decidedByName?: string };
-export type Entitlement = { id: string; name: string; description: string; hosts: string[]; confirmation: string; mine: EntitlementStanding | null; people: EntitlementStanding[] };
+export type EntitlementStanding = { entitlementId: string; userId: string; status: "requested" | "granted" | "once" | "used" | "denied" | "revoked"; note: string; requestedAt: number; /** "use": the agent asked by trying; `detail` is what it was about to do. */ via?: "use"; detail?: string; decidedBy?: string; decidedAt?: number; reason?: string; name?: string; decidedByName?: string };
+export type Entitlement = { /** Built in: on every server, asked for by use. */ native?: boolean; capability?: string; id: string; name: string; description: string; hosts: string[]; confirmation: string; mine: EntitlementStanding | null; people: EntitlementStanding[] };
 export type EntitlementDraft = { name: string; description: string; hosts: string[]; confirmation: string };
-export type EntitlementsPage = { entitlements: Entitlement[]; canCreate: boolean; waiting: number; manager: { id: string; name: string } | null; reports: { id: string; name: string }[];
+export type EntitlementsPage = { /** Whether built-in entitlements are checked before the agent acts. */ capabilities?: { mode: "ask" | "off" }; entitlements: Entitlement[]; canCreate: boolean; waiting: number; manager: { id: string; name: string } | null; reports: { id: string; name: string }[];
   egress: { mode: "ask" | "off"; always?: string[]; refused?: { userId: string; name: string; host: string; attempts: number; lastAt: number }[] } };
 // width, height: a picture's size in pixels as it is shown, read by the server when the file was stored. Absent
 // for a file from before the server kept sizes and for one that is not a picture (lib/picture-box.ts).
@@ -529,7 +529,7 @@ export const api = {
   updateEntitlement: (a: Account, id: string, body: Partial<EntitlementDraft>) => request(a, `/v1/entitlements/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }).then(json<{ entitlement: Entitlement }>),
   retireEntitlement: (a: Account, id: string) => request(a, `/v1/entitlements/${encodeURIComponent(id)}`, { method: "DELETE" }).then(json<{ ok: true }>),
   askForEntitlement: (a: Account, id: string, note: string) => request(a, `/v1/entitlements/${encodeURIComponent(id)}/request`, { method: "POST", body: JSON.stringify({ confirmed: true, note }) }).then(json<{ entitlement: Entitlement }>),
-  decideEntitlement: (a: Account, id: string, userId: string, decision: "grant" | "deny" | "revoke") => request(a, `/v1/entitlements/${encodeURIComponent(id)}/people/${encodeURIComponent(userId)}`, { method: "POST", body: JSON.stringify({ decision }) }).then(json<{ entitlement: Entitlement }>),
+  decideEntitlement: (a: Account, id: string, userId: string, decision: "grant" | "once" | "deny" | "revoke") => request(a, `/v1/entitlements/${encodeURIComponent(id)}/people/${encodeURIComponent(userId)}`, { method: "POST", body: JSON.stringify({ decision }) }).then(json<{ entitlement: Entitlement }>),
   // The org chart (docs/entitlements.md): an owner or the person's current manager hands them to another manager.
   setManager: (a: Account, userId: string, managerId: string) => request(a, `/v1/people/${encodeURIComponent(userId)}/manager`, { method: "PUT", body: JSON.stringify({ managerId }) }).then(json<{ person: { id: string; name: string; manager: { id: string; name: string } } }>),
   // "Invite your manager": a one-use link; whoever joins with it becomes your manager.

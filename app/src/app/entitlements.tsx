@@ -7,12 +7,12 @@ import { CheckBox } from "../components/CheckBox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { api, ServerError, type Entitlement, type EntitlementsPage, type EntitlementStanding } from "../lib/server";
 import { useSession } from "../lib/session";
-import { askLabel, canAsk, holders, hostsLine, parseHosts, refusedLine, standingLine, waitingOnYou } from "../lib/entitlements";
+import { askLabel, canAsk, checksLine, holders, hostsLine, parseHosts, refusedLine, requestLine, standingLine, waitingOnYou } from "../lib/entitlements";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
 
 // Entitlements (docs/entitlements.md): the named access a person's agent may use. Everyone sees the list and asks
 // for what they already have themselves; a manager answers their reports' requests; an owner makes and retires them.
-type Draft = { id: string | null; name: string; description: string; hosts: string; confirmation: string };
+type Draft = { id: string | null; native?: boolean; name: string; description: string; hosts: string; confirmation: string };
 type Danger = { kind: "revoke"; entitlement: Entitlement; person: EntitlementStanding } | { kind: "retire"; entitlement: Entitlement };
 
 export default function EntitlementsScreen() {
@@ -57,7 +57,7 @@ export default function EntitlementsScreen() {
     } catch (e) { setAskError(failed(e, "Couldn't send your request. Try again")); }
     finally { setBusy(null); }
   };
-  const decide = async (entitlement: Entitlement, person: EntitlementStanding, decision: "grant" | "deny") => {
+  const decide = async (entitlement: Entitlement, person: EntitlementStanding, decision: "grant" | "once" | "deny") => {
     if (busy) return;
     setBusy(`${entitlement.id}:${person.userId}:${decision}`); setError(null);
     try {
@@ -91,7 +91,7 @@ export default function EntitlementsScreen() {
   const openAsk = (entitlement: Entitlement) => { setConfirmed(false); setNote(""); setAskError(null); setAsking(entitlement); };
   const openDraft = (entitlement?: Entitlement) => {
     setDraftError(null);
-    setDraft(entitlement ? { id: entitlement.id, name: entitlement.name, description: entitlement.description, hosts: entitlement.hosts.join("\n"), confirmation: entitlement.confirmation } : { id: null, name: "", description: "", hosts: "", confirmation: "" });
+    setDraft(entitlement ? { id: entitlement.id, native: entitlement.native, name: entitlement.name, description: entitlement.description, hosts: entitlement.hosts.join("\n"), confirmation: entitlement.confirmation } : { id: null, name: "", description: "", hosts: "", confirmation: "" });
   };
 
   const owner = !!page?.canCreate;
@@ -106,6 +106,7 @@ export default function EntitlementsScreen() {
       {owner && page ? <Text testID="gate-state" style={styles.note}>{page.egress.mode === "ask"
         ? "The network gate is on: an agent reaches a host only through an entitlement its person holds."
         : "The network gate is off, so nothing is blocked yet. Entitlements are a record of who asked for and was given what until it is turned on."}</Text> : null}
+      {owner && page ? <Text testID="checks-state" style={styles.note}>{checksLine(page.capabilities?.mode)}</Text> : null}
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
       {!page && !error ? <ActivityIndicator color={colors.blue} style={styles.spinner} /> : null}
 
@@ -113,11 +114,16 @@ export default function EntitlementsScreen() {
         <Text accessibilityRole="header" style={styles.section}>{`Waiting on you (${waiting.length})`}</Text>
         <View style={styles.list}>
           {waiting.map(({ entitlement, request }) => <View key={`${entitlement.id}:${request.userId}`} testID={`request-${entitlement.id}-${request.userId}`} style={styles.row}>
-            <Text style={styles.name}>{`${request.name} asked for ${entitlement.name}`}</Text>
+            <Text style={styles.name}>{requestLine(request, entitlement)}</Text>
             {request.note ? <Text style={styles.meta}>{`"${request.note}"`}</Text> : null}
-            <Text style={styles.meta}>{`They confirmed: ${entitlement.confirmation}`}</Text>
+            {/* Asked by the agent trying: what it was about to do. Asked by the person: the words they confirmed. */}
+            {request.via === "use"
+              ? request.detail ? <Text testID={`detail-${entitlement.id}-${request.userId}`} style={styles.body}>{request.detail}</Text> : null
+              : <Text style={styles.meta}>{`They confirmed: ${entitlement.confirmation}`}</Text>}
             <View style={styles.actions}>
-              <Button testID={`grant-${entitlement.id}-${request.userId}`} label="Grant" accessibilityLabel={`Grant ${entitlement.name} to ${request.name}`} compact busy={busy === `${entitlement.id}:${request.userId}:grant`} disabled={!!busy} onPress={() => void decide(entitlement, request, "grant")} />
+              {/* A built-in entitlement can be allowed for this one action, or from now on. */}
+              {entitlement.native ? <Button testID={`once-${entitlement.id}-${request.userId}`} label="Allow once" accessibilityLabel={`Allow ${entitlement.name} once for ${request.name}`} compact busy={busy === `${entitlement.id}:${request.userId}:once`} disabled={!!busy} onPress={() => void decide(entitlement, request, "once")} /> : null}
+              <Button testID={`grant-${entitlement.id}-${request.userId}`} label={entitlement.native ? "Allow always" : "Grant"} accessibilityLabel={entitlement.native ? `Always allow ${entitlement.name} for ${request.name}` : `Grant ${entitlement.name} to ${request.name}`} kind={entitlement.native ? "secondary" : "primary"} compact busy={busy === `${entitlement.id}:${request.userId}:grant`} disabled={!!busy} onPress={() => void decide(entitlement, request, "grant")} />
               <Button testID={`deny-${entitlement.id}-${request.userId}`} label="Decline" accessibilityLabel={`Decline ${request.name}'s request for ${entitlement.name}`} kind="secondary" compact busy={busy === `${entitlement.id}:${request.userId}:deny`} disabled={!!busy} onPress={() => void decide(entitlement, request, "deny")} />
             </View>
           </View>)}
@@ -126,15 +132,16 @@ export default function EntitlementsScreen() {
 
       {page ? <View>
         <Text accessibilityRole="header" style={styles.section}>Entitlements</Text>
-        {page.entitlements.length === 0 ? <Text style={styles.empty}>{owner ? "None yet. Make one for each system your team's agents should reach." : "None yet. An owner makes them."}</Text> : null}
+        {page.entitlements.every(e => e.native) ? <Text testID="none-of-your-own" style={styles.empty}>{owner ? "Four are built in. Make one for each other system your team's agents should reach." : "Four are built in. An owner makes the others."}</Text> : null}
         <View style={page.entitlements.length ? styles.list : null}>
           {page.entitlements.map(entitlement => {
             const standing = standingLine(entitlement.mine, managerName);
             const held = holders(entitlement);
             return <View key={entitlement.id} testID={`entitlement-${entitlement.id}`} style={styles.row}>
-              <Text style={styles.name}>{entitlement.name}</Text>
+              <Text style={styles.name}>{entitlement.name}{entitlement.native ? <Text style={styles.builtIn}> · Built in</Text> : null}</Text>
               {entitlement.description ? <Text style={styles.body}>{entitlement.description}</Text> : null}
-              <Text style={styles.meta}>{hostsLine(entitlement.hosts)}</Text>
+              {/* The filesystem pair opens no hosts and never will: saying so would only puzzle. */}
+              {entitlement.native && !entitlement.hosts.length ? null : <Text style={styles.meta}>{hostsLine(entitlement.hosts)}</Text>}
               {standing ? <Text testID={`standing-${entitlement.id}`} style={[styles.standing, entitlement.mine?.status === "granted" && styles.granted]}>{standing}</Text> : null}
               {/* The people you decide for who hold it, each with a way to take it back. */}
               {held.map(person => <View key={person.userId} style={styles.holder}>
@@ -144,7 +151,7 @@ export default function EntitlementsScreen() {
               <View style={styles.actions}>
                 {canAsk(entitlement.mine) ? <Button testID={`ask-${entitlement.id}`} label={askLabel(entitlement.mine)} accessibilityLabel={`${askLabel(entitlement.mine)}: ${entitlement.name}`} kind="secondary" compact disabled={!!busy} onPress={() => openAsk(entitlement)} /> : null}
                 {owner ? <Button testID={`edit-${entitlement.id}`} label="Edit" accessibilityLabel={`Edit ${entitlement.name}`} kind="secondary" compact disabled={!!busy} onPress={() => openDraft(entitlement)} /> : null}
-                {owner ? <Button testID={`retire-${entitlement.id}`} label="Retire" accessibilityLabel={`Retire ${entitlement.name}`} kind="danger" compact disabled={!!busy} onPress={() => { setDangerError(null); setDanger({ kind: "retire", entitlement }); }} /> : null}
+                {owner && !entitlement.native ? <Button testID={`retire-${entitlement.id}`} label="Retire" accessibilityLabel={`Retire ${entitlement.name}`} kind="danger" compact disabled={!!busy} onPress={() => { setDangerError(null); setDanger({ kind: "retire", entitlement }); }} /> : null}
               </View>
             </View>;
           })}
@@ -185,8 +192,8 @@ export default function EntitlementsScreen() {
         {draft ? <View accessibilityViewIsModal style={styles.dialog}>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.form}>
             <Text accessibilityRole="header" style={styles.title}>{draft.id ? "Edit entitlement" : "New entitlement"}</Text>
-            <Text style={styles.label}>Name</Text>
-            <TextInput testID="draft-name" accessibilityLabel="Name" value={draft.name} onChangeText={name => setDraft(d => d && { ...d, name })} maxLength={60} editable={!busy} placeholder="GitHub" placeholderTextColor={colors.muted} style={styles.input} />
+            <Text style={styles.label}>{draft.native ? "Name (built in, can't be changed)" : "Name"}</Text>
+            <TextInput testID="draft-name" accessibilityLabel="Name" value={draft.name} onChangeText={name => setDraft(d => d && { ...d, name })} maxLength={60} editable={!busy && !draft.native} placeholder="GitHub" placeholderTextColor={colors.muted} style={styles.input} />
             <Text style={styles.label}>Description</Text>
             <TextInput testID="draft-description" accessibilityLabel="Description" value={draft.description} onChangeText={description => setDraft(d => d && { ...d, description })} maxLength={300} editable={!busy} placeholder="What it is for" placeholderTextColor={colors.muted} style={styles.input} />
             <Text style={styles.label}>Hosts, one per line</Text>
@@ -222,6 +229,7 @@ const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create
   list: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   row: { paddingVertical: space.sm, gap: space.xxs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   name: { ...typography.bodyStrong, color: colors.ink },
+  builtIn: { ...typography.caption, color: colors.muted },
   body: { ...typography.body, color: colors.ink },
   meta: { ...typography.caption, color: colors.muted },
   standing: { ...typography.caption, color: colors.muted },
