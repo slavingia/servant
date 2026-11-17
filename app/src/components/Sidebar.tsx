@@ -60,6 +60,9 @@ export function Sidebar() {
   const { conversations, error, connected } = useLiveList();
   const unread = useLiveUnread();
   const { expired: sessionExpired } = useSessionExpiry();
+  // "Reconnecting…" is for a connection that was up and dropped. While the app is opening it has not connected
+  // yet, and saying so flashed under the name on every launch; Home's own line waits for the list the same way.
+  const here = connected || (conversations === null && !error && !sessionExpired);
   const { sort, pending } = useChannelSort();
   const pathname = usePathname();
   // Thread, details and files belong to a channel or DM; keep it highlighted.
@@ -132,11 +135,11 @@ export function Sidebar() {
         <View>
           <Avatar name={account.user.name} userId={account.user.id} size={30} />
           {/* Your own badge: the moon while you're in deep work (deep-work.ts), so the quiet you chose is what you see too. */}
-          <PresenceDot status={!connected ? "off" : deepWork ? "deepWork" : "online"} size={10} ring={colors.navy} disc={colors.navy} glyph={colors.muted} offColor={colors.borderStrong} style={styles.status} />
+          <PresenceDot status={!here ? "off" : deepWork ? "deepWork" : "online"} size={10} ring={colors.navy} disc={colors.navy} glyph={colors.muted} offColor={colors.borderStrong} style={styles.status} />
         </View>
         <View style={styles.footerCopy}>
           <Text style={styles.footerName}>{account.user.name}</Text>
-          <Text style={styles.footerRole}>{connected ? deepWork ? "Deep work" : account.user.role === "owner" ? "Owner" : "Member" : sessionExpired ? "Session ended" : "Reconnecting…"}</Text>
+          <Text style={styles.footerRole}>{here ? deepWork ? "Deep work" : account.user.role === "owner" ? "Owner" : "Member" : sessionExpired ? "Session ended" : "Reconnecting…"}</Text>
         </View>
       </Pressable>
       <NewProjectDialog visible={naming} onClose={() => setNaming(false)} onCreated={id => go(pathname, { pathname: "/project", params: { id } })} />
