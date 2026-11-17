@@ -23,6 +23,7 @@ import { ShareGate } from "../components/ShareGate";
 import { LaunchScreen } from "../components/LaunchScreen";
 import { useApplyUpdates } from "../lib/ota";
 import { useAppFonts } from "../lib/use-app-fonts";
+import { useFirstScreens } from "../lib/use-first-screens";
 
 export default function RootLayout() {
   useApplyUpdates();
@@ -64,6 +65,9 @@ function SessionNavigation() {
   // In a browser, load every screen's code ahead of its first use (lib/preload-order.ts).
   useEffect(() => { if (paired) preloadScreens(); }, [paired]);
   const landing = landingHref(useFeatures());
+  // In a browser the first screen's code is fetched: the launch screen stays until it is in, so opening the app
+  // never shows an empty page between its shape and its first screen (lib/first-screens.ts).
+  const firstScreensIn = useFirstScreens(ready, paired, pathname, landing);
   // Wait for the saved account before mounting any invite screen.
   if (!ready) {
     return <LaunchScreen />;
@@ -81,6 +85,8 @@ function SessionNavigation() {
     <NotificationsProvider>
     <PhotoProvider key={account ? `${accountId(account)}:${account.token}:${account.user.id}` : "signed-out"}>
     <LiveProvider>
+    {/* The lists start loading behind the launch screen, so the first screen can open with them. */}
+    {!firstScreensIn ? <LaunchScreen /> : <>
     <StatusBar style={paired && account?.banner?.message ? "dark" : (paired && wide) || pathname === "/welcome" || scheme === "dark" ? "light" : "dark"} />
     <AppChrome enabled={paired}>
     <Stack
@@ -166,6 +172,7 @@ function SessionNavigation() {
     {paired ? <SessionExpiryGate /> : null}
     {paired ? <ShareGate /> : null}
     </AppChrome>
+    </>}
     </LiveProvider>
     </PhotoProvider>
     </NotificationsProvider>
