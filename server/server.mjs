@@ -1018,6 +1018,7 @@ async function agentUse(body, config = loadConfig) {
   };
   if (person.role === "owner") return logged("allowed-owner", { verdict: "allow" });
   const until = Date.now() + capabilitySettings(config().agentCapabilities).waitSeconds * 1000;
+  let told = false;
   for (;;) {
     // Look at everything the action needs before spending anything: a single allowance for one entitlement is not
     // used up while another is still waiting. Whatever is missing is asked for together.
@@ -1027,6 +1028,8 @@ async function agentUse(body, config = loadConfig) {
     if (refused) return logged("denied", { verdict: "deny", capability: refused.capability, message: `Servant blocked this: ${person.name} asked for ${refused.entitlement.name} and was declined. Tell them so, and don't look for another way to do it. They can ask again in Servant under Entitlements.` });
     const missing = looked.filter(r => r.verdict === "wait");
     for (const r of missing) if (r.fresh) tellAbout([manager?.id], "Entitlement request", `${person.name}'s agent needs ${r.entitlement.name}`);
+    // The person watching the reply sees why it has stopped, not "Working".
+    if (missing.length && !told) { told = true; try { agentTurns?.noteForChat(who.chatId, `Waiting for ${manager?.name || "an owner"} to allow ${missing.map(r => r.entitlement.name).join(" and ")}`); } catch { /* the wait still happens */ } }
     if (!missing.length) {
       const used = needs.map(capability => store.use(person.id, capability, detail));
       // Something changed between looking and using (taken back in that instant): look again.
@@ -1905,7 +1908,9 @@ async function handle(req, res, cfg) {
         ...(user.role === "owner" ? { org: everyone.map(u => ({ ...brief(u), role: u.role, manager: brief(managerOf(state, u)) || null })) } : {}),
         // Whether built-in entitlements are checked before the agent reads or changes files or GitHub.
         capabilities: { mode: capabilitySettings(cfg.agentCapabilities).mode },
-        egress: { mode: egressSettings(cfg.agentEgress).mode, ...(user.role === "owner" ? { always: egressSettings(cfg.agentEgress).always, refused: egressStore().recent(50).map(a => ({ ...a, name: users[a.userId]?.name || "Former member" })) } : {}) } });
+        egress: { mode: egressSettings(cfg.agentEgress).mode, ...(user.role === "owner" ? { always: egressSettings(cfg.agentEgress).always, refused: egressStore().recent(50).map(a => ({ ...a, name: users[a.userId]?.name || "Former member" })),
+          // What agents did reach: per person (or the agent itself), host and day.
+          reached: egressStore().recentReached(100).map(a => ({ ...a, name: a.userId ? users[a.userId]?.name || "Former member" : "The agent itself" })) } : {}) } });
     }
     if (method === "POST" && parts.length === 2) {
       const body = await readAuthorizedBody(req);

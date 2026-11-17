@@ -12,6 +12,8 @@ Off by default. When it is on, the agent runs in a sandbox whose only way out to
 4. A refused connection gets `403` with a line the agent can read ("it needs the entitlement "Tax data API", which the person you are working for does not hold"), is written down, and the person (or the owners, when no entitlement covers the host) is told once.
 5. The proxy never connects to this machine, the local network or other private address ranges, whatever an entitlement says, so a public name cannot be pointed inward.
 
+6. A connection that is let through is written down first: who it was for (or the agent itself, for an `always` host with nobody working), the host, the day, and how many that day. If it can't be written down it isn't made. Owners see the latest under **Recently reached** in Entitlements (`egress.reached` in `GET /v1/entitlements`).
+
 HTTPS stays encrypted from the agent to the site: the proxy sees the host name and port and nothing inside. It stores no request or reply text.
 
 ## Turn it on

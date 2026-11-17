@@ -58,5 +58,7 @@ const NEED: Record<string, string> = { "fs-read": "Filesystem read", "fs-write":
 /** One line of the agent action log: how it ended and what it needed, "Allowed once · GitHub write". */
 export const actionLine = (action: Pick<AgentAction, "verdict" | "needs">) => [VERDICT[action.verdict] ?? action.verdict, action.needs.map(n => NEED[n] ?? n).join(", ")].filter(Boolean).join(" · ");
 
+/** A host an agent reached, for the owner's list: "Pat Tester · api.example.gov · 3 connections on 2026-11-17". */
+export const reachedLine = (r: { name: string; host: string; connections: number; day: string }) => `${r.name} · ${r.host} · ${r.connections} ${r.connections === 1 ? "connection" : "connections"} on ${r.day}`;
 /** A refused host, for the owner's list: "Pat Tester · api.example.gov · 3 tries". */
 export const refusedLine = (r: { name: string; host: string; attempts: number }) => `${r.name} · ${r.host} · ${r.attempts} ${r.attempts === 1 ? "try" : "tries"}`;

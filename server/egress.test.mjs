@@ -35,11 +35,11 @@ test("a connection is judged for its token's person, else for everyone whose age
   const whose = token => token === "pat-token" ? { userId: "usr_pat", chatId: "chat_1" } : token === "jo-token" ? { userId: "usr_jo" } : null;
   const ask = (host, token, active = []) => judge({ settings, host, token, whose, active: () => active, allowed });
   assert.equal(ask("models.example.gov", "", []).verdict, "allow", "the always list needs nobody");
-  assert.deepEqual(ask("api.example.gov", "", []), { verdict: "deny", blocked: [], reason: "nobody" });
+  assert.deepEqual(ask("api.example.gov", "", []), { verdict: "deny", blocked: [], for: [], reason: "nobody" });
   assert.equal(ask("api.example.gov", "pat-token").verdict, "allow");
-  assert.deepEqual(ask("api.example.gov", "jo-token"), { verdict: "deny", blocked: [{ userId: "usr_jo" }] });
+  assert.deepEqual(ask("api.example.gov", "jo-token"), { verdict: "deny", blocked: [{ userId: "usr_jo" }], for: ["usr_jo"] });
   assert.equal(ask("api.example.gov", "", ["usr_pat"]).verdict, "allow");
-  assert.deepEqual(ask("api.example.gov", "", ["usr_pat", "usr_jo"]), { verdict: "deny", blocked: [{ userId: "usr_jo" }] }, "one person without it closes it for unattributed traffic");
+  assert.deepEqual(ask("api.example.gov", "", ["usr_pat", "usr_jo"]), { verdict: "deny", blocked: [{ userId: "usr_jo" }], for: ["usr_pat", "usr_jo"] }, "one person without it closes it for unattributed traffic");
   assert.equal(ask("api.example.gov", "pat-token", ["usr_pat", "usr_jo"]).verdict, "allow", "a token is judged on its own");
   assert.equal(judge({ settings, host: "api.example.gov", token: "pat-token", whose, allowed, known: () => false }).reason, "nobody", "someone who left has no say");
 });
@@ -149,6 +149,10 @@ test("the proxy refuses, tells people once, then tunnels after the entitlement i
 
   const always = await connectThrough(port, "models.example.gov:443", { send: "ping" });
   assert.equal(always.status, 200, "the always list needs no person");
+  // What was let through is on the record: who it was for (or nobody: the agent itself), where, and how many.
+  await connectThrough(port, "api.example.gov:443", { token: pat, send: "ping" });
+  assert.deepEqual(store.recentReached().map(r => [r.userId, r.host, r.connections]).sort(), [["", "models.example.gov", 1], ["usr_pat", "api.example.gov", 2]]);
+  assert.equal(store.recentReached().some(r => r.host === "other.example.gov"), false, "a refused host is not a reached one");
 
   // A name that points at a private address stays closed even when the entitlement covers it.
   grants.add("usr_pat inside.example.gov");
