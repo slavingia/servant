@@ -183,9 +183,10 @@ async function publicAddress(host, resolve) {
  * The proxy itself. `settings()` is read for every connection, so config.json changes apply without a restart.
  * `allowed(userId, host)` asks the entitlements. `blocked(attempt)` is called the first time a person's agent is
  * refused a host (and at most daily after that). `hint(host, people)` may return a line for the agent about what to request.
+ * `local(req, res)` answers requests made to the listener itself (origin-form paths) rather than through it.
  * `connect` and `resolve` are replaceable in tests.
  */
-export function createEgressProxy({ store, settings, allowed, active, known, blocked = () => "", hint = () => "", log = console.warn,
+export function createEgressProxy({ store, settings, allowed, active, known, blocked = () => "", hint = () => "", local = null, log = console.warn,
   resolve = host => lookup(host, { all: true }), connect = (port, address) => net.connect(port, address), allowInternal = false, sleep = ms => new Promise(r => setTimeout(r, ms)) }) {
   async function verdictFor(host, port, headers) {
     if (settings().mode !== "ask") return { verdict: "deny", blocked: [], reason: "off" };
@@ -205,6 +206,11 @@ export function createEgressProxy({ store, settings, allowed, active, known, blo
   const target = async host => allowInternal ? host : publicAddress(host, resolve);
 
   const server = http.createServer(async (req, res) => {
+    // A request to this listener itself, not through it: the agent's bridge asking the server a question (`local`).
+    if (local && typeof req.url === "string" && req.url.startsWith("/")) {
+      try { return await local(req, res); }
+      catch (error) { log("[egress] local request failed:", error.message); if (!res.headersSent) res.writeHead(500, { "Content-Type": "application/json" }); return res.end('{"verdict":"deny","message":"Servant could not check this. Try again"}'); }
+    }
     // Plain HTTP through the proxy: "GET http://host/path". Anything else is not a proxy request.
     let url;
     try { url = new URL(req.url); } catch { url = null; }

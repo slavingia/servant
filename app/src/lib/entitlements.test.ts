@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { askLabel, canAsk, holders, hostsLine, parseHosts, refusedLine, standingLine, waitingOnYou } from "./entitlements.ts";
+import { askLabel, canAsk, checksLine, holders, hostsLine, parseHosts, refusedLine, requestLine, standingLine, waitingOnYou } from "./entitlements.ts";
 import type { Entitlement, EntitlementStanding } from "./server.ts";
 
 const standing = (status: EntitlementStanding["status"], extra: Partial<EntitlementStanding> = {}): EntitlementStanding => ({ entitlementId: "ent_1", userId: "usr_pat", status, note: "", requestedAt: 1, ...extra });
@@ -43,4 +43,18 @@ test("hosts are read however they are typed", () => {
   assert.equal(hostsLine(["github.com", "*.github.com"]), "Opens github.com, *.github.com");
   assert.equal(refusedLine({ name: "Pat Tester", host: "api.example.gov", attempts: 1 }), "Pat Tester · api.example.gov · 1 try");
   assert.equal(refusedLine({ name: "Pat Tester", host: "api.example.gov", attempts: 3 }), "Pat Tester · api.example.gov · 3 tries");
+});
+
+test("a built-in entitlement is asked for by the agent trying; allowed once reads as that, and once used the person can ask", () => {
+  const github = { ...entitlement("GitHub write", []), native: true, capability: "github-write" };
+  assert.equal(requestLine(standing("requested", { name: "Pat Tester", via: "use", detail: "Run: git push" }), github), "Pat Tester's agent needs GitHub write");
+  assert.equal(requestLine(standing("requested", { name: "Pat Tester" }), github), "Pat Tester asked for GitHub write");
+  assert.equal(standingLine(standing("once"), "Jo Park"), "Allowed once");
+  assert.equal(standingLine(standing("used"), "Jo Park"), "");
+  assert.equal(canAsk(standing("once")), false);
+  assert.equal(canAsk(standing("used")), true);
+  assert.equal(askLabel(standing("used")), "Ask for this");
+  assert.match(checksLine("ask"), /^Built-in entitlements are checked/);
+  assert.match(checksLine("off"), /not checked yet/);
+  assert.match(checksLine(undefined), /not checked yet/);
 });

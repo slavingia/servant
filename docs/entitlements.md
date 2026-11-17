@@ -14,6 +14,49 @@ Two rules sit behind it.
 
 **Access is handed down, never made up.** A manager can only grant an entitlement they hold themselves. Owners can grant anything. So every grant traces back, person by person, to an owner.
 
+## Built-in entitlements
+
+Four entitlements are on every server and can't be retired or renamed:
+
+| Entitlement | What it lets the agent do for the person |
+| --- | --- |
+| **Filesystem read** | Read files on the server's computer. |
+| **Filesystem write** | Create, change and delete files, and run commands that could. Covers reading. |
+| **GitHub read** | Read repositories, issues and pull requests. |
+| **GitHub write** | Push, open and merge pull requests, change issues. Covers reading. |
+
+They are **asked for by use**. Nobody fills in a form: the first time someone's agent is about to do one of these things, the agent stops, the person's manager is told ("Pat Tester's agent needs GitHub write"), and in Entitlements the manager sees what the agent was about to do ("Run: git push origin main") with three answers:
+
+- **Allow once**: that one action goes ahead. The next one asks again.
+- **Allow always**: the person holds the entitlement from now on, until someone takes it back.
+- **Decline**: the agent is told no and passes that on. It is not asked about again until the person asks for it themselves in Entitlements.
+
+The agent waits a while for the answer (`waitSeconds`, 120 by default) and carries on by itself if it comes in time. If it doesn't, the agent tells the person it is waiting on their manager, and the request stays open; once it is answered, the person asks the agent to try again. Every step is in the entitlement's history: the request with what the agent was about to do, who allowed it and how, and when a single allowance was used.
+
+The same rules apply as to any entitlement: a manager can only allow what they hold themselves, owners can allow anything, and an owner's own agent is not held back. The GitHub pair also opens GitHub's hosts through the network gate, and a single allowance keeps them open for ten minutes after it is used so the one action can finish. An owner can change those hosts.
+
+Turn the check on in the server's `config.json` and restart:
+
+```json
+"agentCapabilities": { "mode": "ask", "waitSeconds": 120 }
+```
+
+It is off by default. It needs a bridge that can ask before a tool call (`server/hermes_guard.py` and `server/hermes_capabilities.py` beside `server/hermes_bridge.py`); the server checks that the bridge says it can, and refuses to hand a turn to one that can't rather than let the agent act unasked. If the bridge can't reach the server to ask, the tool call is stopped.
+
+### How the agent's actions are read
+
+- The agent's own file tools are exact: reading and searching files need Filesystem read; writing and patching need Filesystem write.
+- A shell command is read one-sidedly. It counts as reading only when every part of it is on a short list of commands known to only read (`ls`, `cat`, `grep`, `git status`, `git log`, `gh pr view` and the like, with no output redirected to a file). Anything else needs Filesystem write, and anything that talks to GitHub and isn't a known read needs GitHub write. A wrong guess therefore asks for more than was needed, never less.
+- `git fetch`, `pull` and `clone` need GitHub read and Filesystem write. `git push` needs GitHub write.
+- Tools that touch neither files nor GitHub (search, the browser, to-dos) are not asked about.
+
+### Limits of the built-in ones
+
+- This is a check on what the agent is about to do, made inside the agent. It is not a wall around the files: a program the agent was allowed to run can do more than its command line shows. Filesystem write is the entitlement that says "this person's agent may run arbitrary commands", and should be allowed with that in mind.
+- "Read" and "write" are for all of GitHub the server's credentials reach and all files the server's user can reach, not one repository or folder.
+- Only the full agent is checked. The restricted member and researcher agents have no file tools or shell to check.
+- While the agent waits for an answer, its progress line still says it is working.
+
 ## Managers
 
 Everyone except an owner has a manager: the person who decides their entitlement requests.
@@ -30,12 +73,12 @@ In the app, **People** has an **Org chart** view beside Name and Last seen: each
 ## How it goes
 
 1. **An owner makes the entitlement.**
-2. **A person asks for it.** They must tick the confirmation; a request without it is refused (`confirmation_required`). They can add a note ("I'm on the example-app team"). The exact words they agreed to are kept with the request.
+2. **A person asks for it.** (For a built-in entitlement their agent asks by trying, as above.) They must tick the confirmation; a request without it is refused (`confirmation_required`). They can add a note ("I'm on the example-app team"). The exact words they agreed to are kept with the request.
 3. **Their manager is told** with a push alert: "Pat Tester asked for Tax data API".
 4. **Their manager, or an owner, grants or declines.** The person is told either way. A manager who does not hold the entitlement can decline but not grant (`not_held`). Nobody but an owner decides their own request; an owner can, because an owner is where trust on the server starts (it is still recorded).
 5. **Their manager or an owner can take it back** at any time. The hosts close at once.
 
-Nobody can be given an entitlement they did not ask for: the confirmation is the person's own, so it cannot be made for them.
+Nobody can be given an entitlement they did not ask for, themselves or through their own agent's use of it.
 
 When a person is removed from the server, everything they held or were waiting on is revoked. Changing an entitlement's hosts applies at once to everyone who holds it. Retiring an entitlement closes it for everyone.
 
@@ -83,7 +126,7 @@ All under the encrypted `/v1/` API.
 | `PATCH /v1/entitlements/<id>` | owner | Any of the same fields. |
 | `DELETE /v1/entitlements/<id>` | owner | Retire it. |
 | `POST /v1/entitlements/<id>/request` | anyone | `{ "confirmed": true, "note" }` |
-| `POST /v1/entitlements/<id>/people/<user id>` | their manager or an owner | `{ "decision": "grant" \| "deny" \| "revoke", "reason" }` |
+| `POST /v1/entitlements/<id>/people/<user id>` | their manager or an owner | `{ "decision": "grant" \| "once" \| "deny" \| "revoke", "reason" }` (`once` for built-in ones) |
 | `GET /v1/entitlements/<id>/history` | owner | Every step, newest first. |
 | `PUT /v1/people/<user id>/manager` | their manager or an owner | `{ "managerId" }` |
 | `POST /v1/people/me/manager-invite` | anyone but an owner | `{ "name" }`; returns a one-use invite link. |

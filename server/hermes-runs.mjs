@@ -47,6 +47,15 @@ export async function supportsDurableRuns(up) {
   }
 }
 
+// With built-in entitlements checked, the bridge must be one that asks before a tool call. An older bridge would let
+// the agent act unasked, so a turn is refused rather than sent to it. A probe that fails counts as "can't".
+export async function supportsEntitlementChecks(up) {
+  try {
+    const response = await hermesRequest(up, 'GET', '/v1/capabilities', undefined, { signal: AbortSignal.timeout(5000) });
+    return response.ok && (await response.json())?.features?.servant_entitlement_checks === true;
+  } catch { return false; }
+}
+
 // Bridges from before steering keep queueing; messages just wait their turn.
 export async function supportsSteer(up) {
   try {

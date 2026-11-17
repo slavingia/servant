@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { createEntitlements, DEFAULT_CONFIRMATION } from "./entitlements.mjs";
+import { capabilitySettings, createEntitlements, DEFAULT_CONFIRMATION, NATIVE, ONCE_WINDOW_MS } from "./entitlements.mjs";
 
 // Ana (owner) manages Jo; Jo manages Pat and Sam.
 function setup() {
@@ -13,8 +13,9 @@ function setup() {
   const file = path.join(dir, "entitlements.db");
   const people = new Map([["usr_ana", "owner"], ["usr_jo", "member"], ["usr_pat", "member"], ["usr_sam", "member"]]);
   const managerOf = { usr_jo: "usr_ana", usr_pat: "usr_jo", usr_sam: "usr_jo" };
-  const store = createEntitlements(file, { known: id => people.has(id), isOwner: id => people.get(id) === "owner", manages: (by, id) => managerOf[id] === by });
-  return { store, people, file, done: () => { store.close(); fs.rmSync(dir, { recursive: true, force: true }); } };
+  const time = { now: 1_800_000_000_000 };
+  const store = createEntitlements(file, { clock: () => time.now, known: id => people.has(id), isOwner: id => people.get(id) === "owner", manages: (by, id) => managerOf[id] === by });
+  return { store, people, file, time, done: () => { store.close(); fs.rmSync(dir, { recursive: true, force: true }); } };
 }
 const fails = (fn, status, code) => assert.throws(fn, error => error.status === status && (!code || error.code === code), `expected ${status} ${code || ""}`);
 
@@ -102,7 +103,7 @@ test("editing, retiring and a person leaving close access without deleting anyth
 
   store.retire(e.id, "usr_ana");
   assert.equal(store.get(e.id), null);
-  assert.deepEqual(store.list(), []);
+  assert.deepEqual(store.list().filter(x => !x.native), []);
   assert.deepEqual(store.waitingOn("usr_ana"), [], "a retired entitlement has nothing left to decide");
   fails(() => store.request(e.id, "usr_sam", { confirmed: true }), 404);
   assert.ok(store.history(e.id).some(h => h.action === "retired"));
@@ -112,5 +113,81 @@ test("editing, retiring and a person leaving close access without deleting anyth
   assert.throws(() => raw.exec("DELETE FROM history"), /append-only/);
   assert.throws(() => raw.exec("UPDATE history SET action='x'"), /append-only/);
   raw.close();
+  done();
+});
+
+test("built-in entitlements are on every server, can't be retired or renamed, and are asked for by use", () => {
+  const { store, file, done } = setup();
+  assert.deepEqual(store.list().map(e => [e.name, e.capability]), [["Filesystem read", "fs-read"], ["Filesystem write", "fs-write"], ["GitHub read", "github-read"], ["GitHub write", "github-write"]]);
+  assert.deepEqual(NATIVE.map(n => n.capability).sort(), ["fs-read", "fs-write", "github-read", "github-write"]);
+  const github = store.get("native-github-write");
+  assert.deepEqual(github.hosts, ["github.com", "*.github.com", "*.githubusercontent.com"]);
+  fails(() => store.retire(github.id, "usr_ana"), 400);
+  fails(() => store.update(github.id, { name: "Git" }, "usr_ana"), 400);
+  assert.deepEqual(store.update(github.id, { hosts: ["github.com"], name: "GitHub write" }, "usr_ana").hosts, ["github.com"], "an owner can still say which hosts it opens");
+  store.create({ name: "Jira", hosts: ["jira.example.gov"] }, "usr_ana");
+  assert.deepEqual(store.list().map(e => e.name), ["Filesystem read", "Filesystem write", "GitHub read", "GitHub write", "Jira"], "built-in ones first");
+  fails(() => store.use("usr_pat", "sudo"), 400);
+
+  // The first use files a request with what the agent was about to do; repeats change nothing but that line.
+  const first = store.use("usr_pat", "github-write", "Run: git push origin main");
+  assert.deepEqual([first.verdict, first.fresh, first.entitlement.name], ["wait", true, "GitHub write"]);
+  const again = store.use("usr_pat", "github-write", "Run: gh pr merge 12");
+  assert.deepEqual([again.verdict, again.fresh], ["wait", false]);
+  const request = store.grant(github.id, "usr_pat");
+  assert.deepEqual([request.status, request.via, request.detail], ["requested", "use", "Run: gh pr merge 12"]);
+  assert.deepEqual(store.waitingOn("usr_jo").map(g => [g.userId, g.detail]), [["usr_pat", "Run: gh pr merge 12"]]);
+  assert.equal(store.use("usr_gone", "fs-read").verdict, "deny", "someone who isn't on the server is refused");
+  // Reopening the file adds no second copy and keeps the request.
+  const reopened = createEntitlements(file);
+  assert.equal(reopened.list().filter(e => e.native).length, 4);
+  assert.equal(reopened.grant(github.id, "usr_pat").status, "requested");
+  reopened.close();
+  done();
+});
+
+test("allow once lets one action through and the next asks again; allow always stands; a no stands until the person asks", () => {
+  const { store, time, done } = setup();
+  const id = "native-github-write";
+  // Jo is Pat's manager but holds nothing, so Jo can't allow it, once or always. The owner can.
+  store.use("usr_pat", "github-write", "Run: git push");
+  fails(() => store.decide(id, "usr_pat", { decision: "once", by: "usr_jo" }), 403, "not_held");
+  fails(() => store.decide(id, "usr_pat", { decision: "grant", by: "usr_jo" }), 403, "not_held");
+  store.decide(id, "usr_pat", { decision: "once", by: "usr_ana" });
+  assert.equal(store.grant(id, "usr_pat").status, "once");
+  assert.equal(store.allows("usr_pat", "github.com"), false, "nothing opens until it is used");
+  const used = store.use("usr_pat", "github-write", "Run: git push");
+  assert.deepEqual([used.verdict, used.once], ["allow", true]);
+  assert.equal(store.grant(id, "usr_pat").status, "used");
+  assert.equal(store.allows("usr_pat", "api.github.com"), true, "its hosts stay open long enough for that action");
+  time.now += ONCE_WINDOW_MS + 1;
+  assert.equal(store.allows("usr_pat", "api.github.com"), false);
+  const next = store.use("usr_pat", "github-write", "Run: gh pr merge 3");
+  assert.deepEqual([next.verdict, next.fresh], ["wait", true], "the next action asks again");
+
+  // Always: every later use goes through, and write covers read.
+  store.decide(id, "usr_pat", { decision: "grant", by: "usr_ana" });
+  for (let i = 0; i < 3; i++) assert.equal(store.use("usr_pat", "github-write").verdict, "allow");
+  assert.equal(store.use("usr_pat", "github-read").verdict, "allow", "write covers read");
+  assert.equal(store.grant("native-github-read", "usr_pat"), null, "without a separate request for read");
+  assert.equal(store.use("usr_pat", "fs-read").verdict, "wait", "but GitHub says nothing about files");
+  // Pat holds GitHub write, so Pat can now pass on GitHub read (covered) to a report... Sam reports to Jo, so only an owner or Jo decides.
+  store.use("usr_sam", "github-read");
+  fails(() => store.decide("native-github-read", "usr_sam", { decision: "grant", by: "usr_pat" }), 403, "forbidden");
+
+  // A no stands: later uses are refused without asking the manager again, until the person asks themselves.
+  store.decide("native-fs-read", "usr_pat", { decision: "deny", by: "usr_ana", reason: "Not on this server" });
+  assert.equal(store.use("usr_pat", "fs-read").verdict, "deny");
+  assert.equal(store.use("usr_pat", "fs-read").verdict, "deny");
+  assert.equal(store.request("native-fs-read", "usr_pat", { confirmed: true }).fresh, true);
+  assert.equal(store.use("usr_pat", "fs-read").verdict, "wait");
+  // Taking it back closes it and the next use asks again.
+  store.decide(id, "usr_pat", { decision: "revoke", by: "usr_ana" });
+  assert.equal(store.use("usr_pat", "github-write").verdict, "wait");
+  fails(() => store.decide(store.create({ name: "Jira", hosts: [] }, "usr_ana").id, "usr_pat", { decision: "once", by: "usr_ana" }), 404);
+  assert.deepEqual(store.history(id).filter(h => h.userId === "usr_pat").map(h => h.action).reverse(), ["requested", "once", "used", "requested", "granted", "revoked", "requested"]);
+  assert.deepEqual(capabilitySettings(undefined), { mode: "off", waitSeconds: 120 });
+  assert.deepEqual(capabilitySettings({ mode: "ask", waitSeconds: 5000 }), { mode: "ask", waitSeconds: 900 });
+  assert.deepEqual(capabilitySettings({ mode: "ask", waitSeconds: 0 }), { mode: "ask", waitSeconds: 0 });
   done();
 });

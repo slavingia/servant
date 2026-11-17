@@ -463,6 +463,71 @@ class EgressNamingTest(unittest.TestCase):
         self.assertEqual(self.run_in("servant_egress_plain", "echo $HTTPS_PROXY"), "http://127.0.0.1:8790")
 
 
+class EntitlementCheckTest(unittest.TestCase):
+    """Hermes stops a tool call when Servant doesn't allow it (hermes_guard.py), and the bridge says it can."""
+
+    def setUp(self):
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        import hermes_guard
+        self.guard = hermes_guard
+        self.asked = asked = []
+        self.verdict = verdict = {"value": {"verdict": "wait", "message": "Jo Park has been asked to allow GitHub write for Pat Tester."}}
+
+        class Door(BaseHTTPRequestHandler):
+            def do_POST(self):
+                asked.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+                data = json.dumps(verdict["value"]).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *args):
+                pass
+
+        self.server = HTTPServer(("127.0.0.1", 0), Door)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.guard._turns.clear()
+
+    def test_a_marked_turn_is_asked_about_and_stopped_until_servant_allows_it(self):
+        from hermes_cli.plugins import get_pre_tool_call_block_message
+        self.assertTrue(self.guard.bind(["servant_check_session", "servant:usr_pat:cht_1"], "token-for-pat", self.server.server_address[1]))
+        self.assertTrue(self.guard.bind(["servant_check_session"], "token-for-pat", self.server.server_address[1]), "registering twice adds no second hook")
+        from hermes_cli import plugins
+        self.assertEqual(plugins.get_plugin_manager()._hooks["pre_tool_call"].count(self.guard._hook), 1)
+        blocked = get_pre_tool_call_block_message("terminal", {"command": "git push origin main"}, session_id="servant_check_session")
+        self.assertEqual(blocked, "Jo Park has been asked to allow GitHub write for Pat Tester.")
+        self.assertEqual(self.asked, [{"token": "token-for-pat", "needs": ["github-write"], "detail": "Run: git push origin main"}])
+        self.assertIsNone(get_pre_tool_call_block_message("todo", {"todos": []}, session_id="servant_check_session"), "tools that touch neither files nor GitHub are not asked about")
+        self.assertIsNone(get_pre_tool_call_block_message("terminal", {"command": "git push"}, session_id="not_servants"), "another session is left alone")
+        self.verdict["value"] = {"verdict": "allow"}
+        self.assertIsNone(get_pre_tool_call_block_message("write_file", {"path": "notes.md", "content": "x"}, task_id="servant_check_session"))
+        self.assertEqual(self.asked[-1], {"token": "token-for-pat", "needs": ["fs-write"], "detail": "Write notes.md"})
+        self.server.shutdown()
+        self.server.server_close()
+        refused = get_pre_tool_call_block_message("read_file", {"path": "README.md"}, session_id="servant_check_session")
+        self.assertIn("wasn't done", refused, "with Servant unreachable the call is stopped, not let through")
+
+    def test_the_full_bridge_says_it_can_check_and_a_turn_that_must_be_checked_is_bound(self):
+        class Request:
+            def __init__(self, headers):
+                self.headers = headers
+        full = ServantAPIServerAdapter(PlatformConfig(enabled=True, extra={"host": "127.0.0.1", "port": 0, "key": KEY}))
+        port = str(self.server.server_address[1])
+        full._servant_bind_egress(Request({"X-Servant-Egress-Token": "token-for-jo", "X-Servant-Door": port, "X-Hermes-Session-Key": "servant:usr_jo:cht_2"}), "servant_check_other")
+        self.assertEqual(self.guard._turns["servant_check_other"], ("token-for-jo", int(port)))
+        self.assertEqual(self.guard._turns["servant:usr_jo:cht_2"], ("token-for-jo", int(port)), "a subagent's calls are found by the session key")
+        with self.assertRaises(web.HTTPServiceUnavailable):
+            full._servant_bind_egress(Request({"X-Servant-Egress-Token": "token-for-jo", "X-Servant-Door": "not-a-port"}), "servant_check_bad")
+        member = ServantAPIServerAdapter(PlatformConfig(enabled=True, extra={"host": "127.0.0.1", "port": 0, "key": KEY}), restricted_member=True)
+        member._servant_bind_egress(Request({"X-Servant-Egress-Token": "token-for-jo", "X-Servant-Door": port}), "servant_check_member")
+        self.assertNotIn("servant_check_member", self.guard._turns, "an agent with no tools has nothing to check")
+
+
 if __name__ == "__main__":
     verify_contract()
     unittest.main(verbosity=2)
