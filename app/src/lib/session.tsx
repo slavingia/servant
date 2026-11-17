@@ -2,21 +2,18 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { router } from "expo-router";
 import { AppState, Platform } from "react-native";
 import { accountId, activateAccount, loadAccounts, removeAccount, saveAccount, subscribeAccounts, supportsMultipleServers, api, type Account, type Accounts } from "./server";
-import { leaveCall } from "./active-call";
 import { setPendingOrder } from "./channel-sort-store";
 import { clearDrafts, migrateDrafts } from "./drafts";
 import { clearScreenCaches } from "./screen-cache";
 import { resetEmailNudge } from "./email-nudge";
 import { ALL_FEATURES, FeaturesContext, landingHref, normalizeFeatures, withDeepWork } from "./features.ts";
-import { deepWorkFromServer, normalizeMissed, type MissedCall } from "./deep-work.ts";
+import { deepWorkFromServer } from "./deep-work.ts";
 import { reconcileAccountProfile, type ServerProfile } from "./session-profile.ts";
 import { ThemeProvider } from "./theme";
-import { NO_SURVEY_ACCESS, surveyPermissionsFromServer, type SurveyPermissions } from "./survey-permissions.ts";
 import { noteSessionInfo, resetSessionExpiry, selectSessionAccount } from "./session-expiry";
 
 type Session = {
   ready: boolean;
-  surveyPermissions: SurveyPermissions;
   loadError: string | null;
   retryLoad: () => void;
   accounts: Account[];
@@ -27,7 +24,7 @@ type Session = {
   switchAccount: (id: string) => Promise<void>;
   signOut: (id?: string) => Promise<void>;
   deepWork: boolean;
-  setDeepWork: (on: boolean) => Promise<MissedCall[]>;
+  setDeepWork: (on: boolean) => Promise<void>;
   learnDeepWork: (on: boolean) => void;
 };
 const Ctx = createContext<Session | null>(null);
@@ -36,7 +33,6 @@ const draftScope = (a: Account) => `${accountId(a)}:${a.user.id}`;
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
-  const [surveyAccess, setSurveyAccess] = useState<{ identity: string; permissions: SurveyPermissions } | null>(null);
   const [saved, setSaved] = useState<Accounts>({ accounts: [], activeId: null });
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
@@ -53,7 +49,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const selected = value.accounts.find(a => accountId(a) === value.activeId);
       const credentialChanged = previous?.token !== selected?.token || previous?.user.id !== selected?.user.id || savedRef.current.activeId !== value.activeId;
       if (credentialChanged) {
-        void leaveCall();
         setPendingOrder(null);
         void resetEmailNudge();
         // What screens kept in memory belongs to the account that was signed in.
@@ -103,8 +98,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         const selected = savedRef.current.accounts.find(a => accountId(a) === savedRef.current.activeId);
         if (!current || run !== revision || !selected || `${accountId(selected)}:${selected.token}` !== identity || selected.user.id !== source.user.id) return;
         noteSessionInfo(me.session, identity);
-        const permissions = surveyPermissionsFromServer(me.surveyPermissions);
-        setSurveyAccess(previous => previous?.identity === identity && previous.permissions.canView === permissions.canView && previous.permissions.canManage === permissions.canManage ? previous : { identity, permissions });
         return patchAccount(source, latest => reconcileAccountProfile(latest, me, !!deepWorkBusy.current.get(identity)));
       }).catch(() => { /* Offline: keep saved settings and retry on foreground or browser reconnection. */ });
     };
@@ -144,14 +137,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [account]);
 
   const setDeepWork = useCallback(async (on: boolean) => {
-    if (!account || !!account.deepWork === on) return [];
+    if (!account || !!account.deepWork === on) return;
     const before = !!account.deepWork;
     deepWorkBusy.current.set(identity, (deepWorkBusy.current.get(identity) ?? 0) + 1);
     try {
       await patchAccount(account, a => ({ ...a, deepWork: on }));
       const answer = await api.setDeepWork(account, on);
       await patchAccount(account, a => ({ ...a, deepWork: deepWorkFromServer(answer.deepWork) }));
-      return on ? [] : normalizeMissed(answer.missed);
     } catch (error) {
       await patchAccount(account, a => ({ ...a, deepWork: before }));
       throw error;
@@ -163,8 +155,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [account, identity, patchAccount]);
 
   const deepWork = !!account?.deepWork;
-  const surveyPermissions = surveyAccess?.identity === identity ? surveyAccess.permissions : NO_SURVEY_ACCESS;
-  const value = useMemo(() => ({ surveyPermissions, ready, loadError, retryLoad, accounts: saved.accounts, account, supportsMultipleServers, setAccount, updateAccount, switchAccount, signOut, deepWork, setDeepWork, learnDeepWork }), [surveyPermissions, ready, loadError, retryLoad, saved.accounts, account, setAccount, updateAccount, switchAccount, signOut, deepWork, setDeepWork, learnDeepWork]);
+  const value = useMemo(() => ({ ready, loadError, retryLoad, accounts: saved.accounts, account, supportsMultipleServers, setAccount, updateAccount, switchAccount, signOut, deepWork, setDeepWork, learnDeepWork }), [ready, loadError, retryLoad, saved.accounts, account, setAccount, updateAccount, switchAccount, signOut, deepWork, setDeepWork, learnDeepWork]);
   const features = useMemo(() => withDeepWork(account?.features ? normalizeFeatures(account.features) : ALL_FEATURES, deepWork), [account, deepWork]);
   return <Ctx.Provider value={value}><FeaturesContext.Provider value={features}><ThemeProvider primaryColor={account?.theme?.primaryColor}>{children}</ThemeProvider></FeaturesContext.Provider></Ctx.Provider>;
 }

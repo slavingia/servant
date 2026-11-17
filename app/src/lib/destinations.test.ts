@@ -1,5 +1,5 @@
 // One list of places (information architecture). The sidebar, You and search each kept their own, so one place had
-// two names ("Saved" and "Saved messages"), search could not find To-dos, Meetings or Text shortcuts, and both lists
+// two names ("Saved" and "Saved messages"), search could not find To-dos, Recordings or Text shortcuts, and both lists
 // were long and flat: ten rows in the sidebar, ten on You.
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -10,8 +10,8 @@ import { ALL_FEATURES, withDeepWork } from "./features.ts";
 import { omnibarShortcuts } from "./omnibar.ts";
 
 const read = (file: string) => fs.readFileSync(path.join(import.meta.dirname, "..", file), "utf8");
-const everyone = { features: ALL_FEATURES, owner: true, canViewSurveys: true };
-const member = { features: ALL_FEATURES, owner: false, canViewSurveys: false };
+const everyone = { features: ALL_FEATURES, owner: true };
+const member = { features: ALL_FEATURES, owner: false };
 const labels = (where: "sidebar" | "you", viewer = everyone) => destinationGroups(where, viewer).map(entry => [entry.title, entry.places.map(place => place.label)]);
 
 test("every place has one name, its own icon and its own address", () => {
@@ -23,28 +23,28 @@ test("every place has one name, its own icon and its own address", () => {
 test("the sidebar is three short groups: where people talk, your work, the team", () => {
   assert.deepEqual(labels("sidebar"), [
     ["Conversations", ["Home", "Agent", "Chats", "Cases"]],
-    ["Your work", ["To-dos", "Saved", "Meetings"]],
-    ["Team", ["People", "Feedback", "Wiki"]],
+    ["Your work", ["To-dos", "Saved", "Recordings"]],
+    ["Team", ["People", "Wiki"]],
   ]);
 });
 
 test("You lists the same places under the same names, plus the ones a wide window reaches from You", () => {
   assert.deepEqual(labels("you"), [
     ["Conversations", ["Cases"]],
-    ["Your work", ["To-dos", "Saved", "Meetings", "Archived"]],
-    ["Team", ["People", "Entitlements", "Invite people", "Feedback", "Wiki", "Agent feed", "Loops", "Agent usage"]],
+    ["Your work", ["To-dos", "Saved", "Recordings", "Archived"]],
+    ["Team", ["People", "Entitlements", "Invite people", "Wiki", "Agent usage"]],
   ]);
   assert.deepEqual(labels("you", member), [
     ["Conversations", ["Cases"]],
-    ["Your work", ["To-dos", "Saved", "Meetings", "Archived"]],
-    ["Team", ["People", "Entitlements", "Wiki", "Agent feed", "Loops", "Agent usage"]],
-  ], "a member sees no invites and, without the role, no surveys");
+    ["Your work", ["To-dos", "Saved", "Recordings", "Archived"]],
+    ["Team", ["People", "Entitlements", "Wiki", "Agent usage"]],
+  ], "a member sees no invites");
 });
 
 test("a place a server has turned off is not offered anywhere", () => {
-  const quiet = { ...everyone, features: { channels: false, directMessages: false, meetings: false, secureInbox: false, people: true, home: false } };
+  const quiet = { ...everyone, features: { channels: false, directMessages: false, secureInbox: false, people: true, home: false } };
   assert.deepEqual(labels("sidebar", quiet)[0], ["Conversations", ["Agent"]]);
-  assert.ok(!destinationGroups("you", quiet).flatMap(entry => entry.places).some(place => ["Meetings", "Archived", "Cases"].includes(place.label)));
+  assert.ok(!destinationGroups("you", quiet).flatMap(entry => entry.places).some(place => ["Archived", "Cases"].includes(place.label)));
   // Deep work hides People (and its invite) from the sidebar and You, not just the talk places.
   const deep = { ...everyone, features: withDeepWork(ALL_FEATURES, true) };
   assert.ok(!destinationGroups("sidebar", deep).concat(destinationGroups("you", deep)).flatMap(entry => entry.places).some(place => ["People", "Invite people"].includes(place.label)));
@@ -62,7 +62,7 @@ test("the sidebar marks the place that is open, including the screens under it",
   assert.equal(placeIsOpen(place("home"), "/", undefined, ALL_FEATURES), true);
   assert.equal(placeIsOpen(place("agent"), "/", undefined, { ...ALL_FEATURES, channels: false, home: false }), true, "without channels the agent is the landing place");
   assert.equal(placeIsOpen(place("members"), "/invite", undefined, ALL_FEATURES), true);
-  assert.equal(placeIsOpen(place("meetings"), "/meetings/m1", undefined, ALL_FEATURES), true);
+  assert.equal(placeIsOpen(place("recordings"), "/recordings/rec_1", undefined, ALL_FEATURES), true);
   assert.equal(placeIsOpen(place("inbox"), "/inbox", undefined, ALL_FEATURES), true);
   assert.equal(placeIsOpen(place("inbox"), "/inbox/inbox_abc", undefined, ALL_FEATURES), true, "a case is under Cases");
   assert.equal(placeIsOpen(place("saved"), "/saved", undefined, ALL_FEATURES), true);
@@ -76,13 +76,12 @@ test("search finds every place by its name", () => {
   }
   assert.ok(omnibarShortcuts("to-dos", false, ALL_FEATURES, false).some(item => item.path === "/todos"), "To-dos was not in search at all");
   assert.ok(omnibarShortcuts("shortcuts", false, ALL_FEATURES, false).some(item => item.path === "/wiki"));
-  assert.ok(!omnibarShortcuts("surveys", false, ALL_FEATURES, false).some(item => item.path === "/surveys"), "still only for people who may view surveys");
 });
 
 test("the sidebar and You draw the list instead of keeping their own", () => {
   const sidebar = read("components/Sidebar.tsx"), you = read("app/(tabs)/you.tsx");
   assert.match(sidebar, /destinationGroups\("sidebar"/);
   assert.match(you, /destinationGroups\("you"/);
-  assert.doesNotMatch(sidebar, /<NavItem icon="\w+" label="(Saved|To-dos|Surveys|People|Meetings|Cases|Text shortcuts|Wiki)"/, "no place is written into the sidebar by hand");
-  assert.doesNotMatch(you, /<Row label="(Saved messages|Saved|To-dos|Surveys|People|Meetings|Cases|Text shortcuts|Wiki)"/, "nor into You");
+  assert.doesNotMatch(sidebar, /<NavItem icon="\w+" label="(Saved|To-dos|Surveys|People|Recordings|Cases|Text shortcuts|Wiki)"/, "no place is written into the sidebar by hand");
+  assert.doesNotMatch(you, /<Row label="(Saved messages|Saved|To-dos|Surveys|People|Recordings|Cases|Text shortcuts|Wiki)"/, "nor into You");
 });

@@ -54,7 +54,7 @@ test("loading on a page is the serving ball, not a system spinner", () => {
   // a check box, a badge or a row's end stays small and system.
   const src = path.join(import.meta.dirname, "..");
   const read = (file: string) => fs.readFileSync(path.join(src, file), "utf8");
-  for (const file of ["app/wiki.tsx", "app/feed.tsx", "app/thread.tsx", "app/inbox.tsx", "app/pair.tsx", "components/WikiPage.tsx", "components/VideoMedia.tsx"]) {
+  for (const file of ["app/wiki.tsx", "app/thread.tsx", "app/inbox.tsx", "app/pair.tsx", "components/WikiPage.tsx", "components/VideoMedia.tsx"]) {
     assert.match(read(file), /<ServeLoader/, file);
     assert.doesNotMatch(read(file), /ActivityIndicator/, file);
   }

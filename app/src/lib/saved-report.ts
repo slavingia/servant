@@ -180,7 +180,7 @@ export function buildSavedReport(history: readonly SavedCompletionRecord[], opti
   return { markdown, completionCount, taskCount, periodLabel: range.label };
 }
 
-/** One clipboard report of saved tasks, completed to-dos, and attended meetings. */
+/** One clipboard report of saved tasks, completed to-dos, and voice memos. */
 export function buildWorkLogReport(history: readonly WorkLogEntry[], options: SavedReportOptions = {}) {
   const timeZone = options.timeZone ?? localTimeZone();
   const generatedAt = options.generatedAt ?? Date.now();
@@ -195,7 +195,7 @@ export function buildWorkLogReport(history: readonly WorkLogEntry[], options: Sa
     ...(options.personName ? [`**Person**\n\n${quote(options.personName)}`] : []),
     `**Generated**\n\n${quote(savedWorkTime(generatedAt, timeZone))}`,
     `**Period**\n\n${quote(`${periodLabel}; ${timeZone}`)}`,
-    `**Summary:** ${counts.completionCount} completion ${counts.completionCount === 1 ? "event" : "events"}; ${counts.taskCount} distinct ${counts.taskCount === 1 ? "task" : "tasks"}; ${counts.attendedMeetingCount} attended ${counts.attendedMeetingCount === 1 ? "meeting" : "meetings"}; ${counts.recordingCount} recorded ${counts.recordingCount === 1 ? "meeting" : "meetings"}; ${counts.agentCompletionCount} ${counts.agentCompletionCount === 1 ? "completion" : "completions"} by Agent.`,
+    `**Summary:** ${counts.completionCount} completion ${counts.completionCount === 1 ? "event" : "events"}; ${counts.taskCount} distinct ${counts.taskCount === 1 ? "task" : "tasks"}; ${counts.recordingCount} voice ${counts.recordingCount === 1 ? "memo" : "memos"}; ${counts.agentCompletionCount} ${counts.agentCompletionCount === 1 ? "completion" : "completions"} by Agent.`,
     "Completion timestamps record check-offs, not time worked.",
   ];
   if (!entries.length) sections.push("No work log entries in this period.");
@@ -203,19 +203,14 @@ export function buildWorkLogReport(history: readonly WorkLogEntry[], options: Sa
     sections.push(`## ${index + 1}. ${workLogLabel(entry)}`);
     if (entry.kind === "saved") {
       sections.push(...completionSections(completionData(entry.completion, timeZone)));
-    } else if (entry.kind === "meeting") {
-      sections.push(`**Meeting ID**\n\n${quote(entry.meetingId)}`);
-      if (entry.timeBasis === "recording-upload") {
-        sections.push(`**Recording added**\n\n${quote(savedWorkTime(entry.at, timeZone))}`);
-        if (entry.durationMs !== null) sections.push(`**Recording duration**\n\n${quote(`${entry.durationMs / 1000} seconds`)}`);
-      } else {
-        if (entry.startedAt !== null) sections.push(`**Meeting started**\n\n${quote(savedWorkTime(entry.startedAt, timeZone))}`);
-        if (entry.endedAt !== null) sections.push(`**Meeting ended**\n\n${quote(savedWorkTime(entry.endedAt, timeZone))}`);
-      }
+    } else if (entry.kind === "recording") {
+      sections.push(`**Recording ID**\n\n${quote(entry.recordingId)}`);
+      sections.push(`**Recording added**\n\n${quote(savedWorkTime(entry.at, timeZone))}`);
+      if (entry.durationMs !== null) sections.push(`**Recording duration**\n\n${quote(`${entry.durationMs / 1000} seconds`)}`);
       if (entry.source) {
-        sections.push("**Current meeting details**", quote(entry.source.title || (entry.meetingKind === "recording" ? "Recorded meeting" : "Meeting")));
-        if (entry.source.summary) sections.push("**Current meeting summary**", quote(entry.source.summary));
-      } else sections.push("**Current meeting details**\n\nSource unavailable.");
+        sections.push("**Current recording details**", quote(entry.source.title || "Voice memo"));
+        if (entry.source.summary) sections.push("**Current recording summary**", quote(entry.source.summary));
+      } else sections.push("**Current recording details**\n\nSource unavailable.");
     } else {
       sections.push(`**To-do ID**\n\n${quote(entry.todoId)}`,
         `**Completed**\n\n${quote(savedWorkTime(entry.at, timeZone))}`,

@@ -22,7 +22,7 @@ function setup(over = {}) {
   return { rec, started, upload, settled, dir };
 }
 
-test('a recording becomes notes and next steps, kept as a meeting', async () => {
+test('a recording becomes notes and next steps, kept as a voice memo', async () => {
   const { rec, upload, settled } = setup();
   const id = upload();
   rec.finish(ann, id);
@@ -35,7 +35,7 @@ test('a recording becomes notes and next steps, kept as a meeting', async () => 
   await rec.close();
 });
 
-test('meetings are private to the person who recorded them', async () => {
+test('voice memos are private to the person who recorded them', async () => {
   const { rec, upload } = setup();
   const id = upload();
   assert.throws(() => rec.detail(id, bo), /gone/);
@@ -49,7 +49,7 @@ test('uploads resume at the right offset and reject overruns', async () => {
   rec.chunk(ann, id, { offset: 0, data: Buffer.from('abc').toString('base64') });
   assert.throws(() => rec.chunk(ann, id, { offset: 0, data: 'AA==' }), e => e.code === 'upload_offset');
   assert.throws(() => rec.finish(ann, id), e => e.code === 'upload_offset');
-  assert.deepEqual(rec.workLog(ann), [], 'an incomplete upload cannot create a meeting event');
+  assert.deepEqual(rec.workLog(ann), [], 'an incomplete upload cannot create a recording event');
   assert.throws(() => rec.chunk(ann, id, { offset: 3, data: Buffer.from('abcd').toString('base64') }), /didn't fit/);
   await rec.close();
 });
@@ -80,7 +80,7 @@ test('sending a step to the agent starts one work chat, once', async () => {
   await rec.close();
 });
 
-test('deleting a meeting removes it and its audio', async () => {
+test('deleting a recording removes it and its audio', async () => {
   const { rec, upload } = setup();
   const id = upload();
   rec.remove(ann, id);
@@ -96,7 +96,7 @@ test('with records preservation on, deleting a recording hides it but keeps the 
   const audio = fs.readdirSync(path.join(dir, id));
   assert.ok(audio.length > 0, 'there is audio on disk');
   rec.remove(ann, id);
-  assert.equal(rec.list(ann).some(r => r.id === id), false, 'the person no longer sees it');
+  assert.throws(() => rec.detail(id, ann), /gone/, 'the person no longer sees it');
   assert.throws(() => rec.detail(id, ann), e => e.status === 404, 'and it behaves as deleted');
   assert.deepEqual(fs.readdirSync(path.join(dir, id)), audio, 'the audio is still on disk');
   const { DatabaseSync } = await import('node:sqlite');
@@ -129,9 +129,8 @@ test('automatic recording work log starts at upload finish, survives notes failu
     rec.finish(ann, id);
     assert.equal((await settled(id)).status, 'failed');
     const [event] = rec.workLog(ann);
-    assert.deepEqual(event, { kind: 'meeting', id: `meeting:recording:${id}`, at: current, timeBasis: 'recording-upload',
-      meetingId: id, meetingKind: 'recording', startedAt: null, endedAt: null, durationMs: 5000,
-      source: { title: null, summary: null, conversationId: null } });
+    assert.deepEqual(event, { kind: 'recording', id: `recording:${id}`, at: current,
+      recordingId: id, durationMs: 5000, source: { title: null, summary: null } });
     assert.deepEqual(rec.workLog(bo), [], 'only the recorder receives the event');
     current += 1000;
     rec.finish(ann, id);
@@ -156,14 +155,26 @@ test('recording work log hides preserved sources and uses current summary withou
     rec.finish(ann, id);
     await settled(id);
     const [event] = rec.workLog(ann);
-    assert.deepEqual(event.source, { title: 'Launch sync', summary: 'Planned the launch', conversationId: null });
+    assert.deepEqual(event.source, { title: 'Launch sync', summary: 'Planned the launch' });
     rec.db.prepare('UPDATE recordings SET title = ?, summary = ? WHERE id = ?').run('Updated title', 'Updated summary', id);
-    assert.deepEqual(rec.workLog(ann)[0].source, { title: 'Updated title', summary: 'Updated summary', conversationId: null });
+    assert.deepEqual(rec.workLog(ann)[0].source, { title: 'Updated title', summary: 'Updated summary' });
     rec.remove(ann, id);
     assert.deepEqual(rec.workLog(ann), [{ ...event, source: null }]);
     assert.ok(rec.db.prepare('SELECT transcript FROM recordings WHERE id = ?').get(id).transcript);
     assert.ok(fs.existsSync(path.join(dir, id)), 'records preservation still keeps the audio');
   } finally { await rec.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('the list returns only finished uploads under recordings', async () => {
+  const { rec, upload } = setup();
+  const done = upload();
+  rec.finish(ann, done);
+  upload();
+  const sent = [];
+  await rec.handle({}, {}, { user: ann, method: 'GET', parts: ['v1', 'recordings'], send: (_res, status, body) => sent.push({ status, body }), fail: assert.fail });
+  assert.deepEqual(sent[0].body.recordings.map(r => r.id), [done]);
+  assert.equal('meetings' in sent[0].body, false);
+  await rec.close();
 });
 
 test('legacy finished recordings backfill once without a recent-list cap or invented capture times', async () => {
@@ -178,7 +189,7 @@ test('legacy finished recordings backfill once without a recent-list cap or inve
     restarted = createRecordings({ dir });
     const events = restarted.workLog(ann);
     assert.equal(events.length, 205);
-    assert.ok(events.every(event => event.startedAt === null && event.endedAt === null && event.durationMs === 1000));
+    assert.ok(events.every(event => event.kind === "recording" && event.durationMs === 1000));
     assert.equal(events[0].at, 10204);
     await restarted.close();
     restarted = createRecordings({ dir });
@@ -242,7 +253,7 @@ function withTodos() {
   return { todos, posts };
 }
 
-test('finished notes make to-dos for the person who recorded, and the meeting shows them', async () => {
+test('finished notes make to-dos for the person who recorded, and the recording shows them', async () => {
   const { todos } = withTodos();
   const { rec, upload, settled } = setup({ todos: () => todos });
   const id = upload();
@@ -255,11 +266,11 @@ test('finished notes make to-dos for the person who recorded, and the meeting sh
   assert.equal(rec.detail(id, ann).todos.length, 2, 'opening it again does not make more');
   assert.throws(() => rec.detail(id, bo), /gone/, 'still private to the person who recorded it');
   rec.remove(ann, id);
-  assert.equal(todos.list(ann).length, 0, 'deleting the meeting deletes its to-dos');
+  assert.equal(todos.list(ann).length, 0, 'deleting the recording deletes its to-dos');
   await rec.close();
 });
 
-test('a meeting that finished before to-dos existed gets its open steps as to-dos the first time it is opened', async () => {
+test('a recording that finished before to-dos existed gets its open steps as to-dos the first time it is opened', async () => {
   const { todos } = withTodos();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'servant-rec-old-'));
   const build = extra => createRecordings({ dir, log: { error() {} }, users: () => ({ ann, bo }),

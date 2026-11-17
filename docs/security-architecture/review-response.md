@@ -1,8 +1,8 @@
 # Answers to the security review
 
-A security review of the architecture diagrams in this folder raised the concerns below (November 17, 2026). This page takes them one at a time: what the concern is, what control answers it, how to turn the control on, where the evidence is, and what is still open. It is evidence for a review, not an authorization to operate.
+A security review of the architecture diagrams in this folder raised the concerns below. This page takes them one at a time: what the concern is, what control answers it, how to turn the control on, where the evidence is, and what is still open. It is evidence for a review, not an authorization to operate.
 
-Read this first: **most of these controls ship turned off.** A server keeps working exactly as it did until its owner turns each one on, because each changes what teammates can do. The table says what each setting is; the reference deployment's own settings on the review date are in [the last section](#the-reference-deployment-on-november-17-2026).
+Read this first: **most of these controls ship turned off.** A server keeps working exactly as it did until its owner turns each one on, because each changes what teammates can do. The table says what each setting is; what a deployment has to turn on is in [the last section](#what-a-deployment-has-to-turn-on).
 
 ## Summary
 
@@ -23,7 +23,7 @@ Read this first: **most of these controls ship turned off.** A server keeps work
 
 ## 1. The agent acting for someone who shouldn't be able to make it
 
-This was the review's first concern, and it was accurate for the deployment reviewed: with `agentAccess` at its default of `full`, anyone who can message the agent gets the owner's tools on the server's computer, with no approval.
+This was the review's first concern, and it is accurate for any server left at its defaults: with `agentAccess` at its default of `full`, anyone who can message the agent gets the owner's tools on the server's computer, with no approval.
 
 Four controls answer it. They stack; each is worth having without the others.
 
@@ -175,21 +175,9 @@ Evidence: [encryption.md](../encryption.md), [relay-transport.md](../relay-trans
 
 Still open: the reference deployment uses a quick tunnel with a discovery file rather than the stable relay.
 
-## The reference deployment on November 17, 2026
+## What a deployment has to turn on
 
-Stated plainly, because the review asked for controls to be demonstrated and not only built:
-
-| Setting | Value on that date | Meaning |
-| --- | --- | --- |
-| `agentAccess` | not set (`full`) | Everyone with an agent tier has the full agent |
-| `agentCapabilities` | not set (off) | No approval before file or GitHub actions |
-| `agentEgress` | not set (off) | The agent can reach any host; it is not sandboxed |
-| Closed paths | not set | The agent can read the server's files |
-| `sessionMaxHours` | 0 | Sign-ins do not expire |
-| `recordsPreservation` | not set (off) | Deletes are not archived |
-| Email sign-in | on | A work-address code is required to join |
-
-So on that date the review's first concern was true of the running system. Every control in sections 1 and 3 was built and tested but not switched on. Turning them on is a decision about when teammates' agents change, not a matter of more code.
+A server keeps the defaults in the summary table until its owner changes them, so a deployment being reviewed should be asked for its own values of: `agentAccess`, `agentCapabilities`, `agentEgress` (and whether the agent is started through the sandbox wrapper, with which paths closed), `sessionMaxHours`, `recordsPreservation`, and whether email sign-in is on. With all of them at their defaults the review's first concern is true of that system: every control in sections 1 and 3 is built and tested, and none is switched on. Turning them on is a decision about when teammates' agents change, not a matter of more code.
 
 ## What is not built
 

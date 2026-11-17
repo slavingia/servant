@@ -1,4 +1,4 @@
-// Record a meeting: the audio goes up in chunks, then the server writes the notes and the next steps.
+// Record a voice memo: the audio goes up in chunks, then the server writes the notes and the next steps.
 // Platform-free except `uploadRecording`'s reader, so it can be tested.
 import { DOCUMENT_CHUNK_BYTES } from "./media.ts";
 import { toBase64 } from "./tunnel-crypto.ts";
@@ -56,5 +56,5 @@ export async function uploadRecording({ size, durationMs, ext, title, read, post
     }
     onProgress?.(Math.min(1, offset / size));
   }
-  return (await call(`/v1/recordings/${encodeURIComponent(id)}/finish`, title ? { title } : {})).meeting as Recording;
+  return (await call(`/v1/recordings/${encodeURIComponent(id)}/finish`, title ? { title } : {})).recording as Recording;
 }

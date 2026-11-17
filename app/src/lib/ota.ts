@@ -4,7 +4,6 @@
 // from opening. Builds made without an address have updates turned off.
 import { useEffect, useState } from "react";
 import { AppState, Platform } from "react-native";
-import { getActiveCall } from "./active-call";
 import { shouldApplyNow } from "./ota-apply";
 import * as Updates from "expo-updates";
 
@@ -55,7 +54,7 @@ export function useOtaCheck() {
 /**
  * Gets the newest update and starts it without waiting for a second launch: right away if it
  * arrives in the first few seconds, otherwise the next time the app comes back to the
- * foreground. Never during a call. Also checks again whenever the app comes back after an hour.
+ * foreground. Also checks again whenever the app comes back after an hour.
  */
 export function useApplyUpdates() {
   useEffect(() => {
@@ -63,7 +62,7 @@ export function useApplyUpdates() {
     const launched = Date.now();
     let ready = false; let busy = false; let lastCheck = 0;
     const tryApply = (returningToApp: boolean) => {
-      if (ready && shouldApplyNow({ msSinceLaunch: Date.now() - launched, onCall: !!getActiveCall(), returningToApp })) {
+      if (ready && shouldApplyNow({ msSinceLaunch: Date.now() - launched, returningToApp })) {
         void Updates.reloadAsync().catch(() => {});
       }
     };

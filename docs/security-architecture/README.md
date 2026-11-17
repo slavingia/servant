@@ -2,7 +2,7 @@
 
 Seven diagrams of how Servant works, written for an ATO or cyber reviewer. Each one has a Mermaid source (`.mmd`) you can edit, plus rendered `.png` and `.svg` files. The diagrams summarize the detailed docs linked at the end. Where they disagree, the linked docs and the code win.
 
-**A security review of these diagrams (November 17, 2026) is answered point by point in [review-response.md](review-response.md):** each concern, the control that answers it, how to turn it on, the evidence, and what is still open.
+**A security review of these diagrams is answered point by point in [review-response.md](review-response.md):** each concern, the control that answers it, how to turn it on, the evidence, and what is still open.
 
 Known gaps, stated up front:
 

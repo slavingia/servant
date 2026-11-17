@@ -14,7 +14,7 @@ test("a recording uploads in order and finishes with its title", async () => {
       calls.push({ path, body });
       if (path === "/v1/recordings") return { id: "rec_1", received: 0, chunkBytes: 4 };
       if (path.endsWith("/chunk")) return { received: body.offset + Buffer.from(body.data, "base64").length };
-      return { meeting: { id: "rec_1", status: "processing", title: "Launch sync" } };
+      return { recording: { id: "rec_1", status: "processing", title: "Launch sync" } };
     },
   });
   assert.deepEqual(calls.map(c => c.path), ["/v1/recordings", "/v1/recordings/rec_1/chunk", "/v1/recordings/rec_1/chunk", "/v1/recordings/rec_1/chunk", "/v1/recordings/rec_1/finish"]);
@@ -34,7 +34,7 @@ test("a dropped connection resumes where the server is, and an empty recording i
       if (path === "/v1/recordings") return { id: "r", received: 0, chunkBytes: 4 };
       if (path.endsWith("/chunk") && body.offset === 4 && !failed) { failed = true; throw { status: 409, code: "upload_offset", message: "Resume at 4" }; }
       if (path.endsWith("/chunk")) return { received: body.offset + 4 };
-      return { meeting: { id: "r", status: "processing" } };
+      return { recording: { id: "r", status: "processing" } };
     },
   });
   assert.equal(failed, true);
@@ -52,7 +52,7 @@ test("a failed upload keeps its id, and the next try carries on from the server'
       if (body.offset !== 4 && !down && body.offset === 0) throw { status: 409, code: "upload_offset", message: "Resume at 4" };
       return { received: body.offset + Math.min(4, 10 - body.offset) };
     }
-    return { meeting: { id: "rec_9", status: "processing" } };
+    return { recording: { id: "rec_9", status: "processing" } };
   };
   const args = { size: 10, durationMs: 5000, ext: "webm", read: async (o: number, l: number) => bytes(10).slice(o, o + l) };
   const error = await uploadRecording({ ...args, post }).catch(e => e);

@@ -18,7 +18,7 @@ How it travels: the browser subscribes with its own push service (Google for Chr
 - **Nothing to configure.** No Apple or Google credentials are involved; `push.json` is not needed for browsers. The server must be able to reach those hosts.
 - **Lifecycle.** Alerts wait up to an hour at the push service for a browser that is closed, and a newer alert for the same conversation replaces one still waiting. A subscription the push service reports gone (404 or 410) is removed. Signing out removes the registration, and the browser stops listening for that server. With several servers signed in, each has its own subscription (a service worker registration under `/push/<server>/`), because a subscription belongs to one server's key.
 - **Quiet while reading.** The page reports the conversation on screen while its window is in front, as the phone app does, so that conversation does not alert, and alerts already showing for it are taken down.
-- **Not included.** Calls show as an ordinary alert and do not ring. There is no unread badge on the browser's icon. The web app is not installable, so there is no push on an iPhone's Home Screen.
+- **Not included.** There is no unread badge on the browser's icon. The web app is not installable, so there is no push on an iPhone's Home Screen.
 
 ## Server configuration
 
@@ -35,7 +35,7 @@ Store a private JSON file at `~/.config/servant/push.json`, or set `SERVANT_PUSH
 }
 ```
 
-Use directory mode 0700 and file mode 0600. Never commit credentials. The FCM service account needs `cloudmessaging.messages.create` on the Firebase project. `apnsTopic` is the iOS app's bundle id, which APNs uses as the topic (calls use `<apnsTopic>.voip`). Without it the server uses the `SERVANT_BUNDLE_ID` environment variable, then `com.example.servant`; set it to the bundle id you build the app with. The APNs key is restricted to production notifications for that bundle id; release provisioning must include the production `aps-environment` entitlement. The release script uses the `Servant Push App Store` provisioning profile.
+Use directory mode 0700 and file mode 0600. Never commit credentials. The FCM service account needs `cloudmessaging.messages.create` on the Firebase project. `apnsTopic` is the iOS app's bundle id, which APNs uses as the topic. Without it the server uses the `SERVANT_BUNDLE_ID` environment variable, then `com.example.servant`; set it to the bundle id you build the app with. The APNs key is restricted to production notifications for that bundle id; release provisioning must include the production `aps-environment` entitlement. The release script uses the `Servant Push App Store` provisioning profile.
 
 Device tokens live in private server state. Jobs are persisted in `server/data/push.db` for up to one hour and re-check membership, preferences, archive status, device revocation, and message visibility before sending. Transient delivery failures retry with backoff; invalid tokens are removed without deleting a newly rotated token. Signing out removes the device registration. Ordinary channel jobs store message references. Legacy private-agent jobs may still contain reply text in this private on-Mac database; queue storage is not encrypted at rest. Agent replies are also stored as plain text in the job queue (previously only some legacy jobs were).
 
@@ -47,6 +47,7 @@ Alerts show who sent the message and what they said (owner's decision, 11/2):
 - Build notes: **Build N is out** / the notes
 - Code request: **Code needed** / *<device> is waiting for your <label> code* (never the code; see [code-requests.md](code-requests.md))
 - Case (a visitor wrote to the secure inbox): **Ana Ruiz · CASE-000001** / the message
+- A comment on a prototype you shared ([prototype-reviews.md](prototype-reviews.md)), only to you: **Comment on Refund tracker** / jo.park@example.gov: This should say Pay in full. Its only routing value is `page: "todos"`, so a tap opens To-dos
 - Entitlements ([entitlements.md](entitlements.md)), only to the people named: a request to the person's manager (**Entitlement request** / Pat Tester asked for Tax data API), or, for a built-in entitlement the agent asked for by trying, **Entitlement request** / Pat Tester's agent needs GitHub write (what the agent was about to do is shown in the app only, never in the alert), the decision to the person (**Entitlements** / You now have Tax data API), a new report to their manager (**Entitlements** / You now decide Pat Tester's entitlement requests), and a refused host to the person or the owners (**Agent · access needed** / The agent couldn't reach api.example.gov. Ask for Tax data API in Entitlements). These carry a person's name, an entitlement's name and a host name, never the request's note. Their only routing value is `page: "entitlements"`, so a tap opens the Entitlements screen
 
 Text is flattened to one line (markdown markers removed), titles are capped at 80 characters and bodies at 240. A message with no text but an attachment says "Sent an attachment" (agent: "Sent an image" / "Sent a video").

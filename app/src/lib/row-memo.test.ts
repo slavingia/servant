@@ -86,7 +86,7 @@ test("a conversation and a thread tell the navigator their header only when it c
   }
   // The header's buttons call handlers that stay the same and still do what the screen does now.
   const conversation = read("app/c/[id].tsx");
-  for (const handler of ["onCall", "onFiles", "onDetails"]) assert.match(conversation, new RegExp(`const ${handler} = useStableCallback\\(`), handler);
+  for (const handler of ["onFiles", "onDetails"]) assert.match(conversation, new RegExp(`const ${handler} = useStableCallback\\(`), handler);
 });
 
 test("a fresh copy of a conversation or thread keeps the messages that did not change", () => {

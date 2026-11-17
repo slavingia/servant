@@ -27,7 +27,6 @@ export function Omnibar({ variant = "bar" }: { variant?: "bar" | "sidebar" }) {
 }
 
 function SearchBar({ account, variant }: { account: Account; variant: "bar" | "sidebar" }) {
-  const { surveyPermissions } = useSession();
   const features = useFeatures();
   const styles = useStyles();
   const { colors, scheme } = useTheme();
@@ -135,7 +134,7 @@ function SearchBar({ account, variant }: { account: Account; variant: "bar" | "s
       glyph: c.kind === "channel" ? "#" : "@", archived: c.archived,
       href: { pathname: "/c/[id]", params: { id: c.id } },
     });
-    const actions: Result[] = filtered ? [] : omnibarShortcuts(searchQuery, account.user.role === "owner", features, surveyPermissions.canView).map(action => ({
+    const actions: Result[] = filtered ? [] : omnibarShortcuts(searchQuery, account.user.role === "owner", features).map(action => ({
       id: `action:${action.id}`, title: action.title, detail: action.detail, glyph: "↗", href: action.path as Href,
     }));
     if (!searchQuery) return [
@@ -160,7 +159,7 @@ function SearchBar({ account, variant }: { account: Account; variant: "bar" | "s
       })) },
       { title: "Quick actions", items: actions },
     ];
-  }, [account.user.role, chats, conversations, currentResponse?.data, features, searchQuery, surveyPermissions.canView]);
+  }, [account.user.role, chats, conversations, currentResponse?.data, features, searchQuery]);
   const results = groups.flatMap(group => group.items);
   const selected = Math.min(active, Math.max(0, results.length - 1));
   let index = 0;

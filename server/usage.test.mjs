@@ -60,30 +60,20 @@ test("a conversation's running total is kept per chat", () => {
   store.close();
 });
 
-test("tokens are labelled by survey theme, and the report sets them against survey comments", async () => {
-  const { classifyTopic, topicReport, OTHER_THEME } = await import("./usage-topics.mjs");
-  assert.equal(OTHER_THEME, "OTHER");
-  assert.deepEqual(classifyTopic("Payments: user is not able to save the changes to the scheduled payment"), { theme: "ACCOUNT_CHANGES", kind: "technical_bug" });
-  assert.deepEqual(classifyTopic("Customers want a reminder notification before a payment is due"), { theme: "NOTIFICATIONS", kind: "feature_request" });
-  assert.equal(classifyTopic("Sign-in: the password screen is broken").theme, "SIGN_IN_OR_ACCESS");
-  assert.equal(classifyTopic("Billing: the refund page is slow").theme, "PAYMENTS_OR_BILLING");
-  assert.equal(classifyTopic("The example app home screen").theme, "GENERAL_INFORMATION", "product work with no theme falls back");
-  assert.equal(classifyTopic("Round search box more pill shape").theme, "OTHER");
+test("usage stores counts only, never request text or topic labels", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "servant-usage-"));
-  const store = createUsageStore(path.join(dir, "usage.db"));
-  store.record({ eventId: "a", userId: "u", usage: { total_tokens: 900 }, text: "Fix the payment plan cancel flow" });
-  store.record({ eventId: "b", userId: "u", usage: { total_tokens: 100 }, text: "Add a pill search box" });
-  store.record({ eventId: "c", userId: "u", usage: { total_tokens: 50 } });
-  const r = store.topics();
-  assert.equal(r.productTokens, 900); assert.equal(r.otherTokens, 100); assert.equal(r.unlabelledTurns, 1);
-  assert.equal(r.themes[0].id, "ACCOUNT_CHANGES"); assert.equal(r.themes[0].bugTokens, 900);
-  assert.equal(store.backfillTopics({ c: "x", b: "again" }), 1);
-  assert.equal(store.topics().unlabelledTurns, 0);
-  store.close(); fs.rmSync(dir, { recursive: true, force: true });
-  // Rows labelled with a theme the dataset no longer has (an older dataset's "other" label included) count as other.
-  const old = topicReport([{ theme: "ACCOUNT_CHANGES", total: 70, turns: 1, bug: 0, feature: 0 }, { theme: "NOT_IN_DATASET", total: 20, turns: 2 }, { theme: "OTHER", total: 10, turns: 1 }]);
-  assert.deepEqual([old.productTokens, old.otherTokens, old.otherTurns], [70, 30, 3]);
-  assert.equal(old.source.dataset, "Example app support feedback");
+  const file = path.join(dir, "usage.db");
+  const store = createUsageStore(file);
+  store.record({ eventId: "a", userId: "u", usage: { total_tokens: 900 }, text: "Private request text" });
+  assert.equal(store.leaderboard().totals.total, 900);
+  store.close();
+  const db = new DatabaseSync(file);
+  try {
+    const columns = db.prepare("PRAGMA table_info(token_usage)").all().map(c => c.name);
+    assert.deepEqual(columns.filter(c => ["text", "theme", "kind"].includes(c)), []);
+    assert.equal(JSON.stringify(db.prepare("SELECT * FROM token_usage").all()).includes("Private request text"), false);
+  } finally { db.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 import { agentTierOf, TIER_TOKEN_LIMITS } from './usage.mjs';

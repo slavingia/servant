@@ -10,7 +10,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.example.servant",
       "infoPlist": {
-        "NSCameraUsageDescription": "Servant uses the camera for invite codes and meeting video."
+        "NSCameraUsageDescription": "Servant uses the camera to read invite codes."
       },
       "googleServicesFile": "./GoogleService-Info.plist",
       "buildNumber": "28"
@@ -126,9 +126,6 @@
         {
           "ios": {
             "useFrameworks": "dynamic"
-          },
-          "android": {
-            "extraProguardRules": "-keep class org.webrtc.** { *; }\n-dontwarn org.webrtc.**"
           }
         }
       ],
@@ -197,15 +194,6 @@
         }
       ],
       "expo-web-browser",
-      [
-        "@config-plugins/react-native-webrtc",
-        {
-          "cameraPermission": "Servant uses the camera for invite codes and meeting video.",
-          "microphonePermission": "Servant uses the microphone for dictation and meetings."
-        }
-      ],
-      "./plugins/with-simulator-call-audio",
-      "./plugins/with-call-screen",
       "expo-updates"
     ],
     "scheme": "servant",

@@ -134,7 +134,7 @@ Check both the direct tunnel origin and public domain. Verify:
 - Plaintext `/v1/me` is rejected; an encrypted pairing and authenticated `/v1/me`
   succeed using a disposable personal test device. Revoke that device afterward.
 - Encrypted message/event streaming, reconnection, an attachment upload, and
-  native calls work through the public domain. Test agent execution separately
+  native apps work through the public domain. Test agent execution separately
   once a personal agent is configured.
 
 Vercel’s [external rewrites](https://vercel.com/docs/routing/rewrites) forward HTTP
@@ -144,7 +144,7 @@ describes the wait for the backend to start sending data. This configuration doe
 not extend that platform limit or establish unlimited streaming: verify the
 app’s long-running encrypted streams and reconnect behavior on the deployed path.
 A successful health check alone does not verify long-running agent responses,
-large uploads, or calls. WebRTC media has its own connectivity requirements;
+large uploads.
 HTTP rewrites do not provide a TURN relay.
 
 See [server deployment](../../docs/deployment.md) for immutable API updates,
@@ -169,12 +169,12 @@ personal push configuration when updating launch agents.
 Server tests: 461 passed and 4 skipped; the single Git-history-dependent test
 passed separately with repository history available (462 passed total).
 Typecheck passed; lint passed with four existing warnings. The APNs transport
-test also validates the personal app's alert and VoIP topics with signed fixtures.
+test also validates the personal app's alert topic with signed fixtures.
 
 Live verification passed through the public domain: encrypted pairing, profile,
 private message and attachment roundtrip, anonymous attachment denial, event
 stream startup/cancellation, and signout revocation. Test content was deleted and
-the temporary member removed. Native call quality, delivery to a physical device,
+the temporary member removed. Delivery to a physical device,
 and streams beyond the proxy timeout were not part of this deployment smoke test.
 
 The public legal-page update on November 11, 2026 is Vercel production deployment

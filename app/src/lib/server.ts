@@ -74,15 +74,8 @@ export type Message = { id: string; role: "user" | "assistant"; text: string; re
 // ----- token leaderboard -----
 export type LeaderboardPeriod = "day" | "week" | "month" | "all";
 export type LeaderboardRow = { rank: number; user: { id: string; name: string }; input: number; output: number; total: number; turns: number; chat: number; channel: number };
-export type TopicRow = { id: string; name: string; tokens: number; turns: number; bugTokens: number; featureTokens: number; comments: number; bugSignals: number; featureSignals: number; share: number; feedbackShare: number; index: number };
-export type TopicReport = { source: { name: string; dataset: string; period: string[]; comments: number }; productTokens: number; otherTokens: number; otherTurns: number; unlabelledTurns: number; themes: TopicRow[] };
-export type Leaderboard = { period: LeaderboardPeriod; since: number; topics?: TopicReport; totals: { input: number; output: number; total: number; turns: number }; people: LeaderboardRow[] };
+export type Leaderboard = { period: LeaderboardPeriod; since: number; totals: { input: number; output: number; total: number; turns: number }; people: LeaderboardRow[] };
 
-// ----- loops: the agent's recurring automations -----
-export type LoopGroup = "hourly" | "daily" | "weekly" | "monthly" | "other";
-export type FeedKind = "sent" | "shipped" | "ran" | "note";
-export type FeedItem = { id: string; kind: FeedKind; text: string; time: string | null; url: string | null; at: number };
-export type Loop = { id: string; name: string; cadence: string; group: LoopGroup; on: boolean; lastRunAt: number | null; lastOk: boolean | null; nextRunAt: number | null };
 
 // ----- channels, direct messages, threads -----
 // deepWork: they switched Deep work on (deep-work.ts); absent while off.
@@ -92,6 +85,8 @@ export type Person = { /** Who decides this person's entitlement requests; owner
 export type EntitlementStanding = { entitlementId: string; userId: string; status: "requested" | "granted" | "once" | "used" | "denied" | "revoked"; note: string; requestedAt: number; /** "use": the agent asked by trying; `detail` is what it was about to do. */ via?: "use"; detail?: string; decidedBy?: string; decidedAt?: number; reason?: string; name?: string; decidedByName?: string };
 export type Entitlement = { /** Built in: on every server, asked for by use. */ native?: boolean; capability?: string; id: string; name: string; description: string; hosts: string[]; confirmation: string; mine: EntitlementStanding | null; people: EntitlementStanding[] };
 export type AgentAction = { seq: number; userId: string; name: string; chatId?: string; needs: string[]; verdict: "allowed" | "allowed-once" | "allowed-owner" | "denied" | "waiting"; detail: string; at: number };
+export type PrototypeComment = { id: string; page: string; anchor: string; text: string; createdAt: number; todoId?: string };
+export type PrototypeShare = { id: string; email: string; createdAt: number; verifiedAt?: number; lastSeenAt?: number; endedAt?: number; comments: PrototypeComment[] };
 export type EntitlementDraft = { name: string; description: string; hosts: string[]; confirmation: string };
 export type EntitlementsPage = { /** Whether built-in entitlements are checked before the agent acts. */ capabilities?: { mode: "ask" | "off" }; entitlements: Entitlement[]; canCreate: boolean; waiting: number; manager: { id: string; name: string } | null; reports: { id: string; name: string }[];
   egress: { mode: "ask" | "off"; always?: string[]; refused?: { userId: string; name: string; host: string; attempts: number; lastAt: number }[] } };
@@ -129,8 +124,6 @@ export type Post = {
   lastReplyAt: number | null;
   createdAt: number;
   editedAt: number | null;
-  /** Set on agent posts that belong to a meeting: the live call card or the notes. */
-  meeting?: { id: string; kind: "call" | "notes"; status: MeetingStatus; steps: MeetingStep[] };
 };
 /** A private checklist reference. Unavailable sources have no message or conversation details. */
 export type SavedMessage = {
@@ -142,74 +135,31 @@ export type SavedMessage = {
 };
 /** Authored work notes and completion times survive reopening or removing a saved task. */
 export type SavedCompletion = SavedMessage & { id: string; completedAt: number; note: string; reopenedAt: number | null };
-/** Private activity history with current, access-checked sources. Meeting times describe the meeting, not attendance duration. */
+/** Private activity history with current, access-checked sources. Recording times are when the upload finished. */
 export type WorkLogEntry =
   | { kind: "saved"; id: string; at: number; completion: SavedCompletion }
-  | { kind: "meeting"; id: string; at: number; meetingId: string; meetingKind: "call" | "recording";
-      timeBasis: "meeting" | "recording-upload"; startedAt: number | null; endedAt: number | null; durationMs: number | null;
-      source: { title: string | null; summary: string | null; conversationId: string | null } | null }
+  | { kind: "recording"; id: string; at: number; recordingId: string; durationMs: number | null;
+      source: { title: string | null; summary: string | null } | null }
   | { kind: "todo"; id: string; at: number; todoId: string; createdAt: number; reopenedAt: number | null; originKind: "recording" | "call" | null;
       // From the board, as they were when it was finished: when work began, and the day it was due (YYYY-MM-DD).
       startedAt?: number | null; due?: string | null;
       completedBy: { kind: "agent" | "person" | "unknown"; id?: string; name?: string };
       source: { text: string; projectId: string | null; projectName: string | null; releaseId: string | null; releaseName: string | null; channelId: string | null; channelName: string | null } | null };
-export type MeetingStatus = "live" | "recorded" | "processing" | "done" | "failed";
-export type MeetingStep = { n: number; text: string; owner: string | null; conversationId: string; status: "open" | "accepted" | "skipped"; actedBy: { id: string; name: string } | null; threadId: string | null };
-export type IceServer = { urls: string | string[]; username?: string; credential?: string };
-export type Meeting = {
-  id: string;
-  conversationId: string;
-  status: MeetingStatus;
-  startedBy: { id: string; name: string };
-  startedAt: number;
-  endedAt: number | null;
-  title: string | null;
-  error: string | null;
-  host?: boolean;
-  iceServers: IceServer[];
-  participants: { id: string; user: { id: string; name: string }; publishing: boolean; you: boolean; joinedAt: number; hasVideo: boolean; hasAudio: boolean; muted?: boolean; muteSeq?: number; screen?: boolean }[];
-  steps: MeetingStep[];
-  /** Research during the call: "hey servant" questions and their answers. */
-  research?: { available: boolean; on: boolean; cards: ResearchCard[] };
-  transcript: string | null;
-  /** Written after the call (servers from Nov 2026 on): the summary, the notes and who was there. */
-  summary?: string | null;
-  notes?: string[];
-  people?: { id: string; name: string }[];
-  durationMs?: number | null;
-  /** Guests from a link (servers with config.guestMeetings on). Only members see these; the host also sees who is waiting. */
-  guestsEnabled?: boolean;
-  guests?: MeetingGuests;
-};
-export type MeetingGuests = {
-  on: boolean; count: number; pendingCount: number;
-  pending: { id: string; name: string; knockedAt: number }[];
-  present: { id: string; name: string; connected: boolean }[];
-};
-export type GuestLinkAction = "create" | "on" | "off" | "rotate";
-export type GuestAction = "admit" | "deny" | "remove" | "mute";
-// ----- the Meetings screen: hosted calls and recordings made in the room, in one list -----
-export type MeetingKind = "call" | "recording";
-export type MeetingItem = {
-  kind: MeetingKind; id: string; title: string | null; conversationId: string | null;
-  startedAt: number; endedAt: number | null; durationMs: number | null;
-  status: MeetingStatus | "uploading"; summary: string | null; error: string | null;
-  people: { id: string; name: string }[]; peopleCount: number; openSteps: number;
-};
-// A recording made in the room (server/recordings.mjs): private to the person who made it.
+// A voice memo (server/recordings.mjs): private to the person who made it.
 export type RecordingStep = { n: number; text: string; owner: string | null; status: "open" | "accepted" | "skipped"; chatId: string | null };
+export type RecordingSummary = {
+  id: string; title: string | null; status: "uploading" | "processing" | "done" | "failed"; createdAt: number; durationMs: number;
+  summary: string | null; error: string | null; openSteps: number;
+};
 export type Recording = {
   id: string; title: string | null; status: "uploading" | "processing" | "done" | "failed"; createdAt: number; durationMs: number;
   summary: string | null; error: string | null; openSteps: number; notes: string[]; transcript: string; steps: RecordingStep[]; todos?: TodoItem[];
 };
-export type ResearchCard = { n: number; askedBy: string; question: string; answer: string | null; status: "working" | "done" | "failed"; at: number };
 export type LinkPreview = { url: string; title: string; description: string; site: string };
 export type Conversation = {
   id: string;
   kind: "channel" | "dm";
   name: string | null;
-  /** You started this call, so you can mute others. */
-  host?: boolean;
   title: string;
   topic: string;
   private: boolean;
@@ -524,14 +474,16 @@ export const api = {
   chats: (a: Account, m?: (a: Account) => void) => request(a, "/v1/chats", {}, m).then((r) => r.json()).then((d) => d.chats as Chat[]),
   // Your chats plus other people's shared ones (all of them, for the owner).
   orgChats: (a: Account, m?: (a: Account) => void) => request(a, "/v1/chats?scope=org", {}, m).then((r) => r.json()).then((d) => ({ mine: d.chats as Chat[], others: (d.orgChats ?? []) as Chat[] })),
-  feed: (a: Account) => request(a, "/v1/feed").then((r) => r.json()) as Promise<{ items: FeedItem[]; conversationId?: string }>,
-  loops: (a: Account) => request(a, "/v1/loops").then((r) => r.json()) as Promise<{ loops: Loop[]; available: boolean }>,
   leaderboard: (a: Account, period: LeaderboardPeriod) => request(a, `/v1/leaderboard?period=${period}`).then((r) => r.json()) as Promise<Leaderboard>,
   // The author has seen every finished reply in this agent conversation.
   // Mark every conversation read: yours and everyone else's you can see.
   readAllChats: (a: Account) => request(a, "/v1/chats/read-all", { method: "POST", body: "{}" }).then(() => undefined),
   readChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/read`, { method: "POST", body: "{}" }).then(() => undefined),
   chat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}`).then((r) => r.json()).then((d) => d.chat as Chat),
+  // Share a prototype with a business owner by work email; they confirm a code, see it and comment (docs/prototype-reviews.md).
+  prototypeShares: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/shares`).then(json<{ shares: PrototypeShare[] }>),
+  sharePrototype: (a: Account, id: string, email: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/shares`, { method: "POST", body: JSON.stringify({ email }) }).then(json<{ shares: PrototypeShare[] }>),
+  endPrototypeShare: (a: Account, id: string, shareId: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/shares/${encodeURIComponent(shareId)}`, { method: "DELETE" }).then(json<{ shares: PrototypeShare[] }>),
   // Edit mode in the prototype preview: save the changed page over the prototype's file.
   savePrototype: (a: Account, id: string, path: string, changes: PrototypeChanges) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype`, { method: "POST", body: JSON.stringify({ path, ...changes }) }).then(json<{ ok: true; path: string; missed: string[] }>),
   setChatShared: (a: Account, id: string, shared: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ shared }) }).then((r) => r.json()).then((d) => d.chat as Chat),
@@ -609,7 +561,7 @@ export const api = {
   setPhoto: (a: Account, data: string) => request(a, "/v1/people/me/photo", { method: "PUT", body: JSON.stringify({ data }) }).then(json<{ person: Person }>),
   rename: (a: Account, name: string) => request(a, "/v1/people/me", { method: "PATCH", body: JSON.stringify({ name }) }).then(json<{ user: Account["user"] }>),
   // Your deep work switch (deep-work.ts). Switching off answers with the calls that didn't ring while it was on.
-  setDeepWork: (a: Account, deepWork: boolean) => request(a, "/v1/people/me", { method: "PATCH", body: JSON.stringify({ deepWork }) }).then(json<{ user: Account["user"]; deepWork: boolean; missed: unknown }>),
+  setDeepWork: (a: Account, deepWork: boolean) => request(a, "/v1/people/me", { method: "PATCH", body: JSON.stringify({ deepWork }) }).then(json<{ user: Account["user"]; deepWork: boolean }>),
   removePhoto: (a: Account) => request(a, "/v1/people/me/photo", { method: "DELETE" }).then(json<{ person: Person }>),
   conversations: (a: Account, m?: (a: Account) => void) =>
     request(a, "/v1/conversations?includeArchived=1", {}, m).then(json<{ conversations: Conversation[] }>).then((d) => d.conversations),
@@ -681,41 +633,12 @@ export const api = {
   saveMessage: (a: Account, messageId: string) => request(a, `/v1/saved-messages/${encodeURIComponent(messageId)}`, { method: "POST", body: "{}" }).then(json<{ item: SavedMessage }>),
   completeSavedMessage: (a: Account, messageId: string, completed: boolean, completion?: { note: string; requestId: string }) => request(a, `/v1/saved-messages/${encodeURIComponent(messageId)}`, { method: "PATCH", body: JSON.stringify({ completed, ...(completed ? completion : {}) }) }).then(json<{ item: SavedMessage | null }>),
   removeSavedMessage: (a: Account, messageId: string) => request(a, `/v1/saved-messages/${encodeURIComponent(messageId)}`, { method: "DELETE" }).then(json<{ ok: true }>),
-  startMeeting: (a: Account, conversationId: string) =>
-    request(a, "/v1/meetings", { method: "POST", body: JSON.stringify({ conversationId }) }).then(json<{ meeting: Meeting }>).then((d) => d.meeting),
-  meeting: (a: Account, id: string) => request(a, `/v1/meetings/${id}`).then(json<{ meeting: Meeting }>).then((d) => d.meeting),
-  /** screenOf: your participant id, to share your screen as a second connection in the same call. */
-  joinMeeting: (a: Account, id: string, sdp: string, screenOf?: string) =>
-    request(a, `/v1/meetings/${id}/join`, { method: "POST", body: JSON.stringify({ sdp, ...(screenOf ? { screenOf } : {}) }) }).then(json<{ participantId: string; sdp: string }>),
-  watchMeeting: (a: Account, id: string, participantId: string, publisherId: string, sdp: string) =>
-    request(a, `/v1/meetings/${id}/watch`, { method: "POST", body: JSON.stringify({ participantId, publisherId, sdp }) }).then(json<{ sdp: string }>),
-  leaveMeeting: (a: Account, id: string, participantId: string) =>
-    request(a, `/v1/meetings/${id}/leave`, { method: "POST", body: JSON.stringify({ participantId }) }).catch(() => undefined),
-  /** Tell everyone you muted or turned your camera off. */
-  meetingState: (a: Account, id: string, participantId: string, muted: boolean, cameraOff: boolean) =>
-    request(a, `/v1/meetings/${id}/state`, { method: "POST", body: JSON.stringify({ participantId, muted, cameraOff }) }).catch(() => undefined),
-  /** Host only: ask someone on the call to mute. */
-  muteParticipant: (a: Account, id: string, participantId: string) =>
-    request(a, `/v1/meetings/${id}/mute`, { method: "POST", body: JSON.stringify({ participantId }) }).then(json<{ meeting: Meeting }>).then((d) => d.meeting),
-  /** Host only: turn on Research for the rest of the call. */
-  startMeetingResearch: (a: Account, id: string) =>
-    request(a, `/v1/meetings/${id}/research`, { method: "POST", body: "{}" }).then(json<{ meeting: Meeting }>).then((d) => d.meeting),
-  // Guests: the link members share, and the host's door (guest-meetings.mjs).
-  guestLink: (a: Account, id: string, action: GuestLinkAction = "create") =>
-    request(a, `/v1/meetings/${id}/guest-link`, { method: "POST", body: JSON.stringify({ action }) }).then(json<{ url: string; on: boolean }>),
-  guestAction: (a: Account, id: string, guestId: string, action: GuestAction) =>
-    request(a, `/v1/meetings/${id}/guests/${encodeURIComponent(guestId)}`, { method: "POST", body: JSON.stringify({ action }) }).then(json<{ guests: MeetingGuests }>).then((d) => d.guests),
-  endMeeting: (a: Account, id: string) =>
-    request(a, `/v1/meetings/${id}/end`, { method: "POST", body: "{}" }).then(json<{ meeting: Meeting }>).then((d) => d.meeting),
-  meetingStep: (a: Account, id: string, n: number, action: "accept" | "skip") =>
-    request(a, `/v1/meetings/${id}/steps/${n}`, { method: "POST", body: JSON.stringify({ action }) }).then(json<{ meeting: Meeting }>).then((d) => d.meeting),
-  /** Everything on the Meetings screen: calls in your rooms and your own recordings, live first, newest first. */
-  meetings: (a: Account, m?: (a: Account) => void) => request(a, "/v1/meetings", {}, m).then(json<{ meetings: MeetingItem[] }>).then(d => d.meetings),
-  recording: (a: Account, id: string) => request(a, `/v1/recordings/${encodeURIComponent(id)}`).then(json<{ meeting: Recording }>).then(d => d.meeting),
-  retryRecording: (a: Account, id: string) => request(a, `/v1/recordings/${encodeURIComponent(id)}/retry`, { method: "POST", body: "{}" }).then(json<{ meeting: Recording }>).then(d => d.meeting),
+  recordings: (a: Account, m?: (a: Account) => void) => request(a, "/v1/recordings", {}, m).then(json<{ recordings: RecordingSummary[] }>).then(d => d.recordings),
+  recording: (a: Account, id: string) => request(a, `/v1/recordings/${encodeURIComponent(id)}`).then(json<{ recording: Recording }>).then(d => d.recording),
+  retryRecording: (a: Account, id: string) => request(a, `/v1/recordings/${encodeURIComponent(id)}/retry`, { method: "POST", body: "{}" }).then(json<{ recording: Recording }>).then(d => d.recording),
   deleteRecording: (a: Account, id: string) => request(a, `/v1/recordings/${encodeURIComponent(id)}`, { method: "DELETE" }).then(json<{ ok: true }>),
   recordingStep: (a: Account, id: string, n: number, action: "send" | "skip") =>
-    request(a, `/v1/recordings/${encodeURIComponent(id)}/steps/${n}`, { method: "POST", body: JSON.stringify({ action }) }).then(json<{ meeting: Recording }>).then(d => d.meeting),
+    request(a, `/v1/recordings/${encodeURIComponent(id)}/steps/${n}`, { method: "POST", body: JSON.stringify({ action }) }).then(json<{ recording: Recording }>).then(d => d.recording),
   latestRelease: (a: Account) =>
     request(a, "/v1/releases/latest").then(json<{ release: Release | null }>).then((d) => d.release),
   signOut: async (a: Account) => {
