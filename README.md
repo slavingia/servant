@@ -16,6 +16,7 @@ More captures of channels, threads, direct messages and invites are in [docs/sho
 
 ## Contents
 
+- [Get the apps](#get-the-apps)
 - [Quickstart](#quickstart)
 - [How it works](#how-it-works)
 - [Self-hosting](#self-hosting)
@@ -23,7 +24,24 @@ More captures of channels, threads, direct messages and invites are in [docs/sho
 - [Security notes](#security-notes)
 - [Build your own client (MCP)](#build-your-own-client-mcp)
 - [Repository layout](#layout)
+- [What's next](#whats-next)
 - [Contributing, security and license](#contributing-security-and-license)
+
+## Get the apps
+
+You always run your own server (see [Quickstart](#quickstart)). For the apps, you can use the project's builds or make your own.
+
+| Where | Today | Notes |
+| --- | --- | --- |
+| iPhone and iPad | [Public TestFlight beta](https://testflight.apple.com/join/6NWcgydj) | Install TestFlight, open the link, then paste an invite link from your server. |
+| Android | Build it yourself | No public download yet. `cd app && npm ci && npx expo run:android` (step 2 below). |
+| Mac | [Download page](https://servant-mac.web.app) | An unsigned preview: the page says how to open it. Or build it (step 3 below). |
+| Browser | Run it yourself | `cd app && npm ci && npx expo start --web`. |
+
+Two things to know about the project's phone builds:
+
+- **Notifications do not reach them from your server.** Apple and Google deliver a notification only when it is sent with the keys of whoever published the app, and those keys are not shared. Messages still arrive while the app is open. For notifications, build the app under your own bundle id with your own keys ([Notifications](docs/notifications.md)).
+- **They update themselves.** The project's builds load interface updates from the project's update server ([OTA updates](docs/ota.md)). Your messages never go there. A build you make yourself has updates off unless you set `SERVANT_OTA_URL`.
 
 ## Quickstart
 
@@ -150,6 +168,17 @@ docs/      design notes, operator guides and captures
 ```
 
 For shared UI tokens, components, and navigation patterns, see the [design system](docs/design-system.md).
+
+## What's next
+
+Not done yet, roughly in order:
+
+- **App Store and Google Play listings**, so installing does not need TestFlight or a build from source. Both stores review the app against a demo server first.
+- **Notifications for the project's builds on your own server.** This needs a relay that sends on the publisher's behalf without seeing message text. Until then, only apps you build yourself get notifications.
+- **A signed and notarized Mac app**, so macOS opens it without the extra steps.
+- **An independent audit of the encryption protocol** ([docs/encryption.md](docs/encryption.md)).
+
+If you want to help with one of these, open an issue first ([CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## Contributing, security and license
 
