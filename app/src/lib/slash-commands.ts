@@ -13,6 +13,7 @@ export const SLASH_COMMANDS: Omit<SlashCommand, "args">[] = [
   { name: "invite", hint: "@person …", description: "Add people to this channel", where: "channel" },
   { name: "rename", hint: "new-name", description: "Rename this channel", where: "channel" },
   { name: "leave", hint: "", description: "Leave this channel", where: "channel" },
+  { name: "mute", hint: "", description: "Mute or unmute this for you. Only @mentions of you notify", where: "talk" },
   { name: "call", hint: "", description: "Start a call here (or join the one running)", where: "talk", needs: "meetings" },
   { name: "agent", hint: "question", description: "Ask the agent about this conversation", where: "talk" },
   { name: "dm", hint: "@person message", description: "Send someone a direct message", where: "talk", needs: "directMessages" },
@@ -25,6 +26,7 @@ export const SLASH_COMMANDS: Omit<SlashCommand, "args">[] = [
   { name: "browse", hint: "", description: "Find channels to join", where: "any", needs: "channels" },
   { name: "people", hint: "", description: "See everyone on the server", where: "any", needs: "people" },
   { name: "stop", hint: "", description: "Stop the agent's current reply", where: "agent" },
+  { name: "rename", hint: "new name", description: "Rename this chat. The agent stops naming it for you", where: "agent" },
   // A message sent while the agent replies joins that reply. This one waits for it to finish instead.
   { name: "queue", hint: "message", description: "Send it after the current reply, not into it", where: "agent" },
   // About Servant itself, from wherever you are typing (slash-feedback.ts). Only the words after it are sent.
@@ -47,8 +49,9 @@ export function slashMatches(text: string, isChannel: boolean, agent = false, fe
 export function parseSlash(text: string, isChannel: boolean, agent = false, features: Features = ALL_FEATURES): SlashCommand | null {
   const m = /^\/([a-z]+)(?:\s+([\s\S]*))?$/i.exec(text.trim());
   if (!m) return null;
-  const def = SLASH_COMMANDS.find(c => c.name === m[1]!.toLowerCase());
-  if (!def || !allowedHere(def, isChannel, agent, features)) return null;
+  // Some names mean different things in different places (/rename a channel, /rename an agent chat).
+  const def = SLASH_COMMANDS.find(c => c.name === m[1]!.toLowerCase() && allowedHere(c, isChannel, agent, features));
+  if (!def) return null;
   return { ...def, args: (m[2] ?? "").trim() };
 }
 

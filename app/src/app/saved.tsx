@@ -1,6 +1,7 @@
 import { Radio } from "../components/Radio";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, FlatList, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { AppState, FlatList, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { BallRefreshControl } from "../components/BallRefreshControl";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import * as Crypto from "expo-crypto";
@@ -17,6 +18,7 @@ import { visibleWorkLog, workLogActor, workLogChanged, workLogDue, workLogHref, 
 import { accountId, api, ServerError, type Account, type SavedCompletion, type SavedMessage, type WorkLogEntry } from "../lib/server";
 import { useSession } from "../lib/session";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
+import { ServeLoader } from "../components/ServeLoader";
 
 type Snapshot = { items: SavedMessage[]; history: SavedCompletion[]; workLog: WorkLogEntry[] };
 type ListRow = { kind: "task"; item: SavedMessage } | { kind: "history"; item: WorkLogEntry };
@@ -191,7 +193,7 @@ function SavedTasks({ account }: { account: Account }) {
   return <View style={styles.screen}>
     <FlatList<ListRow> style={styles.list} contentContainerStyle={styles.content} data={rows}
       keyExtractor={row => row.kind === "history" ? `history:${row.item.id}` : row.item.messageId}
-      refreshing={refreshing && data !== null} onRefresh={() => { if (!changing.current) void load(true); }} keyboardShouldPersistTaps="handled"
+      refreshControl={<BallRefreshControl refreshing={refreshing && data !== null} onRefresh={() => { if (!changing.current) void load(true); }} />} keyboardShouldPersistTaps="handled"
       ListHeaderComponent={<>
         {/* The header says where this is. The sections are the section tabs of Project and Files. */}
         <View style={styles.tabBar}><View accessibilityRole="tablist" style={styles.tabs}>{([["open", "In progress", open.length], ["completed", "Completed", completed.length], ["history", "Work log", workLog.length]] as const).map(([value, label, count]) =>
@@ -218,7 +220,7 @@ function SavedTasks({ account }: { account: Account }) {
           {copyState === "failed" ? <><Text accessibilityRole="alert" style={styles.errorText}>Couldn't copy the report. Try Copy to clipboard again, or select the report below.</Text><Text testID="saved-report-fallback" selectable style={styles.reportFallback}>{report.markdown}</Text></> : null}
         </View> : null}
       </>}
-      ListEmptyComponent={data === null ? refreshing ? <ActivityIndicator accessibilityLabel="Loading saved tasks" color={colors.blue} style={styles.loading} /> : undefined
+      ListEmptyComponent={data === null ? refreshing ? <ServeLoader accessibilityLabel="Loading saved tasks" style={styles.loading} /> : undefined
         : <View style={styles.empty}><View style={styles.emptyIcon}><AppIcon name={view === "history" ? "clock" : "check"} size={28} color={colors.greenDark} /></View>
           <Text style={styles.emptyTitle}>{view === "history" ? "No work in this period" : view === "completed" ? "Nothing completed yet" : "Nothing to follow up"}</Text>
           <Text style={styles.emptyText}>{view === "history" ? "Attend a meeting or finish a task to start your work log, or choose another date range." : view === "completed" ? "Check off a task when you're done. Add a work note first if there's a result you want to remember." : "Open a message's actions and choose Save for later. On your phone, touch and hold the message."}</Text>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, AppState, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { AppState, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { BallRefreshControl } from "../../components/BallRefreshControl";
 import { Redirect, router, Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -12,7 +13,8 @@ import { useSession } from "../../lib/session";
 import { deleteDescription } from "../../lib/records-notice";
 import { landingHref, useFeatures } from "../../lib/features";
 import { shortTime } from "../../lib/time-label";
-import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../../lib/theme";
+import { radius, space, typography, createThemedStyles, linkUnderline } from "../../lib/theme";
+import { ServeLoader } from "../../components/ServeLoader";
 
 // One shape for both kinds, so the screen below doesn't care where the meeting came from.
 type Step = { n: number; text: string; owner: string | null; status: "open" | "accepted" | "skipped"; by: string | null };
@@ -42,7 +44,6 @@ export default function MeetingDetail() {
 
 function MeetingDetailContent() {
   const styles = useStyles();
-  const { colors } = useTheme();
   const { account, setAccount } = useSession();
   const { id, kind: kindParam } = useLocalSearchParams<{ id: string; kind?: string }>();
   const kind: MeetingKind = kindParam === "recording" || (!kindParam && String(id).startsWith("rec_")) ? "recording" : "call";
@@ -98,7 +99,7 @@ function MeetingDetailContent() {
   if (!features.meetings) return <Redirect href={landingHref(features)} />;
   if (!meeting) {
     return <View style={styles.root}><Stack.Screen options={{ title: "Meeting" }} />
-      {error ? <View style={styles.content}><Text accessibilityRole="alert" style={styles.error}>{error}</Text><Button label="Try again" kind="secondary" onPress={() => void load()} /></View> : <ActivityIndicator style={{ marginTop: space.xxl }} color={colors.blue} />}
+      {error ? <View style={styles.content}><Text accessibilityRole="alert" style={styles.error}>{error}</Text><Button label="Try again" kind="secondary" onPress={() => void load()} /></View> : <ServeLoader style={{ marginTop: space.xxl }} />}
     </View>;
   }
 
@@ -136,7 +137,7 @@ function MeetingDetailContent() {
   const who = peopleText(meeting.people, account.user.id);
   const meta = [shortTime(meeting.startedAt), durationText(meeting.durationMs), who].filter(Boolean).join(" · ");
   const ready = meeting.status === "done";
-  return <ScrollView style={styles.root} contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={refreshing} tintColor={colors.blue} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}>
+  return <ScrollView style={styles.root} contentContainerStyle={styles.content} refreshControl={<BallRefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}>
     <Stack.Screen options={{ title: meeting.title }} />
     <Text accessibilityRole="header" style={styles.title}>{meeting.title}</Text>
     <Text style={styles.meta}>{meta}</Text>
@@ -146,7 +147,7 @@ function MeetingDetailContent() {
       <Text style={styles.body}>In progress</Text>
       {callsSupported() ? <Button label="Join" onPress={() => router.push({ pathname: "/meeting/[id]", params: { id: meeting.id } })} /> : null}
     </View> : working ? <View style={styles.card}>
-      <ActivityIndicator color={colors.blue} />
+      <ServeLoader />
       <Text accessibilityLiveRegion="polite" style={styles.body}>{meeting.status === "uploading" ? "Sending recording…" : "Writing notes…"}</Text>
     </View> : meeting.status === "failed" ? <View style={styles.card}>
       <Text accessibilityRole="alert" style={styles.body}>{meeting.error || "The notes couldn't be written."}</Text>

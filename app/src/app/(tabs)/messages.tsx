@@ -1,6 +1,7 @@
 import { memo, useCallback, useRef, useState } from "react";
 import { SkeletonRows } from "../../components/Skeleton";
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { BallRefreshControl } from "../../components/BallRefreshControl";
 import { Redirect, router, useFocusEffect, useIsFocused, useScrollToTop } from "expo-router";
 import { useWhileHidden } from "../../lib/hidden-screen";
 import { AppIcon } from "../../components/AppIcon";
@@ -17,10 +18,10 @@ export default function Messages() {
   // Under another screen the list is handed what it last showed until the changes pause (lib/hidden-screen.ts):
   // it does not draw every row for every message anywhere, and coming back draws nothing when nothing changed.
   const list = useWhileHidden(useLiveList(), useIsFocused());
-  return <MessageRows conversations={list.conversations} error={list.error} connected={list.connected} />;
+  return <MessageRows conversations={list.conversations} error={list.error} connected={list.connected} unreachable={list.unreachable} />;
 }
 
-const MessageRows = memo(function MessageRows({ conversations, error, connected }: { conversations: Conversation[] | null; error: string | null; connected: boolean }) {
+const MessageRows = memo(function MessageRows({ conversations, error, unreachable, connected }: { conversations: Conversation[] | null; error: string | null; unreachable: boolean; connected: boolean }) {
   const styles = useStyles();
   // Tapping the tab you're already on scrolls back to the top.
   const scrollRef = useRef<FlatList<Conversation>>(null);
@@ -60,10 +61,7 @@ const MessageRows = memo(function MessageRows({ conversations, error, connected 
         extraData={{ openId, busyId }}
         onScrollBeginDrag={closeRow}
         refreshControl={
-          <RefreshControl
-            tintColor={colors.blue}
-            colors={[colors.blue]}
-            progressBackgroundColor={colors.surface}
+          <BallRefreshControl
             refreshing={refreshing}
             onRefresh={() => void reload()}
           />
@@ -83,7 +81,7 @@ const MessageRows = memo(function MessageRows({ conversations, error, connected 
             <Text aria-hidden={!reconnecting} accessibilityLiveRegion="polite" style={[styles.status, { opacity: reconnecting ? 1 : 0 }]}>Reconnecting…</Text>
             </View>
             {actionError ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
-            {error && conversations ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+            {error && !unreachable && conversations ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           </View>
         }
         ListEmptyComponent={
@@ -96,7 +94,7 @@ const MessageRows = memo(function MessageRows({ conversations, error, connected 
             </View>
           )
         }
-        renderItem={({ item }) => <SwipeChannelRow {...rowProps(item)} onPress={() => { openingConversation(account, item.id); router.push({ pathname: "/c/[id]", params: { id: item.id } }); }} />}
+        renderItem={({ item }) => <SwipeChannelRow {...rowProps(item, list)} onPress={() => { openingConversation(account, item.id); router.push({ pathname: "/c/[id]", params: { id: item.id } }); }} />}
         contentContainerStyle={styles.content}
       />
       {dialog}
@@ -110,8 +108,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   header: { minHeight: 60, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.xs },
   title: { ...typography.title, color: colors.ink, flexShrink: 1 },
   compose: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
-  filters: { flexDirection: "row", gap: space.xs, paddingHorizontal: space.side, paddingVertical: space.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
-  filter: { minHeight: 44, paddingHorizontal: space.lg, paddingVertical: space.sm, justifyContent: "center", borderRadius: radius.pill, backgroundColor: colors.surface },
+  filters: { flexDirection: "row", gap: space.xs, paddingHorizontal: space.side, paddingVertical: space.xs },
+  filter: { minHeight: 44, paddingHorizontal: space.lg, paddingVertical: space.sm, justifyContent: "center", borderRadius: radius.pill },
   selectedFilter: { backgroundColor: colors.blueSoft },
   filterText: { ...typography.bodyStrong, color: colors.muted },
   selectedFilterText: { color: colors.blueDark },

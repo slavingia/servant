@@ -35,7 +35,10 @@ function Inlines({ text, styles, abbreviations, mentions = false }: { text: stri
 }
 
 /** `chat`: a person's message. It is formatted as people type (message-format.ts) and its @mentions stand out. */
-export const MessageText = memo(function MessageText({ text, failed = false, chat = false }: { text: string; failed?: boolean; chat?: boolean }) {
+/** `inMenuBubble`: the text sits in a message with a long-press menu. On a phone, selectable text there would show
+ * the system Copy menu on top of ours, so it is selected from the menu's Select text instead. */
+export const MessageText = memo(function MessageText({ text, failed = false, chat = false, inMenuBubble = false }: { text: string; failed?: boolean; chat?: boolean; inMenuBubble?: boolean }) {
+  const selectable = !inMenuBubble || Platform.OS === 'web';
   const styles = useStyles();
   const abbreviations = useAbbreviations();
   const body = [styles.body, failed && styles.failed];
@@ -44,7 +47,7 @@ export const MessageText = memo(function MessageText({ text, failed = false, cha
       case 'code':
         return <View key={index} style={styles.codeBlock}>
           {block.language ? <Text style={styles.language}>{block.language}</Text> : null}
-          <ScrollView horizontal showsHorizontalScrollIndicator><Text selectable style={styles.code}>{block.text || ' '}</Text></ScrollView>
+          <ScrollView horizontal showsHorizontalScrollIndicator><Text selectable={selectable} style={styles.code}>{block.text || ' '}</Text></ScrollView>
         </View>;
       case 'rule':
         return <View key={index} style={styles.rule} accessibilityElementsHidden importantForAccessibility="no" />;
@@ -54,7 +57,7 @@ export const MessageText = memo(function MessageText({ text, failed = false, cha
         const table = <View style={styles.table} accessibilityRole="summary">
             {[block.header, ...block.rows].map((row, r) => <View key={r} style={[styles.row, r === 0 && styles.headRow, r > 0 && r % 2 === 0 && styles.stripe]}>
               {row.map((cell, c) => <View key={c} style={[fits ? styles.fitCell : styles.cell, c > 0 && styles.cellDivider]}>
-                <Text selectable style={[body, r === 0 && styles.strong, { textAlign: block.align[c] ?? 'left' }]}><Inlines text={cell} styles={styles} abbreviations={abbreviations} /></Text>
+                <Text selectable={selectable} style={[body, r === 0 && styles.strong, { textAlign: block.align[c] ?? 'left' }]}><Inlines text={cell} styles={styles} abbreviations={abbreviations} /></Text>
               </View>)}
             </View>)}
           </View>;
@@ -67,17 +70,17 @@ export const MessageText = memo(function MessageText({ text, failed = false, cha
           : <Text accessibilityLabel={block.checked ? 'Done' : 'Not done'} style={[styles.marker, styles.box, block.checked && styles.boxDone]}>{block.checked ? '☑' : '☐'}</Text>;
         return <View key={index} style={[styles.list, { paddingLeft: block.depth * 18 }]}>
           {marker}
-          <View style={styles.copy}><Text selectable style={[body, block.checked && styles.done]}><Inlines text={block.text} styles={styles} abbreviations={abbreviations} mentions={chat} /></Text></View>
+          <View style={styles.copy}><Text selectable={selectable} style={[body, block.checked && styles.done]}><Inlines text={block.text} styles={styles} abbreviations={abbreviations} mentions={chat} /></Text></View>
         </View>;
       }
       case 'heading':
         return <View key={index} style={index > 0 && styles.headingGap}>
-          <Text selectable accessibilityRole="header" style={[body, block.level <= 1 ? styles.h1 : block.level === 2 ? styles.h2 : styles.h3]}><Inlines text={block.text} styles={styles} abbreviations={abbreviations} mentions={chat} /></Text>
+          <Text selectable={selectable} accessibilityRole="header" style={[body, block.level <= 1 ? styles.h1 : block.level === 2 ? styles.h2 : styles.h3]}><Inlines text={block.text} styles={styles} abbreviations={abbreviations} mentions={chat} /></Text>
         </View>;
       case 'quote':
-        return <View key={index} style={styles.quote}><Text selectable style={[body, styles.quoteText]}><Inlines text={block.text} styles={styles} abbreviations={abbreviations} mentions={chat} /></Text></View>;
+        return <View key={index} style={styles.quote}><Text selectable={selectable} style={[body, styles.quoteText]}><Inlines text={block.text} styles={styles} abbreviations={abbreviations} mentions={chat} /></Text></View>;
       default:
-        return <View key={index}><Text selectable style={body}><Inlines text={block.text} styles={styles} abbreviations={abbreviations} mentions={chat} /></Text></View>;
+        return <View key={index}><Text selectable={selectable} style={body}><Inlines text={block.text} styles={styles} abbreviations={abbreviations} mentions={chat} /></Text></View>;
     }
   })}</View>;
 });

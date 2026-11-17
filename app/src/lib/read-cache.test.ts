@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyReadNotes, noteRead, type ReadNotes } from "./read-cache.ts";
+import { applyReadNotes, noteRead, notedPlace, type ReadNotes } from "./read-cache.ts";
 
 const row = (over: Partial<{ id: string; unread: number; readThrough: string; lastMessage: { id: string } | null }> = {}) =>
   ({ id: "c1", unread: 2, readThrough: "5", lastMessage: { id: "8" }, ...over });
@@ -50,4 +50,15 @@ test("rows without notes are returned as they are", () => {
 test("a note that is not a message id is ignored", () => {
   const notes: ReadNotes = new Map(); noteRead(notes, "c1", undefined, 1000); noteRead(notes, "c1", "abc", 1000);
   assert.equal(notes.size, 0);
+});
+
+test("what was read a moment ago can be asked for before the list has caught up", () => {
+  const notes: ReadNotes = new Map();
+  assert.equal(notedPlace(notes, "c1", 1000), null, "nothing noted");
+  noteRead(notes, "c1", "8", 1000);
+  assert.equal(notedPlace(notes, "c1", 1500), 8);
+  assert.equal(notedPlace(notes, "c2", 1500), null, "another conversation's note is not this one's");
+  // After two minutes the note no longer speaks for the server.
+  assert.equal(notedPlace(notes, "c1", 1000 + 119_999), 8);
+  assert.equal(notedPlace(notes, "c1", 1000 + 120_000), null);
 });

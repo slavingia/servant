@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from "react";
-import { ActivityIndicator, Animated, FlatList, Image, Keyboard, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { AccessibilityInfo, ActivityIndicator, Animated, Easing, FlatList, Image, Keyboard, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
@@ -9,11 +9,12 @@ import { useSession } from "../lib/session";
 import { createMediaCache, formatFileSize, isPreviewImage, isPreviewVideo, MAX_FILE_BYTES, MAX_VIDEO_BYTES, mediaRoute, mergeMediaItems, readMediaPage, type MediaItem, type MediaScope } from "../lib/media";
 import { radius, space, typography } from "../lib/theme";
 import { downloadDocument } from "../lib/document-upload";
-import { canStartGalleryDismiss, isZoomedIn, shouldDismissGallery } from "../lib/gallery-gestures";
+import { canStartGalleryDismiss, galleryDismissScale, isZoomedIn, shouldDismissGallery } from "../lib/gallery-gestures";
 import { AppIcon } from "./AppIcon";
 import { ZoomableImage } from "./ZoomableImage";
 import { GalleryVideo } from "./VideoMedia";
 import { GalleryContext, useMediaGallery } from "./MediaGalleryContext";
+import { ServeLoader } from "./ServeLoader";
 export { useMediaGallery } from "./MediaGalleryContext";
 
 export function MediaGalleryProvider({ scope, items, children }: { scope?: MediaScope; items: MediaItem[]; children: ReactNode }) {
@@ -42,7 +43,7 @@ function ScopedGallery({ account, scope, items, children }: { account: Account; 
   useEffect(() => () => cache.dispose(), [cache]);
   const open = useCallback((file: Attachment) => { Keyboard.dismiss(); setOpened(file); }, []);
   const close = useCallback(() => setOpened(null), []);
-  const context = useMemo(() => ({ open, load: cache.load, invalidate: cache.invalidate }), [cache, open]);
+  const context = useMemo(() => ({ open, load: cache.load, peek: cache.peek, invalidate: cache.invalidate }), [cache, open]);
   return <GalleryContext.Provider value={context}>
     {children}
     {opened ? <Modal visible animationType="fade" presentationStyle="fullScreen" onRequestClose={close}>
@@ -57,14 +58,17 @@ export function useAttachmentContent(file: Attachment, enabled = true) {
   const { id, name, mime, size } = file;
   const gallery = useMediaGallery();
   const [attempt, setAttempt] = useState(0);
-  const [result, setResult] = useState<{ key: string; data?: string; error?: string } | null>(null);
+  // A file whose bytes are already here (it was on screen a moment ago, or the gallery opened it) is drawn in
+  // the first frame. Waiting for the answer, even one that is already known, showed a spinner for a frame.
+  const held = enabled ? gallery?.peek(id) : undefined;
+  const [result, setResult] = useState<{ key: string; data?: string; error?: string } | null>(() => held === undefined ? null : { key: `${id}:0`, data: held });
   const key = `${id}:${attempt}`;
   const current = result?.key === key ? result : null;
   const load = gallery?.load;
   useEffect(() => {
     if (!enabled || !load) return;
     let active = true;
-    load({ id, name, mime, size }).then(data => { if (active) setResult({ key, data }); }, () => { if (active) setResult({ key, error: "Couldn't load this attachment." }); });
+    load({ id, name, mime, size }).then(data => { if (active) setResult(shown => shown?.key === key && shown.data === data ? shown : { key, data }); }, () => { if (active) setResult({ key, error: "Couldn't load this attachment." }); });
     return () => { active = false; };
   }, [enabled, id, name, mime, size, key, load]);
   const retry = useCallback(() => { gallery?.invalidate(id); setAttempt(value => value + 1); }, [id, gallery]);
@@ -109,6 +113,12 @@ function GalleryContent({ account, scope, seeds, opened, onClose }: { account: A
   const [shareError, setShareError] = useState("");
   const [dismissOffset] = useState(() => new Animated.Value(0));
   const dismissCancelled = useRef(false);
+  const [reduceMotion, setReduceMotion] = useState(false);
+  useEffect(() => {
+    let live = true;
+    AccessibilityInfo.isReduceMotionEnabled().then(on => { if (live) setReduceMotion(on); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
   const list = useRef<FlatList<MediaItem>>(null);
   const closeButton = useRef<ComponentRef<typeof View>>(null);
   const mounted = useRef(true);
@@ -195,13 +205,15 @@ function GalleryContent({ account, scope, seeds, opened, onClose }: { account: A
         if (!dismissCancelled.current) dismissOffset.setValue(Math.max(0, gesture.dy));
       },
       onPanResponderRelease: (_, gesture) => {
-        if (!dismissCancelled.current && shouldDismissGallery(gesture, viewport.height)) onClose();
-        else reset();
+        if (dismissCancelled.current || !shouldDismissGallery(gesture, viewport.height)) { reset(); return; }
+        // Past the pull, the picture keeps shrinking away on its own, then the viewer closes.
+        if (reduceMotion) { onClose(); return; }
+        Animated.timing(dismissOffset, { toValue: Math.max(gesture.dy, viewport.height), duration: 180, easing: Easing.out(Easing.quad), useNativeDriver: true }).start(() => onClose());
       },
       onPanResponderTerminate: reset,
       onPanResponderTerminationRequest: () => true,
     });
-  }, [dismissOffset, onClose, restorePage, sharing, viewport.height, zoomed]);
+  }, [dismissOffset, onClose, reduceMotion, restorePage, sharing, viewport.height, zoomed]);
   useEffect(() => {
     if (Platform.OS !== "web") return;
     closeButton.current?.focus();
@@ -245,7 +257,7 @@ function GalleryContent({ account, scope, seeds, opened, onClose }: { account: A
       if (width > 0 && height > 0 && (width !== viewport.width || height !== viewport.height)) setViewport({ width, height });
     }}>
       <Animated.View {...dismissGesture.panHandlers} style={[styles.gestureSurface, {
-        transform: [{ translateY: dismissOffset }],
+        transform: [{ translateY: dismissOffset }, { scale: dismissOffset.interpolate({ inputRange: [0, Math.max(1, viewport.height)], outputRange: [1, galleryDismissScale(viewport.height, viewport.height)], extrapolate: "clamp" }) }],
         opacity: dismissOffset.interpolate({ inputRange: [0, Math.max(1, viewport.height)], outputRange: [1, 0.35], extrapolate: "clamp" }),
       }]}>
       {items.length ? <FlatList ref={list} data={items} horizontal pagingEnabled scrollEnabled={!zoomed && !dismissing} showsHorizontalScrollIndicator={false} directionalLockEnabled
@@ -295,7 +307,7 @@ function GalleryPage({ item, width, height, active, nearby, playingAllowed, auto
           </ScrollView>
           : <ZoomableImage key={`${item.id}:${fitCount}`} uri={content.uri} label={item.name} width={width} height={height} active={active} onZoomChange={onZoomChange} onError={() => setDecodeError(true)} />}
         {active && zoomMode ? <Pressable accessibilityRole="button" accessibilityLabel="Fit image and return to swipe browsing" onPress={() => { setFitCount((count) => count + 1); onZoomChange(false); }} style={styles.zoomButton}><Text style={styles.actionText}>Fit</Text></Pressable> : null}
-      </View> : <View style={styles.center}><ActivityIndicator size="large" color="#FFFFFF" /><Text style={styles.note}>Loading image…</Text></View>
+      </View> : <View style={styles.center}><ServeLoader size="large" /><Text style={styles.note}>Loading image…</Text></View>
       : <View style={styles.center}><View style={styles.fileSymbol}><AppIcon name="paperclip" color="#C5CFDB" size={42} /></View><Text numberOfLines={3} style={styles.emptyTitle}>{item.name}</Text><Text style={styles.note}>{item.mime} · {formatFileSize(item.size)}</Text><Pressable accessibilityRole="button" accessibilityState={{ disabled: busy, busy }} disabled={busy} onPress={onOpenFile} style={styles.fileAction}><Text style={styles.actionText}>{busy ? "Opening…" : "Open file"}</Text></Pressable></View>}
   </View>;
 }

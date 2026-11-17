@@ -2,7 +2,7 @@ import { preloadScreens } from "../lib/preload-screens";
 import { GestureRoot } from "../components/GestureRoot";
 import { Platform, Text, View } from "react-native";
 import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider as NavigationThemeProvider, usePathname } from "expo-router";
-import { useEffect, useMemo } from "react";
+import { useEffect, useLayoutEffect, useMemo } from "react";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { SessionProvider, useSession } from "../lib/session";
@@ -23,6 +23,8 @@ import { ShareGate } from "../components/ShareGate";
 import { LaunchScreen } from "../components/LaunchScreen";
 import { useApplyUpdates } from "../lib/ota";
 import { useAppFonts } from "../lib/use-app-fonts";
+import { useFirstScreens } from "../lib/use-first-screens";
+import { removeLaunchPage } from "../lib/launch-page";
 
 export default function RootLayout() {
   useApplyUpdates();
@@ -41,6 +43,8 @@ export default function RootLayout() {
 function SessionNavigation() {
   const { ready, account, loadError, retryLoad } = useSession();
   const { colors, scheme } = useTheme();
+  // The page's own drawing of the app's shape stays until this, the app's first frame (lib/launch-page.ts).
+  useLayoutEffect(removeLaunchPage, []);
   const pathname = usePathname();
   const wide = useWideLayout();
   // Sidebar destinations replace each other, so they have nothing to go back to.
@@ -64,6 +68,9 @@ function SessionNavigation() {
   // In a browser, load every screen's code ahead of its first use (lib/preload-order.ts).
   useEffect(() => { if (paired) preloadScreens(); }, [paired]);
   const landing = landingHref(useFeatures());
+  // In a browser the first screen's code is fetched: the launch screen stays until it is in, so opening the app
+  // never shows an empty page between its shape and its first screen (lib/first-screens.ts).
+  const firstScreensIn = useFirstScreens(ready, paired, pathname, landing);
   // Wait for the saved account before mounting any invite screen.
   if (!ready) {
     return <LaunchScreen />;
@@ -81,6 +88,8 @@ function SessionNavigation() {
     <NotificationsProvider>
     <PhotoProvider key={account ? `${accountId(account)}:${account.token}:${account.user.id}` : "signed-out"}>
     <LiveProvider>
+    {/* The lists start loading behind the launch screen, so the first screen can open with them. */}
+    {!firstScreensIn ? <LaunchScreen /> : <>
     <StatusBar style={paired && account?.banner?.message ? "dark" : (paired && wide) || pathname === "/welcome" || scheme === "dark" ? "light" : "dark"} />
     <AppChrome enabled={paired}>
     <Stack
@@ -152,6 +161,8 @@ function SessionNavigation() {
         {/* Where Text shortcuts used to be; it redirects to the wiki's Abbreviations page. */}
         <Stack.Screen name="lexicon" options={{ title: "Wiki", ...sidebarScreen }} />
         <Stack.Screen name="notifications" options={{ title: "Notifications", ...childScreen }} />
+        <Stack.Screen name="feed" options={{ title: "Agent feed", ...childScreen }} />
+        <Stack.Screen name="code/[id]" options={{ title: "Enter code", ...childScreen }} />
         <Stack.Screen name="loops" options={{ title: "Loops", ...childScreen }} />
         <Stack.Screen name="entitlements" options={{ title: "Entitlements", ...childScreen }} />
         <Stack.Screen name="leaderboard" options={{ title: "Agent usage", ...childScreen }} />
@@ -164,6 +175,7 @@ function SessionNavigation() {
     {paired ? <SessionExpiryGate /> : null}
     {paired ? <ShareGate /> : null}
     </AppChrome>
+    </>}
     </LiveProvider>
     </PhotoProvider>
     </NotificationsProvider>

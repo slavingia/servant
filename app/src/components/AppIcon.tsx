@@ -61,6 +61,9 @@ const paths = {
   leave: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9",
   eye: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z M15 12a3 3 0 1 0-6 0 3 3 0 0 0 6 0Z",
   loop: "M17 2l4 4-4 4 M3 11V9a3 3 0 0 1 3-3h15 M7 22l-4-4 4-4 M21 13v2a3 3 0 0 1-3 3H3",
+  activity: "M3 12h4l3-8 4 16 3-8h4",
+  // A bell with a line through it: a muted conversation.
+  bellOff: "M13.7 21a2 2 0 0 1-3.4 0 M18.6 13A17.9 17.9 0 0 1 18 8 M6.3 6.3A6 6 0 0 0 6 8c0 7-3 9-3 9h14 M18 8a6 6 0 0 0-9.3-5 M3 3l18 18",
   moon: "M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11Z",
   warning: "M12 3 2 20h20L12 3Z M12 10v4 M12 17h.01",
 } as const;

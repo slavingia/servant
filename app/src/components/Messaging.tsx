@@ -1,4 +1,4 @@
-import { memo, useLayoutEffect, useEffect, useRef, useState, type ComponentRef, type ReactNode } from "react";
+import { memo, useId, useLayoutEffect, useEffect, useRef, useState, type ComponentRef, type ReactNode } from "react";
 import { MeetingCard } from "./MeetingCard";
 import { useProjectGlossary } from "../lib/use-project-glossary";
 import { findUnknownAbbreviations } from "../lib/abbreviations";
@@ -13,6 +13,8 @@ import { useDictation } from "../lib/dictation";
 import { insertDictation } from "../lib/dictation-text";
 import { activeMention, agentMentionNames, AGENT_HANDLES, insertMention, mentionMatches, mentionText } from "../lib/mentions";
 import { parseSlash, queuedMessage, slashMatches } from "../lib/slash-commands";
+import { SUGGESTIONS_MAX_HEIGHT, SUGGESTION_ROW_HEIGHT, activeOption, suggestionKey, suggestionsHeight } from "../lib/suggestion-list";
+import { backInBox } from "../lib/send-queue";
 import { newSendTouch, pressed, touchDown, touchHeld, touchUp } from "../lib/send-press";
 import type { MessageReceipt } from "../lib/message-status";
 import { messageDeviceLabel } from "../lib/message-device";
@@ -26,6 +28,7 @@ import { validateAttachmentSelection } from "../lib/media";
 import { getDraft, loadDrafts, setDraft } from "../lib/drafts";
 import { shouldEditLastMessage } from "../lib/edit-last-message";
 import { Attachments, DraftAttachments, attachmentsFromFiles, pickAttachments, pickDocuments, type DraftAttachment } from "./Attachments";
+import { SendBall } from "./SendBall";
 import { AppIcon } from "./AppIcon";
 import { SaveMessageAction } from "./SaveMessageAction";
 import { useContextMenu, type ContextMenuItem } from "./ContextMenu";
@@ -39,7 +42,9 @@ import { replyContext } from "../lib/also-in-channel";
 import { tweetIds } from "../lib/tweet-embed";
 import { conversationPreview } from "../lib/conversation-preview";
 import { parseForward } from "../lib/forward";
+import { SelectableText } from "./SelectableText";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
+import { openNewChat } from "../lib/new-chat";
 
 export const when = (ms: number) => shortTime(ms);
 
@@ -58,8 +63,7 @@ export function Avatar({ name, agent, size = 34, userId, tapToMessage, onBrand }
     setOpening(true);
     try {
       if (agent) {
-        const chat = await api.newChat(account, {});
-        router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, compose: "1" } });
+        openNewChat(account);
       } else if (userId) {
         const conversation = await api.openDm(account, [userId]);
         router.push({ pathname: "/c/[id]", params: { id: conversation.id, title: name } });
@@ -116,16 +120,18 @@ export function dmPeer(c: Conversation, me: string | undefined) {
   return others.length === 1 ? others[0]!.id : undefined;
 }
 
-// Group conversations: two overlapping person avatars on one tile, so a group never reads as one person.
+// Group conversations: two overlapping person avatars, so a group never reads as one person. No tile behind them:
+// the row shows through. Only the front avatar has a ring, in the page color, so the overlap reads as a cutout.
 export function GroupAvatar({ people, size = 40 }: { people: { id: string; name: string }[]; size?: number }) {
   const { colors } = useTheme();
   const inner = Math.round(size * 0.6);
+  const ring = 1.5;
   const a = people[0] ?? { id: "", name: "?" };
   const b = people[1] ?? a;
   return (
-    <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: size, height: size, borderRadius: radius.sm, backgroundColor: colors.surface, overflow: "hidden" }}>
-      <View style={{ position: "absolute", left: 0, top: 0, borderRadius: inner / 2, borderWidth: 1.5, borderColor: colors.surface }}><Avatar name={b.name} userId={b.id || undefined} size={inner} /></View>
-      <View style={{ position: "absolute", right: 0, bottom: 0, borderRadius: inner / 2, borderWidth: 1.5, borderColor: colors.surface }}><Avatar name={a.name} userId={a.id || undefined} size={inner} /></View>
+    <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: size, height: size }}>
+      <View style={{ position: "absolute", left: 0, top: 0 }}><Avatar name={b.name} userId={b.id || undefined} size={inner} /></View>
+      <View style={{ position: "absolute", right: -ring, bottom: -ring, borderRadius: inner / 2 + ring, borderWidth: ring, borderColor: colors.background }}><Avatar name={a.name} userId={a.id || undefined} size={inner} /></View>
     </View>
   );
 }
@@ -169,14 +175,14 @@ function ForwardedPost({ text }: { text: string }) {
   const styles = useStyles();
   const parsed = parseForward(text);
   // A person's own words are formatted as they typed them: *bold*, _italics_, `code`, quotes and lists.
-  if (!parsed) return <MessageText chat text={text} />;
+  if (!parsed) return <MessageText chat inMenuBubble text={text} />;
   const where = [parsed.forward.where, parsed.forward.when].filter(Boolean).join(" · ");
   return <>
     <View accessible accessibilityLabel={`Forwarded message from ${parsed.forward.author}, ${where}. ${parsed.forward.quote || "No text"}`} style={styles.forwardCard}>
       <Text style={styles.forwardLabel}>Forwarded from {parsed.forward.author}<Text style={styles.forwardWhere}> · {where}</Text></Text>
       {parsed.forward.quote ? <Text selectable={Platform.OS === "web"} style={styles.body}>{parsed.forward.quote}</Text> : null}
     </View>
-    {parsed.rest ? <MessageText chat text={parsed.rest} /> : null}
+    {parsed.rest ? <MessageText chat inMenuBubble text={parsed.rest} /> : null}
   </>;
 }
 
@@ -276,6 +282,9 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
     ...(mine && onEdit ? [{ text: "Edit", onPress: onEdit }] : []),
     ...(mine && onDelete ? [{ text: "Delete", onPress: onDelete }] : []),
   ];
+  // Like Slack on a phone: a tap on a message opens its thread; touch and hold still opens the actions.
+  // On a computer a click stays free for selecting text; the thread is in the menu and under the message.
+  const tapOpensThread = Platform.OS !== "web" && available && onOpenThread ? onOpenThread : undefined;
   const actions = () => {
     if (!available || (!post.text && !onReact && !options.length)) return;
     Keyboard.dismiss();
@@ -308,10 +317,10 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
   const label = `${post.user.name}, ${when(post.createdAt)}${deviceLabel ? (post.sourceDevice?.kind === "agent" ? ", posted by an agent" : `, sent from ${deviceLabel}`) : ""}. ${post.deleted ? "Message deleted" : working ? "Working on it…" : post.text}${post.replyCount ? `. ${post.replyCount} ${post.replyCount === 1 ? "reply" : "replies"}` : ""}`;
   return (
     <>
-    <Pressable onLongPress={actions} delayLongPress={400} accessible={false} {...context.bind(contextItems)} style={[styles.post, compact && styles.postCompact, (menu || context.open) && { backgroundColor: colors.surface }]}>
+    <Pressable testID={`message-${post.id}`} onPress={tapOpensThread} onLongPress={actions} delayLongPress={400} accessible={false} {...context.bind(contextItems)} style={({ pressed }) => [styles.post, compact && styles.postCompact, (menu || context.open || (pressed && tapOpensThread)) && { backgroundColor: colors.surface }]}>
       <View style={styles.gutter}>{compact ? null : <Avatar name={post.user.name} agent={post.user.agent} userId={post.user.id} tapToMessage />}</View>
       <View style={styles.postContent}>
-        <View accessible accessibilityLabel={label} accessibilityHint={available ? "Touch and hold to copy, select text, react or open message actions" : undefined} accessibilityActions={available ? [{ name: "activate", label: "Copy, react or open message actions" }] : undefined} onAccessibilityAction={actions}>
+        <View accessible accessibilityLabel={label} accessibilityHint={available ? (tapOpensThread ? "Opens the thread. Touch and hold to copy, select text, react or open message actions" : "Touch and hold to copy, select text, react or open message actions") : undefined} accessibilityActions={available ? [{ name: "activate", label: tapOpensThread ? "Open thread" : "Copy, react or open message actions" }, ...(tapOpensThread ? [{ name: "longpress", label: "Copy, react or open message actions" }] : [])] : undefined} onAccessibilityAction={e => (tapOpensThread && e.nativeEvent.actionName === "activate" ? tapOpensThread() : actions())}>
         {!compact || deviceLabel ? (
           <View style={styles.meta}>
             {!compact ? <Text style={styles.author}>{post.user.name}</Text> : null}
@@ -326,7 +335,7 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
         ) : working || (post.pending && !post.text && !post.attachments?.length) ? (
           <Text style={styles.deleted}>Working…</Text>
         ) : post.text ? (
-          post.user.agent ? <MessageText text={post.text} /> : <ForwardedPost text={post.text} />
+          post.user.agent ? <MessageText inMenuBubble text={post.text} /> : <ForwardedPost text={post.text} />
         ) : null}
         {!post.deleted ? tweetIds(post.text).map(id => <TweetEmbed key={id} id={id} />) : null}
         {!post.deleted ? mediaEmbeds(post.text).map(embed => <MediaEmbed key={embed.key} embed={embed} />) : null}
@@ -352,7 +361,7 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
             </Pressable>;
           })}
         </View> : null}
-        {available && Platform.OS === "web" ? <Pressable accessibilityRole="button" accessibilityLabel={`Actions for ${post.user.name}'s message`} onPress={actions} style={styles.more}><Text style={styles.moreText}>•••</Text></Pressable> : null}
+        {available && Platform.OS === "web" ? <Pressable accessibilityRole="button" accessibilityLabel={`Actions for ${post.user.name}'s message`} onPress={actions} style={styles.more}><Text selectable={false} style={styles.moreText}>•••</Text></Pressable> : null}
         {onOpenThread && post.alsoInChannel && !post.deleted ? (
           <Pressable accessibilityRole="button" accessibilityLabel={`${replyContext(post)}. View thread`} onPress={onOpenThread} style={styles.replies}>
             <Text style={styles.repliesText}>View thread</Text>
@@ -386,7 +395,9 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
               <Pressable testID="message-select-text" accessibilityRole="button" onPress={() => setSelecting(!selecting)} style={styles.menuAction}>
                 <Text style={styles.menuActionText}>{selecting ? "Back to message actions" : "Select text"}</Text>
               </Pressable>
-              <Text key={selecting ? "full-text" : "preview"} testID="message-selectable-text" selectable={selecting} numberOfLines={selecting ? undefined : 4} style={styles.menuPreview}>{post.text}</Text>
+              {selecting
+                ? <SelectableText key="full-text" testID="message-selectable-text" style={styles.selectableText}>{post.text}</SelectableText>
+                : <Text key="preview" testID="message-selectable-text" numberOfLines={4} style={styles.menuPreview}>{post.text}</Text>}
             </> : null}
             {account && !selecting ? <SaveMessageAction key={`${accountId(account)}:${account.token}:${account.serverKey}:${post.id}`} account={account} messageId={post.id}
               onOpenSaved={() => { setMenu(false); router.push("/saved"); }} /> : null}
@@ -442,6 +453,7 @@ export function Composer({
   canSendEmpty = false,
   commands,
   holdToQueue = false,
+  freeOnSend = false,
   onStop,
   draftKey: conversationDraftKey,
   projectId,
@@ -479,6 +491,11 @@ export function Composer({
   commands?: { channel: boolean; agent?: boolean };
   /** The agent is replying: a tap on Send adds the message to that reply, touch and hold sends it after. */
   holdToQueue?: boolean;
+  /**
+   * The screen shows a sent message itself and sends them in turn (lib/send-queue.ts), so the box is free for
+   * the next message the moment one leaves: no spinner, and Send works while an earlier message is on its way.
+   */
+  freeOnSend?: boolean;
   /** With nothing typed, Send becomes Stop while the agent can be stopped. */
   onStop?: () => void;
   /** Keeps the unsent text for this conversation when you leave and come back. */
@@ -610,7 +627,30 @@ export function Composer({
   // @names of people here (and @agent) show in blue as you type: a colored copy of the text sits
   // exactly under a see-through input (inputs can't color part of their text on the web).
   const mentionNames = new Set([...members.map(p => mentionText(p.name).toLowerCase()), ...(mentionAgent ? agentMentionNames() : [])]);
-  const slash = commands && !busy && !onCancel ? slashMatches(text, commands.channel, commands.agent === true, features) : null;
+  const slash = commands && focused && !busy && !onCancel ? slashMatches(text, commands.channel, commands.agent === true, features) : null;
+  // The people or commands on offer are one list, drawn over the conversation just above this box, so the
+  // conversation does not move when it opens or closes (lib/suggestion-list.ts). Escape closes it until the
+  // text changes; the arrow keys move within the options it shows now.
+  const listId = useId();
+  const [closedFor, setClosedFor] = useState<string | null>(null);
+  // Closed for the text as it stood. Once the text is anything else the list is free to open again, also when
+  // the same text is typed a second time.
+  if (closedFor !== null && closedFor !== text) setClosedFor(null);
+  const [moved, setMoved] = useState<{ options: string; index: number } | null>(null);
+  const [listHeight, setListHeight] = useState(SUGGESTIONS_MAX_HEIGHT);
+  const options = slash?.length ? `/${slash.map(c => c.name).join(" ")}` : match ? `@${suggestions.map(p => p.id).join(" ")}` : null;
+  const movedTo = moved?.options === options ? moved.index : null;
+  const list = options === null || closedFor === text ? null : slash?.length
+    ? { kind: "command" as const, count: slash.length, active: activeOption("command", slash.length, movedTo) }
+    : { kind: "mention" as const, count: suggestions.length, active: activeOption("mention", suggestions.length, movedTo) };
+  // An option is shown as the one a key will pick only where a key can pick it: with a keyboard and a pointer.
+  const active = list && enterSends ? list.active : -1;
+  const activeId = active >= 0 ? `${listId}-${active}` : undefined;
+  // The arrow keys can move past what is in view: bring the option they are on into it.
+  useEffect(() => {
+    if (Platform.OS !== "web" || !activeId || typeof document === "undefined") return;
+    (document.getElementById(activeId) as { scrollIntoView?: (how: { block: "nearest" }) => void } | null)?.scrollIntoView?.({ block: "nearest" });
+  }, [activeId]);
   const latest = useRef({ text, selection });
   useLayoutEffect(() => { latest.current = { text, selection }; });
   // A caret placed by picking a mention or a command is handed to the box once, then let go, so the box is the
@@ -639,6 +679,10 @@ export function Composer({
     setSelection(caret); setInsertedSelection(caret);
     input.current?.focus();
   };
+  const pickOption = (index: number) => {
+    if (list?.kind === "command") { const command = slash?.[index]; if (command) chooseCommand(command.name); }
+    else { const person = suggestions[index]; if (person) choose(person); }
+  };
   const dictation = useDictation((spoken) => {
     const { text: current, selection: at } = latest.current;
     const next = insertDictation(current, Math.min(at.end, current.length), spoken);
@@ -659,7 +703,9 @@ export function Composer({
     let typedQueue = false;
     const restore = () => typedQueue ? `/queue ${body}` : body;
     const scope = sendScope.current;
-    const uploads = files.map(({ name, data, document }) => document ? { name, data, document } : { name, data });
+    const uploads = files.map(({ name, data, document, width, height }) => document ? { name, data, document } : { name, data, ...(width && height ? { width, height } : {}) });
+    // A plain new message on a screen that asked for it (`freeOnSend`): the box does not wait for the answer.
+    let free = false;
     try {
       // stop() emits its final transcript asynchronously. The commit callback
       // updates latest synchronously, before finish resolves on the end event.
@@ -694,16 +740,20 @@ export function Composer({
       }
       if (clearNow) setText("");
       touch.current.sentAt = Date.now();
+      // One with files, an edit or a command still holds the box until it is answered.
+      free = freeOnSend && clearNow && !uploads.length && !command;
+      if (free) { sending.current = false; setBusy(false); }
       const ok = await onSend(body, uploads, how);
       if (scope !== sendScope.current) return;
-      if (ok) { if (!clearNow) setText(""); setFiles([]); setInsertedSelection(undefined); }
-      else if (clearNow) setText(current => current || restore());
+      // The answer to a freed send leaves alone whatever is being written or sent by now.
+      if (ok) { if (!clearNow) setText(""); if (!free) { setFiles([]); setInsertedSelection(undefined); } }
+      else if (clearNow) setText(current => backInBox(current, restore()));
     } catch {
       if (scope !== sendScope.current) return;
-      if (clearNow) setText(current => current || restore());
+      if (clearNow) setText(current => backInBox(current, restore()));
       setFileError("Couldn't send. Your draft is saved here; try again");
     }
-    finally { sending.current = false; setBusy(false); }
+    finally { if (!free) { sending.current = false; setBusy(false); } }
   };
   const highlight = mentionNames.size > 0 && hasMention(text, mentionNames);
   const deletesWhenEmpty = !!onCancel && !!onDeleteEmpty;
@@ -735,39 +785,47 @@ export function Composer({
     else if (act === "stop") onStop?.();
   };
   return (
-    <View style={[styles.composerWrap, wide && styles.composerWrapWide, { paddingBottom: wide ? space.md : keyboard ? space.xs : Math.max(insets.bottom, space.xs) }]}>
+    <View style={[styles.composerWrap, wide && styles.composerWrapWide, { paddingBottom: wide ? space.md : keyboard ? space.xs : Math.max(insets.bottom, space.xs) }]}
+      // How far down the screen this box starts is the room the list has over it.
+      onLayout={event => setListHeight(suggestionsHeight(event.nativeEvent.layout.y))}>
       {fileError || dictation.error ? <Text accessibilityRole="alert" style={styles.composerError}>{fileError || dictation.error}</Text> : null}
-      {slash?.length ? (
-        <ScrollView keyboardShouldPersistTaps="always" style={styles.suggestions} accessibilityLabel="Commands" {...KEEP_COMPOSER_FOCUS}>
-          {slash.map(c => (
-            <Pressable key={c.name} testID={`command-${c.name}`} accessibilityRole="button" accessibilityLabel={`/${c.name}: ${c.description}`} onPress={() => chooseCommand(c.name)}
-              style={({ pressed }) => [styles.suggestion, pressed && { backgroundColor: colors.surface }]}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.suggestionName}>/{c.name}{c.hint ? <Text style={styles.suggestionHandle}> {c.hint}</Text> : null}</Text>
-                <Text style={styles.suggestionHandle}>{c.description}</Text>
-              </View>
-            </Pressable>
-          ))}
-        </ScrollView>
-      ) : null}
-      {match ? (
-        <ScrollView keyboardShouldPersistTaps="always" style={styles.suggestions} accessibilityLabel="Mention suggestions" {...KEEP_COMPOSER_FOCUS}>
-          {suggestions.length ? suggestions.map(person => person.agent ? (
-            // The agent has its own row: tinted, labelled "Agent", and it says every name that reaches it.
-            <Pressable key={person.id} testID="mention-agent" accessibilityRole="button" accessibilityLabel={`Ask the agent. Mention it as ${AGENT_HANDLES.map(handle => `@${handle}`).join(", ")}`} onPress={() => choose(person)} style={({ pressed }) => [styles.suggestion, styles.agentSuggestion, pressed && { opacity: 0.8 }]}>
-              <View style={styles.agentAvatar}><AppIcon name="sparkles" size={17} color={colors.onPrimary} /></View>
-              <View style={{ flex: 1, marginLeft: space.sm }}>
-                <Text style={styles.suggestionName}>Agent</Text>
-              </View>
-              <Text style={styles.agentSuggestionTag}>@{AGENT_HANDLES[0]}</Text>
-            </Pressable>
-          ) : (
-            <Pressable key={person.id} testID={`mention-${person.id}`} accessibilityRole="button" accessibilityLabel={`Mention ${person.name}`} onPress={() => choose(person)} style={({ pressed }) => [styles.suggestion, pressed && { backgroundColor: colors.surface }]}>
-              <Avatar name={person.name} userId={person.id} size={30} />
-              <View style={{ flex: 1, marginLeft: space.sm }}><Text style={styles.suggestionName}>{person.name}</Text><Text style={styles.suggestionHandle}>{mentionText(person.name)}</Text></View>
-            </Pressable>
-          )) : <Text style={styles.noSuggestions}>No matches</Text>}
-        </ScrollView>
+      {list ? (
+        // Over the conversation, its bottom edge on this box's top edge. Nothing in the page makes room for it.
+        <View style={[styles.suggestionsAnchor, wide && styles.suggestionsAnchorWide]}>
+          <View style={styles.suggestionsCard}>
+            <ScrollView nativeID={listId} keyboardShouldPersistTaps="always" style={[styles.suggestions, { maxHeight: listHeight }]} accessibilityRole={Platform.OS === "web" ? "listbox" : undefined}
+              accessibilityLabel={list.kind === "command" ? "Commands" : "Mention suggestions"} {...KEEP_COMPOSER_FOCUS}>
+              {list.kind === "command" ? slash?.map((c, i) => (
+                <Pressable key={c.name} nativeID={`${listId}-${i}`} testID={`command-${c.name}`} accessibilityRole={Platform.OS === "web" ? "option" : "button"} accessibilityLabel={`/${c.name}: ${c.description}`}
+                  accessibilityState={{ selected: i === active }} aria-selected={i === active} onPress={() => chooseCommand(c.name)}
+                  style={state => [styles.suggestion, (state as { hovered?: boolean }).hovered && styles.suggestionHovered, i === active && styles.suggestionActive, state.pressed && { backgroundColor: colors.surface }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.suggestionName}>/{c.name}{c.hint ? <Text style={styles.suggestionHandle}> {c.hint}</Text> : null}</Text>
+                    <Text style={styles.suggestionHandle}>{c.description}</Text>
+                  </View>
+                </Pressable>
+              )) : suggestions.length ? suggestions.map((person, i) => person.agent ? (
+                // The agent has its own row: tinted, labelled "Agent", and it says every name that reaches it.
+                <Pressable key={person.id} nativeID={`${listId}-${i}`} testID="mention-agent" accessibilityRole={Platform.OS === "web" ? "option" : "button"} accessibilityLabel={`Ask the agent. Mention it as ${AGENT_HANDLES.map(handle => `@${handle}`).join(", ")}`}
+                  accessibilityState={{ selected: i === active }} aria-selected={i === active} onPress={() => choose(person)}
+                  style={state => [styles.suggestion, styles.agentSuggestion, (state as { hovered?: boolean }).hovered && styles.suggestionHovered, i === active && styles.suggestionActive, state.pressed && { opacity: 0.8 }]}>
+                  <View style={styles.agentAvatar}><AppIcon name="sparkles" size={17} color={colors.onPrimary} /></View>
+                  <View style={{ flex: 1, marginLeft: space.sm }}>
+                    <Text style={styles.suggestionName}>Agent</Text>
+                  </View>
+                  <Text style={styles.agentSuggestionTag}>@{AGENT_HANDLES[0]}</Text>
+                </Pressable>
+              ) : (
+                <Pressable key={person.id} nativeID={`${listId}-${i}`} testID={`mention-${person.id}`} accessibilityRole={Platform.OS === "web" ? "option" : "button"} accessibilityLabel={`Mention ${person.name}`}
+                  accessibilityState={{ selected: i === active }} aria-selected={i === active} onPress={() => choose(person)}
+                  style={state => [styles.suggestion, (state as { hovered?: boolean }).hovered && styles.suggestionHovered, i === active && styles.suggestionActive, state.pressed && { backgroundColor: colors.surface }]}>
+                  <Avatar name={person.name} userId={person.id} size={30} />
+                  <View style={{ flex: 1, marginLeft: space.sm }}><Text style={styles.suggestionName}>{person.name}</Text><Text style={styles.suggestionHandle}>{mentionText(person.name)}</Text></View>
+                </Pressable>
+              )) : <Text style={styles.noSuggestions}>No matches</Text>}
+            </ScrollView>
+          </View>
+        </View>
       ) : null}
       <View style={[styles.composer, wide && styles.composerWide, focused && (wide ? styles.composerWideFocused : styles.composerFocused)]}>
         {onCancel ? <Text style={styles.editingLabel}>Editing message</Text> : null}
@@ -781,6 +839,7 @@ export function Composer({
           autoFocus={autoFocus}
           testID="composer-input"
           accessibilityLabel={placeholder}
+          {...(Platform.OS === "web" && list ? { "aria-autocomplete": "list" as const, "aria-controls": listId, "aria-activedescendant": activeId } : {})}
           value={text}
           onChangeText={(t) => {
             // Browsers don't reliably fire `select` while typing, so read the
@@ -813,6 +872,15 @@ export function Composer({
           selectionColor={Platform.OS === "web" ? undefined : colors.blue}
           onKeyPress={Platform.OS === "web" ? (event) => {
             const key = event.nativeEvent as unknown as KeyboardEvent;
+            // While the list is open the arrow keys move in it, Tab and Enter pick from it and Escape closes it.
+            const listAction = list ? suggestionKey(key, list, enterSends) : null;
+            if (list && listAction) {
+              event.preventDefault();
+              if (listAction.do === "close") setClosedFor(latest.current.text);
+              else if (listAction.do === "move") setMoved({ options: options!, index: listAction.to });
+              else pickOption(listAction.index);
+              return;
+            }
             // Escape leaves an edit unsaved, like Slack.
             if (onCancel && key.key === "Escape" && !key.isComposing && !busy && !sending.current) {
               event.preventDefault();
@@ -827,11 +895,10 @@ export function Composer({
               onEditLast();
               return;
             }
-            // Return sends (or picks the top mention); Shift+Return adds a line.
+            // Return sends (with the list open it picked from it, above); Shift+Return adds a line.
             if (!enterSends || key.key !== "Enter" || key.shiftKey || key.isComposing) return;
             event.preventDefault();
-            if (suggestions[0]) choose(suggestions[0]);
-            else void send();
+            void send();
           } : undefined}
           blurOnSubmit={false}
         />
@@ -864,9 +931,11 @@ export function Composer({
             accessibilityHint={canStop ? "Stops the reply in progress. What it wrote so far stays" : holdHint ? "Adds it to the reply in progress. Touch and hold to send it after that reply instead" : undefined}
             accessibilityState={{ disabled: off && !canStop, busy }} onPressIn={sendOnPressIn} onPressOut={sendOnPressOut} onPress={sendOnPress} onLongPress={holdToQueue ? sendOnLongPress : undefined} delayLongPress={400}
             accessibilityActions={holdHint ? [{ name: "longpress", label: "Send after the current reply" }] : undefined} onAccessibilityAction={event => { if (event.nativeEvent.actionName === "longpress" && ready()) void send("queue"); }}
-            disabled={busy || picking} style={({ pressed }) => [styles.send, off && !canStop && styles.sendDisabled, pressed && (!off || canStop) && { backgroundColor: colors.primaryPressed }]}>
-            {busy ? <ActivityIndicator size="small" color={colors.muted} /> : canStop ? <View style={styles.stopMark} />
-              : sendLabel === "Send" ? <AppIcon name="send" size={19} color={off ? colors.muted : colors.onPrimary} /> : <Text style={[styles.sendText, off && { color: colors.muted }]}>{sendLabel}</Text>}
+            disabled={busy || picking} style={({ pressed }) => sendLabel === "Send" || canStop || busy ? styles.sendTarget : [styles.send, off && !canStop && styles.sendDisabled, pressed && (!off || canStop) && { backgroundColor: colors.primaryPressed }]}>
+            {({ pressed }) => sendLabel === "Send" || canStop || busy
+              ? busy ? <ActivityIndicator size="small" color={colors.muted} />
+                : <SendBall mark={canStop ? "stop" : "send"} off={off && !canStop} pressed={pressed} offFill={colors.subtle} offInk={colors.muted} />
+              : <Text style={[styles.sendText, off && { color: colors.muted }]}>{sendLabel}</Text>}
           </Pressable>
         </View>
       </View>
@@ -880,13 +949,13 @@ export function ConversationRow({ c, onPress, onLongPress, longPressHint, access
   const me = useSession().account?.user.id;
   const preview = conversationPreview(c, me);
   const groupPeople = (c.members ?? []).filter(p => !p.agent && p.id !== me);
-  const bold = c.unread > 0 && !c.archived;
+  const bold = c.unread > 0 && !c.archived && !c.muted;
   const title = c.kind === "channel" ? `#${c.title}` : c.title;
   return (
     <View style={[styles.rowContainer, compact && styles.compactRowContainer]}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${title}${c.private && c.kind === "channel" ? ", private" : ""}${bold ? `, ${c.unread} unread` : ""}${compact ? "" : `. ${preview}`}`}
+        accessibilityLabel={`${title}${c.private && c.kind === "channel" ? ", private" : ""}${c.muted ? ", muted" : ""}${bold ? `, ${c.unread} unread` : ""}${compact ? "" : `. ${preview}`}`}
         onPress={onPress}
         onLongPress={onLongPress}
         accessibilityHint={longPressHint ?? (onLongPress ? "Swipe left or long press to archive or delete" : undefined)}
@@ -897,7 +966,8 @@ export function ConversationRow({ c, onPress, onLongPress, longPressHint, access
         {c.kind === "dm" ? (groupPeople.length > 1 ? <GroupAvatar people={groupPeople} size={compact ? 26 : 40} /> : <Avatar name={c.title} agent={c.agentDm} userId={dmPeer(c, me)} size={compact ? 26 : 40} />) : <View style={[styles.channelGlyph, compact && styles.compactChannelGlyph]}><AppIcon name={c.private ? "lock" : "hash"} size={compact ? 19 : 22} color={bold ? colors.ink : colors.muted} /></View>}
         <View style={styles.rowCopy}>
           <View style={styles.rowTop}>
-            <Text style={[styles.rowTitle, bold && styles.bold]}>{c.title}</Text>
+            <Text style={[styles.rowTitle, bold && styles.bold, c.muted && { color: colors.muted }]}>{c.title}</Text>
+            {c.muted ? <AppIcon name="bellOff" size={15} color={colors.muted} /> : null}
             {!compact ? <Text style={styles.time}>{when(c.updatedAt)}</Text> : null}
             {compact && bold ? <View style={styles.badge}><Text style={styles.badgeText}>{c.unread > 99 ? "99+" : c.unread}</Text></View> : null}
           </View>
@@ -918,8 +988,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   dateSeparator: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.side, paddingVertical: space.sm, marginVertical: space.xxs },
   dateLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.line },
   dateLabel: { ...typography.captionStrong, color: colors.ink, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, borderRadius: radius.pill, paddingHorizontal: space.sm, paddingVertical: space.xxs },
-  // The same row as the day's, in the unread badges' color: a rule across, ending in a filled "New".
-  unreadSeparator: { flexDirection: "row", alignItems: "center", gap: space.xs, paddingHorizontal: space.side, paddingVertical: space.xs },
+  // The same row as the day's, in the unread badges' color: a rule across that runs right into a filled "New".
+  unreadSeparator: { flexDirection: "row", alignItems: "center", paddingHorizontal: space.side, paddingVertical: space.xs },
   unreadRule: { flex: 1, height: 1, backgroundColor: colors.primary },
   unreadLabel: { ...typography.captionStrong, color: colors.onPrimary, backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: space.sm, paddingVertical: space.xxs, overflow: "hidden" },
   reactions: { flexDirection: "row", flexWrap: "wrap", gap: space.xxs, marginTop: 0 },
@@ -937,6 +1007,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   copyStatus: { ...typography.caption, color: colors.muted, marginVertical: space.xs },
   menuAuthor: { ...typography.bodyStrong, color: colors.ink, marginBottom: space.xs },
   menuPreview: { ...typography.body, color: colors.muted, marginTop: space.xs, marginBottom: space.md },
+  selectableText: { ...typography.body, color: colors.ink, marginTop: space.xs, marginBottom: space.md },
   reactionWho: { ...typography.body, color: colors.ink, paddingVertical: space.xxs },
   menuTitle: { ...typography.label, color: colors.muted, marginTop: space.xs, marginBottom: space.xs },
   emojiGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: space.xxs, marginBottom: space.sm },
@@ -973,8 +1044,16 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   attachmentButton: { minHeight: 44, minWidth: 44, justifyContent: "center", alignItems: "center", borderRadius: radius.sm },
   attachmentButtonSelected: { backgroundColor: colors.surface },
   attachmentText: { ...typography.captionStrong, color: colors.ink },
-  suggestions: { maxHeight: 190, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
-  suggestion: { flexDirection: "row", alignItems: "center", minHeight: 56, paddingHorizontal: space.side, paddingVertical: space.xs },
+  // The list of people or commands: over the conversation, lined up with the box, on the same raised surface as a menu.
+  suggestionsAnchor: { position: "absolute", left: space.sm, right: space.sm, bottom: "100%", zIndex: 1 },
+  suggestionsAnchorWide: { left: space.side + space.xxs, right: space.side + space.xxs, maxWidth: 480 },
+  suggestionsCard: { backgroundColor: colors.background, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.borderStrong, boxShadow: `0 10px 28px -6px ${colors.scrim}` },
+  // Scrolling to its end does not carry on into the conversation under it.
+  suggestions: { borderRadius: radius.md, ...(Platform.OS === "web" ? { overscrollBehavior: "contain" } as object : {}) },
+  // Every row keeps room at its left edge for the bar that marks the option a key will pick, so marking one moves nothing.
+  suggestion: { flexDirection: "row", alignItems: "center", minHeight: SUGGESTION_ROW_HEIGHT, paddingHorizontal: space.side, paddingVertical: space.xs, borderLeftWidth: 3, borderLeftColor: "transparent" },
+  suggestionHovered: { backgroundColor: colors.surface },
+  suggestionActive: { backgroundColor: colors.subtle, borderLeftColor: colors.primary },
   agentSuggestion: { backgroundColor: colors.blueSoft, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   agentSuggestionTag: { ...typography.captionStrong, color: colors.blueDark, backgroundColor: colors.background, paddingHorizontal: space.xs, paddingVertical: space.xxs, borderRadius: radius.sm, overflow: "hidden" },
   suggestionName: { ...typography.bodyStrong, color: colors.ink },
@@ -1008,9 +1087,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   // One step of alpha is invisible and not zero.
   inputOverlay: { color: "#00000001", backgroundColor: "transparent", ...(Platform.OS === "web" ? { caretColor: colors.ink, outlineStyle: "none" } as object : {}) },
   send: { minHeight: 44, minWidth: 44, paddingHorizontal: space.sm, borderRadius: radius.sm, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  sendTarget: { minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center" },
   sendDisabled: { backgroundColor: colors.subtle },
-  // A solid square: stop. Drawn, not the outlined icon, so it can't be read as an empty box.
-  stopMark: { width: 12, height: 12, backgroundColor: colors.onPrimary },
   sendText: { ...typography.label, color: colors.onPrimary },
   cancel: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.xs },
   cancelText: { ...typography.label, color: colors.blue, ...linkUnderline },

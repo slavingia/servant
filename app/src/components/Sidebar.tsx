@@ -4,7 +4,7 @@ import { router, useGlobalSearchParams, usePathname, type Href } from "expo-rout
 import { api, type Conversation } from "../lib/server";
 import * as Clipboard from "expo-clipboard";
 import { isDesktop } from "../lib/desktop";
-import { useLiveList, useLivePresence, useLiveUnread } from "../lib/live";
+import { useLiveActions, useLiveList, useLivePresence, useLiveUnread } from "../lib/live";
 import { groupPresenceDot } from "../lib/message-status";
 import { refreshProjects, useProjects } from "../lib/projects-store";
 import { refreshMeetings, useMeetings } from "../lib/meetings-store";
@@ -60,6 +60,9 @@ export function Sidebar() {
   const { conversations, error, connected } = useLiveList();
   const unread = useLiveUnread();
   const { expired: sessionExpired } = useSessionExpiry();
+  // "Reconnecting…" is for a connection that was up and dropped. While the app is opening it has not connected
+  // yet, and saying so flashed under the name on every launch; Home's own line waits for the list the same way.
+  const here = connected || (conversations === null && !error && !sessionExpired);
   const { sort, pending } = useChannelSort();
   const pathname = usePathname();
   // Thread, details and files belong to a channel or DM; keep it highlighted.
@@ -128,15 +131,15 @@ export function Sidebar() {
       {/* Your Deep work switch (deep-work.ts), just above your name. */}
       <DeepWorkSwitch onNavy />
       <Pressable accessibilityRole="button" accessibilityLabel={`${account.user.name}${connected && deepWork ? ", Deep work" : ""}, your profile and settings`} onPress={() => go(pathname, "/you")}
-        style={state => [styles.footer, (hovered(state) || ["/you", "/notifications", "/feedback", "/leaderboard", "/loops", "/entitlements"].includes(pathname)) && styles.hovered]}>
+        style={state => [styles.footer, (hovered(state) || ["/you", "/notifications", "/feedback", "/leaderboard", "/loops", "/feed", "/entitlements"].includes(pathname)) && styles.hovered]}>
         <View>
           <Avatar name={account.user.name} userId={account.user.id} size={30} />
           {/* Your own badge: the moon while you're in deep work (deep-work.ts), so the quiet you chose is what you see too. */}
-          <PresenceDot status={!connected ? "off" : deepWork ? "deepWork" : "online"} size={10} ring={colors.navy} disc={colors.navy} glyph={colors.muted} offColor={colors.borderStrong} style={styles.status} />
+          <PresenceDot status={!here ? "off" : deepWork ? "deepWork" : "online"} size={10} ring={colors.navy} disc={colors.navy} glyph={colors.muted} offColor={colors.borderStrong} style={styles.status} />
         </View>
         <View style={styles.footerCopy}>
           <Text style={styles.footerName}>{account.user.name}</Text>
-          <Text style={styles.footerRole}>{connected ? deepWork ? "Deep work" : account.user.role === "owner" ? "Owner" : "Member" : sessionExpired ? "Session ended" : "Reconnecting…"}</Text>
+          <Text style={styles.footerRole}>{here ? deepWork ? "Deep work" : account.user.role === "owner" ? "Owner" : "Member" : sessionExpired ? "Session ended" : "Reconnecting…"}</Text>
         </View>
       </Pressable>
       <NewProjectDialog visible={naming} onClose={() => setNaming(false)} onCreated={id => go(pathname, { pathname: "/project", params: { id } })} />
@@ -180,8 +183,9 @@ function ConversationItem({ c, selected, onPress }: { c: Conversation; selected:
   const styles = useStyles();
   const colors = useSidebarColors();
   const { presence } = useLivePresence();
+  const { refresh } = useLiveActions();
   const { account } = useSession();
-  const bold = c.unread > 0;
+  const bold = c.unread > 0 && !c.muted;
   // The other people in a direct message: a green dot when one is available, the moon when one is in deep work (deep-work.ts).
   const peers = c.kind === "dm" ? (c.members ?? []).filter(person => !person.agent && person.id !== account?.user.id) : [];
   const dot = groupPresenceDot(peers.map(person => presence[person.id] ?? person));
@@ -192,6 +196,7 @@ function ConversationItem({ c, selected, onPress }: { c: Conversation; selected:
     return [
       { label: "Open", onPress: onPress },
       ...(bold && account ? [{ label: "Mark as read", onPress: () => { void api.markRead(account, c.id); } }] : []),
+      ...(account ? [{ label: c.muted ? "Unmute" : "Mute", onPress: () => { void api.muteConversation(account, c.id, !c.muted).then(() => refresh()); } }] : []),
       ...(c.kind === "channel" ? [{ label: "Channel details", onPress: () => router.push({ pathname: "/channel-info", params: { id: c.id } }) }] : []),
       { label: "Files", onPress: () => router.push({ pathname: "/files", params: { kind: "conversation", id: c.id, title: c.title } }) },
       ...(web ? [{ separator: true as const }, { label: "Copy link", onPress: () => { void Clipboard.setStringAsync(`${window.location.origin}/c/${c.id}`); } }] : []),
@@ -199,7 +204,7 @@ function ConversationItem({ c, selected, onPress }: { c: Conversation; selected:
   };
   return (
     <>
-    <Pressable {...context.bind(contextItems)} accessibilityRole="button" accessibilityLabel={`${c.kind === "channel" ? "#" : ""}${c.title}${dot === "deepWork" ? ", Deep work" : ""}${bold ? `, ${c.unread} unread` : ""}`} accessibilityState={{ selected }} aria-current={selected ? "page" : undefined} onPress={onPress}
+    <Pressable {...context.bind(contextItems)} accessibilityRole="button" accessibilityLabel={`${c.kind === "channel" ? "#" : ""}${c.title}${dot === "deepWork" ? ", Deep work" : ""}${c.muted ? ", muted" : ""}${bold ? `, ${c.unread} unread` : ""}`} accessibilityState={{ selected }} aria-current={selected ? "page" : undefined} onPress={onPress}
       style={state => [styles.item, (hovered(state) || context.open) && styles.hovered, selected && styles.selected]}>
       <View style={styles.itemIcon}>
         {c.kind === "dm" ? <View>
@@ -207,7 +212,8 @@ function ConversationItem({ c, selected, onPress }: { c: Conversation; selected:
           <PresenceDot status={dot} size={8} ring={colors.navy} disc={colors.navy} glyph={colors.muted} />
         </View> : <AppIcon name={c.private ? "lock" : "hash"} size={15} color={selected || bold ? colors.ink : colors.muted} />}
       </View>
-      <Text style={[styles.itemLabel, bold && styles.unreadLabel, selected && styles.selectedLabel]}>{c.title}</Text>
+      <Text style={[styles.itemLabel, bold && styles.unreadLabel, selected && styles.selectedLabel, c.muted && !selected && { opacity: 0.55 }]}>{c.title}</Text>
+      {c.muted ? <AppIcon name="bellOff" size={14} color={colors.muted} /> : null}
       {bold ? <Text style={styles.badge}>{c.unread > 99 ? "99+" : c.unread}</Text> : null}
     </Pressable>
     {context.menu}

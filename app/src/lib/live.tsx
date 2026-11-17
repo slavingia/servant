@@ -15,6 +15,7 @@ import { countLiveEvent } from "./live-counts";
 import { followLive, warmConversations } from "./conversation-cache";
 import { warmChats } from "./chat-cache";
 import { applyReadNotes, noteRead, readNotes } from "./read-cache";
+import { isUnreachable } from "./unreachable";
 
 // What a screen can ask the connection to do. These never change while you stay signed in, so a
 // screen that only listens or refreshes (an open conversation, a thread) is not re-rendered when
@@ -33,7 +34,7 @@ type LiveActions = {
   // change off again (when the server has answered, or refused). See lib/row-changes.ts.
   change: (id: string, change: RowChange | null) => void;
 };
-type LiveList = { conversations: Conversation[] | null; error: string | null; connected: boolean };
+type LiveList = { conversations: Conversation[] | null; error: string | null; connected: boolean; unreachable: boolean };
 type LivePresence = { presence: Record<string, Presence>; connected: boolean };
 type LiveUnread = { channels: number; messages: number; agent: number };
 
@@ -53,7 +54,11 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [conversations, setConversations] = useState<Conversation[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
+  // The server could not be reached at all (components/OfflineBanner.tsx).
+  // Kept per account, so switching servers never carries it over.
+  const [unreachableFor, setUnreachableFor] = useState("");
   const identity = account ? JSON.stringify([account.serverKey, account.token, account.user.id]) : "";
+  const unreachable = !!identity && unreachableFor === identity;
   const [presenceState, setPresenceState] = useState<{ identity: string; people: Record<string, Presence> }>({ identity: "", people: {} });
   const subs = useRef(new Set<(e: LiveEvent) => void>());
   const open = useRef<string | null>(null);
@@ -104,6 +109,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       const list = applyReadNotes(answered, readNotes, Date.now());
       if (open.current && AppState.currentState === "active") noteRead(readNotes, open.current, list.find(c => c.id === open.current)?.lastMessage?.id, Date.now());
       setConversations(current => reuseEqual(current, list.map((c) => (c.id === open.current && AppState.currentState === "active" ? { ...c, unread: 0 } : c))));
+      setUnreachableFor("");
       setError(null);
       // The conversations most likely to be opened next (unread first) are loaded quietly, one at a time, so
       // opening one shows its messages at once instead of a spinner (lib/conversation-cache.ts). Asked on every
@@ -115,6 +121,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       if (isSessionExpired(e)) return; // the confirm screen is up; keep what's on screen
       // Keep what's on screen; only say the refresh failed.
       setError(e instanceof ServerError ? e.message : "Couldn't load conversations");
+      setUnreachableFor(isUnreachable(e) ? identity : "");
     }
   }, [account, identity, setAccount, signOut]);
   // Leaving a conversation asks for the list, and Home coming back into view asks in the same moment: calls
@@ -228,6 +235,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
               followLive(account, e);
               if (e.event === "ready") {
                 setConnected(true);
+                setUnreachableFor("");
                 delay = 1000;
                 refresh();
                 refreshAgent();
@@ -254,6 +262,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         } catch (e) {
           if (stopped) return;
           disconnected();
+          // Coming back to the app aborts the stream on purpose; that is not the server going away.
+          if (isUnreachable(e) && !ctrl?.signal.aborted) setUnreachableFor(identity);
           if (isSignedOut(e)) {
             stopped = true;
             signOut();
@@ -316,7 +326,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const counted = useMemo(() => {
     const u = { channels: 0, messages: 0 };
     for (const c of shown ?? []) {
-      if (!c.archived) u[c.kind === "channel" ? "channels" : "messages"] += c.unread;
+      if (!c.archived && !c.muted) u[c.kind === "channel" ? "channels" : "messages"] += c.unread;
     }
     return u;
   }, [shown]);
@@ -325,7 +335,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const unread = useMemo(() => ({ channels: counted.channels, messages: counted.messages, agent }), [counted.channels, counted.messages, agent]);
 
   const actions = useMemo(() => ({ refresh, subscribe, setOpen, refreshAgent, peek, change }), [refresh, subscribe, setOpen, refreshAgent, peek, change]);
-  const list = useMemo(() => ({ conversations: shown, error, connected }), [shown, error, connected]);
+  const list = useMemo(() => ({ conversations: shown, error, connected, unreachable }), [shown, error, connected, unreachable]);
   const people = useMemo(() => ({ presence, connected }), [presence, connected]);
   return (
     <ActionsCtx.Provider value={actions}><ListCtx.Provider value={list}><PresenceCtx.Provider value={people}><UnreadCtx.Provider value={unread}>

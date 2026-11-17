@@ -127,13 +127,18 @@ test("the web page shows the same shapes before its script loads", () => {
   assert.ok(page.includes(`@media (min-width: ${wide}px) {\n        #launch .phone { display: none; }\n        #launch .wide { display: flex; }`));
   assert.ok(page.includes(`#launch .side { width: ${sidebar}px;`));
 
-  // Inside #root, so the app's first frame replaces it; no script (the Mac app's policy allows none inline),
-  // no words and no logo.
-  assert.match(page, /<div id="root">\s*<div id="launch" aria-hidden="true">/);
+  // Over the page and outside #root: the app's script empties #root before it has a frame to draw, and the
+  // shapes inside it left the page blank until then. The app's first frame takes them away, and they go by
+  // themselves if it never comes. No script (the Mac app's policy allows none inline), no words and no logo.
+  assert.match(page, /<div id="root"><\/div>\s*(?:<!--[^>]*-->\s*)?<div id="launch" aria-hidden="true">/);
+  assert.match(page, /#launch \{ position: fixed; z-index: 1; inset: 0; [^}]*animation: launch-gone 1ms 12s forwards; \}/);
+  assert.match(page, /@keyframes launch-gone \{ to \{ visibility: hidden; \} \}/);
+  assert.match(read("src/lib/launch-page.ts"), /if \(Platform\.OS !== "web" \|\| typeof document === "undefined"\) return;\n\s+document\.getElementById\("launch"\)\?\.remove\(\);/);
+  assert.match(read("src/app/_layout.tsx"), /function SessionNavigation\(\) \{[\s\S]{0,400}useLayoutEffect\(removeLaunchPage, \[\]\);/, "with the first frame, whatever it draws");
   assert.doesNotMatch(page, /<script/i);
   // With scripts off nothing replaces the shapes, so the page still says why, above them.
   assert.match(page, /<noscript> You need to enable JavaScript to run this app\. <\/noscript>/);
-  assert.match(page, /noscript \{ position: fixed; z-index: 1; /);
+  assert.match(page, /noscript \{ position: fixed; z-index: 2; /);
   const body = page.slice(page.indexOf('<div id="launch"'), page.lastIndexOf("</body>"));
   assert.equal(body.replace(/<[^>]*>/g, "").trim(), "", "shapes only");
   assert.doesNotMatch(body, /<(img|svg|picture)\b/i);

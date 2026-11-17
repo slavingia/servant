@@ -46,10 +46,17 @@ test("the working line is calm: plain steps, no clock, and it stands still for R
   assert.doesNotMatch(steps, /elapsed\(|tabular-nums/, "no stopwatch beside the steps");
   assert.match(steps, /const steps = readableSteps\(turn\?\.steps \?\? \[\]\);/);
   assert.match(steps, /aria-expanded=\{open\}/);
-  assert.match(live, /if \(still \|\| !width\) return;/, "no moving light when motion is reduced");
-  assert.match(live, /\{!still && width \? \(/);
+  assert.match(live, /if \(still\) \{ breath\.setValue\(1\); return; \}/, "no breathing when motion is reduced");
+  assert.doesNotMatch(live, /colors\.background/, "nothing painted in the page color over the words, which showed as a white band");
   assert.match(live, /aria-live="polite" accessibilityLiveRegion="polite"/);
   assert.match(live, /AccessibilityInfo\.announceForAccessibility\(line\)/, "VoiceOver has no live regions, so the line is spoken");
+});
+
+test("the live line breathes between our green and blue, in a chat and in the chat list", () => {
+  assert.match(live, /color: colors\.green \}/);
+  assert.match(live, /color: colors\.blue, opacity: breath \}/);
+  assert.match(live, /useNativeDriver: native/);
+  assert.match(steps, /<LiveStatus text=\{line\} style=\{styles\.line\} announce \/>/, "the chat's own live line uses it, not muted gray");
 });
 
 test("one tap on Send is enough in an agent chat, as in a person's chat", () => {

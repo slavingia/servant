@@ -20,7 +20,7 @@ test("on iOS the options button is the system's ellipsis symbol, named for a scr
 });
 
 test("the whole title is the first line of the chat's options, since a header shows only its start", () => {
-  assert.match(source, /<Pressable testID="chat-options"[^\n]*\n\s+\{\/\* The whole title[^\n]*\n\s+<Text testID="chat-options-title" selectable accessibilityRole="header" style=\{styles\.optionsTitle\}>\{title\}<\/Text>/);
+  assert.match(source, /<Pressable testID="chat-options"[^\n]*\n\s+\{\/\* The whole title[^\n]*\n\s+\{naming === null \? <Text testID="chat-options-title" selectable accessibilityRole="header" style=\{styles\.optionsTitle\}>\{title\}<\/Text>/);
   assert.doesNotMatch(/\n  optionsTitle: \{([^\n]*)\},/.exec(source)![1]!, /numberOfLines/);
 });
 

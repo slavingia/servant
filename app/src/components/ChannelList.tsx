@@ -1,6 +1,7 @@
 import { Radio } from "./Radio";
 import { memo, useCallback, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { BallRefreshControl } from "./BallRefreshControl";
 import { router, useFocusEffect, useIsFocused, useScrollToTop } from "expo-router";
 import { useWhileHidden } from "../lib/hidden-screen";
 import { AppIcon } from "./AppIcon";
@@ -24,6 +25,7 @@ import { useSession } from "../lib/session";
 import { openingConversation } from "../lib/conversation-cache";
 import { landingHref, useFeatures } from "../lib/features";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
+import { ServeLoader } from "./ServeLoader";
 
 type HomeRow =
   | { kind: "channel" | "dm"; id: string; conversation: Conversation }
@@ -39,10 +41,10 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
   // Under another screen the list is handed what it last showed until the changes pause (lib/hidden-screen.ts):
   // it does not draw every row for every message anywhere, and coming back draws nothing when nothing changed.
   const list = useWhileHidden(useLiveList(), useIsFocused());
-  return <ChannelRows archived={archived} conversations={list.conversations} error={list.error} connected={list.connected} />;
+  return <ChannelRows archived={archived} conversations={list.conversations} error={list.error} connected={list.connected} unreachable={list.unreachable} />;
 }
 
-const ChannelRows = memo(function ChannelRows({ archived, conversations, error, connected }: { archived: boolean; conversations: Conversation[] | null; error: string | null; connected: boolean }) {
+const ChannelRows = memo(function ChannelRows({ archived, conversations, error, unreachable, connected }: { archived: boolean; conversations: Conversation[] | null; error: string | null; unreachable: boolean; connected: boolean }) {
   const styles = useStyles();
   // Tapping the tab you're already on scrolls back to the top.
   const scrollRef = useRef<FlatList<HomeRow>>(null);
@@ -153,7 +155,7 @@ const ChannelRows = memo(function ChannelRows({ archived, conversations, error, 
         onEndReached={() => { if (discovering && channelsOpen && !unreadOnly && !discovery.error) void discovery.more(); }}
         onEndReachedThreshold={0.4}
         onScrollBeginDrag={closeRow}
-        refreshControl={<RefreshControl refreshing={refreshing} tintColor={colors.blue} onRefresh={() => void reload()} />}
+        refreshControl={<BallRefreshControl refreshing={refreshing} onRefresh={() => void reload()} />}
         ListHeaderComponent={<View>
           {archived ? null : <PageTitle>Home</PageTitle>}
           {archived ? null : <EmailNudge />}
@@ -168,7 +170,7 @@ const ChannelRows = memo(function ChannelRows({ archived, conversations, error, 
           </View> : null}
           {orderError ? <Text accessibilityRole="alert" style={styles.error}>{orderError}</Text> : null}
           {actionError ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
-          {error && conversations !== null ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+          {error && !unreachable && conversations !== null ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           {archived && reconnecting ? <Text style={styles.note}>Reconnecting…</Text> : null}
         </View>}
         ListEmptyComponent={conversations === null ?
@@ -190,11 +192,13 @@ const ChannelRows = memo(function ChannelRows({ archived, conversations, error, 
             }}
             onSettle={() => setLifted(false)}
             onDrop={ids => void saveOrder(ids)}
-            renderRow={(c, drag) => <SwipeChannelRow {...rowProps(c)} compact drag={unreadOnly ? undefined : drag} reordering={reordering}
+            renderRow={(c, drag) => <SwipeChannelRow {...rowProps(c, shownChannels)} compact drag={unreadOnly ? undefined : drag} reordering={reordering}
               onPress={() => openConversation(c)} />} />;
           if (item.kind === "channel" || item.kind === "dm") {
             const c = item.conversation;
-            return <SwipeChannelRow {...rowProps(c)} compact onPress={() => openConversation(c)} />;
+            // Holding Archive archives the section the row is in; on Archived, holding Restore restores them all.
+            const group = archived ? [...archivedChannels, ...archivedDms] : c.kind === "channel" ? shownChannels : shownDms;
+            return <SwipeChannelRow {...rowProps(c, group)} compact onPress={() => openConversation(c)} />;
           }
           if (item.kind === "project") return <Pressable accessibilityRole="button" accessibilityLabel={item.project.name} onPress={() => { closeRow(); router.push({ pathname: "/project", params: { id: item.project.id } }); }} style={({ pressed }) => [styles.projectRow, pressed && styles.pressed]}>
             <View style={styles.projectIcon}><AppIcon name="project" size={19} color={colors.muted} /></View>
@@ -248,7 +252,7 @@ const ChannelRows = memo(function ChannelRows({ archived, conversations, error, 
             <Text accessibilityRole="header" style={styles.discoveryTitle}>Browse public channels</Text>
             <Button compact kind="link" label="Create new" onPress={() => router.push("/new-channel")} />
           </View>;
-          return discovery.loading ? <ActivityIndicator accessibilityLabel="Loading channels to join" style={styles.loading} color={colors.blue} /> : discovery.error ?
+          return discovery.loading ? <ServeLoader accessibilityLabel="Loading channels to join" style={styles.loading} /> : discovery.error ?
             <View style={styles.discoveryStatus}><Text accessibilityRole="alert" style={styles.errorText}>Couldn't load channels.</Text><Button compact label="Try again" kind="link" onPress={discovery.retry} /></View> : discovery.hasMore ?
               <Button compact label="Load more channels" kind="link" onPress={() => void discovery.more()} /> : !others.length ?
               <Text style={styles.sectionNote}>No more channels</Text> : null;
@@ -270,8 +274,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   content: { paddingBottom: space.xxl },
   status: { ...typography.caption, marginLeft: "auto", alignSelf: "center", color: colors.muted },
-  filters: { flexDirection: "row", gap: space.xs, paddingHorizontal: space.side, paddingVertical: space.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
-  filter: { minHeight: 44, paddingHorizontal: space.lg, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", gap: space.xs, borderRadius: radius.pill, backgroundColor: colors.surface },
+  filters: { flexDirection: "row", gap: space.xs, paddingHorizontal: space.side, paddingVertical: space.xs },
+  filter: { minHeight: 44, paddingHorizontal: space.lg, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", gap: space.xs, borderRadius: radius.pill },
   selectedFilter: { backgroundColor: colors.blueSoft },
   filterText: { ...typography.bodyStrong, color: colors.muted },
   selectedFilterText: { color: colors.blueDark },

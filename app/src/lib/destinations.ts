@@ -47,6 +47,7 @@ export const DESTINATIONS: Destination[] = [
   // Surveys and the responses to them are one place, with a tab for each on the screen.
   { id: "feedback", label: "Feedback", icon: "smile", path: "/surveys", group: "team", surveys: true, sidebar: true, you: true, detail: "Surveys and the private responses to review", keywords: "feedback survey surveys queue responses review faces ratings results share private" },
   { id: "wiki", label: "Wiki", icon: "book", path: "/wiki", group: "team", sidebar: true, you: true, detail: "Pages your team writes together, and the abbreviations that expand as you type", keywords: "wiki pages documents docs notes knowledge handbook guide text shortcuts abbreviations lexicon glossary expand" },
+  { id: "feed", label: "Agent feed", icon: "activity", path: "/feed", group: "team", sidebar: false, you: true, detail: "What the agent did lately: messages, releases and checks", keywords: "feed activity agent log history did done shipped sent ran recent" },
   { id: "loops", label: "Loops", icon: "loop", path: "/loops", group: "team", sidebar: false, you: true, detail: "What the agent does on its own, every hour, day and week", keywords: "loops automations schedule scheduled recurring cron releases hourly daily weekly agent" },
   { id: "usage", label: "Agent usage", icon: "clock", path: "/leaderboard", group: "team", sidebar: false, you: true, detail: "How much each person uses the agent", keywords: "agent usage tokens leaderboard" },
 ];

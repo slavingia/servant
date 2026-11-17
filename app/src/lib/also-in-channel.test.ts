@@ -34,8 +34,9 @@ test("the screens use these rules", () => {
   assert.match(channel, /root: threadOf\(p\)/);
   assert.match(read("./conversation-cache.ts"), /if \(!showsInConversation\(post\)\) return;/);
   assert.match(thread, /accessibilityRole="checkbox" accessibilityState=\{\{ checked: also \}\}/);
-  assert.match(thread, /confirmPii, also\)\);/, "the choice goes with the reply");
-  assert.match(thread, /setAlso\(false\);/, "and is for one reply only");
+  assert.match(thread, /confirmPii, alsoThis\)\)\);/, "the choice goes with the reply");
+  assert.match(thread, /const alsoThis = also;\n\s+if \(alsoThis\) setAlso\(false\);/, "and is for one reply only: taken as it leaves, so a reply written while it is on its way does not inherit it");
+  assert.match(thread, /if \(alsoThis\) setAlso\(true\);/, "a reply that did not go gets its choice back");
   assert.match(api, /threadRoot && alsoInChannel \? \{ alsoInChannel: true \} : \{\}/, "only a thread reply can ask for it");
   assert.match(messaging, /onOpenThread \? replyContext\(post\) : "Also sent to the conversation"/, "what it answers in the conversation; that it was also sent, in the thread");
   assert.match(messaging, /onOpenThread && post\.alsoInChannel && !post\.deleted \? \(\n\s+<Pressable[^\n]+onPress=\{onOpenThread\} style=\{styles\.replies\}>\n\s+<Text style=\{styles\.repliesText\}>View thread<\/Text>/);

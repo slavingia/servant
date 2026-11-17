@@ -12,13 +12,13 @@ const b64 = (x) => Buffer.from(JSON.stringify(x)).toString('base64url');
 const clip = (v, max, fallback) => typeof v === 'string' && v.trim() ? (v.length > max ? v.slice(0, max - 1) + '…' : v) : fallback;
 function privateNotification(n) {
   const data = {};
-  for (const key of ['userId', 'deviceId', 'conversationId', 'chatId', 'caseId', 'threadRoot', 'messageId', 'meetingId', 'page']) {
+  for (const key of ['userId', 'deviceId', 'conversationId', 'chatId', 'caseId', 'codeRequestId', 'threadRoot', 'messageId', 'meetingId', 'page']) {
     const value = n.data?.[key];
     if (typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(value)) data[key] = value;
   }
   const c = n.call, id = typeof c?.meetingId === 'string' && /^meet_[a-zA-Z0-9_-]{1,40}$/.test(c.meetingId) ? c.meetingId : null;
   const call = id ? { meetingId: id, caller: clip(c.caller, 80, 'Someone'), place: clip(c.place, 80, '') } : null;
-  return { data, call, group: data.conversationId || data.chatId || data.caseId || 'messages',
+  return { data, call, group: data.conversationId || data.chatId || data.caseId || data.codeRequestId || 'messages',
     title: clip(n.title, 80, 'Servant'), body: clip(n.body, 240, 'You have a new message'),
     badge: n.badge === null ? null : Number.isSafeInteger(n.badge) && n.badge > 0 ? Math.min(n.badge, 9999) : 1 };
 }

@@ -1,6 +1,8 @@
 import { Radio } from "../../components/Radio";
+import { FlashList } from "@shopify/flash-list";
+import { RECYCLING_CONVERSATION_LIST, listOrder } from "../../lib/conversation-list";
 import { createElement, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, AppState, FlatList, Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, AppState, FlatList, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { randomUUID } from "expo-crypto";
@@ -34,6 +36,7 @@ import { sendSlashFeedback } from "../../lib/slash-feedback";
 import { PiiDeclined, withPiiConfirm } from "../../lib/pii-warning";
 import { usePiiConfirm } from "../../components/PiiConfirm";
 import { chatLoad, chatTurns, forgetChat, keepChat, keptChat, peekChatLoad, takeChatLoad } from "../../lib/chat-cache";
+import { chatBeingMade, chatMade } from "../../lib/new-chat";
 import { api, sendMessage, ServerError, uploadPost, type Account, type Chat, type Project, type Message, type PrototypeChanges, type Upload } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { anyTalk, useFeatures } from "../../lib/features";
@@ -49,6 +52,7 @@ import * as Clipboard from "expo-clipboard";
 import { headerTitleType, radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../../lib/theme";
 import { useWideLayout } from "../../lib/layout";
 import { Toggle } from "../../components/Toggle";
+import { SelectableText } from "../../components/SelectableText";
 
 const rowKey = (row: { id: string }) => row.id;
 
@@ -299,16 +303,16 @@ function PreviewPane({ url, version, stacked, onSave }: { url: string; version: 
 function ReplyText({ text, failed }: { text: string; failed?: boolean }) {
   const styles = useStyles();
   const match = text.match(/(?:^|\n)PREVIEW:\s*(https?:\/\/\S+)\s*$/);
-  if (!match) return <MessageText text={text} failed={failed} />;
+  if (!match) return <MessageText inMenuBubble text={text} failed={failed} />;
   const body = text.slice(0, match.index).trimEnd();
   return <View>
-    {body ? <MessageText text={body} failed={failed} /> : null}
+    {body ? <MessageText inMenuBubble text={body} failed={failed} /> : null}
     {canSplitPreview ? null : <Button label="Open preview" compact onPress={() => openPreview(match[1]!)} style={styles.previewInline} />}
   </View>;
 }
 
 // Header "•••": chat options. Your own chat is private until you choose to share it with the server; Files lives here too.
-function OptionsSheet({ id, title, shared, projectId, projectShared, onProject, onProjectShared, onChange, onClose, members, onInvite, onUninvite }: { members: ChatMember[] | null; onInvite: () => void; onUninvite: (userId: string) => void; id: string; title: string; shared: boolean | null; projectId: string | null; projectShared: boolean; onProject: (projectId: string | null) => void; onProjectShared: (shared: boolean) => void; onChange: (shared: boolean) => void; onClose: () => void }) {
+function OptionsSheet({ id, title, onRename, shared, projectId, projectShared, onProject, onProjectShared, onChange, onClose, members, onInvite, onUninvite }: { onRename?: (title: string) => void; members: ChatMember[] | null; onInvite: () => void; onUninvite: (userId: string) => void; id: string; title: string; shared: boolean | null; projectId: string | null; projectShared: boolean; onProject: (projectId: string | null) => void; onProjectShared: (shared: boolean) => void; onChange: (shared: boolean) => void; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const { account } = useSession();
@@ -316,25 +320,34 @@ function OptionsSheet({ id, title, shared, projectId, projectShared, onProject, 
   const [error, setError] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [choosing, setChoosing] = useState(false);
+  const [naming, setNaming] = useState<string | null>(null);
   useEffect(() => { if (account) api.projects(account).then(r => setProjects(r.projects)).catch(() => setProjects([])); }, [account]);
   if (!account) return null;
   const move = async (next: string | null) => {
     setSaving(true); setError(null);
-    try { await api.moveChat(account, id, next); onProject(next); if (next !== projectId) onProjectShared(false); setChoosing(false); }
+    try { await chatMade(account, id); await api.moveChat(account, id, next); onProject(next); if (next !== projectId) onProjectShared(false); setChoosing(false); }
     catch (e) { setError(e instanceof ServerError ? e.message : "Couldn't move the chat"); }
+    finally { setSaving(false); }
+  };
+  const rename = async () => {
+    const next = (naming ?? "").replace(/\s+/g, " ").trim();
+    if (!next || next === title) { setNaming(null); return; }
+    setSaving(true); setError(null);
+    try { await chatMade(account, id); onRename?.((await api.renameChat(account, id, next)).title); setNaming(null); }
+    catch (e) { setError(e instanceof ServerError ? e.message : "Couldn't rename the chat"); }
     finally { setSaving(false); }
   };
   const current = projects?.find(f => f.id === projectId);
   const teamProject = !!current && current.people.some(p => p.id && p.id !== account.user.id);
   const shareWithProject = async (next: boolean) => {
     onProjectShared(next); setSaving(true); setError(null);
-    try { onProjectShared((await api.shareChatWithProject(account, id, next)).projectShared === true); }
+    try { await chatMade(account, id); onProjectShared((await api.shareChatWithProject(account, id, next)).projectShared === true); }
     catch (e) { onProjectShared(!next); setError(e instanceof ServerError ? e.message : "Couldn't change sharing"); }
     finally { setSaving(false); }
   };
   const change = async (next: boolean) => {
     onChange(next); setSaving(true); setError(null);
-    try { onChange((await api.setChatShared(account, id, next)).shared !== false); }
+    try { await chatMade(account, id); onChange((await api.setChatShared(account, id, next)).shared !== false); }
     catch (e) { onChange(!next); setError(e instanceof ServerError ? e.message : "Couldn't change sharing"); }
     finally { setSaving(false); }
   };
@@ -342,7 +355,15 @@ function OptionsSheet({ id, title, shared, projectId, projectShared, onProject, 
     <Pressable accessibilityLabel="Close" style={styles.menuOverlay} onPress={onClose}>
       <Pressable testID="chat-options" accessibilityViewIsModal style={styles.menuCard} onPress={() => {}}>
         {/* The whole title: a header has room for the start of it only. */}
-        <Text testID="chat-options-title" selectable accessibilityRole="header" style={styles.optionsTitle}>{title}</Text>
+        {naming === null ? <Text testID="chat-options-title" selectable accessibilityRole="header" style={styles.optionsTitle}>{title}</Text>
+          : <TextInput testID="chat-name-input" accessibilityLabel="Chat name" value={naming} onChangeText={setNaming} autoFocus selectTextOnFocus maxLength={80}
+            returnKeyType="done" onSubmitEditing={() => void rename()} editable={!saving} placeholder="Name this chat" placeholderTextColor={colors.muted} style={styles.nameInput} />}
+        {onRename ? naming === null
+          ? <Pressable testID="rename-chat" accessibilityRole="button" disabled={saving} onPress={() => setNaming(title === "New chat" ? "" : title)} style={styles.menuAction}><Text style={styles.menuActionText}>Rename</Text></Pressable>
+          : <View style={styles.nameActions}>
+            <Button label="Cancel" kind="secondary" compact disabled={saving} onPress={() => setNaming(null)} />
+            <Button label="Save" compact disabled={saving || !naming.trim()} onPress={() => void rename()} />
+          </View> : null}
         {shared !== null ? <View style={styles.shareRow}>
           <View style={styles.turnCopy}>
             <Text style={styles.turnLabel}>Share with {account.serverName}</Text>
@@ -414,7 +435,9 @@ function ChatConversation({ account }: { account: Account }) {
   const [sendError, setSendError] = useState<string | null>(null);
   const { ask: askPii, dialog: piiDialog } = usePiiConfirm();
   const [chatUsage, setChatUsage] = useState<Chat["usage"] | null>(kept?.info?.usage ?? null);
-  const refreshUsage = useCallback(() => { if (account && id) api.chat(account, String(id)).then(c => setChatUsage(c.usage ?? null)).catch(() => {}); }, [account, id]);
+  const renamed = useCallback((title: string) => { setHeading(title); if (lastInfo.current) lastInfo.current = { ...lastInfo.current, title, titledBy: "user" }; }, []);
+  // After a reply: the tokens it used, and the chat's name (the agent names it after a few messages, server/chat-title.mjs).
+  const refreshUsage = useCallback(() => { if (account && id) api.chat(account, String(id)).then(c => { setChatUsage(c.usage ?? null); if (c.titledBy && c.title) setHeading(c.title); }).catch(() => {}); }, [account, id]);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const uploaded = useRef(new Map<string, string>());
   const [turn, setTurn] = useState<AgentTurn | null>(null);
@@ -462,10 +485,11 @@ function ChatConversation({ account }: { account: Account }) {
     if (!account || !id) return;
     let live = true;
     // Asked for together with the messages when the chat was opened; on its own after that.
-    (peekChatLoad(account, id)?.info ?? api.chat(account, id)).then(c => {
+    // A chat opened before the server made it (lib/new-chat.ts) asks once it exists.
+    chatMade(account, id).then(() => peekChatLoad(account, id)?.info ?? api.chat(account, id)).then(c => {
       if (!live) return;
       lastInfo.current = c;
-      if (c.title && c.title !== "New chat") setHeading(h => h === "New chat" ? c.title : h);
+      if (c.title && c.title !== "New chat") setHeading(h => h === "New chat" || c.titledBy ? c.title : h);
       setChatUsage(c.usage ?? null);
       setShared(c.shared !== false);
       setProjectId(c.projectId ?? null);
@@ -506,7 +530,7 @@ function ChatConversation({ account }: { account: Account }) {
     currentLoad.current = request;
     // The first load takes the requests started when the chat's row was pressed; a retry asks again.
     const first = takeChatLoad(account, id);
-    return Promise.all([first?.messages ?? api.messages(account, id), first?.turns ?? chatTurns(account, id)]).then(([history, turns]) => {
+    return chatMade(account, id).then(() => Promise.all([first?.messages ?? api.messages(account, id), first?.turns ?? chatTurns(account, id)])).then(([history, turns]) => {
       if (request === currentLoad.current) {
         hasShown.current = true;
         lastTurns.current = turns;
@@ -545,7 +569,7 @@ function ChatConversation({ account }: { account: Account }) {
     // answering, when the history may still be catching up).
     const refresh = async (foreground = false, turnsOnly = false) => {
       foregroundRefresh ||= foreground;
-      if (!account || !id || AppState.currentState !== 'active') return;
+      if (!account || !id || AppState.currentState !== 'active' || chatBeingMade(account, id)) return;
       if (refreshing) { again = true; return; }
       refreshing = true;
       try {
@@ -627,7 +651,7 @@ function ChatConversation({ account }: { account: Account }) {
   // the account object was replaced (a rename, a deep-work change from another device), deleting a chat you were still in.
   const accountRef = useRef(account);
   useEffect(() => { accountRef.current = account; }, [account]);
-  useEffect(() => () => { const a = accountRef.current; if (discardable.current && a) { forgetChat(a, String(id)); void api.deleteChat(a, String(id)).catch(() => {}); } }, [id]);
+  useEffect(() => () => { const a = accountRef.current; if (discardable.current && a) { forgetChat(a, String(id)); void chatMade(a, String(id)).then(() => api.deleteChat(a, String(id))).catch(() => {}); } }, [id]);
   const loaded = messages !== null && !loadError;
   useEffect(() => { if (id && loaded && account) setItem(lastChatKey(account.user.id), String(id)).catch(() => {}); }, [id, loaded, account]);
   // Keep what the server has confirmed for the next visit: never a message still on its way or a reply being written.
@@ -643,6 +667,8 @@ function ChatConversation({ account }: { account: Account }) {
   // Documents go up in chunks before the message that names them. Finished
   // uploads are remembered, so retrying the same draft doesn't resend them.
   const uploadDocuments = async (attachments: Upload[], signal?: AbortSignal) => {
+    // Sending in a chat that's still being made waits for it (and retries a start that failed).
+    await chatMade(account, String(id));
     const out: Upload[] = [];
     for (const file of attachments) {
       if (!file.document) { out.push(file); continue; }
@@ -727,6 +753,11 @@ function ChatConversation({ account }: { account: Account }) {
     try {
       switch (cmd.name) {
         case "archive": await api.archiveChat(account, String(id)); router.replace("/agent"); return true;
+        case "rename": {
+          const name = cmd.args.replace(/\s+/g, " ").trim();
+          if (!name) { setCommandNote("Type a name after /rename"); return true; }
+          await chatMade(account, String(id)); renamed((await api.renameChat(account, String(id), name)).title); setCommandNote(null); return true;
+        }
         case "stop":
           if (!turn?.canStop) { setCommandNote("The agent isn't replying right now"); return true; }
           await stop(); return true;
@@ -936,14 +967,28 @@ function ChatConversation({ account }: { account: Account }) {
   const canForward = anyTalk(features);
   const activeTurn = turn && activeAgentTurn(turn) ? turn : null;
   const me = account.user;
+  // A reaction shows at once and is put back if the server says no.
+  const onReact = useStableCallback((messageId: string, emoji: string, active: boolean) => {
+    const apply = (reactions: Message["reactions"]) => setMessages(rows => rows?.map(r => r.id === messageId ? { ...r, reactions } : r) ?? rows);
+    const before = messages?.find(r => r.id === messageId)?.reactions;
+    apply(toggled(before, emoji, me.id, active));
+    api.reactChatMessage(account, String(id), messageId, emoji, active).then(apply).catch(() => apply(before));
+  });
   const renderItem = useCallback(({ item }: { item: Row }) => {
     const working = item.role !== "user" && item.pending;
     // The reply this phone just followed to its end has its turn at hand before the next look at the list.
     const work = item.role !== "user" && !working ? worked.get(item.id) ?? (turn?.messageId === item.id && workedFor(turn) ? turn : undefined) : undefined;
     return <ChatRow item={item} chatId={String(id)} me={me} role={me.role} canForward={canForward} work={work} settle={work?.id === watched}
       turn={working ? activeTurn : null} status={working && !item.agentWorking ? status : null} uploadProgress={item.uploads?.length && item.pending ? uploadProgress : null}
-      onForward={setForwarding} onUnqueue={onUnqueue} loadSteps={loadSteps} />;
-  }, [worked, turn, watched, activeTurn, status, uploadProgress, id, me, canForward, onUnqueue, loadSteps]);
+      onForward={setForwarding} onUnqueue={onUnqueue} loadSteps={loadSteps} onReact={readOnly ? undefined : onReact} />;
+  }, [worked, turn, watched, activeTurn, status, uploadProgress, id, me, canForward, onUnqueue, loadSteps, readOnly, onReact]);
+  const chatEmpty = messages?.length === 0 && !firstRow && loadError ? (
+    <View style={styles.empty}>
+      <Text accessibilityRole="header" style={styles.emptyTitle}>Couldn't load this chat</Text>
+      <Text accessibilityRole="alert" style={styles.emptyBody}>{loadError}</Text>
+      <Button label="Try again" kind="secondary" onPress={() => { setMessages(null); setLoadError(null); void load(); }} style={styles.retry} />
+    </View>
+  ) : undefined;
   // With nothing typed, the Send button stops the reply. It is the only Stop on the screen besides /stop.
   const stoppable = !!turn?.canStop && activeAgentTurn(turn) && turn.status !== "stopping" && !actionBusy;
   const about = vibe ? VIBE_CHOICE : projectId;
@@ -971,6 +1016,7 @@ function ChatConversation({ account }: { account: Account }) {
     // The next chat from the Agent tab starts about this choice.
     const remember = () => setItem(choiceKey(account.user.id), next ?? "").catch(() => {});
     try {
+      await chatMade(account, String(id));
       if (needsNewChat(about, next)) {
         const chat = await api.newChat(account, newChatOptions(next));
         void api.deleteChat(account, String(id)).catch(() => {});
@@ -995,7 +1041,7 @@ function ChatConversation({ account }: { account: Account }) {
     <View style={styles.root}>
       <Stack.Screen options={{ title: heading, headerTitle: titleButton(showTitle, setShowTitle, headerLinks.length), ...filesHeader(String(id), heading, colors.blue, headerLinks, false) }} />
       {showTitle ? <FullTitle title={heading} onClose={() => setShowTitle(false)} /> : null}
-      {sharing ? <OptionsSheet id={String(id)} title={heading} shared={shared} projectId={projectId} projectShared={projectShared} onProject={setProjectId} onProjectShared={setProjectShared} onChange={setShared} onClose={() => setSharing(false)}
+      {sharing ? <OptionsSheet id={String(id)} title={heading} onRename={readOnly ? undefined : renamed} shared={shared} projectId={projectId} projectShared={projectShared} onProject={setProjectId} onProjectShared={setProjectShared} onChange={setShared} onClose={() => setSharing(false)}
         members={readOnly ? null : members} onInvite={() => { setSharing(false); setInviteError(null); setInviting(true); }} onUninvite={userId => { void uninvite(userId); }} /> : null}
       {inviting ? <PeopleSheet title={fresh ? "Invite to this chat" : "Add people"} exclude={members.map(m => m.id)} withHistory={!fresh} busy={inviteBusy} error={inviteError}
         onDone={(userIds, history) => { void invite(userIds, history); }} onClose={() => setInviting(false)} /> : null}
@@ -1006,6 +1052,21 @@ function ChatConversation({ account }: { account: Account }) {
         {messages === null ? (
           <SkeletonRows label="Loading messages" count={8} style={{ flex: 1 }} />
         ) : (
+          RECYCLING_CONVERSATION_LIST ? (
+            // In a browser and the Mac app the rows are in reading order on the page, so a drag selects the text
+            // between where it starts and where it ends, the way it does on any web page.
+            <FlashList
+              data={listOrder(data, true) as Row[]}
+              keyExtractor={rowKey}
+              initialScrollIndex={data.length ? data.length - 1 : undefined}
+              maintainVisibleContentPosition={{ startRenderingFromBottom: true, autoscrollToBottomThreshold: 0.2, animateAutoScrollToBottom: false }}
+              keyboardDismissMode="interactive"
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.list}
+              ListHeaderComponent={chatEmpty}
+              renderItem={renderItem}
+            />
+          ) : (
           <FlatList
             ref={list}
             inverted
@@ -1016,17 +1077,10 @@ function ChatConversation({ account }: { account: Account }) {
             keyboardDismissMode="interactive"
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.list}
-            ListFooterComponent={
-              messages.length === 0 && !firstRow && loadError ? (
-                <View style={styles.empty}>
-                  <Text accessibilityRole="header" style={styles.emptyTitle}>Couldn't load this chat</Text>
-                  <Text accessibilityRole="alert" style={styles.emptyBody}>{loadError}</Text>
-                  <Button label="Try again" kind="secondary" onPress={() => { setMessages(null); setLoadError(null); void load(); }} style={styles.retry} />
-                </View>
-              ) : undefined
-            }
+            ListFooterComponent={chatEmpty}
             renderItem={renderItem}
           />
+          )
         )}
         {forwarding ? <ForwardSheet target={forwarding} onClose={() => setForwarding(null)} /> : null}
         {chatUsage?.total ? <Text accessibilityLabel={`This conversation has used ${formatTokens(chatUsage.total)} tokens, about ${formatCost(estimateCost(chatUsage.input, chatUsage.output))} estimated`} style={styles.usageLine}>{formatTokens(chatUsage.total)} tokens · about {formatCost(estimateCost(chatUsage.input, chatUsage.output))}</Text> : null}
@@ -1087,8 +1141,23 @@ type ChatRowProps = {
   /** Only for a message whose files are still going up. */
   uploadProgress: string | null;
   onForward: (target: ForwardTarget) => void; onUnqueue: (turn: AgentTurn) => void; loadSteps: (turnId: string) => Promise<AgentStep[]>;
+  /** Left out where the person can only read the chat. */
+  onReact?: (messageId: string, emoji: string, active: boolean) => void;
 };
-const ChatRow = memo(function ChatRow({ item, chatId, me, role, canForward, work, settle, turn, status, uploadProgress, onForward, onUnqueue, loadSteps }: ChatRowProps) {
+
+const REACTIONS = [
+  ["👍", "Like"], ["❤️", "Love"], ["😂", "Laugh"], ["😮", "Surprised"],
+  ["😢", "Sad"], ["🙏", "Thanks"], ["🎉", "Celebrate"], ["✅", "Done"],
+  ["👀", "Looking"], ["🔥", "Fire"], ["👏", "Applause"], ["💯", "Hundred"],
+];
+
+/** The reactions after one person adds or takes back one emoji, grouped the way the server groups them. */
+function toggled(reactions: Message["reactions"], emoji: string, userId: string, active: boolean): NonNullable<Message["reactions"]> {
+  const list = (reactions ?? []).map(r => r.emoji !== emoji ? r : { ...r, userIds: active ? [...new Set([...r.userIds, userId])] : r.userIds.filter(u => u !== userId) });
+  if (active && !list.some(r => r.emoji === emoji)) list.push({ emoji, userIds: [userId] });
+  return list.filter(r => r.userIds.length > 0);
+}
+const ChatRow = memo(function ChatRow({ item, chatId, me, role, canForward, work, settle, turn, status, uploadProgress, onForward, onUnqueue, loadSteps, onReact }: ChatRowProps) {
   const styles = useStyles();
   const mine = item.role === "user";
   const working = !mine && item.pending;
@@ -1098,7 +1167,9 @@ const ChatRow = memo(function ChatRow({ item, chatId, me, role, canForward, work
   // In a shared chat the owner may have posted: show them, not the chat's author.
   const person = mine ? messagePerson(item, me) : { id: undefined, name: "Agent" };
   const byOther = mine && person.id !== me.id;
-  return <MessageActions item={item} author={person.name} canForward={!queued && !item.pending && !item.failed && canForward} onForward={onForward} chatId={chatId}
+  // Only a stored message takes a reaction, not one still being written or sent.
+  const react = onReact && /^msg_/.test(item.id) && !item.pending && !item.failed && !queued ? (emoji: string, active: boolean) => onReact(item.id, emoji, active) : undefined;
+  return <MessageActions item={item} me={me.id} onReact={react} author={person.name} canForward={!queued && !item.pending && !item.failed && canForward} onForward={onForward} chatId={chatId}
     label={mine ? `${byOther ? `${person.name}'s` : "Your"} message${queued ? (queued.steerRequested ? ", being added to the current reply" : ", waiting for the current reply") : item.pending ? ", not yet received" : deviceLabel ? `, sent from ${deviceLabel}` : ""}` : "Agent response"} style={[styles.message, item.failed && styles.failed, item.pending && mine && styles.unconfirmed, queued && styles.queuedMessage]}>
     <Avatar name={person.name} agent={!mine} userId={person.id} size={34} />
     <View style={styles.messageCopy}>
@@ -1117,6 +1188,15 @@ const ChatRow = memo(function ChatRow({ item, chatId, me, role, canForward, work
         <Text accessibilityLiveRegion="polite" aria-live="polite" style={styles.queuedDetail}>{queued.steerRequested ? "Adding this to the current reply…" : "Sends after the current reply"}</Text>
         {!queued.steerRequested ? <IconButton icon="close" label="Remove waiting message" size={14} onPress={() => onUnqueue(queued)} style={styles.barIcon} /> : null}
       </View> : null}
+      {item.reactions?.length ? <View style={styles.reactions}>
+        {item.reactions.map(r => {
+          const selected = r.userIds.includes(me.id);
+          return <Pressable key={r.emoji} testID={`reaction-${r.emoji}`} accessibilityRole="button" accessibilityLabel={`${r.emoji}, ${r.userIds.length} ${r.userIds.length === 1 ? "reaction" : "reactions"}${selected ? ", including you. Remove reaction" : ". Add reaction"}`}
+            accessibilityState={{ selected, disabled: !react }} aria-pressed={selected} disabled={!react} onPress={() => react?.(r.emoji, !selected)} style={styles.reaction}>
+            <View style={[styles.reactionPill, selected && styles.selectedReaction]}><Text style={styles.reactionText}>{r.emoji} {r.userIds.length}</Text></View>
+          </Pressable>;
+        })}
+      </View> : null}
       {item.interrupted ? <Text style={styles.typing}>Cut off before it finished</Text> : null}
       {item.waitingForAgent ? <Text accessibilityLiveRegion="polite" style={styles.typing}>Sends when the agent is free</Text> : null}
     </View>
@@ -1124,14 +1204,17 @@ const ChatRow = memo(function ChatRow({ item, chatId, me, role, canForward, work
 });
 
 // Touch and hold a message (or ••• on the web) to copy it or forward it to a channel or DM.
-function MessageActions({ item, author, chatId, canForward, onForward, label, style, children }: { item: Row; author: string; chatId: string; canForward: boolean; onForward: (t: ForwardTarget) => void; label: string; style: object; children: ReactNode }) {
+function MessageActions({ item, me, onReact, author, chatId, canForward, onForward, label, style, children }: { item: Row; me?: string; onReact?: (emoji: string, active: boolean) => void; author: string; chatId: string; canForward: boolean; onForward: (t: ForwardTarget) => void; label: string; style: object; children: ReactNode }) {
   const styles = useStyles();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [selecting, setSelecting] = useState(false);
   const text = (item.role === "user" ? parseForward(item.text)?.rest ?? item.text : item.text) || "";
   const forwardable = canForward && /^msg_/.test(item.id) && (!!item.text || !!item.attachments?.length);
-  const available = forwardable || !!text;
-  const show = () => { if (available) { setCopied(null); setOpen(true); } };
+  const available = forwardable || !!text || !!onReact;
+  const reacted = (emoji: string) => !!me && !!item.reactions?.some(r => r.emoji === emoji && r.userIds.includes(me));
+  const choose = (emoji: string) => { setOpen(false); onReact?.(emoji, !reacted(emoji)); };
+  const show = () => { if (available) { setCopied(null); setSelecting(false); setOpen(true); } };
   const forward = () => { setOpen(false); onForward({ chatId, messageId: item.id, author, text: text.replace(/\n?PREVIEW:\s*https?:\/\/\S+\s*$/, ""), files: item.attachments?.length ?? 0 }); };
   const copy = async () => {
     try { setCopied(await Clipboard.setStringAsync(text) ? "Copied" : "Couldn't copy"); } catch { setCopied("Couldn't copy"); }
@@ -1139,7 +1222,7 @@ function MessageActions({ item, author, chatId, canForward, onForward, label, st
   return <>
     <Pressable onLongPress={show} delayLongPress={400} accessible={false} style={style}>
       <View accessible accessibilityLabel={label} accessibilityHint={available ? "Touch and hold to copy or forward" : undefined}
-        accessibilityActions={available ? [{ name: "activate", label: "Copy or forward" }] : undefined} onAccessibilityAction={show} style={styles.actionsRow}>
+        accessibilityActions={available ? [{ name: "activate", label: onReact ? "React, copy or forward" : "Copy or forward" }] : undefined} onAccessibilityAction={show} style={styles.actionsRow}>
         {children}
       </View>
       {available && Platform.OS === "web" ? <Pressable testID={`message-actions-${item.id}`} accessibilityRole="button" accessibilityLabel={`Actions for ${author}'s message`} onPress={show} style={styles.more}><Text style={styles.moreText}>•••</Text></Pressable> : null}
@@ -1149,9 +1232,24 @@ function MessageActions({ item, author, chatId, canForward, onForward, label, st
         <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel="Dismiss message actions" onPress={() => setOpen(false)} />
         <View accessibilityViewIsModal style={styles.menuCard}>
           <Text style={styles.menuAuthor}>{author}</Text>
-          {forwardable ? <Pressable testID="message-forward" accessibilityRole="button" onPress={forward} style={styles.menuAction}><Text style={styles.menuActionText}>Forward</Text></Pressable> : null}
-          {text ? <Pressable testID="message-copy" accessibilityRole="button" onPress={() => { void copy(); }} style={styles.menuAction}><Text style={styles.menuActionText}>Copy</Text></Pressable> : null}
-          {copied ? <Text accessibilityRole="alert" style={styles.menuStatus}>{copied}</Text> : null}
+          {onReact && !selecting ? <View style={styles.reactionMenu}>
+            {REACTIONS.map(([emoji, name]) => {
+              const selected = reacted(emoji);
+              return <Pressable key={emoji} testID={`message-react-${emoji}`} accessibilityRole="button" accessibilityLabel={selected ? `Remove ${name}` : `React with ${name}`} aria-pressed={selected} onPress={() => choose(emoji)} style={[styles.reactionChoice, selected && styles.selectedReaction]}>
+                <Text style={styles.reactionChoiceText}>{emoji}</Text>
+              </Pressable>;
+            })}
+          </View> : null}
+          {selecting ? <ScrollView style={styles.selectScroll}>
+            <SelectableText testID="message-selectable-text" style={styles.selectableText}>{text}</SelectableText>
+          </ScrollView> : <>
+            {forwardable ? <Pressable testID="message-forward" accessibilityRole="button" onPress={forward} style={styles.menuAction}><Text style={styles.menuActionText}>Forward</Text></Pressable> : null}
+            {text ? <Pressable testID="message-copy" accessibilityRole="button" onPress={() => { void copy(); }} style={styles.menuAction}><Text style={styles.menuActionText}>Copy</Text></Pressable> : null}
+            {copied ? <Text accessibilityRole="alert" style={styles.menuStatus}>{copied}</Text> : null}
+          </>}
+          {text && Platform.OS !== "web" ? <Pressable testID="message-select-text" accessibilityRole="button" onPress={() => setSelecting(!selecting)} style={styles.menuAction}>
+            <Text style={styles.menuActionText}>{selecting ? "Back to message actions" : "Select text"}</Text>
+          </Pressable> : null}
         </View>
       </View>
     </Modal> : null}
@@ -1162,10 +1260,10 @@ function MessageActions({ item, author, chatId, canForward, onForward, label, st
 function ForwardedText({ item }: { item: Row }) {
   const styles = useStyles();
   const parsed = item.forwardPreview ? { forward: item.forwardPreview, rest: item.text } : parseForward(item.text);
-  if (!parsed) return item.text ? <Text selectable style={[styles.text, item.failed && styles.failedText]}>{item.text}</Text> : null;
+  if (!parsed) return item.text ? <Text selectable={Platform.OS === "web"} style={[styles.text, item.failed && styles.failedText]}>{item.text}</Text> : null;
   return <>
     <ForwardBlock card={parsed.forward} />
-    {parsed.rest ? <Text selectable style={[styles.text, item.failed && styles.failedText]}>{parsed.rest}</Text> : null}
+    {parsed.rest ? <Text selectable={Platform.OS === "web"} style={[styles.text, item.failed && styles.failedText]}>{parsed.rest}</Text> : null}
   </>;
 }
 
@@ -1174,22 +1272,32 @@ function ForwardBlock({ card, files = 0, lines }: { card: ForwardCard; files?: n
   const where = [card.where, card.when].filter(Boolean).join(" · ");
   return <View accessible accessibilityLabel={`Forwarded message from ${card.author}${where ? `, ${where}` : ""}. ${card.quote || "No text"}`} style={styles.forward}>
     <Text style={styles.forwardLabel}>Forwarded from {card.author}{where ? <Text style={styles.forwardWhere}> · {where}</Text> : null}</Text>
-    {card.quote ? <Text selectable={!lines} numberOfLines={lines} style={styles.forwardQuote}>{card.quote}</Text> : null}
+    {card.quote ? <Text selectable={!lines && Platform.OS === "web"} numberOfLines={lines} style={styles.forwardQuote}>{card.quote}</Text> : null}
     {files ? <Text style={styles.forwardWhere}>{files === 1 ? "1 attachment" : `${files} attachments`}</Text> : null}
   </View>;
 }
 
-const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
+const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   actionsRow: { flex: 1, flexDirection: "row", gap: 10 },
   more: { position: "absolute", right: space.xs, top: 0, minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center", borderRadius: radius.sm },
   moreText: { ...typography.label, color: colors.muted },
   menuOverlay: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: space.side, backgroundColor: colors.scrim },
   menuCard: { width: "100%", maxWidth: 420, backgroundColor: colors.background, borderRadius: radius.lg, padding: space.side },
+  reactions: { flexDirection: "row", flexWrap: "wrap", gap: space.xxs, marginTop: space.xxs },
+  reaction: { minHeight: 44, minWidth: 44, justifyContent: "center" },
+  reactionPill: { minHeight: 28, minWidth: 42, paddingHorizontal: space.xs, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
+  selectedReaction: { backgroundColor: colors.blueSoft, borderColor: colors.blue },
+  reactionText: { ...typography.label, color: colors.ink },
+  reactionMenu: { flexDirection: "row", flexWrap: "wrap", gap: space.xxs, marginBottom: space.xs },
+  reactionChoice: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, borderWidth: 1, borderColor: "transparent" },
+  reactionChoiceText: { ...typography.title },
   menuAuthor: { ...typography.bodyStrong, color: colors.ink, marginBottom: space.xs },
   menuAction: { minHeight: 48, paddingVertical: space.sm, justifyContent: "center", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   menuActionText: { ...typography.body, color: colors.blue },
   menuStatus: { ...typography.caption, color: colors.muted, marginTop: space.xs },
+  selectScroll: { maxHeight: 360, marginTop: space.xs },
+  selectableText: { ...typography.body, color: colors.ink, marginBottom: space.md },
   forward: { borderLeftWidth: 3, borderLeftColor: colors.blue, paddingLeft: space.sm, paddingVertical: 2, marginTop: 2, marginBottom: space.xxs, gap: 2 },
   forwardLabel: { ...typography.captionStrong, color: colors.ink },
   forwardWhere: { ...typography.meta, fontWeight: "400", color: colors.muted },
@@ -1211,6 +1319,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   readOnlyList: { paddingTop: space.xl },
   fullTitle: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.side, paddingVertical: space.sm, backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   optionsTitle: { ...typography.bodyStrong, color: colors.ink, paddingBottom: space.sm },
+  nameInput: { ...controls.input, marginBottom: space.sm },
+  nameActions: { flexDirection: "row", justifyContent: "flex-end", gap: space.sm, paddingBottom: space.sm },
   fullTitleText: { ...typography.bodyStrong, flex: 1, color: colors.ink },
   sharedBanner: { paddingHorizontal: space.side, paddingVertical: space.xs, backgroundColor: colors.blueSoft },
   previewInline: { alignSelf: "flex-start", marginTop: space.xs },

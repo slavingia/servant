@@ -13,6 +13,7 @@
   "scripts": {
     "start": "node src/index.ts",
     "link": "node src/index.ts link",
+    "handoff": "node src/handoff.ts",
     "test": "node --test src/*.test.ts"
   },
   "dependencies": {

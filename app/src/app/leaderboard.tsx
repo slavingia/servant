@@ -1,11 +1,13 @@
 import { useCallback, useState } from "react";
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { BallRefreshControl } from "../components/BallRefreshControl";
 import { useFocusEffect } from "expo-router";
 import { Avatar } from "../components/Messaging";
 import { api, ServerError, type Leaderboard, type LeaderboardPeriod, type TopicRow } from "../lib/server";
 import { useSession } from "../lib/session";
 import { estimateCost, formatCost, formatTokens, sharePercent } from "../lib/token-format";
-import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
+import { createThemedStyles, radius, space, typography } from "../lib/theme";
+import { ServeLoader } from "../components/ServeLoader";
 
 const periods: { key: LeaderboardPeriod; label: string; caption: string }[] = [
   { key: "day", label: "Today", caption: "the last 24 hours" },
@@ -17,7 +19,6 @@ const periods: { key: LeaderboardPeriod; label: string; caption: string }[] = [
 // Built-in agent usage report: agent tokens used across the server and by person.
 export default function LeaderboardScreen() {
   const styles = useStyles();
-  const { colors } = useTheme();
   const { account } = useSession();
   const [period, setPeriod] = useState<LeaderboardPeriod>("week");
   const [board, setBoard] = useState<Leaderboard | null>(null);
@@ -35,7 +36,7 @@ export default function LeaderboardScreen() {
   const current = periods.find(p => p.key === period)!;
 
   return <ScrollView style={styles.root} contentContainerStyle={styles.content}
-    refreshControl={<RefreshControl tintColor={colors.blue} refreshing={refreshing} onRefresh={async () => { setRefreshing(true); try { await load(period); } finally { setRefreshing(false); } }} />}>
+    refreshControl={<BallRefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); try { await load(period); } finally { setRefreshing(false); } }} />}>
     <View accessibilityRole="tablist" style={styles.periods}>
       {periods.map(p => <Pressable key={p.key} accessibilityRole="tab" accessibilityState={{ selected: p.key === period }} aria-selected={p.key === period}
         onPress={() => { setBoard(null); setPeriod(p.key); }} style={[styles.period, p.key === period && styles.periodOn]}>
@@ -45,7 +46,7 @@ export default function LeaderboardScreen() {
 
 
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-    {!board ? <ActivityIndicator accessibilityLabel="Loading agent usage report" style={{ marginTop: space.xl }} color={colors.blue} /> : <>
+    {!board ? <ServeLoader accessibilityLabel="Loading agent usage report" style={{ marginTop: space.xl }} /> : <>
       <View accessible accessibilityLabel={`${formatTokens(board.totals.total)} tokens used on ${account.serverName} in ${current.caption}, across ${board.totals.turns} agent replies, about ${formatCost(estimateCost(board.totals.input, board.totals.output))} estimated`} style={styles.total}>
         <Text style={styles.totalLabel}>{account.serverName} · {current.caption}</Text>
         <Text style={styles.totalValue}>{formatTokens(board.totals.total)}</Text>

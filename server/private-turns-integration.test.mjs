@@ -491,3 +491,23 @@ test('the workspace owner can jump into a chat another person shared with everyo
   // A member who is not the owner never gets in.
   assert.equal((await f.api('/v1/chats/chat/messages', 'POST', { text: 'No' }, 'member')).status, 404);
 });
+
+test('A heart can be put on an agent chat reply and taken back', { timeout: 15000 }, async t => {
+  const f = await fixture(t);
+  const json = async r => { const body = await r.json(); assert.ok(r.ok, JSON.stringify(body)); return body; };
+  const response = await f.api('/v1/chats/chat/messages', 'POST', { text: 'Ship it?', requestId: 'request_heart' });
+  await until(async () => (await f.latest())?.accepted && f.runs.size === 1);
+  f.finish([...f.runs.values()][0], 'Shipped'); await response.text();
+  await until(async () => (await f.latest()).status === 'completed');
+  const reply = (await json(await f.api('/v1/chats/chat/messages'))).messages.find(m => m.role === 'assistant');
+  assert.equal(reply.reactions, undefined);
+  const added = await json(await f.api(`/v1/chats/chat/messages/${reply.id}/reactions`, 'POST', { emoji: '❤️', active: true }));
+  assert.equal(added.reactions.length, 1);
+  assert.equal(added.reactions[0].emoji, '❤️');
+  assert.equal(added.reactions[0].userIds.length, 1);
+  const again = (await json(await f.api('/v1/chats/chat/messages'))).messages.find(m => m.id === reply.id);
+  assert.deepEqual(again.reactions, added.reactions, 'the heart stays after the history is synced again');
+  assert.deepEqual((await json(await f.api(`/v1/chats/chat/messages/${reply.id}/reactions`, 'POST', { emoji: '❤️', active: false }))).reactions, []);
+  assert.equal((await f.api(`/v1/chats/chat/messages/${reply.id}/reactions`, 'POST', { emoji: '🍕', active: true })).status, 400);
+  assert.equal((await f.api('/v1/chats/chat/messages/msg_nope/reactions', 'POST', { emoji: '❤️', active: true })).status, 404);
+});

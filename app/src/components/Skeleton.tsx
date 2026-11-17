@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { AccessibilityInfo, Animated, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
+import { AccessibilityInfo, Animated, Easing, Platform, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import { radius, space, useTheme } from "../lib/theme";
+import { LOADER_DELAY_MS, LOADER_FADE_MS } from "../lib/serve-loop";
 
 // Placeholder shapes shown while something loads, so the screen keeps its shape
 // instead of showing a spinner. They pulse unless Reduce Motion is on, and start
@@ -36,12 +37,23 @@ export function Pulse({ label, style, children }: { label?: string; style?: Styl
   );
 }
 
+// Rows for a list that is loading (People, an agent chat, Archived). Like the loading ball they wait a quarter
+// of a second before they are drawn (lib/serve-loop.ts): with a fifth of a second added to each answer from the
+// server they were up for 130 to 230 ms and gone, a grey flash on the way into the screen. They hold their
+// place meanwhile. The launch shapes above are not delayed: they take over from a still picture of themselves.
 export function SkeletonRows({ label, count = 7, avatar = true, style }: { label: string; count?: number; avatar?: boolean; style?: ViewStyle }) {
   const { colors } = useTheme();
   const opacity = usePulse();
+  const [shown] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    const appear = Animated.timing(shown, { toValue: 1, duration: LOADER_FADE_MS, delay: LOADER_DELAY_MS, easing: Easing.linear, useNativeDriver: Platform.OS !== "web" });
+    appear.start();
+    return () => appear.stop();
+  }, [shown]);
   const fill = { backgroundColor: colors.line };
   return (
     <View accessible accessibilityRole="progressbar" accessibilityLabel={label} accessibilityState={{ busy: true }} style={[styles.list, style]}>
+      <Animated.View style={{ opacity: shown }}>
       {Array.from({ length: count }, (_, i) => (
         <Animated.View key={i} style={[styles.row, { opacity }]}>
           {avatar ? <View style={[styles.avatar, fill]} /> : null}
@@ -51,6 +63,7 @@ export function SkeletonRows({ label, count = 7, avatar = true, style }: { label
           </View>
         </Animated.View>
       ))}
+      </Animated.View>
     </View>
   );
 }
@@ -58,7 +71,8 @@ export function SkeletonRows({ label, count = 7, avatar = true, style }: { label
 const styles = StyleSheet.create({
   list: { paddingTop: space.xs },
   row: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.side, paddingVertical: space.sm, minHeight: 64 },
-  avatar: { width: 40, height: 40, borderRadius: radius.md },
+  // Circle, matching the people avatars that replace it, so the shape does not jump on load.
+  avatar: { width: 40, height: 40, borderRadius: radius.pill },
   lines: { flex: 1, gap: 8 },
   line: { height: 12, borderRadius: radius.pill },
   short: { height: 10 },

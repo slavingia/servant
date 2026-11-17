@@ -52,8 +52,23 @@ Any MCP client (stdio):
 | `new_agent_chat` | Start one; `shared: true` lets everyone follow it |
 | `ask_agent` | Send a message in an agent chat and wait for the reply |
 | `read_agent_chat` | The messages in an agent chat |
+| `request_code` | Ask your phone for a one-time sign-in code and wait for it ([code-requests.md](code-requests.md)) |
 
 There is also one resource, `servant://conversations`.
+
+## Handing work to reviewers from an agent
+
+`mcp/src/handoff.ts` is a small command for agents and scripts that work with a team in Servant: it reads and posts in conversations (with pictures attached), updates a project's release checklist, and shows what people replied since an ask.
+
+```sh
+node mcp/src/handoff.ts help
+node mcp/src/handoff.ts releases example-app
+node mcp/src/handoff.ts post <conversation> "Dark mode is ready for your design step." --attach light.png dark.png
+node mcp/src/handoff.ts ask-log <conversation> "Dark mode" "Pat Tester" "branch dark-mode"
+node mcp/src/handoff.ts replies
+```
+
+Messages it posts are labelled **Posted by agent**. Open asks are kept beside the device token in `~/.config/servant-mcp/handoffs.json`. [skills/review-handoff/SKILL.md](../skills/review-handoff/SKILL.md) is the skill that tells an agent when to ask, where to post, what the message must contain and how to act on replies; point your agent at it, or copy the folder into your agent's skills directory.
 
 ## What it can't do
 

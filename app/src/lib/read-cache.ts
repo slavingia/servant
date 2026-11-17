@@ -22,6 +22,15 @@ export function noteRead(notes: ReadNotes, id: string, through: unknown, now: nu
   notes.set(id, { through: seq, at: now });
 }
 
+/**
+ * How far `id` was read on this device a moment ago, or null with no note still in force. The list catches up
+ * with a note only when it is next fetched; a conversation opened again before that asks here.
+ */
+export function notedPlace(notes: ReadNotes, id: string, now: number = Date.now()): number | null {
+  const note = notes.get(id);
+  return note && now - note.at < KEEP_MS ? note.through : null;
+}
+
 /** The server's list with what you have read since it was asked for put back. Returns the same rows when no note applies. */
 export function applyReadNotes<T extends Row>(list: T[], notes: ReadNotes, now: number): T[] {
   if (!notes.size) return list;

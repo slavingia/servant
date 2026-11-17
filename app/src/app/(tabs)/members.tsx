@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, FlatList, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
+import { BallRefreshControl } from "../../components/BallRefreshControl";
 import * as Clipboard from "expo-clipboard";
 import { Redirect, router, useFocusEffect, useScrollToTop } from "expo-router";
 import { SkeletonRows } from "../../components/Skeleton";
@@ -204,7 +205,7 @@ export default function Members() {
       data={shown}
       keyExtractor={person => person.id}
       keyboardShouldPersistTaps="handled"
-      refreshControl={<RefreshControl tintColor={colors.blue} colors={[colors.blue]} progressBackgroundColor={colors.surface} refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />}
+      refreshControl={<BallRefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />}
       ListHeaderComponent={<View>
         {/* Same header as Messages and Agent: title on the left, one icon button on the right. The count sits beside the title to save a line. */}
         <View style={styles.header}>
@@ -218,7 +219,6 @@ export default function Members() {
           </Pressable> : null}
         </View>
         {people && people.length > 1 ? <View accessibilityRole="tablist" accessibilityLabel="Sort people" style={styles.sorts}>
-          <Text style={styles.sortLabel}>Sort</Text>
           {PEOPLE_SORTS.map(option => <Pressable key={option.value} accessibilityRole="tab" accessibilityState={{ selected: sort === option.value }} aria-selected={sort === option.value} onPress={() => setSort(option.value)} style={({ pressed }) => [styles.sort, sort === option.value && styles.selectedSort, pressed && { opacity: 0.7 }]}>
             <Text style={[styles.sortText, sort === option.value && styles.selectedSortText]}>{option.label}</Text>
           </Pressable>)}
@@ -389,9 +389,9 @@ const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create
   // Header, icon button and strip measure the same as on Messages and Agent.
   header: { minHeight: 60, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", gap: space.xs },
   title: { ...typography.title, color: colors.ink, flexShrink: 1 },
-  sorts: { flexDirection: "row", alignItems: "center", gap: space.xs, paddingHorizontal: space.side },
-  sortLabel: { ...typography.caption, color: colors.muted, marginRight: space.xs },
-  sort: { minHeight: 44, paddingHorizontal: space.md, justifyContent: "center", borderRadius: radius.md },
+  // Same pills as the filters on Home, Chats and Agent; the tab list is labelled "Sort people" for screen readers.
+  sorts: { flexDirection: "row", gap: space.xs, paddingHorizontal: space.side, paddingVertical: space.xs },
+  sort: { minHeight: 44, paddingHorizontal: space.lg, paddingVertical: space.sm, justifyContent: "center", borderRadius: radius.pill },
   selectedSort: { backgroundColor: colors.blueSoft },
   sortText: { ...typography.bodyStrong, color: colors.muted },
   selectedSortText: { color: colors.blueDark },

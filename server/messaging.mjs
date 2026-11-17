@@ -1,3 +1,4 @@
+import { shapeFeed } from "./feed.mjs";
 import { agentTierOf, TIER_TOKEN_LIMITS } from "./usage.mjs";
 import { ftsQuery, parseSearch, SEARCH_SCHEMA } from "./search.mjs";
 import { firstLink } from "./link-preview.mjs";
@@ -16,6 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { isMention } from "./push.mjs";
 import { validateUploads, mediaPage, rasterMime, MAX_UPLOAD_BODY, MAX_UPLOAD_TOTAL } from "./media.mjs";
+import { pictureSize, withPictureSize } from "./image-size.mjs";
 
 // The app sends a 512px square JPEG (well under this).
 const MAX_PHOTO_BYTES = 1024 * 1024;
@@ -51,6 +53,7 @@ const CALL_PUSH_MS = 45_000; // matches how long the app rings
 // Every build's notes go here, one post per build, so testers can see what
 // changed and talk about it in that post's thread.
 export const RELEASES_CHANNEL = "whats-new";
+export const FEED_CHANNEL = "agent-feed";
 const PAGE = 50;
 const PRESENCE_LEASE_MS = 60000;
 
@@ -177,7 +180,8 @@ CREATE TABLE IF NOT EXISTS reactions (
 CREATE TABLE IF NOT EXISTS attachments (
   id TEXT PRIMARY KEY,
   message_seq INTEGER NOT NULL REFERENCES messages(seq) ON DELETE CASCADE,
-  name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, data BLOB NOT NULL
+  name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, data BLOB NOT NULL,
+  width INTEGER, height INTEGER
 );
 CREATE INDEX IF NOT EXISTS attachments_message ON attachments(message_seq);
 CREATE TABLE IF NOT EXISTS releases (
@@ -327,9 +331,16 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     if (!db.prepare("PRAGMA table_info(members)").all().some(column => column.name === "position")) {
       db.exec("ALTER TABLE members ADD COLUMN position INTEGER");
     }
+    // Muted (like Slack): the conversation stays, but only mentions and threads you're in alert you, and it adds nothing to your badges.
+    if (!db.prepare("PRAGMA table_info(members)").all().some(column => column.name === "muted_at")) {
+      db.exec("ALTER TABLE members ADD COLUMN muted_at INTEGER");
+    }
     if (!db.prepare("PRAGMA table_info(messages)").all().some(column => column.name === "activity")) {
       db.exec("ALTER TABLE messages ADD COLUMN activity TEXT");
     }
+    // #agent-feed posts used to be plain (unread-counting) messages; they are silent activity lines now.
+    // (The very first digest went out under the owner's name; it reads "Sent\n- …".)
+    db.prepare("UPDATE messages SET activity = 'feed' WHERE (user_id = ? OR text LIKE 'Sent' || char(10) || '- %') AND activity IS NULL AND thread_root IS NULL AND conversation_id IN (SELECT id FROM conversations WHERE kind = 'channel' AND name = ?)").run(AGENT_ID, FEED_CHANNEL);
     if (!db.prepare('PRAGMA table_info(messages)').all().some(value => value.name === 'suggestions')) {
       db.exec('ALTER TABLE messages ADD COLUMN suggestions TEXT');
     }
@@ -340,6 +351,13 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     for (const column of ['source_device_kind', 'source_device_id']) {
       if (!db.prepare('PRAGMA table_info(messages)').all().some(value => value.name === column)) {
         db.exec(`ALTER TABLE messages ADD COLUMN ${column} TEXT`);
+      }
+    }
+    // A picture's width and height, read from its header when it is stored (image-size.mjs), so the app can keep
+    // its place at the right shape before the bytes arrive. Files stored before this have none.
+    for (const column of ['width', 'height']) {
+      if (!db.prepare('PRAGMA table_info(attachments)').all().some(value => value.name === column)) {
+        db.exec(`ALTER TABLE attachments ADD COLUMN ${column} INTEGER`);
       }
     }
     db.exec('COMMIT');
@@ -517,12 +535,12 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     addReaction: q("INSERT OR IGNORE INTO reactions VALUES (?, ?, ?)"),
     removeReaction: q("DELETE FROM reactions WHERE message_seq = ? AND user_id = ? AND emoji = ?"),
     deleteReactions: q("DELETE FROM reactions WHERE message_seq = ?"),
-    attachments: q("SELECT id, name, mime, size FROM attachments WHERE message_seq = ?"),
+    attachments: q("SELECT id, name, mime, size, width, height FROM attachments WHERE message_seq = ?"),
     preview: q("SELECT url, title, description, site FROM link_previews WHERE message_seq = ?"),
     setPreview: q("INSERT OR REPLACE INTO link_previews (message_seq, url, title, description, site) VALUES (?, ?, ?, ?, ?)"),
     dropPreview: q("DELETE FROM link_previews WHERE message_seq = ?"),
     attachment: q("SELECT * FROM attachments WHERE id = ?"),
-    insertAttachment: q("INSERT INTO attachments VALUES (?, ?, ?, ?, ?, ?)"),
+    insertAttachment: q("INSERT INTO attachments (id, message_seq, name, mime, size, data, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"),
     deleteAttachments: q("DELETE FROM attachments WHERE message_seq = ?"),
     conv: q("SELECT * FROM conversations WHERE id = ?"),
     convByName: q("SELECT * FROM conversations WHERE kind = 'channel' AND name = ?"),
@@ -544,7 +562,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     setAgentText: q("UPDATE messages SET text = ?, pending = ? WHERE seq = ?"),
     softDelete: q("UPDATE messages SET text = '', deleted_at = ? WHERE seq = ?"),
     markRead: q("UPDATE members SET last_read_seq = MAX(last_read_seq, ?) WHERE conversation_id = ? AND user_id = ?"),
-    mine: q(`SELECT c.*, m.last_read_seq,
+    mine: q(`SELECT c.*, m.last_read_seq, m.muted_at,
                (SELECT COUNT(*) FROM messages x WHERE x.conversation_id = c.id AND (x.thread_root IS NULL OR x.in_channel = 1)
                   AND x.seq > m.last_read_seq AND x.user_id != m.user_id AND x.deleted_at IS NULL AND x.activity IS NULL) AS unread,
                (SELECT MAX(seq) FROM messages x WHERE x.conversation_id = c.id AND (x.thread_root IS NULL OR x.in_channel = 1)) AS last_seq
@@ -575,6 +593,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     updateConv: q("UPDATE conversations SET name = ?, topic = ? WHERE id = ?"),
     archive: q("UPDATE conversations SET archived_at = ? WHERE id = ?"),
     archiveMember: q("UPDATE members SET archived_at = ? WHERE conversation_id = ? AND user_id = ?"),
+    muteMember: q("UPDATE members SET muted_at = ? WHERE conversation_id = ? AND user_id = ?"),
     setPosition: q("UPDATE members SET position = ? WHERE conversation_id = ? AND user_id = ?"),
     deleteConv: q("DELETE FROM conversations WHERE id = ?"),
     deleteAgentThreads: q("DELETE FROM agent_threads WHERE substr(key, 1, length(?) + 1) = ? || ':'"),
@@ -712,6 +731,11 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     const photo = u && st.photoVersion.get(uid)?.updated_at;
     return u ? { id: u.id, name: u.name, lastSeenAt, online, ...deepWorkFields(u), ...(photo ? { photo: String(photo) } : {}) } : { id: uid, name: "Former member" };
   };
+  // Every file kept with a message is stored here, so a picture's size is read once, as it arrives.
+  function storeAttachment(seq, a) {
+    const size = pictureSize(a);
+    st.insertAttachment.run(newId("file"), seq, a.name, a.mime, a.data.length, a.data, size?.width ?? null, size?.height ?? null);
+  }
   const msgView = (m, includeReads = true, viewerId) => ({
     id: String(m.seq),
     ...(!m.activity && m.user_id !== AGENT_ID ? sourceDeviceFields(m.source_device_kind, users()[viewerId]) : {}),
@@ -727,7 +751,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     // the working placeholder until the reply finishes.
     text: m.deleted_at || m.pending ? "" : m.text,
     reactions: m.deleted_at ? [] : Object.entries(Object.groupBy(st.reactions.all(m.seq), r => r.emoji)).map(([emoji, rows]) => ({ emoji, userIds: rows.map(r => r.user_id) })),
-    attachments: m.deleted_at || m.pending ? [] : st.attachments.all(m.seq),
+    attachments: m.deleted_at || m.pending ? [] : st.attachments.all(m.seq).map(withPictureSize),
     // The linked page's own title and description, read once by the server when the message was posted.
     ...(!m.deleted_at && !m.pending && st.preview.get(m.seq) ? { preview: { ...st.preview.get(m.seq) } } : {}),
     deleted: !!m.deleted_at,
@@ -768,6 +792,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
       private: !!c.private,
       createdBy: c.created_by,
       archived: !!membership?.archived_at,
+      muted: !!membership?.muted_at,
       // This person's own place for the channel when they sort by hand.
       position: membership?.position ?? null,
       memberCount: memberIds.length,
@@ -834,6 +859,48 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
       publish(conv.id, "conversation.updated", { id: conv.id });
       return st.msg.get(m.seq);
     });
+  }
+
+  /** Scripts on this Mac (cron, alerts) tell someone something: the agent posts it in their own agent conversation, so it notifies like any message. */
+  function notifyFromAgent(userId, text, { attachments = [] } = {}) {
+    text = String(text || "").trim().slice(0, MAX_TEXT);
+    if (!text && !attachments.length) throw httpError(400, "empty", "Write the message first");
+    return transaction(() => {
+      if (!users()[userId]) throw httpError(404, "not_found", "No such person");
+      const conv = welcomeFromAgentInTransaction(userId);
+      const m = post(conv, AGENT_ID, text, null, { attachments, queueAgent: false });
+      publish(conv.id, "conversation.updated", { id: conv.id });
+      return { conversationId: conv.id, messageId: String(m.seq) };
+    });
+  }
+
+  /** The agent's activity log for the whole team: one public #agent-feed, posted by the agent. Silent: each post is an
+   *  activity line, so it never pushes, never shows a desktop notification and adds nothing to unread counts or badges. */
+  function feedFromAgent(text, { attachments = [] } = {}) {
+    text = String(text || "").trim().slice(0, MAX_TEXT);
+    if (!text && !attachments.length) throw httpError(400, "empty", "Write the message first");
+    return transaction(() => {
+      const conv = ensureFeedChannel();
+      const seq = Number(st.insertActivity.run(conv.id, AGENT_ID, text, now(), "feed").lastInsertRowid);
+      for (const a of attachments) storeAttachment(seq, a);
+      publish(conv.id, "message.created", msgView(st.msg.get(seq)));
+      publish(conv.id, "conversation.updated", { id: conv.id });
+      return { conversationId: conv.id, messageId: String(seq) };
+    });
+  }
+  function ensureFeedChannel() {
+    const conv = ensureChannel(FEED_CHANNEL, "What the agent did lately. Updated automatically, never notifies");
+    for (const uid of Object.keys(users())) if (!st.member.get(conv.id, uid)) addChannelMember(conv, uid);
+    return conv;
+  }
+
+  /** What the agent did lately, as items for the Feed screen (everyone on the server can see it). */
+  function feedItems({ days = 14 } = {}) {
+    const conv = st.convByName.get(FEED_CHANNEL);
+    if (!conv) return { items: [] };
+    const rows = db.prepare("SELECT seq, text, created_at FROM messages WHERE conversation_id = ? AND user_id = ? AND deleted_at IS NULL AND thread_root IS NULL AND created_at > ? ORDER BY seq DESC LIMIT 500")
+      .all(conv.id, AGENT_ID, now() - days * 86400_000);
+    return { items: shapeFeed(rows), conversationId: conv.id };
   }
 
   function joinDefaults(...args) { return transaction(() => joinDefaultsInTransaction(...args)); }
@@ -949,7 +1016,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     }).catch(() => { /* no preview */ });
   }
 
-  function postInTransaction(conv, userId, text, threadRoot = null, { pending = false, attachments = [], queueAgent = externalWorker, device, call = null, inChannel = false } = {}) {
+  function postInTransaction(conv, userId, text, threadRoot = null, { pending = false, attachments = [], queueAgent = externalWorker, device, call = null, inChannel = false, quiet = false } = {}) {
     conv = userId === AGENT_ID ? st.conv.get(conv.id) : requireConversation(conv.id, userId, true);
     if (!conv || conv.archived_at) throw httpError(404, 'not_found', 'That conversation is gone');
     if (threadRoot) {
@@ -961,13 +1028,13 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     const r = st.insertMsg.run(conv.id, userId, threadRoot, text, now(), pending ? 1 : 0, sourceDeviceKind(humanDevice), humanDevice?.id || null, threadRoot && inChannel ? 1 : 0);
     const seq = Number(r.lastInsertRowid);
     if (conv.kind === "dm") unarchiveDm(conv.id);
-    for (const a of attachments) st.insertAttachment.run(newId("file"), seq, a.name, a.mime, a.data.length, a.data);
+    for (const a of attachments) storeAttachment(seq, a);
     if (threadRoot) st.bumpThread.run(now(), threadRoot);
     if (userId !== AGENT_ID) st.markRead.run(seq, conv.id, userId);
     const m = st.msg.get(seq);
     publish(conv.id, "message.created", msgView(m));
     if (threadRoot) publish(conv.id, "message.updated", msgView(st.msg.get(threadRoot)));
-    if (!pending) notifyMessage(m.seq, call);
+    if (!pending && !quiet) notifyMessage(m.seq, call);
     if (!pending && userId !== AGENT_ID) afterCommit(() => previewLater(m.seq));
     if (queueAgent && externalWorker && userId !== AGENT_ID && wantsAgent(conv, m)) {
       db.prepare('INSERT OR IGNORE INTO agent_jobs (trigger_seq, created_at) VALUES (?, ?)').run(m.seq, now());
@@ -1129,7 +1196,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     transaction(() => {
       const current = st.msg.get(reply.seq);
       if (current && !current.deleted_at && st.conv.get(conv.id)) {
-        for (const a of attachments) st.insertAttachment.run(newId("file"), reply.seq, a.name, a.mime, a.data.length, a.data);
+        for (const a of attachments) storeAttachment(reply.seq, a);
       }
       saveReply(true);
       if (st.conv.get(conv.id)) {
@@ -1374,19 +1441,23 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     if (inDeepWork(user)) return null;
     // No delayed push after the recipient has already read the top-level post.
     if (!call && (!m.thread_root || m.in_channel) && membership.last_read_seq >= m.seq) return null;
+    const badge = () => st.mine.all(user.id, 0).reduce((n, x) => n + (x.muted_at ? 0 : x.unread), 0);
     const participant = !!m.thread_root && !!db.prepare("SELECT 1 FROM messages WHERE conversation_id = ? AND (seq = ? OR thread_root = ?) AND user_id = ? AND deleted_at IS NULL AND seq < ? LIMIT 1").get(c.id, m.thread_root, m.thread_root, user.id, m.seq);
     if (call) {
       const caller = person(call.by).name;
-      return { kind: c.kind, conversationId: c.id, meetingId: call.id, caller, place: c.kind === "channel" ? `#${c.name}` : "", mentioned: true, participant: false, badge: st.mine.all(user.id, 0).reduce((n, x) => n + x.unread, 0),
+      return { kind: c.kind, conversationId: c.id, meetingId: call.id, caller, place: c.kind === "channel" ? `#${c.name}` : "", mentioned: true, participant: false, badge: badge(),
         title: `${caller} is calling`, body: c.kind === "channel" ? `In #${c.name}. Tap to join` : "Tap to join" };
     }
     const sender = person(m.user_id).name;
     // New build notes reach everyone, like an @here.
     const release = !m.thread_root && st.releaseBySeq.get(m.seq);
-    const unread = st.mine.all(user.id, 0).reduce((n, c) => n + c.unread, 0);
+    const mentioned = !!release || isMention(m.text, user);
+    // Muted: only an @mention of you by name, or a reply in a thread you're in, still alerts. Not @here, @channel or build notes. Calls (above) always ring.
+    if (membership.muted_at && !participant && !isMention(m.text.replace(/@(channel|here)\b/gi, ""), user)) return null;
+    const unread = badge();
     // Tapping a build's notes opens its thread, where testers discuss it.
     return { kind: c.kind, conversationId: c.id, messageId: String(m.seq), threadRoot: release ? m.seq : m.thread_root,
-      mentioned: !!release || isMention(m.text, user), participant, badge: unread,
+      mentioned, participant, badge: unread,
       title: release ? `Build ${release.build} is out` : c.kind === "channel" ? `${sender} in #${c.name}` : sender,
       body: m.text || (st.attachments.all(m.seq).length ? "Sent an attachment" : ""), };
   }
@@ -1729,10 +1800,10 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
       const sub = parts[3];
 
       if (sub === "media" && method === "GET" && parts.length === 4) {
-        const items = db.prepare(`SELECT a.id,a.name,a.mime,a.size,m.seq AS messageId,m.user_id,m.created_at AS createdAt,m.text
+        const items = db.prepare(`SELECT a.id,a.name,a.mime,a.size,a.width,a.height,m.seq AS messageId,m.user_id,m.created_at AS createdAt,m.text
           FROM attachments a JOIN messages m ON m.seq=a.message_seq
           WHERE m.conversation_id=? AND m.deleted_at IS NULL AND m.pending = 0 ORDER BY m.seq,a.rowid`).all(conv.id)
-          .map(({ user_id, messageId, ...item }) => ({ ...item, messageId: String(messageId), sender: person(user_id) }));
+          .map(({ user_id, messageId, ...item }) => ({ ...withPictureSize(item), messageId: String(messageId), sender: person(user_id) }));
         send(res, 200, mediaPage(items, url.searchParams));
         return true;
       }
@@ -1746,6 +1817,17 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
           publish(conv.id, "conversation.updated", { id: conv.id }, [user.id]);
         });
         send(res, 200, { ok: true });
+        return true;
+      }
+      if ((sub === "mute" || sub === "unmute") && method === "POST") {
+        if (!isMember)
+          return fail(res, 403, "forbidden", conv.kind === "dm" ? "You're not in this conversation" : "Join the channel first"), true;
+        transaction(() => {
+          requireConversation(conv.id, user.id, true);
+          st.muteMember.run(sub === "mute" ? now() : null, conv.id, user.id);
+          publish(conv.id, "conversation.updated", { id: conv.id }, [user.id]);
+        });
+        send(res, 200, { ok: true, muted: sub === "mute" });
         return true;
       }
       if (!sub && method === "DELETE" && conv.kind === "dm") {
@@ -2031,7 +2113,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
   function personChanged(userId) { publish('', 'person.updated', { userId }, Object.keys(users())); }
   // Their deep work switch moved: everyone's "Deep work" label and the person's other devices update at once.
   const presenceChanged = userId => publishPresence(userId);
-  return { ...meetingHooks, workLog, channelFor, postActivity, personChanged, presenceChanged, handle, forwardSource, forwardInto, notificationFor, joinDefaults, joinEveryone, welcomeFromAgent, ensureAgentDms, congratulateLimit, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, keep, keepAll, close: () => { closeEvents(); db.close(); }, db };
+  return { ...meetingHooks, workLog, channelFor, postActivity, personChanged, presenceChanged, handle, forwardSource, forwardInto, notificationFor, joinDefaults, joinEveryone, welcomeFromAgent, notifyFromAgent, feedFromAgent, feedItems, ensureAgentDms, congratulateLimit, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, keep, keepAll, close: () => { closeEvents(); db.close(); }, db };
 }
 
 function httpError(status, code, message) {

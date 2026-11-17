@@ -71,7 +71,7 @@ test("link with phone approval, then list, read, post and ask the agent through 
   await client.connect(new StdioClientTransport({ command: process.execPath, args: [path.join(here, "index.ts")], env: env as Record<string, string> }));
   try {
     const tools = (await client.listTools()).tools.map(t => t.name);
-    for (const t of ["whoami", "list_conversations", "read_messages", "send_message", "ask_agent", "new_agent_chat"]) assert.ok(tools.includes(t), t);
+    for (const t of ["whoami", "list_conversations", "read_messages", "send_message", "ask_agent", "new_agent_chat", "request_code"]) assert.ok(tools.includes(t), t);
     const text = async (name: string, args: Record<string, unknown> = {}) => {
       const r: any = await client.callTool({ name, arguments: args });
       assert.ok(!r.isError, `${name}: ${r.content?.[0]?.text}`);
@@ -113,6 +113,17 @@ test("link with phone approval, then list, read, post and ask the agent through 
     assert.deepEqual([(await phoneCall("GET", `/v1/todos/${epic.id}`)).todo.jiraKey, (await phoneCall("GET", `/v1/todos/${bug.id}`)).todo.jiraKey], ["APP-7", "APP-8"]);
     await run(["jira-export", csvFile]);
     assert.match(fs.readFileSync(csvFile, "utf8"), new RegExp(`\\r\\nAPP-8,${bug.number},${epic.number},`), "the next export updates the issue it became");
+    // A one-time code: the tool waits while the phone sees the request and answers it; the tool gets the code once.
+    const asked = client.callTool({ name: "request_code", arguments: { label: "Login.gov sign-in", hint: "Texted to the number ending 0000" } });
+    let waiting: any[] = [];
+    for (let i = 0; i < 100 && !waiting.length; i++) { await new Promise(r => setTimeout(r, 50)); waiting = (await phoneCall("GET", "/v1/code-requests")).requests; }
+    assert.equal(waiting[0]?.device, "Test laptop", "the phone sees which device is waiting");
+    assert.equal(waiting[0]?.label, "Login.gov sign-in");
+    await phoneCall("POST", `/v1/code-requests/${waiting[0].id}/answer`, { code: "554100" });
+    const got: any = await asked;
+    assert.ok(!got.isError, got.content?.[0]?.text);
+    assert.deepEqual(JSON.parse(got.content[0].text), { code: "554100" });
+    assert.deepEqual((await phoneCall("GET", "/v1/code-requests")).requests, [], "nothing is left waiting");
     // A revoked device stops working right away.
     const devs = (await phoneCall("GET", "/v1/devices")).devices || [];
     const laptop = devs.find((d: any) => d.label === "Test laptop" || d.name === "Test laptop");

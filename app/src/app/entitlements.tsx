@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { BallRefreshControl } from "../components/BallRefreshControl";
 import { useFocusEffect } from "expo-router";
 import { Button } from "../components/Button";
 import { CheckBox } from "../components/CheckBox";
@@ -99,7 +100,7 @@ export default function EntitlementsScreen() {
 
   return <View style={styles.root}>
     <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled"
-      refreshControl={<RefreshControl tintColor={colors.blue} refreshing={refreshing} onRefresh={async () => { setRefreshing(true); try { await load(); } finally { setRefreshing(false); } }} />}>
+      refreshControl={<BallRefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); try { await load(); } finally { setRefreshing(false); } }} />}>
       <Text style={styles.intro}>What your agent may reach for you. Ask for what you already have access to yourself{owner ? "." : managerName ? `; ${managerName} decides.` : "; an owner decides."}</Text>
       {/* Owners are told plainly whether any of this is being enforced. */}
       {owner && page ? <Text testID="gate-state" style={styles.note}>{page.egress.mode === "ask"

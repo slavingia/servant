@@ -320,3 +320,25 @@ test('no-speech or aborted on stop still sends the words already heard', async (
     assert.equal(session.states.at(-1)!.error, '');
   }
 });
+
+test('Send after tapping the mic off still goes on the first tap when the recognizer never ends', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture();
+  let draft = '';
+  const session = f.session(spoken => { draft = insertDictation(draft, draft.length, spoken).text; });
+  await session.start('en-US');
+  f.emit({ type: 'result', isFinal: true, text: 'Lunch at noon' });
+  f.emit({ type: 'result', isFinal: false, text: 'works for me' });
+  // The mic button stops dictation (no grace), and iOS never sends end.
+  void session.finish();
+  assert.equal(f.calls.stop, 1);
+  // Send is tapped a moment later, while the box still says it's listening.
+  t.mock.timers.tick(300);
+  const sending = session.finish(1200);
+  t.mock.timers.tick(1200);
+  assert.equal(await sending, true, 'the first Send tap sends instead of waiting out the 8 second timeout');
+  assert.equal(draft, 'Lunch at noon works for me');
+  t.mock.timers.tick(10_000);
+  assert.equal(session.states.at(-1)!.error, '');
+  assert.equal(f.calls.stop, 1, 'stop is not asked twice');
+});

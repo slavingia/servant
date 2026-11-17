@@ -9,6 +9,8 @@ export function useChannelDiscovery(enabled = true) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [hasMore, setHasMore] = useState(false);
+  // Has the first page come back (or failed)? Until then the list is loading, not empty.
+  const [answered, setAnswered] = useState(false);
   const cursor = useRef<string | null>(null);
   const generation = useRef(0);
   const busy = useRef(false);
@@ -30,12 +32,14 @@ export function useChannelDiscovery(enabled = true) {
     } catch {
       if (ticket === generation.current) setError("Couldn't load other channels. Tap to retry.");
     } finally {
-      if (ticket === generation.current) { busy.current = false; setLoading(false); }
+      if (ticket === generation.current) { busy.current = false; setLoading(false); setAnswered(true); }
     }
   }, [account, enabled]);
   useFocusEffect(useCallback(() => {
     void load(true);
     return () => { generation.current++; busy.current = false; };
   }, [load]));
-  return { channels, loading, error, hasMore, refresh: () => load(true), more: () => load(), retry: () => load(!cursor.current) };
+  // The request starts a moment after the list is asked for. In that moment there is nothing to show yet, which
+  // is not the same as nothing to join: "No more channels" used to flash there before the loader came up.
+  return { channels, loading: loading || (enabled && !!account && !answered), error, hasMore, refresh: () => load(true), more: () => load(), retry: () => load(!cursor.current) };
 }

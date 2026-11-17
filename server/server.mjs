@@ -64,6 +64,7 @@ import { tierCosts } from "./usage-cost.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { createEgressProxy, createEgressStore, egressSettings } from "./egress.mjs";
 import { createEntitlements } from "./entitlements.mjs";
+import { createCodeRequests } from "./code-requests.mjs";
 import { supportsDurableRuns, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
 import { createReadmeCache } from "./project-readme.mjs";
 import { createGlossaryStore } from "./glossary.mjs";
@@ -73,6 +74,7 @@ import { createWikiStore, WIKI_LIMITS } from "./wiki.mjs";
 import { draftWikiPage } from "./wiki-draft.mjs";
 import { MAX_ITEMS, MAX_PARTS, MAX_PEOPLE, MAX_PROJECTS, MAX_RELEASES, VIBE_PROJECT, accessOf, configureProjects, accessibleProjects, cleanDate, cleanDescription, cleanLevel, cleanLogin, cleanName, cleanNotes, cleanPath, cleanReleaseName, cleanRepo, cleanRules, cleanReviewers, cleanStage, cleanStages, cleanTitle, ownsCell, cleanUrl, cleanWorkflow, createProjectFiles, createProjectStore, expandPath, migrateFolders, needsMigration, newItem, newPart, newProject, newRelease, patchCell, cleanPartTitle, releaseReady, setItemDone, projectInstructions, projectPeople, projectSharedWith, projectView, removeAccess, setAccess, validProjectId, vibeFolder, vibePreview } from "./projects.mjs";
 import { validTermsAcceptance } from "./terms.mjs";
+import { autoTitle, cleanChatTitle } from "./chat-title.mjs";
 import { cleanGuessRequest, guessAbbreviations, learnAbbreviations, LEARN_SOURCE } from "./lexicon-guess.mjs";
 import { verifyMemberUpstream, verifyResearcherUpstream } from "./member-policy.mjs";
 import { composeForward } from "./forward.mjs";
@@ -294,7 +296,7 @@ export function mutateStateForTest(fn) {
 }
 
 /** Tests only: where the agent's network gate listens, and a token that makes traffic count as one person's. */
-export const egressForTest = () => ({ port: egressProxy?.port, mint: (userId, chatId) => egressStore().mintToken(userId, chatId) });
+export const egressForTest = () => ({ port: egressProxy?.port, mint: (userId, chatId) => egressStore().tokenFor(userId, chatId), working: userId => egressStore().working(userId) });
 export function createInvite({ name, role = "member", userId }) {
   return mutateState(state => {
     if (!["owner", "member"].includes(role)) throw new Error("role must be owner or member");
@@ -514,8 +516,8 @@ function removePerson(state, targetId) {
   if (isRemoved(target)) return null;
   target.removedAt = now();
   for (const d of Object.values(state.devices)) if (d.userId === targetId && !d.revokedAt) revokeDevice(d);
-  // Everything they held is revoked and their agent's network tokens stop working.
-  entitlementStore().forget(targetId, "server"); egressStore().forget(targetId);
+  // Everything they held is revoked and their code requests are dropped. Their agent's network tokens stop counting because they are no longer on the server.
+  entitlementStore().forget(targetId, "server"); codeRequests.forget(targetId);
   // Out of every project; projects they owned stay (admins can still edit them).
   projects().mutate(data => { for (const p of data.projects) removeAccess(p, targetId, state.users, data.people); });
   return target.name;
@@ -579,13 +581,13 @@ async function hermes(up, method, pathname, body, extraHeaders = {}, signal) {
 
 // Sends one turn to Hermes and calls onEvent(name, payload) for each SSE event.
 // Resolves with the final assistant text.
-async function streamTurn(up, sessionId, text, key, onEvent, isClosed = () => false, onAccepted = () => {}, onUsage = () => {}, instructions = "") {
+async function streamTurn(up, sessionId, text, key, onEvent, isClosed = () => false, onAccepted = () => {}, onUsage = () => {}, instructions = "", extraHeaders = {}) {
   const r = await hermes(
     up,
     "POST",
     `/api/sessions/${encodeURIComponent(sessionId)}/chat/stream`,
     { message: text, ...(instructions ? { system_message: instructions } : {}) },
-    { Accept: "text/event-stream", "X-Hermes-Session-Key": key },
+    { Accept: "text/event-stream", "X-Hermes-Session-Key": key, ...extraHeaders },
   );
   if (!r.ok || !r.body) throw Object.assign(new Error(`The agent didn't answer (${r.status})`), { status: 502, code: "agent_error" });
   await onAccepted();
@@ -703,7 +705,7 @@ function chatLastMessage(latestTurn, mirrored) {
   return null;
 }
 function chatView(chat, viewer, users = {}) {
-  const view = { id: chat.id, title: chat.title, createdAt: chat.createdAt, updatedAt: chat.updatedAt, shared: chatShared(chat),
+  const view = { id: chat.id, title: chat.title, ...(chat.titledBy ? { titledBy: chat.titledBy } : {}), createdAt: chat.createdAt, updatedAt: chat.updatedAt, shared: chatShared(chat),
     // The full agent takes any file (ZIPs, PDFs, prototypes); others take media.
     ...(agentRole(chat.role, loadConfig()) === "owner" ? { files: true } : {}),
     // folderId/folderShared repeat projectId/projectShared for app builds from before projects.
@@ -765,6 +767,7 @@ let chatMedia;
 let agentTurns;
 let privateTimer;
 const privateStreams = new Set();
+const CHAT_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏", "🎉", "✅", "👀", "🔥", "👏", "💯"];
 const chatMediaStore = () => chatMedia ??= createChatMediaStore(path.join(DATA_DIR, "chat-media.db"), {
   // When Hermes stops returning a message, Servant used to delete its own copy. With records preservation on, archive it first.
   keepDropped: (chatId, rowId) => {
@@ -866,6 +869,8 @@ let workChatStarter = null;
 let otaServer;
 const ota = () => otaServer ??= createOta({ dir: path.join(DATA_DIR, "ota") });
 let entitlementDb = null, egressDb = null, egressProxy = null;
+// One-time codes an automation asks its own person for (docs/code-requests.md). Memory only: a restart forgets them.
+const codeRequests = createCodeRequests({ clock: () => now() });
 // Entitlements (docs/entitlements.md): who holds which named access, and who decides. The agent's outbound gate asks here.
 const entitlementStore = () => entitlementDb ??= createEntitlements(path.join(DATA_DIR, "entitlements.db"), {
   known: userId => { const u = readState().users[userId]; return !!u && !isRemoved(u); },
@@ -893,6 +898,16 @@ function setManager(state, user, manager) {
   user.managerId = manager.id;
 }
 const egressStore = () => egressDb ??= createEgressStore(path.join(DATA_DIR, "egress.db"));
+const egressOn = cfg => egressSettings(cfg?.agentEgress).mode === "ask";
+// With the gate on, each turn tells the bridge whose it is: a token the sandboxed commands of that chat present to the
+// gate (hermes_egress.py). `scope` is the chat or thread; its token never changes for the same person.
+const egressHeaders = (cfg, userId, scope) => egressOn(cfg) && userId ? { "X-Servant-Egress-Token": egressStore().tokenFor(userId, scope) } : {};
+// The agent working for someone outside an agent chat (a reply to @agent, a wiki page): counted while it lasts, so
+// the gate can judge traffic that carries no token.
+async function whileWorkingFor(cfg, userId, fn) {
+  const done = egressOn(cfg) && userId ? egressStore().working(userId) : null;
+  try { return await fn(); } finally { done?.(); }
+}
 // One alert to named people about an entitlement: who asked, what was decided, or what the agent was refused.
 function tellAbout(to, title, body) {
   const people = [...new Set(to)].filter(Boolean);
@@ -1197,6 +1212,23 @@ async function handle(req, res, cfg) {
     const name = mutateState(state => removePerson(state, String(body.userId || "")));
     if (name) noteIfLeft(true, String(body.userId), name);
     return send(res, 200, { ok: true, removed: !!name, name });
+  }
+  // Scripts on this Mac (cron jobs, alerts) notify someone through the agent: `servant notify`.
+  if (method === "POST" && url.pathname === "/admin/notify") {
+    if (!adminAllowed()) return fail(res, 403, "forbidden", "Not allowed");
+    const body = await readBody(req, MAX_UPLOAD_BODY);
+    const people = readState().users;
+    const target = body.userId ? people[String(body.userId)] : Object.values(people).find((u) => u.role === "owner");
+    if (!target) return fail(res, 404, "not_found", "No such person");
+    const attachments = validateUploads(body.attachments || [], { mediaOnly: true });
+    return send(res, 200, messaging.notifyFromAgent(target.id, body.text, { attachments }));
+  }
+  // The team-visible log of what the agent did: `servant feed`.
+  if (method === "POST" && url.pathname === "/admin/feed") {
+    if (!adminAllowed()) return fail(res, 403, "forbidden", "Not allowed");
+    const body = await readBody(req, MAX_UPLOAD_BODY);
+    const attachments = validateUploads(body.attachments || [], { mediaOnly: true });
+    return send(res, 200, messaging.feedFromAgent(body.text, { attachments }));
   }
   if (method === "POST" && url.pathname === "/admin/releases") {
     if (!adminAllowed()) return fail(res, 403, "forbidden", "Not allowed");
@@ -1693,6 +1725,33 @@ async function handle(req, res, cfg) {
       return send(res, 200, { person: out });
     } catch (error) { if (!error.status) throw error; return fail(res, error.status, error.code, error.message); }
   }
+  // Code requests (docs/code-requests.md): an automation signed in as you asks for a one-time code; your phone answers.
+  if (parts[1] === "code-requests") {
+    const guard = fn => { try { return fn(); } catch (error) { if (!error.status) throw error; return fail(res, error.status, error.code, error.message), undefined; } };
+    if (method === "GET" && parts.length === 2) return send(res, 200, { requests: codeRequests.list(user) });
+    if (method === "POST" && parts.length === 2) {
+      const body = await readAuthorizedBody(req);
+      const made = guard(() => codeRequests.create(user, device, body));
+      if (!made) return;
+      // The alert names the device and what the code is for; the worker that sends it cannot see this process's memory.
+      try { push?.enqueue({ kind: "code", eventId: made.id, to: user.id, requestId: made.id, device: made.device, label: made.label, expiresAt: made.expiresAt }); } catch (error) { console.error("[servant] code request alert", error.message); }
+      return send(res, 201, { request: made });
+    }
+    if (method === "GET" && parts.length === 3) return guard(() => send(res, 200, { request: codeRequests.get(parts[2], user) }));
+    if (method === "POST" && parts.length === 4 && parts[3] === "answer") {
+      const body = await readAuthorizedBody(req);
+      return guard(() => send(res, 200, { request: codeRequests.answer(parts[2], user, device, body?.code) }));
+    }
+    if (method === "POST" && parts.length === 4 && parts[3] === "claim") {
+      await readAuthorizedBody(req);
+      return guard(() => send(res, 200, codeRequests.claim(parts[2], user, device)));
+    }
+    if (method === "POST" && parts.length === 4 && parts[3] === "cancel") {
+      await readAuthorizedBody(req);
+      return guard(() => send(res, 200, { request: codeRequests.cancel(parts[2], user) }));
+    }
+    return fail(res, 404, "not_found", "Not found");
+  }
   // Entitlements (docs/entitlements.md): named access people ask for and their manager grants. Everyone sees the list and
   // their own standing; a manager also sees their reports'; owners see everyone's and make, edit and retire them.
   if (parts[1] === "entitlements") {
@@ -1868,6 +1927,12 @@ async function handle(req, res, cfg) {
     isAuthorized: () => authenticate(req, readState())?.user.id === user.id,
   }))) return undefined;
 
+  // ----- feed: what the agent did lately, from #agent-feed (everyone on the server can see it) -----
+  if (method === "GET" && parts[1] === "feed" && parts.length === 2) {
+    requireAuth(req, readState());
+    return send(res, 200, messaging ? messaging.feedItems() : { items: [] });
+  }
+
   // ----- loops: the agent's recurring automations (everyone on the server can see them) -----
   if (method === "GET" && parts[1] === "loops" && parts.length === 2) {
     requireAuth(req, readState());
@@ -1961,7 +2026,10 @@ async function handle(req, res, cfg) {
     if (!creationUp) return fail(res, 503, "agent_unavailable", "The agent isn't set up on this server yet");
     const lane = agentLane(creator, cfg);
     if (lane !== "owner") await verifyUpstream(lane, creationUp);
-    const chatId = id("cht");
+    // The phone may name the chat itself, so it can open it before this answers (app/src/lib/new-chat.ts).
+    if (body.id !== undefined && (typeof body.id !== "string" || !/^cht_[A-Za-z0-9_-]{8,40}$/.test(body.id))) return fail(res, 400, "bad_request", "That chat id isn't valid");
+    if (body.id && readState().chats[body.id]) return fail(res, 409, "conflict", "That chat already exists");
+    const chatId = body.id || id("cht");
     // Vibe coders always build prototypes. Anyone else may start the chat in a project
     // they're in, or ask for vibe coding (a prototype with a preview link) from the list.
     const tier = agentTierOf(readState().users[creator.id]);
@@ -1996,6 +2064,7 @@ async function handle(req, res, cfg) {
     try {
       mutateAuthenticated(req, (state, current) => {
         if (current.user.role !== creator.role || current.user.id !== creator.id) throw requestError(403, "forbidden", "Your access changed. Start a new chat");
+        if (state.chats[chatId]) throw requestError(409, "conflict", "That chat already exists");
         state.chats[chatId] = chat;
       });
     } catch (error) {
@@ -2010,7 +2079,7 @@ async function handle(req, res, cfg) {
   const viewer = currentState.users[user.id] || user;
   const visible = currentState.chats[parts[2]];
   const joining = !!visible && visible.userId !== user.id && mayTakePart(visible, viewer)
-    && ((parts[3] === "messages" && parts.length === 4 && method === "POST") || parts[3] === "uploads" || parts[3] === "turns");
+    && ((parts[3] === "messages" && parts.length === 4 && method === "POST") || (parts[3] === "messages" && parts[5] === "reactions" && parts.length === 6) || parts[3] === "uploads" || parts[3] === "turns");
   if (visible && visible.userId !== user.id && !joining && canReadChat(visible, viewer)) {
     // Someone else's shared chat (or any chat, for the owner): read only.
     // A shared chat's messages can be forwarded to a channel or DM for feedback.
@@ -2046,7 +2115,10 @@ async function handle(req, res, cfg) {
     const nextProject = Object.hasOwn(body, "projectId") ? body.projectId : body.folderId;
     const hasProjectShared = Object.hasOwn(body, "projectShared") || Object.hasOwn(body, "folderShared");
     const nextShared = Object.hasOwn(body, "projectShared") ? body.projectShared : body.folderShared;
-    if (typeof body.shared !== "boolean" && !hasProject && !hasProjectShared) return fail(res, 400, "bad_request", "shared must be true or false");
+    const hasTitle = Object.hasOwn(body, "title");
+    const nextTitle = hasTitle ? cleanChatTitle(body.title) : "";
+    if (hasTitle && (typeof body.title !== "string" || !nextTitle)) return fail(res, 400, "bad_request", "Give the chat a name");
+    if (typeof body.shared !== "boolean" && !hasProject && !hasProjectShared && !hasTitle) return fail(res, 400, "bad_request", "shared must be true or false");
     if (typeof body.shared !== "boolean" && body.shared !== undefined) return fail(res, 400, "bad_request", "shared must be true or false");
     if (hasProjectShared && typeof nextShared !== "boolean") return fail(res, 400, "bad_request", "projectShared must be true or false");
     if (hasProject && nextProject !== null && !validProjectId(nextProject)) return fail(res, 400, "bad_request", "projectId must be a project or null");
@@ -2055,6 +2127,8 @@ async function handle(req, res, cfg) {
     mutateAuthenticated(req, (state, current) => {
       updated = requireChat(state, current.user.id, chat.id);
       if (typeof body.shared === "boolean") updated.shared = body.shared;
+      // Named by hand: the agent never renames it after this.
+      if (hasTitle) { updated.title = nextTitle; updated.titledBy = "user"; }
       if (hasProject) {
         if (nextProject === null) { delete updated.projectId; delete updated.projectShared; }
         else if (projectFor(current.user, nextProject, state.users)) {
@@ -2251,6 +2325,15 @@ async function handle(req, res, cfg) {
     return send(res, 200, documents().append({ chatId: chat.id, userId: user.id, id: parts[4], offset: body.offset, data: body.data }));
   }
 
+  // A reaction on a message in the chat, the same twelve as in channels. Only stored messages, not a reply still being written.
+  if (method === "POST" && parts[3] === "messages" && parts[5] === "reactions" && parts.length === 6) {
+    const { emoji, active } = await readAuthorizedBody(req);
+    if (!CHAT_REACTIONS.includes(emoji) || typeof active !== "boolean") return fail(res, 400, "invalid_reaction", "Choose a supported reaction");
+    const reactions = chatMediaStore().react(chat.id, parts[4], user.id, emoji, active);
+    if (!reactions) return fail(res, 404, "not_found", "That message is gone");
+    return send(res, 200, { reactions });
+  }
+
   if (method === "POST" && parts[3] === "messages" && parts[5] === "forward" && parts.length === 6) {
     return forwardChatMessage(req, res, { chat, author: user, user, device, messageId: parts[4], cfg, readAuthorizedBody });
   }
@@ -2298,7 +2381,7 @@ async function handle(req, res, cfg) {
       if (privateForward && (chatShared(active) || active.projectShared || active.members?.length)) throw requestError(409, "forward_private", "Messages from private conversations go into a private chat");
       const queued = agentTurns.enqueue({ chat: active, user: current.user, device: current.device, text, attachments, requestId: body.requestId });
       if (privateForward) active.privateForward = true;
-      if (active.title === "New chat") active.title = (ownText || (body.forward != null ? `About: ${text.split("\n")[1]?.replace(/^> /, "") || "a message"}` : "") || text || attachments[0].name).replace(/\s+/g, " ").slice(0, 60);
+      if (active.title === "New chat" && active.titledBy !== "user") active.title = (ownText || (body.forward != null ? `About: ${text.split("\n")[1]?.replace(/^> /, "") || "a message"}` : "") || text || attachments[0].name).replace(/\s+/g, " ").slice(0, 60);
       active.startedAt ??= now();
       active.updatedAt = now();
       delete active.archivedAt;
@@ -2438,7 +2521,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
       chatMediaStore().accept(turn.chat_id, "user", text, [], steerId);
       hooks.steered?.(steerId);
     };
-    result = await runDurableHermes({ up, sessionId: turn.session_id, input, sessionKey: sessionKey(user, turn.chat_id), instructions: chatContext(chat), runId: turn.run_id,
+    result = await runDurableHermes({ up, sessionId: turn.session_id, input, sessionKey: sessionKey(user, turn.chat_id), instructions: chatContext(chat), runId: turn.run_id, headers: full ? egressHeaders(cfg, turn.user_id, turn.chat_id) : {},
       onAccepted, onEvent, checkpoint: hooks.checkpoint, controls: hooks.controls, steered, canSteer });
     if (result.usage) recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", chatId: turn.chat_id, text: turn.text, usage: result.usage });
     // Run output is resolved by the bridge, while history contains its original
@@ -2452,13 +2535,15 @@ async function executePrivateTurn(turn, hooks, cfg) {
     }
   } else {
     const answer = await streamTurn(up, turn.session_id, input, sessionKey(user, turn.chat_id), onEvent, () => false, onAccepted,
-      usage => recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", chatId: turn.chat_id, text: turn.text, usage }), chatContext(chat));
+      usage => recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", chatId: turn.chat_id, text: turn.text, usage }), chatContext(chat), full ? egressHeaders(cfg, turn.user_id, turn.chat_id) : {});
     if (!assistantMessage && answer) saveAssistant(answer);
     result = { status: "completed" };
   }
   mutateState(state => { const current = state.chats[turn.chat_id]; if (current && !current.deletedAt) current.updatedAt = now(); });
   const completedChat = readState().chats[turn.chat_id];
   if (result.status === "completed" && todoFinished && completedChat?.userId === turn.user_id && !completedChat.deletedAt) todosStore?.agentDone(turn.chat_id, turn.id);
+  // After a while the agent names the chat in a few words (chat-title.mjs). It runs on its own; the reply never waits for it.
+  if (result.status === "completed" && completedChat && !completedChat.deletedAt) void nameChat(turn.chat_id);
   return { status: result.status, unreadSteers: result.unreadSteers, notification: assistantMessage && (assistantMessage.text || assistantMessage.attachments.length) ? {
     kind: "agent", eventId: turn.id, chatId: turn.chat_id, userId: turn.user_id,
     text: assistantMessage.text || (assistantMessage.attachments.some(a => a.mime.startsWith("video/")) ? "Sent a video" : "Sent an image"),
@@ -2552,9 +2637,10 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
         const made = await hermes(up, "POST", "/api/sessions", { id: sessionId, title: `Servant · ${sessionId.slice(8, 30)}` });
         if (!made.ok && made.status !== 409) throw new Error(`session ${made.status}`);
       }
-      const answer = await streamTurn(up, sessionId, hermesInput(text, attachments), key, (name, p) => {
+      // A thread's session is shared by whoever mentions the agent in it; each reply is the asker's.
+      const answer = await whileWorkingFor(cfg, userId, () => streamTurn(up, sessionId, hermesInput(text, attachments), key, (name, p) => {
         if (name === "assistant.delta") onDelta(p.delta || "");
-      }, () => false, () => {}, onUsage);
+      }, () => false, () => {}, onUsage, "", lane === "researcher" || !fullAgentAccess(cfg) ? {} : egressHeaders(cfg, userId, sessionId)));
       return normalizeMediaContent(answer);
     },
   });
@@ -2595,6 +2681,14 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
       if (event.kind === "case") return normalizeFeatures((fixedCfg || loadConfig()).features).secureInbox && !inDeepWork(user) ? inbox().notificationFor(user, event.caseId, event.sequence) : null;
       // An entitlement request, decision or refusal: only for the people it names.
       if (event.kind === "entitlement") return Array.isArray(event.to) && event.to.includes(user.id) ? { kind: "agent", title: event.title, body: event.body, page: "entitlements" } : null;
+      // A code request: only its own person, never after it expires, and never the code itself (there is none yet). The
+      // separate worker process that sends alerts cannot see the requests held in the API's memory, so the alert is built
+      // from the event; the process that made the request also drops it once the request is answered or cancelled.
+      if (event.kind === "code") {
+        if (event.to !== user.id || !(event.expiresAt > now()) || typeof event.label !== "string" || !event.label) return null;
+        if (codeRequests.known(event.requestId) && !codeRequests.pending(event.requestId, user.id)) return null;
+        return { kind: "agent", codeRequestId: event.requestId, title: "Code needed", body: `${event.device || "Automation"} is waiting for your ${event.label} code` };
+      }
       const chat = readState().chats[event.chatId];
       if (event.userId !== user.id || !chat || chat.deletedAt || chat.userId !== user.id) return null;
       return { kind: "agent", chatId: chat.id, title: "Agent · " + chat.title, body: event.text };
@@ -2640,7 +2734,7 @@ async function askWikiAgent(messages, user, cfg) {
     await verifyUpstream(agentLane(user, cfg), up);
     const made = await hermes(up, "POST", "/api/sessions", { id: sessionId, title: `Servant · wiki · ${user.name}`.slice(0, 66) + ` · ${sessionId.slice(-12)}` });
     if (!made.ok) throw requestError(502, "agent_failed", `The agent returned ${made.status}. Your page is unchanged; try again in a moment`);
-    const content = await streamTurn(up, sessionId, request, `servant:wiki:${user.id}`, () => {}, () => false, () => {}, reported => { usage = reported; }, instructions);
+    const content = await whileWorkingFor(cfg, user.id, () => streamTurn(up, sessionId, request, `servant:wiki:${user.id}`, () => {}, () => false, () => {}, reported => { usage = reported; }, instructions, egressHeaders(cfg, user.id, sessionId)));
     return { content, usage };
   } catch (error) {
     if (error?.status && error?.code) throw error;
@@ -2649,6 +2743,21 @@ async function askWikiAgent(messages, user, cfg) {
 }
 
 // One no-tools question to the restricted member agent. Null when it isn't set up.
+// The title the agent gives a chat. A name someone typed meanwhile wins: write checks again before saving.
+const nameChat = chatId => autoTitle(chatId, {
+  read: id => ({ chat: readState().chats[id], messages: chatMediaStore().history(id) }),
+  ask: globalThis.__servantTitleAsk || askMemberAgent(),
+  write: (id, title, due) => {
+    let saved = false;
+    mutateState(state => {
+      const chat = state.chats[id];
+      if (!chat || chat.deletedAt || chat.titledBy === "user" || (chat.autoTitledAt || 0) >= due) return;
+      chat.title = title; chat.titledBy = "agent"; chat.autoTitledAt = due; saved = true;
+    });
+    return saved;
+  },
+});
+
 const askMemberAgent = () => {
   const up = upstreamFor({ role: "member" }, loadConfig());
   if (!up) return null;
@@ -2704,7 +2813,7 @@ export function startServer(fixedCfg) {
   // start; what is allowed is read for every connection.
   if (egressSettings(cfg.agentEgress).mode === "ask" && !egressProxy) {
     egressProxy = createEgressProxy({ store: egressStore(), settings: () => egressSettings((fixedCfg || loadConfig()).agentEgress), allowed: (userId, host) => entitlementStore().allows(userId, host),
-      active: () => agentTurns?.workingFor() || [], known: userId => { const u = readState().users[userId]; return !!u && !isRemoved(u); }, blocked: egressBlocked, hint: egressHint,
+      active: () => [...(agentTurns?.workingFor() || []), ...egressStore().workingFor()], known: userId => { const u = readState().users[userId]; return !!u && !isRemoved(u); }, blocked: egressBlocked, hint: egressHint,
       ...(globalThis.__servantEgressTest || {}) });
     egressProxy.listen(egressSettings(cfg.agentEgress).port).then(port => { egressProxy.port = port; console.log(`[servant] agent network gate on 127.0.0.1:${port}`); },
       error => console.error(`[servant] agent network gate could not start on port ${egressSettings(cfg.agentEgress).port}: ${error.message}. Sandboxed agents will have no network until it does`));
@@ -2882,6 +2991,32 @@ if (isMain) {
       const r = publishRollback({ dir, runtimeVersion: runtime });
       console.log(`Phones on runtime ${runtime} go back to the version built into their app (${r.id}).`);
     } else { console.error("Usage: servant ota status | publish | rollback --runtime <v>"); process.exit(2); }
+  } else if (cmd === "notify") {
+    // server.mjs notify [--to <userId>] [--file <image>]... <text | -> : the agent tells them in their agent conversation.
+    const args = process.argv.slice(3); let to = null; const files = []; const words = [];
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === "--to") to = args[++i];
+      else if (args[i] === "--file") files.push(args[++i]);
+      else words.push(args[i]);
+    }
+    let text = words.join(" ");
+    if (text === "-" || (!text && !process.stdin.isTTY)) text = fs.readFileSync(0, "utf8");
+    if (!text.trim() && !files.length) { console.error("usage: server.mjs notify [--to <userId>] [--file <path>]... <text | ->"); process.exit(2); }
+    const attachments = files.map((f) => ({ name: path.basename(f), data: fs.readFileSync(f).toString("base64") }));
+    const { r, data } = await adminPost("/admin/notify", { userId: to || undefined, text, attachments });
+    if (!r.ok) { console.error(`Couldn't notify (${r.status}): ${data.error?.message || "server not running?"}`); process.exit(1); }
+    console.log(`Posted in ${data.conversationId} (message ${data.messageId})`);
+  } else if (cmd === "feed") {
+    // server.mjs feed [--file <image>]... <text | -> : the agent posts in #agent-feed, which everyone can read.
+    const args = process.argv.slice(3); const files = []; const words = [];
+    for (let i = 0; i < args.length; i++) { if (args[i] === "--file") files.push(args[++i]); else words.push(args[i]); }
+    let text = words.join(" ");
+    if (text === "-" || (!text && !process.stdin.isTTY)) text = fs.readFileSync(0, "utf8");
+    if (!text.trim() && !files.length) { console.error("usage: server.mjs feed [--file <path>]... <text | ->"); process.exit(2); }
+    const attachments = files.map((f) => ({ name: path.basename(f), data: fs.readFileSync(f).toString("base64") }));
+    const { r, data } = await adminPost("/admin/feed", { text, attachments });
+    if (!r.ok) { console.error(`Couldn't post to the feed (${r.status}): ${data.error?.message || "server not running?"}`); process.exit(1); }
+    console.log(`Posted in ${data.conversationId} (message ${data.messageId})`);
   } else if (cmd === "release") {
     const [build, file] = process.argv.slice(3);
     if (!build || !file) {

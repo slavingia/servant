@@ -264,14 +264,24 @@ apart.
   swipe, long press, assistive actions, or the web overflow button. Revealed
   controls follow the trigger in keyboard order.
 - `Composer`: a bordered message box with a multiline field above a small
-  toolbar. The plus control opens Photos & videos/Files choices, mention suggestions
-  appear while typing `@`, and the send icon reflects disabled and sending
-  states. Attachment previews remain inside the box. Agent chats accept photos and videos
+  toolbar. The plus control opens Photos & videos/Files choices, and the send
+  icon reflects disabled and sending states. People to mention (typing `@`) and
+  commands (typing `/`) are one list drawn over the conversation, just above
+  the box, on the same raised surface as a menu: opening and closing it moves
+  no message. It is at most 216 points tall, less when there is less room over
+  the box, and scrolls. With a keyboard, Up and Down move through it, Tab and
+  Enter pick, and Escape closes it until the text changes; in a command list
+  Enter sends what was typed until an arrow key has chosen a command
+  (`lib/suggestion-list.ts`). Attachment previews remain inside the box. Agent chats accept photos and videos
   through the same composer; channel and direct messages also accept files.
   Editing adds a clear label and Cancel action.
 - `Attachments` and `MediaGalleryProvider`: images from people and the agent
   share prominent inline previews; video cards have a clear play action and file
-  details. Tapping media opens a full-screen gallery
+  details. One picture's place has the picture's own shape from the first frame
+  (`lib/picture-box.ts`, from the width and height the server sends): up to 480
+  points wide and 380 tall, narrower for a tall picture, and never narrower
+  than 2:5 or flatter than 4:1. Its spinner waits a quarter of a second, like
+  the other loaders, and is not drawn at all for a picture that is already here. Tapping media opens a full-screen gallery
   with horizontal paging, sender information, and a position indicator. The
   gallery includes earlier conversation media and thread attachments, with
   explicit loading and retry states. Video pages use native playback controls,
@@ -361,8 +371,12 @@ A channel or DM with unread messages shows one **New** line above the first of
 them (`UnreadLine`, placed by `lib/unread-line.ts`): a rule across the stream in
 `primary`, ending in a filled "New" like the unread badges. It is above the date
 when both fall on one message, and the message under it always shows its author.
-It marks where reading started for this visit, so it does not move as messages
-are read or arrive.
+It marks where reading started for this visit. It is placed as the conversation
+opens, in the first frame, and stays there until the visit ends: it does not
+appear, move or go as messages are read, as they arrive, or when a fresh copy of
+the conversation loads. A thread, Details or Files opened over the conversation
+is the same visit; leaving the conversation ends it, and so does being away from
+the app for more than five minutes.
 
 Replies, mentions, reaction chips, delivery/read status, typing, and presence
 remain contextual to their conversation. Reaction chips retain 44-point hit

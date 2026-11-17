@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, FlatList, Image, Pressable, RefreshControl, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { BallRefreshControl } from "../components/BallRefreshControl";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { MediaGalleryProvider, useAttachmentContent, useMediaGallery } from "../components/MediaGallery";
 import { AppIcon } from "../components/AppIcon";
@@ -9,6 +10,7 @@ import { useSession } from "../lib/session";
 import { dayLabel } from "../lib/time-label";
 import { formatFileSize, isPreviewImage, isPreviewVideo, mediaRoute, mergeMediaItems, readMediaPage, type MediaItem, type MediaScope } from "../lib/media";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
+import { ServeLoader } from "../components/ServeLoader";
 
 type Tab = "media" | "files";
 
@@ -62,7 +64,6 @@ export default function FilesScreen() {
 
 function FilesBody({ items, error, refreshing, onRefresh }: { items: MediaItem[] | null; error: string | null; refreshing: boolean; onRefresh: () => void }) {
   const styles = useStyles();
-  const { colors } = useTheme();
   const { width } = useWindowDimensions();
   const media = useMemo(() => (items ?? []).filter(item => isPreviewImage(item) || isPreviewVideo(item)), [items]);
   const files = useMemo(() => (items ?? []).filter(item => !isPreviewImage(item) && !isPreviewVideo(item)), [items]);
@@ -72,11 +73,11 @@ function FilesBody({ items, error, refreshing, onRefresh }: { items: MediaItem[]
   const columns = width >= 900 ? 6 : width >= 600 ? 4 : 3;
   const contentWidth = Math.min(width, 960);
   const tile = Math.floor((contentWidth - space.side * 2 - (columns - 1) * 3) / columns);
-  const refresh = <RefreshControl tintColor={colors.blue} refreshing={refreshing} onRefresh={onRefresh} />;
+  const refresh = <BallRefreshControl refreshing={refreshing} onRefresh={onRefresh} />;
 
   if (items === null) return <View style={[styles.root, styles.center]}>
     {error ? <><Text accessibilityRole="alert" style={styles.error}>{error}</Text><Button label="Try again" kind="secondary" onPress={onRefresh} busy={refreshing} /></>
-      : <ActivityIndicator accessibilityLabel="Loading files" color={colors.blue} />}
+      : <ServeLoader accessibilityLabel="Loading files" />}
   </View>;
 
   const header = <View style={styles.header}>

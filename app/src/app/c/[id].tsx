@@ -1,8 +1,8 @@
-import { FlashList } from "@shopify/flash-list";
+import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import { RECYCLING_CONVERSATION_LIST, isNewest, listOrder, olderNeighbour } from "../../lib/conversation-list";
 import { showsInConversation, threadOf } from "../../lib/also-in-channel";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Activity, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AppState, FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Redirect, router, Stack, useIsFocused, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ConversationKeyboardView } from "../../components/ConversationKeyboardView";
@@ -14,10 +14,13 @@ import { mediaFromPosts } from "../../lib/media";
 import { PresenceLine, usePresentPeers } from "../../components/Presence";
 import { useReadReceipts } from "../../lib/use-read-receipts";
 import { mergeReadEvent } from "../../lib/read-receipts";
-import { createUnreadVisits, readPlace, unreadLineAbove } from "../../lib/unread-line";
+import { notedPlace, readNotes } from "../../lib/read-cache";
+import { createUnreadVisits, readPlace } from "../../lib/unread-line";
+import { useListOpening } from "../../lib/use-list-opening";
 import { latestMessageReceipts } from "../../lib/message-status";
 import { canCompactPost, sourceDeviceOf } from "../../lib/message-device";
 import { createOutbox } from "../../lib/outbox";
+import { createSendQueue } from "../../lib/send-queue";
 import { earlyConversation, fetchConversation, forgetConversation, keepConversation, keptConversation } from "../../lib/conversation-cache";
 import { openingThread } from "../../lib/thread-cache";
 import { asDeleted, showChange, undoChange, withReaction } from "../../lib/post-changes";
@@ -46,6 +49,7 @@ import { radius, space, typography, useTheme, createThemedStyles, linkUnderline 
 import { AppIcon } from "../../components/AppIcon";
 import { channelVisibility } from "../../lib/channel-visibility";
 import { groupActivity } from "../../lib/activity-groups";
+import { ServeLoader } from "../../components/ServeLoader";
 
 const errorText = (e: unknown, fallback: string) => (e instanceof ServerError ? e.message : fallback);
 
@@ -74,23 +78,6 @@ function PeerPresence({ peers }: { peers: Person[] }) {
   </View>;
 }
 
-// Coming back to a screen that was left open: from another screen over it, another tab, or the app in the
-// background. Not the first time it is shown.
-function useOnReturn(focused: boolean, onReturn: () => void) {
-  const here = useRef(focused && AppState.currentState === "active");
-  const back = useStableCallback(onReturn);
-  useEffect(() => {
-    const update = (foreground: boolean) => {
-      const now = focused && foreground;
-      if (now && !here.current) back();
-      here.current = now;
-    };
-    update(AppState.currentState === "active");
-    const sub = AppState.addEventListener("change", state => update(state === "active"));
-    return () => sub.remove();
-  }, [focused, back]);
-}
-
 function OpenConversation({ account, id, compose }: { account: Account; id: string; compose?: string }) {
   const { ask: askPii, dialog: piiDialog } = usePiiConfirm();
   const styles = useStyles();
@@ -108,6 +95,8 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
   const [posts, setPosts] = useState<Post[] | null>(kept?.posts ?? null);
   // Messages shown the moment Send is pressed, under the ones the server has (lib/outbox.ts).
   const [outbox] = useState(createOutbox);
+  // They go to the server one at a time, in the order written, however fast they are typed (lib/send-queue.ts).
+  const [turns] = useState(createSendQueue);
   const [sending, setSending] = useState<Post[]>([]);
   const postKey = outbox.key;
   const [more, setMore] = useState(kept?.more ?? false);
@@ -130,12 +119,26 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
   const snapshot = useRef<{ sequence: number; replace: boolean; updates: Map<string, Post>; reads: Extract<LiveEvent, { event: "messages.read" }>["data"][] } | null>(null);
   const typingNames = useTyping(id, null, account?.user.id ?? "");
   const ping = useTypingPing(account, id);
-  // The "New" line (lib/unread-line.ts): above the first message that came since this person last read here,
-  // decided once for each visit and left alone while they read.
+  // The "New" line (lib/unread-line.ts): above the first message that came since this person last read here.
+  // It is placed as the screen opens, from the place the list says they had read to and the messages kept from
+  // before, so it is in the first frame and not put in later. It stays there for the visit: a thread, Details
+  // or Files over this screen is the same visit, and only a long time away from the app starts another.
   const [visits] = useState(() => createUnreadVisits(account.user.id));
-  const [unreadMark, setUnreadMark] = useState<number | null>(null);
-  useOnReturn(focused, () => visits.returned());
+  const [unreadMark, setUnreadMark] = useState<number | null>(() => visits.open(readPlace(peek(id)?.readThrough), kept?.posts ?? null, notedPlace(readNotes, id)));
+  const shownPosts = useRef(posts);
+  useEffect(() => { shownPosts.current = posts; }, [posts]);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", state => {
+      if (state === "active") setUnreadMark(visits.back(shownPosts.current));
+      else visits.away();
+    });
+    return () => sub.remove();
+  }, [visits]);
   const readTracking = useReadReceipts(account, id, focused, joined && posts !== null && !unavailable, undefined, posts ?? undefined, ids => visits.read(ids));
+  // The recycling list builds its first screen in several passes. It is held undrawn, at its end, until that
+  // screen has settled, and shown once: the conversation opens in one step, at its newest message (lib/list-opening.ts).
+  const list = useRef<FlashListRef<Post>>(null);
+  const opening = useListOpening(list, RECYCLING_CONVERSATION_LIST && posts !== null, focused);
 
   const applyPosts = useCallback((incoming: Post[]) => {
     for (const post of incoming) snapshot.current?.updates.set(post.id, post);
@@ -286,6 +289,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
           await api.updateChannel(account, id, { name: cmd.args }); setError(null); void load(); return true;
         }
         case "leave": await api.leave(account, id); router.replace("/"); return true;
+        case "mute": { const next = !conv?.muted; await api.muteConversation(account, id, next); setConv(c => c ? { ...c, muted: next } : c); setError(null); return true; }
         case "call": void startCall(); return true;
         case "archive": await (conv?.archived ? api.restoreChannel(account, id) : api.archiveChannel(account, id)); setError(null); router.replace("/"); return true;
         case "new": router.push("/new-message"); return true;
@@ -331,7 +335,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
       if (arrived.length) applyPosts(arrived);
     };
     try {
-      const p = await withPiiConfirm(askPii, confirmPii => api.post(account, id, text, undefined, attachments, confirmPii));
+      const p = await turns.inTurn(() => withPiiConfirm(askPii, confirmPii => api.post(account, id, text, undefined, attachments, confirmPii)));
       settle(p);
       setError(null);
       return true;
@@ -426,7 +430,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
       </View>
     </View>
   ) : undefined;
-  const newAbove = useMemo(() => unreadLineAbove(posts ?? [], unreadMark, me, more), [posts, unreadMark, me, more]);
+  const newAbove = useMemo(() => visits.lineAbove(posts ?? [], unreadMark, more), [visits, posts, unreadMark, more]);
   const renderItem = useCallback(({ item, index }: { item: Post; index: number }) => {
     const above = olderNeighbour(data, index, RECYCLING_CONVERSATION_LIST);
     const newDay = !above || new Date(item.createdAt).toDateString() !== new Date(above.createdAt).toDateString();
@@ -456,7 +460,9 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
 
   // Wide screens (browser, Mac app) show Details beside the channel, open by default; Details
   // toggles it. Phones open the Details page.
-  const sideDetails = wide && isChannel && detailsOpen;
+  // Before the conversation is known its id says whether it is a channel (ch_…), so the panel is there, at
+  // its width, from the first frame and the messages are laid out once.
+  const sideDetails = wide && detailsOpen && (conv ? isChannel : id.startsWith("ch_"));
   const openDetails = () => wide ? setDetailsOpen(!detailsOpen) : router.push({ pathname: "/channel-info", params: { id } });
   const openFiles = () => router.push({ pathname: "/files", params: { kind: "conversation", id, title } });
   const canCall = !!conv && joined && features.meetings && callsSupported();
@@ -518,9 +524,16 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         {note ? <Text accessibilityLiveRegion="polite" selectable style={styles.note} onPress={() => setNote(null)}>{note}</Text> : null}
         {posts === null ? (
-          <ActivityIndicator style={{ flex: 1 }} color={colors.blue} />
+          <ServeLoader style={{ flex: 1 }} />
         ) : RECYCLING_CONVERSATION_LIST ? (
+          // Under another screen (a thread, Details, Files) the page gives this list no size at all, and a
+          // recycling list measured at nothing forgets the heights it knew: coming back, the same scroll
+          // position showed messages a thousand points away from the ones that were being read. Set aside
+          // while the screen is covered, it is not measured, and it is picked up again exactly as it was.
+          <Activity mode={focused ? "visible" : "hidden"}>
           <FlashList
+            ref={list}
+            style={opening}
             {...readTracking}
             data={data as Post[]}
             keyExtractor={postKey}
@@ -536,6 +549,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
             contentContainerStyle={styles.list}
             ListHeaderComponent={intro}
           />
+          </Activity>
         ) : (
           <FlatList
             {...readTracking}
@@ -560,13 +574,13 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
         ) : editing ? (
           <Composer members={conv?.members} mentionAgent me={me} key={`edit-${editing.id}`} placeholder="Edit message" autoFocus initial={editing.text} sendLabel="Save" onSend={saveEdit} onCancel={() => setEditing(null)} onDeleteEmpty={() => setConfirmDelete(editing)} />
         ) : (
-          <Composer autoFocus={compose === "1"} members={conv?.members} mentionAgent me={me} key={`new-${id}`} draftKey={`c:${id}`} quote={quote} onQuoted={quoteTaken} placeholder={conv ? `Message ${title}` : "Message"} onSend={send} onTyping={ping} onEditLast={editLast ? () => setEditing(editLast) : undefined} commands={{ channel: isChannel }} />
+          <Composer autoFocus={compose === "1"} members={conv?.members} mentionAgent me={me} key={`new-${id}`} draftKey={`c:${id}`} quote={quote} onQuoted={quoteTaken} placeholder={conv ? `Message ${title}` : "Message"} freeOnSend onSend={send} onTyping={ping} onEditLast={editLast ? () => setEditing(editLast) : undefined} commands={{ channel: isChannel }} />
         )}
       </ConversationKeyboardView>
       </View>
       <ConfirmDialog visible={!!confirmDelete} title="Delete message?" description="Your message will be removed for everyone in this conversation." confirmLabel="Delete" onCancel={() => setConfirmDelete(null)}
         onConfirm={() => { const p = confirmDelete; setConfirmDelete(null); setEditing(null); if (p) void remove(p); }} />
-      {sideDetails ? <ChannelDetails key={id} id={id} panel onClose={() => setDetailsOpen(false)} /> : null}
+      {sideDetails ? <ChannelDetails key={id} id={id} panel initial={conv} onClose={() => setDetailsOpen(false)} /> : null}
     </View>
     </MediaGalleryProvider>
   );

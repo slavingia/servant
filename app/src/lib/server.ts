@@ -67,8 +67,9 @@ export type TodoPatch = { text?: string; status?: "open" | "done"; stage?: TodoS
 // ready: every feature is checked, so the final box opens. shipped: someone ticked that box.
 export type ProjectRelease = { id: string; name: string; date: string; items: ReleaseItem[]; ready?: boolean; shipped?: { at: number; by: string | null; byName: string } | null };
 // mode "vibe": a vibe-coding chat that builds a prototype with a preview link.
-export type Chat = { usage?: { input: number; output: number; total: number; turns: number }; projectId?: string; projectShared?: boolean; project?: { id: string; name: string }; mode?: "vibe"; previewUrl?: string; files?: boolean; id: string; title: string; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; latestTurn?: AgentTurn | null; members?: ChatMember[] };
-export type Message = { id: string; role: "user" | "assistant"; text: string; at?: number | string | null; attachments?: Attachment[]; pending?: boolean; interrupted?: boolean; sourceDevice?: SourceDevice; postedBy?: { id: string; name: string } };
+export type Chat = { usage?: { input: number; output: number; total: number; turns: number }; projectId?: string; projectShared?: boolean; project?: { id: string; name: string }; mode?: "vibe"; previewUrl?: string; files?: boolean; id: string; title: string; titledBy?: "user" | "agent"; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; latestTurn?: AgentTurn | null; members?: ChatMember[] };
+export type Reaction = { emoji: string; userIds: string[] };
+export type Message = { id: string; role: "user" | "assistant"; text: string; reactions?: Reaction[]; at?: number | string | null; attachments?: Attachment[]; pending?: boolean; interrupted?: boolean; sourceDevice?: SourceDevice; postedBy?: { id: string; name: string } };
 
 // ----- token leaderboard -----
 export type LeaderboardPeriod = "day" | "week" | "month" | "all";
@@ -79,6 +80,8 @@ export type Leaderboard = { period: LeaderboardPeriod; since: number; topics?: T
 
 // ----- loops: the agent's recurring automations -----
 export type LoopGroup = "hourly" | "daily" | "weekly" | "monthly" | "other";
+export type FeedKind = "sent" | "shipped" | "ran" | "note";
+export type FeedItem = { id: string; kind: FeedKind; text: string; time: string | null; url: string | null; at: number };
 export type Loop = { id: string; name: string; cadence: string; group: LoopGroup; on: boolean; lastRunAt: number | null; lastOk: boolean | null; nextRunAt: number | null };
 
 // ----- channels, direct messages, threads -----
@@ -91,11 +94,14 @@ export type Entitlement = { id: string; name: string; description: string; hosts
 export type EntitlementDraft = { name: string; description: string; hosts: string[]; confirmation: string };
 export type EntitlementsPage = { entitlements: Entitlement[]; canCreate: boolean; waiting: number; manager: { id: string; name: string } | null; reports: { id: string; name: string }[];
   egress: { mode: "ask" | "off"; always?: string[]; refused?: { userId: string; name: string; host: string; attempts: number; lastAt: number }[] } };
-export type Attachment = { id: string; name: string; mime: string; size: number };
+// width, height: a picture's size in pixels as it is shown, read by the server when the file was stored. Absent
+// for a file from before the server kept sizes and for one that is not a picture (lib/picture-box.ts).
+export type Attachment = { id: string; name: string; mime: string; size: number; width?: number; height?: number };
 // Documents skip base64: `document` points at the local file until it's
 // uploaded in chunks, then `upload` names the server copy.
 export type LocalDocument = { uri: string; size: number; blob?: Blob };
-export type Upload = { name: string; data: string; document?: LocalDocument; upload?: string };
+// width, height: a picture's size when the app already knows it (the photo library says, or the app shrank it).
+export type Upload = { name: string; data: string; document?: LocalDocument; upload?: string; width?: number; height?: number };
 export type Post = {
   sourceDevice?: SourceDevice;
   readBy?: { userId: string; readAt: number }[];
@@ -208,6 +214,8 @@ export type Conversation = {
   private: boolean;
   createdBy: string;
   archived: boolean;
+  /** You muted it (like Slack): it stays in your list, greyed, adds nothing to your badges, and only @mentions of you and your threads alert you. */
+  muted?: boolean;
   /** Where this person dragged the channel; null until they sort by hand. */
   position?: number | null;
   memberCount: number;
@@ -421,7 +429,7 @@ export async function sendMessage(
     secureFetch(base, account.serverKey, `/v1/chats/${chatId}/messages`, {
       method: "POST",
       headers: { Authorization: `Bearer ${account.token}`, "Content-Type": "application/json", Accept: "text/event-stream" },
-      body: JSON.stringify({ text, attachments: attachments.map(({ name, data, upload }) => upload ? { name, upload } : { name, data }), requestId, ...(forward ? { forward } : {}), ...piiFlags(confirmPii) }),
+      body: JSON.stringify({ text, attachments: attachments.map(({ name, data, upload, width, height }) => upload ? { name, upload } : { name, data, ...(width && height ? { width, height } : {}) }), requestId, ...(forward ? { forward } : {}), ...piiFlags(confirmPii) }),
       signal,
     });
   let res = await go(account.serverUrl).catch(() => null);
@@ -473,6 +481,8 @@ export async function listen(account: Account, onEvent: (e: LiveEvent) => void, 
 }
 
 const json = <T,>(r: SecureResponse) => r.json() as Promise<T>;
+// A one-time code an automation signed in as you is waiting for (server: code-requests.mjs). Never holds the code.
+export type CodeRequest = { id: string; label: string; hint?: string; device: string; status: "pending" | "answered" | "claimed" | "cancelled" | "expired"; createdAt: number; expiresAt: number };
 
 // A build's notes, posted in #whats-new. Testers discuss it in the post's thread.
 export type Release = { build: string; conversationId: string; messageId: string; text: string; createdAt: number };
@@ -513,6 +523,7 @@ export const api = {
   chats: (a: Account, m?: (a: Account) => void) => request(a, "/v1/chats", {}, m).then((r) => r.json()).then((d) => d.chats as Chat[]),
   // Your chats plus other people's shared ones (all of them, for the owner).
   orgChats: (a: Account, m?: (a: Account) => void) => request(a, "/v1/chats?scope=org", {}, m).then((r) => r.json()).then((d) => ({ mine: d.chats as Chat[], others: (d.orgChats ?? []) as Chat[] })),
+  feed: (a: Account) => request(a, "/v1/feed").then((r) => r.json()) as Promise<{ items: FeedItem[]; conversationId?: string }>,
   loops: (a: Account) => request(a, "/v1/loops").then((r) => r.json()) as Promise<{ loops: Loop[]; available: boolean }>,
   leaderboard: (a: Account, period: LeaderboardPeriod) => request(a, `/v1/leaderboard?period=${period}`).then((r) => r.json()) as Promise<Leaderboard>,
   // The author has seen every finished reply in this agent conversation.
@@ -550,8 +561,9 @@ export const api = {
   setReleaseShipped: (a: Account, id: string, rid: string, shipped: boolean) => request(a, `/v1/projects/${encodeURIComponent(id)}/releases/${encodeURIComponent(rid)}`, { method: "PATCH", body: JSON.stringify({ shipped }) }).then(json<{ project: Project }>).then(d => d.project),
   setStageCell: (a: Account, id: string, rid: string, iid: string, change: { stage: string; status?: StageStatus; owner?: string | null; note?: string }) => request(a, `/v1/projects/${encodeURIComponent(id)}/releases/${encodeURIComponent(rid)}/items/${encodeURIComponent(iid)}/stages`, { method: "PATCH", body: JSON.stringify(change) }).then(json<{ project: Project }>).then(d => d.project),
   shareChatWithProject: (a: Account, id: string, projectShared: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ projectShared }) }).then((r) => r.json()).then((d) => d.chat as Chat),
+  renameChat: (a: Account, id: string, title: string) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ title }) }).then((r) => r.json()).then((d) => d.chat as Chat),
   moveChat: (a: Account, id: string, projectId: string | null) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ projectId }) }).then((r) => r.json()).then((d) => d.chat as Chat),
-  newChat: (a: Account, options: { projectId?: string | null; mode?: "vibe" } = {}) => request(a, "/v1/chats", { method: "POST", body: JSON.stringify(options) }).then((r) => r.json()).then((d) => d.chat as Chat),
+  newChat: (a: Account, options: { projectId?: string | null; mode?: "vibe"; id?: string } = {}) => request(a, "/v1/chats", { method: "POST", body: JSON.stringify(options) }).then((r) => r.json()).then((d) => d.chat as Chat),
   /** Owner only: take someone who left the team off the server. Signs out all their devices. */
   removePerson: (a: Account, userId: string) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "DELETE" }).then(json<{ ok: true }>),
   /** Owner only: one person's daily agent limit (token-limit.ts): a step, their role's default (null), or none. */
@@ -604,6 +616,9 @@ export const api = {
   browse: (a: Account) => request(a, "/v1/channels/browse").then(json<{ channels: BrowseChannel[] }>).then((d) => d.channels),
   createChannel: (a: Account, body: { name: string; topic?: string; private?: boolean; memberIds?: string[] }) =>
     request(a, "/v1/conversations", { method: "POST", body: JSON.stringify(body) }).then(json<{ conversation: Conversation }>).then((d) => d.conversation),
+  reactChatMessage: (a: Account, chatId: string, messageId: string, emoji: string, active: boolean) =>
+    request(a, `/v1/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}/reactions`, { method: "POST", body: JSON.stringify({ emoji, active }) })
+      .then(json<{ reactions: Reaction[] }>).then((d) => d.reactions),
   forwardChatMessage: (a: Account, chatId: string, messageId: string, body: { conversationId: string; text?: string }) =>
     request(a, `/v1/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}/forward`, { method: "POST", body: JSON.stringify(body) })
       .then(json<{ conversation: Conversation; message: Post }>),
@@ -615,6 +630,7 @@ export const api = {
     request(a, `/v1/conversations/${id}`, { method: "PATCH", body: JSON.stringify(body) }).then(json<{ conversation: Conversation }>),
   setChannelOrder: (a: Account, ids: string[]) => request(a, "/v1/conversations/order", { method: "POST", body: JSON.stringify({ ids }) }),
   archiveChannel: (a: Account, id: string) => request(a, `/v1/conversations/${id}/archive`, { method: "POST", body: "{}" }),
+  muteConversation: (a: Account, id: string, muted: boolean) => request(a, `/v1/conversations/${id}/${muted ? "mute" : "unmute"}`, { method: "POST", body: "{}" }),
   restoreChannel: (a: Account, id: string) => request(a, `/v1/conversations/${id}/restore`, { method: "POST", body: "{}" }),
   deleteChannel: (a: Account, id: string) => request(a, `/v1/conversations/${id}`, { method: "DELETE" }),
   join: (a: Account, id: string) => request(a, `/v1/conversations/${id}/join`, { method: "POST", body: "{}" }),
@@ -634,6 +650,10 @@ export const api = {
   },
   emailRequired: (a: Account) => request(a, "/v1/me").then(json<{ emailRequired?: boolean }>).then(d => d.emailRequired === true),
   // Sessions that end (server: session-expiry.mjs): a code to the email on file, then this same device is fresh again.
+  codeRequests: (a: Account) => request(a, "/v1/code-requests").then(json<{ requests: CodeRequest[] }>),
+  codeRequest: (a: Account, id: string) => request(a, `/v1/code-requests/${encodeURIComponent(id)}`).then(json<{ request: CodeRequest }>),
+  answerCodeRequest: (a: Account, id: string, code: string) => request(a, `/v1/code-requests/${encodeURIComponent(id)}/answer`, { method: "POST", body: JSON.stringify({ code }) }).then(json<{ request: CodeRequest }>),
+  cancelCodeRequest: (a: Account, id: string) => request(a, `/v1/code-requests/${encodeURIComponent(id)}/cancel`, { method: "POST", body: "{}" }).then(json<{ request: CodeRequest }>),
   sessionEmail: (a: Account) => request(a, "/v1/session/email", { method: "POST", body: "{}" }).then(json<{ challenge: string; email: string; expiresInSeconds: number; resendAfterSeconds: number }>),
   sessionVerify: (a: Account, challenge: string, code: string) => request(a, "/v1/session/verify", { method: "POST", body: JSON.stringify({ challenge, code }) }).then(json<{ ok: boolean; session: SessionInfo | null }>),
   sendMyEmailCode: (a: Account, email: string) => request(a, "/v1/people/me/email", { method: "POST", body: JSON.stringify({ email }) }).then(json<{ challenge: string; email: string }>),

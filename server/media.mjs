@@ -4,6 +4,7 @@
 import crypto from "node:crypto";
 import { stripCloseMarker } from "./close-marker.mjs";
 import { documentNotice } from "./documents.mjs";
+import { claimedSize } from "./image-size.mjs";
 
 export const MAX_FILE = 5 * 1024 * 1024;
 export const MAX_VIDEO = 25 * 1024 * 1024;
@@ -86,7 +87,8 @@ export function validateUploads(input = [], { imagesOnly = false, mediaOnly = fa
     if (data.length > uploadLimit(mime)) throw error(413, sizeMessage);
     if (imagesOnly && !mime.startsWith("image/")) throw error(400, "Agent chats accept PNG, JPEG, GIF, and WebP images");
     if (mediaOnly && !/^(image|video)\//.test(mime)) throw error(400, "Agent chats accept images and MP4, MOV, or WebM videos");
-    return { name: safeName(a.name), mime, data };
+    // The size the sender's app measured, when it sent one: kept only if the file's own header gives none (image-size.mjs).
+    return { name: safeName(a.name), mime, data, ...claimedSize(a) };
   });
 }
 

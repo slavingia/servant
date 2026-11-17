@@ -31,7 +31,7 @@ test("the Home and Chats lists are drawn through a memo that only sees the list 
     const screen = read(file);
     assert.match(screen, /const list = useWhileHidden\(useLiveList\(\), useIsFocused\(\)\);/, file);
     assert.match(screen, new RegExp(`const ${rows} = memo\\(function ${rows}\\(`), file);
-    assert.match(screen, new RegExp(`return <${rows} [^\\n]*conversations=\\{list\\.conversations\\} error=\\{list\\.error\\} connected=\\{list\\.connected\\} />;`), file);
+    assert.match(screen, new RegExp(`return <${rows} [^\\n]*conversations=\\{list\\.conversations\\} error=\\{list\\.error\\} connected=\\{list\\.connected\\}( unreachable=\\{list\\.unreachable\\})? />;`), file);
     // The rows themselves do not follow the live list or the focus: only what they are handed.
     const body = screen.slice(screen.indexOf(`const ${rows} = memo(`));
     assert.doesNotMatch(body, /useLiveList\(\)|useIsFocused\(\)/, file);

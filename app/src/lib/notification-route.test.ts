@@ -48,3 +48,11 @@ test('an entitlement notification opens Entitlements, only for the person and de
   assert.equal(notificationRoute({ ...base, page: 'settings' }, 'u', 'd'), null, 'no other page can be opened this way');
   assert.equal(notificationRoute({ ...base, page: 'https://example.gov' }, 'u', 'd'), null);
 });
+
+test('a code request opens its entry screen, and only a well-formed id does', () => {
+  const base = { userId: 'u', deviceId: 'd', codeRequestId: 'code_abcDEF123_-x' };
+  assert.deepEqual(notificationRoute(base, 'u', 'd'), { pathname: '/code/[id]', params: { id: 'code_abcDEF123_-x' } });
+  assert.equal(notificationRoute(base, 'u', 'other'), null);
+  assert.equal(notificationRoute({ ...base, codeRequestId: 'code_../../x' }, 'u', 'd'), null);
+  assert.equal(notificationRoute({ ...base, codeRequestId: 'https://example.gov' }, 'u', 'd'), null);
+});

@@ -289,6 +289,29 @@ test("private video-only sends and inline agent videos retain bytes, ownership, 
   } finally { mode = "normal"; }
 });
 
+test("pictures come with their width and height: a channel message, its gallery and an agent chat", async () => {
+  // Three pixels wide and two tall.
+  const wide = { name: "wide.png", data: "iVBORw0KGgoAAAANSUhEUgAAAAMAAAACCAIAAAASFvFNAAAAFElEQVR4nGPkqjjBAAZMEIqBgQEAFrIBTmrNSIkAAAAASUVORK5CYII=" };
+  const shapes = files => files.map(file => [file.width, file.height]);
+  const token = await pair("Picture sizes author");
+  const c = (await api("POST", "/v1/conversations", token, { name: "picture-sizes", private: true })).json.conversation;
+  const route = `/v1/conversations/${c.id}`;
+  // The picture's size is read from its bytes; a video's is what the sender's app measured.
+  const sent = await api("POST", route + "/messages", token, { attachments: [wide, { ...videoUpload, width: 1920, height: 1080 }, { name: "notes.txt", data: "aGVsbG8=" }] });
+  assert.equal(sent.status, 201, sent.text);
+  const post = sent.json.message;
+  assert.deepEqual(shapes(post.attachments), [[3, 2], [1920, 1080], [undefined, undefined]]);
+  assert.deepEqual((await api("GET", route + "/messages", token)).json.messages.find(message => message.id === post.id).attachments, post.attachments);
+  assert.deepEqual(shapes((await api("GET", route + "/media", token)).json.items), [[3, 2], [1920, 1080], [undefined, undefined]]);
+  mode = "normal";
+  const chatRoute = `/v1/chats/${(await chat(token)).id}`;
+  const streamed = events((await api("POST", chatRoute + "/messages", token, { attachments: [wide] })).text);
+  assert.deepEqual(shapes(streamed.find(e => e.event === "sent").data.message.attachments), [[3, 2]], "the picture just sent");
+  assert.deepEqual(shapes(streamed.find(e => e.event === "message").data.attachments), [[1, 1]], "the picture the agent answered with");
+  assert.deepEqual((await api("GET", chatRoute + "/messages", token)).json.messages.map(message => shapes(message.attachments)), [[[3, 2]], [[1, 1]]]);
+  assert.deepEqual(shapes((await api("GET", chatRoute + "/media", token)).json.items), [[3, 2], [1, 1]]);
+});
+
 test("mixed photo/video channel and thread media keeps authenticated downloads and deletion behavior", async () => {
   const token = await pair("Mixed media author"), outsider = await pair("Mixed media outsider");
   const c = (await api("POST", "/v1/conversations", token, { name: "mixed-gallery", private: true })).json.conversation;

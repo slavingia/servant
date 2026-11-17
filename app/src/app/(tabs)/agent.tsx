@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, AppState, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { AppState, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { BallRefreshControl } from "../../components/BallRefreshControl";
 import { router, useFocusEffect, useScrollToTop } from "expo-router";
 import { shortTime as when } from "../../lib/time-label";
 import { AppIcon } from "../../components/AppIcon";
@@ -7,6 +8,7 @@ import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { deleteDescription } from "../../lib/records-notice";
 import { SwipeRow } from "../../components/SwipeChannelRow";
+import { allFailed, forEachRow, rowsToMove } from "../../lib/archive-all";
 import { canonical, choiceKey, newChatOptions, offered } from "../../lib/new-chat-choice";
 import { getItem } from "../../lib/storage";
 import { refreshProjects, useProjects } from "../../lib/projects-store";
@@ -22,6 +24,8 @@ import { activeAgentTurn, agentTurnLabel, liveAgentLine, replyTime, type AgentTu
 import { useNow } from "../../lib/use-now";
 import { LiveStatus } from "../../components/LiveStatus";
 import { ReplyBar } from "../../components/ReplyBar";
+import { ServeLoader } from "../../components/ServeLoader";
+import { openNewChat } from "../../lib/new-chat";
 
 // The line under the title, like the last message in a DM list.
 function lastLine(chat: Chat, author: string, agent = "") {
@@ -53,7 +57,6 @@ export default function Chats() {
   const [shared, setShared] = useState<Chat[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [starting, setStarting] = useState(false);
   // The projects you're in (docs/projects.md); vibeCoder means every chat builds a prototype.
   const projects = useProjects();
   // A new chat starts about the last choice; the chat offers the change right above its message box.
@@ -138,6 +141,25 @@ export default function Chats() {
       setBusyId(null);
     }
   };
+  // Hold Archive (or Restore) on a row: every chat in that view moves at once, and the server is asked for each.
+  const actAll = async (list: readonly Chat[], archive: boolean) => {
+    const moving = rowsToMove(list, archive, chat => activeAgentTurn(chat.latestTurn));
+    if (busy.current || !moving.length) return;
+    busy.current = true;
+    setBusyId(moving[0].id);
+    setActionError(null);
+    setChanges(waiting => moving.reduce((m, chat) => setRowChange(m, chat.id, { archived: archive }), waiting));
+    closeRow();
+    try {
+      const failed = await forEachRow(moving, chat => archive ? api.archiveChat(account, chat.id) : api.restoreChat(account, chat.id));
+      if (failed.length) setActionError(allFailed(failed.length, moving.length, archive));
+      await load();
+    } finally {
+      setChanges(waiting => moving.reduce((m, chat) => setRowChange(m, chat.id, null), waiting));
+      busy.current = false;
+      setBusyId(null);
+    }
+  };
   const active = (chats ?? []).filter(chat => !chat.archived);
   const archived = (chats ?? []).filter(chat => chat.archived);
   const everyoneLabel = account.user.role === "owner" ? "Everyone's" : "Shared by others";
@@ -159,19 +181,11 @@ export default function Chats() {
   };
 
   // One tap: a chat about the remembered choice (business owners always build prototypes).
-  const start = async () => {
-    if (starting) return;
+  const start = () => {
     const project = projects && !projects.vibeCoder && offered(projects, choice) ? canonical(projects, choice) : null;
-    setStarting(true);
     setError(null);
-    try {
-      const chat = await api.newChat(account, newChatOptions(project));
-      openChat(chat, { compose: "1" });
-    } catch (e) {
-      setError(e instanceof ServerError ? e.message : "Couldn't start a chat");
-    } finally {
-      setStarting(false);
-    }
+    // Opens at once; the server makes the chat behind it (lib/new-chat.ts).
+    openNewChat(account, newChatOptions(project));
   };
 
   return (
@@ -181,10 +195,7 @@ export default function Chats() {
         keyExtractor={(c) => c.id}
         extraData={{ openId, busyId, view, shared }}
         refreshControl={
-          <RefreshControl
-            tintColor={colors.blue}
-            colors={[colors.blue]}
-            progressBackgroundColor={colors.surface}
+          <BallRefreshControl
             refreshing={refreshing}
             onRefresh={async () => {
               setRefreshing(true);
@@ -197,8 +208,8 @@ export default function Chats() {
           <View>
             <View style={styles.header}>
               <Text accessibilityRole="header" style={styles.title}>Agent</Text>
-              <Pressable accessibilityRole="button" accessibilityLabel="New chat" accessibilityState={{ disabled: starting, busy: starting }} disabled={starting} onPress={() => void start()} style={styles.compose}>
-                {starting ? <ActivityIndicator color={colors.blue} /> : <AppIcon name="compose" size={22} color={colors.ink} />}
+              <Pressable accessibilityRole="button" accessibilityLabel="New chat" onPress={() => void start()} style={styles.compose}>
+                <AppIcon name="compose" size={22} color={colors.ink} />
               </Pressable>
             </View>
             {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
@@ -229,11 +240,11 @@ export default function Chats() {
               <Button label="Show active conversations" kind="secondary" onPress={() => setView("active")} style={styles.emptyAction} />
             </View>
           ) : chats === null ? (
-            error ? <Button label="Try again" kind="link" busy={refreshing} onPress={() => { setRefreshing(true); void load().finally(() => setRefreshing(false)); }} style={styles.retry} /> : <ActivityIndicator accessibilityLabel="Loading agent conversations" style={{ marginTop: space.xl }} color={colors.blue} />
+            error ? <Button label="Try again" kind="link" busy={refreshing} onPress={() => { setRefreshing(true); void load().finally(() => setRefreshing(false)); }} style={styles.retry} /> : <ServeLoader accessibilityLabel="Loading agent conversations" style={{ marginTop: space.xl }} />
           ) : (
             <View style={styles.empty}>
               <Text accessibilityRole="header" style={styles.emptyTitle}>No conversations yet</Text>
-              <Button label={projects?.vibeCoder ? "Start prototyping" : "New chat"} onPress={() => void start()} busy={starting} style={styles.emptyAction} />
+              <Button label={projects?.vibeCoder ? "Start prototyping" : "New chat"} onPress={() => void start()} style={styles.emptyAction} />
             </View>
           )
         }
@@ -270,7 +281,8 @@ export default function Chats() {
           }
           return (
             <SwipeRow name={title} kind="conversation" archived={!!item.archived} open={openId === item.id} busy={busyId !== null} canDelete
-              onOpen={() => setOpenId(item.id)} onClose={closeRow} onArchive={() => { void act(item); }} onDelete={() => { setActionError(null); setDeleting(item); }}>
+              onOpen={() => setOpenId(item.id)} onClose={closeRow} onArchive={() => { void act(item); }}
+              onArchiveAll={rowsToMove(rows, !item.archived, chat => activeAgentTurn(chat.latestTurn)).length > 1 ? () => { void actAll(rows, !item.archived); } : undefined} onDelete={() => { setActionError(null); setDeleting(item); }}>
               {(bind) => (
                 <View style={styles.rowWrap}>
                 <ReplyClock turn={item.latestTurn}>{(time) => (
@@ -363,13 +375,13 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   unreadBadge: { minWidth: 24, height: 24, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", paddingHorizontal: space.xs },
   unreadBadgeText: { ...typography.captionStrong, color: colors.onPrimary },
   // Same filter row as the DM tab.
-  filters: { flexDirection: "row", gap: space.xs, paddingHorizontal: space.side, paddingVertical: space.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
-  filter: { flexDirection: "row", alignItems: "center", minHeight: 44, paddingHorizontal: space.lg, paddingVertical: space.sm, justifyContent: "center", borderRadius: radius.pill, backgroundColor: colors.surface },
+  filters: { flexDirection: "row", gap: space.xs, paddingHorizontal: space.side, paddingVertical: space.xs },
+  filter: { flexDirection: "row", alignItems: "center", minHeight: 44, paddingHorizontal: space.lg, paddingVertical: space.sm, justifyContent: "center", borderRadius: radius.pill },
   selectedFilter: { backgroundColor: colors.blueSoft },
   filterText: { ...typography.bodyStrong, color: colors.muted },
   selectedFilterText: { color: colors.blueDark },
   tabDot: { width: 8, height: 8, borderRadius: radius.pill, backgroundColor: colors.primary, marginLeft: space.xs },
-  markAll: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: space.xs, paddingHorizontal: space.side, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  markAll: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: space.xs, paddingHorizontal: space.side },
   markAllText: { ...typography.bodyStrong, color: colors.blue, ...linkUnderline },
   empty: { marginTop: space.xxl, alignItems: "center", paddingHorizontal: space.side },
   emptyTitle: { ...typography.heading, color: colors.ink, textAlign: "center", marginTop: space.md },

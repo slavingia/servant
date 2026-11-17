@@ -12,7 +12,6 @@ import { lookup } from "node:dns/promises";
 import { DatabaseSync } from "node:sqlite";
 
 const MAX_HOLD_SECONDS = 120;
-const TOKEN_HOURS = 24;
 
 // ---------- settings ----------
 
@@ -70,12 +69,13 @@ export function isInternalAddress(address) {
 
 // ---------- tokens and refused attempts ----------
 
-const hash = token => crypto.createHash("sha256").update(String(token)).digest("hex");
+const b64 = value => Buffer.from(String(value)).toString("base64url");
 const DAY = 24 * 3600_000;
 
 /**
  * The durable part, shared by the API process and the turn worker through one SQLite file.
- * tokens: which person a sandboxed command belongs to (only the hash is stored).
+ * secret: signs the token that says which person and chat a sandboxed command belongs to. A chat's token never
+ *   changes (the agent's shell keeps the one it started with), and it stops counting when the person leaves.
  * attempts: one row per person and host the agent tried and was refused, so managers can see what was asked for.
  * Who may reach what is not kept here: that is the entitlements' job (entitlements.mjs).
  */
@@ -85,7 +85,11 @@ export function createEgressStore(file, { clock = Date.now } = {}) {
   db.exec(`PRAGMA journal_mode=WAL;
     CREATE TABLE IF NOT EXISTS attempts (user_id TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL, chat_id TEXT,
       attempts INTEGER NOT NULL, first_at INTEGER NOT NULL, last_at INTEGER NOT NULL, told_at INTEGER NOT NULL, PRIMARY KEY(user_id, host));
-    CREATE TABLE IF NOT EXISTS tokens (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, chat_id TEXT, expires_at INTEGER NOT NULL);`);
+    CREATE TABLE IF NOT EXISTS secret (id INTEGER PRIMARY KEY CHECK (id = 1), value BLOB NOT NULL);
+    CREATE TABLE IF NOT EXISTS working (key TEXT PRIMARY KEY, user_id TEXT NOT NULL, started_at INTEGER NOT NULL);`);
+  db.prepare("INSERT OR IGNORE INTO secret(id, value) VALUES (1, ?)").run(crypto.randomBytes(32));
+  const secret = () => Buffer.from(db.prepare("SELECT value FROM secret WHERE id=1").get().value);
+  const sign = body => crypto.createHmac("sha256", secret()).update(body).digest("base64url");
   const view = r => ({ userId: r.user_id, host: r.host, port: r.port, ...(r.chat_id ? { chatId: r.chat_id } : {}), attempts: r.attempts, firstAt: r.first_at, lastAt: r.last_at });
   return {
     /** Write down a refused attempt. `fresh` is true the first time and then at most once a day: that is when people are told. */
@@ -100,20 +104,33 @@ export function createEgressStore(file, { clock = Date.now } = {}) {
     },
     /** The most recent refusals, newest first. */
     recent: (limit = 100) => db.prepare("SELECT * FROM attempts ORDER BY last_at DESC LIMIT ?").all(Math.max(1, Math.min(500, limit))).map(view),
-    /** A secret a sandboxed command presents to the proxy so its traffic counts as this person's. */
-    mintToken(userId, chatId, hours = TOKEN_HOURS) {
-      const token = crypto.randomBytes(24).toString("base64url");
-      db.prepare("DELETE FROM tokens WHERE expires_at < ?").run(clock());
-      db.prepare("INSERT INTO tokens(token_hash,user_id,chat_id,expires_at) VALUES (?,?,?,?)").run(hash(token), String(userId), chatId ?? null, clock() + hours * 3600_000);
-      return token;
+    /** What a sandboxed command presents to the proxy so its traffic counts as this person's, in this chat. */
+    tokenFor(userId, chatId = "") {
+      const body = `${b64(userId)}.${b64(chatId)}`;
+      return `${body}.${sign(body)}`;
     },
     whose(token) {
-      if (!token) return null;
-      const row = db.prepare("SELECT * FROM tokens WHERE token_hash=? AND expires_at>=?").get(hash(token), clock());
-      return row ? { userId: row.user_id, chatId: row.chat_id || undefined } : null;
+      const parts = String(token || "").split(".");
+      if (parts.length !== 3 || !parts[0] || !parts[2]) return null;
+      const expected = Buffer.from(sign(`${parts[0]}.${parts[1]}`)), given = Buffer.from(parts[2]);
+      if (expected.length !== given.length || !crypto.timingSafeEqual(expected, given)) return null;
+      const chatId = Buffer.from(parts[1], "base64url").toString();
+      return { userId: Buffer.from(parts[0], "base64url").toString(), ...(chatId ? { chatId } : {}) };
     },
-    /** Someone left: their tokens stop working at once. */
-    forget(userId) { db.prepare("DELETE FROM tokens WHERE user_id=?").run(String(userId)); },
+    /**
+     * The agent starts working for someone outside an agent chat (a reply to @agent in a channel): returns the
+     * function that ends it. Kept in the file so the API process and a separate worker agree; a row nobody ended
+     * (a crash) stops counting after an hour.
+     */
+    working(userId) {
+      const key = crypto.randomBytes(9).toString("base64url");
+      db.prepare("INSERT INTO working(key,user_id,started_at) VALUES (?,?,?)").run(key, String(userId), clock());
+      return () => { try { db.prepare("DELETE FROM working WHERE key=?").run(key); } catch { /* closed at shutdown: the row ages out */ } };
+    },
+    workingFor() {
+      db.prepare("DELETE FROM working WHERE started_at < ?").run(clock() - 3600_000);
+      return db.prepare("SELECT DISTINCT user_id FROM working").all().map(r => r.user_id);
+    },
     close: () => db.close(),
   };
 }

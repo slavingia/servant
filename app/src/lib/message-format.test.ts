@@ -95,7 +95,7 @@ test("a person's message is formatted as people type, and an ordinary line stays
   for (const text of ["update the intake_form_v2 file", "2*3*4 is 24", "see /docs/read_me_first.md", "a_b and c_d"]) assert.deepEqual(inlineMessage(text), [{ text }]);
   // Channels, DMs and threads draw a person's message this way, with mentions standing out.
   const read = (file: string) => fs.readFileSync(path.join(import.meta.dirname, "..", file), "utf8");
-  assert.match(read("components/Messaging.tsx"), /if \(!parsed\) return <MessageText chat text=\{text\} \/>;/);
+  assert.match(read("components/Messaging.tsx"), /if \(!parsed\) return <MessageText chat inMenuBubble text=\{text\} \/>;/);
   assert.match(read("components/MessageText.tsx"), /messageBlocks\(text, \{ chat \}\)/);
   assert.match(read("components/MessageText.tsx"), /piece\.startsWith\('@'\) \? <Text key=\{i\} style=\{styles\.mention\}>/);
 });

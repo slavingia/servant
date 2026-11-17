@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Redirect, router, Stack, useIsFocused, useLocalSearchParams } from "expo-router";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -19,6 +19,7 @@ import { mergeReadEvent } from "../lib/read-receipts";
 import { latestMessageReceipts } from "../lib/message-status";
 import { canCompactPost, sourceDeviceOf } from "../lib/message-device";
 import { createOutbox } from "../lib/outbox";
+import { createSendQueue } from "../lib/send-queue";
 import { asDeleted, showChange, undoChange, withReaction } from "../lib/post-changes";
 import { isDesktop } from "../lib/desktop";
 import { lastEditableMessage } from "../lib/edit-last-message";
@@ -30,7 +31,8 @@ import { reuseEqual } from "../lib/reuse-equal";
 import { useSession } from "../lib/session";
 import { conversationHidden, landingHref, useFeatures } from "../lib/features";
 import { askAgentAbout } from "../lib/ask-agent";
-import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
+import { space, typography, createThemedStyles } from "../lib/theme";
+import { ServeLoader } from "../components/ServeLoader";
 
 export default function ThreadScreen() {
   const { conv, root, title, focus, from } = useLocalSearchParams<{ conv: string; root: string; title?: string; focus?: string; from?: string }>();
@@ -46,7 +48,6 @@ export default function ThreadScreen() {
 function OpenThread({ account, conv, root, title, focus, from }: { account: Account; conv: string; root: string; title?: string; focus?: string; from?: string }) {
   const { ask: askPii, dialog: piiDialog } = usePiiConfirm();
   const styles = useStyles();
-  const { colors } = useTheme();
   // A push lands on the notified reply: highlight it, but it is not a search match.
   const matchLabel = from === "push" ? null : from === "saved" ? "Saved message" : "Search match";
   const focused = useIsFocused();
@@ -91,6 +92,8 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
   const rows = useMemo(() => head ? [head, ...(replies ?? [])] : replies ?? [], [head, replies]);
   // Replies shown the moment Send is pressed, under the ones the server has (lib/outbox.ts).
   const [outbox] = useState(createOutbox);
+  // They go to the server one at a time, in the order written (lib/send-queue.ts).
+  const [turns] = useState(createSendQueue);
   const [sending, setSending] = useState<Post[]>([]);
   const postKey = outbox.key;
   const shown = useMemo(() => sending.length ? [...rows, ...sending] : rows, [rows, sending]);
@@ -230,6 +233,10 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
   const editLast = lastEditableMessage(replies ?? [], me);
 
   const send = async (text: string, attachments: Upload[] = []) => {
+    // "Also send to the conversation" is for this reply only: it is taken as the reply leaves, so the next
+    // one, written while this is still on its way, does not go to the conversation too.
+    const alsoThis = also;
+    if (alsoThis) setAlso(false);
     // A text reply is in the thread the moment it is sent; one with files shows when they have gone up.
     const local = attachments.length ? null : outbox.add({ conversationId: conv, threadRoot: root, text, user: { id: me, name: account.user.name }, after: rows.at(-1),
       sourceDevice: account.user.role === "owner" ? sourceDeviceOf(isDesktop() ? "computer" : Platform.OS === "web" ? "web" : "mobile") : undefined });
@@ -241,14 +248,15 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
       arrived.forEach(upsert);
     };
     try {
-      const post = await withPiiConfirm(askPii, confirmPii => api.post(account, conv, text, root, attachments, confirmPii, also));
+      const post = await turns.inTurn(() => withPiiConfirm(askPii, confirmPii => api.post(account, conv, text, root, attachments, confirmPii, alsoThis)));
       releaseSearchFocus();
       settle(post);
-      setAlso(false);
       setError(null);
       return true;
     } catch (e) {
       settle(null);
+      // The reply did not go: its choice comes back with its words.
+      if (alsoThis) setAlso(true);
       if (e instanceof PiiDeclined) return false;
       setError(e instanceof ServerError ? e.message : "Couldn't send. Check your connection");
       return false;
@@ -345,7 +353,7 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
           </View>
         ) : error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         {head === null && replies !== null && replies.length === 0 && error ? null : replies === null && !head ? (
-          <ActivityIndicator style={{ flex: 1 }} color={colors.blue} />
+          <ServeLoader style={{ flex: 1 }} />
         ) : (
           <FlatList
             {...readTracking}
@@ -362,7 +370,7 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
             keyExtractor={postKey}
             contentContainerStyle={styles.list}
             // The first message is up; its replies are on their way.
-            ListFooterComponent={replies === null ? <ActivityIndicator style={styles.loadingReplies} color={colors.blue} /> : undefined}
+            ListFooterComponent={replies === null ? <ServeLoader style={styles.loadingReplies} /> : undefined}
             renderItem={renderItem}
           />
         )}
@@ -376,7 +384,7 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
           </Pressable>
         )}
         {unavailable || editing ? null : (
-          <Composer members={conversation?.members} mentionAgent me={me} key="reply" draftKey={`thread:${conv}:${root}`} quote={quote} onQuoted={quoteTaken} placeholder="Reply" onSend={send} onTyping={ping} onEditLast={editLast ? () => setEditing(editLast) : undefined} />
+          <Composer members={conversation?.members} mentionAgent me={me} key="reply" draftKey={`thread:${conv}:${root}`} quote={quote} onQuoted={quoteTaken} placeholder="Reply" freeOnSend onSend={send} onTyping={ping} onEditLast={editLast ? () => setEditing(editLast) : undefined} />
         )}
       </ConversationKeyboardView>
       <ConfirmDialog visible={!!confirmDelete} title="Delete message?" description="Your message will be removed for everyone in this conversation." confirmLabel="Delete" onCancel={() => setConfirmDelete(null)}
