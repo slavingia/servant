@@ -1,6 +1,6 @@
 {
   "hosting": {
-    "site": "servant-desktop",
+    "site": "servant-mac",
     "public": "dist/downloads",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "headers": [

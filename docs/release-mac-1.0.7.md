@@ -1,6 +1,6 @@
 # Servant for Mac 1.0.7 preview — November 4, 2026
 
-Download: https://servant-desktop.web.app
+Download: https://servant-mac.web.app
 
 - Share your screen in a call: tap Share screen, pick a screen or window, and everyone sees it large
 

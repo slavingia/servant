@@ -1,6 +1,6 @@
 # Servant for Mac 1.0.6 preview — November 3, 2026
 
-Download: https://servant-desktop.web.app
+Download: https://servant-mac.web.app
 
 - Servant for Mac now updates its own screens from your server, so most fixes arrive without a new download
 

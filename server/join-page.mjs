@@ -9,7 +9,7 @@ export const INVITE_EXAMPLE = "https://servant.example.gov/join?code=ABCDE-FGH23
 export function joinPage(downloads = {}, webUrl = "https://servant.com", footer = "", theme) {
   const note = typeof footer === "string" ? footer.trim().slice(0, 300) : "";
   // Store links come from config.json "downloads" ({ mac, ios, android }); a missing one is not shown.
-  const urls = { mac: "https://servant-desktop.web.app", ...downloads };
+  const urls = { mac: "https://servant-mac.web.app", ...downloads };
   const store = (label, url, mac = false) => /^https:\/\//.test(url || "") ? `<a class="secondary full"${mac ? ' id="mac-download" hidden' : ""} href="${esc(url)}">${esc(label)}</a>` : "";
   const stores = store("Download for Mac", urls.mac, true) + store(/^https:\/\/apps\.apple\.com\//.test(urls.ios || "") ? "Download on the App Store" : "Download for iPhone (TestFlight)", urls.ios) + store("Download for Android", urls.android);
   const app = new URL("/pair", webUrl);

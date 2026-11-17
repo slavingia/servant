@@ -1,6 +1,6 @@
 # Servant for Mac 1.0.0 preview — November 2, 2026
 
-Download page: https://servant-desktop.web.app
+Download page: https://servant-mac.web.app
 
 Installers: https://github.com/slavingia/servant-desktop-releases/releases/tag/v1.0.0-preview.1
 
