@@ -13,6 +13,7 @@ import { useDictation } from "../lib/dictation";
 import { insertDictation } from "../lib/dictation-text";
 import { activeMention, agentMentionNames, AGENT_HANDLES, insertMention, mentionMatches, mentionText } from "../lib/mentions";
 import { parseSlash, queuedMessage, slashMatches } from "../lib/slash-commands";
+import { backInBox } from "../lib/send-queue";
 import { newSendTouch, pressed, touchDown, touchHeld, touchUp } from "../lib/send-press";
 import type { MessageReceipt } from "../lib/message-status";
 import { messageDeviceLabel } from "../lib/message-device";
@@ -448,6 +449,7 @@ export function Composer({
   canSendEmpty = false,
   commands,
   holdToQueue = false,
+  freeOnSend = false,
   onStop,
   draftKey: conversationDraftKey,
   projectId,
@@ -485,6 +487,11 @@ export function Composer({
   commands?: { channel: boolean; agent?: boolean };
   /** The agent is replying: a tap on Send adds the message to that reply, touch and hold sends it after. */
   holdToQueue?: boolean;
+  /**
+   * The screen shows a sent message itself and sends them in turn (lib/send-queue.ts), so the box is free for
+   * the next message the moment one leaves: no spinner, and Send works while an earlier message is on its way.
+   */
+  freeOnSend?: boolean;
   /** With nothing typed, Send becomes Stop while the agent can be stopped. */
   onStop?: () => void;
   /** Keeps the unsent text for this conversation when you leave and come back. */
@@ -666,6 +673,8 @@ export function Composer({
     const restore = () => typedQueue ? `/queue ${body}` : body;
     const scope = sendScope.current;
     const uploads = files.map(({ name, data, document }) => document ? { name, data, document } : { name, data });
+    // A plain new message on a screen that asked for it (`freeOnSend`): the box does not wait for the answer.
+    let free = false;
     try {
       // stop() emits its final transcript asynchronously. The commit callback
       // updates latest synchronously, before finish resolves on the end event.
@@ -700,16 +709,20 @@ export function Composer({
       }
       if (clearNow) setText("");
       touch.current.sentAt = Date.now();
+      // One with files, an edit or a command still holds the box until it is answered.
+      free = freeOnSend && clearNow && !uploads.length && !command;
+      if (free) { sending.current = false; setBusy(false); }
       const ok = await onSend(body, uploads, how);
       if (scope !== sendScope.current) return;
-      if (ok) { if (!clearNow) setText(""); setFiles([]); setInsertedSelection(undefined); }
-      else if (clearNow) setText(current => current || restore());
+      // The answer to a freed send leaves alone whatever is being written or sent by now.
+      if (ok) { if (!clearNow) setText(""); if (!free) { setFiles([]); setInsertedSelection(undefined); } }
+      else if (clearNow) setText(current => backInBox(current, restore()));
     } catch {
       if (scope !== sendScope.current) return;
-      if (clearNow) setText(current => current || restore());
+      if (clearNow) setText(current => backInBox(current, restore()));
       setFileError("Couldn't send. Your draft is saved here; try again");
     }
-    finally { sending.current = false; setBusy(false); }
+    finally { if (!free) { sending.current = false; setBusy(false); } }
   };
   const highlight = mentionNames.size > 0 && hasMention(text, mentionNames);
   const deletesWhenEmpty = !!onCancel && !!onDeleteEmpty;

@@ -18,6 +18,7 @@ import { createUnreadVisits, readPlace, unreadLineAbove } from "../../lib/unread
 import { latestMessageReceipts } from "../../lib/message-status";
 import { canCompactPost, sourceDeviceOf } from "../../lib/message-device";
 import { createOutbox } from "../../lib/outbox";
+import { createSendQueue } from "../../lib/send-queue";
 import { earlyConversation, fetchConversation, forgetConversation, keepConversation, keptConversation } from "../../lib/conversation-cache";
 import { openingThread } from "../../lib/thread-cache";
 import { asDeleted, showChange, undoChange, withReaction } from "../../lib/post-changes";
@@ -109,6 +110,8 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
   const [posts, setPosts] = useState<Post[] | null>(kept?.posts ?? null);
   // Messages shown the moment Send is pressed, under the ones the server has (lib/outbox.ts).
   const [outbox] = useState(createOutbox);
+  // They go to the server one at a time, in the order written, however fast they are typed (lib/send-queue.ts).
+  const [turns] = useState(createSendQueue);
   const [sending, setSending] = useState<Post[]>([]);
   const postKey = outbox.key;
   const [more, setMore] = useState(kept?.more ?? false);
@@ -333,7 +336,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
       if (arrived.length) applyPosts(arrived);
     };
     try {
-      const p = await withPiiConfirm(askPii, confirmPii => api.post(account, id, text, undefined, attachments, confirmPii));
+      const p = await turns.inTurn(() => withPiiConfirm(askPii, confirmPii => api.post(account, id, text, undefined, attachments, confirmPii)));
       settle(p);
       setError(null);
       return true;
@@ -564,7 +567,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
         ) : editing ? (
           <Composer members={conv?.members} mentionAgent me={me} key={`edit-${editing.id}`} placeholder="Edit message" autoFocus initial={editing.text} sendLabel="Save" onSend={saveEdit} onCancel={() => setEditing(null)} onDeleteEmpty={() => setConfirmDelete(editing)} />
         ) : (
-          <Composer autoFocus={compose === "1"} members={conv?.members} mentionAgent me={me} key={`new-${id}`} draftKey={`c:${id}`} quote={quote} onQuoted={quoteTaken} placeholder={conv ? `Message ${title}` : "Message"} onSend={send} onTyping={ping} onEditLast={editLast ? () => setEditing(editLast) : undefined} commands={{ channel: isChannel }} />
+          <Composer autoFocus={compose === "1"} members={conv?.members} mentionAgent me={me} key={`new-${id}`} draftKey={`c:${id}`} quote={quote} onQuoted={quoteTaken} placeholder={conv ? `Message ${title}` : "Message"} freeOnSend onSend={send} onTyping={ping} onEditLast={editLast ? () => setEditing(editLast) : undefined} commands={{ channel: isChannel }} />
         )}
       </ConversationKeyboardView>
       </View>

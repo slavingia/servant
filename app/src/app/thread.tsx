@@ -19,6 +19,7 @@ import { mergeReadEvent } from "../lib/read-receipts";
 import { latestMessageReceipts } from "../lib/message-status";
 import { canCompactPost, sourceDeviceOf } from "../lib/message-device";
 import { createOutbox } from "../lib/outbox";
+import { createSendQueue } from "../lib/send-queue";
 import { asDeleted, showChange, undoChange, withReaction } from "../lib/post-changes";
 import { isDesktop } from "../lib/desktop";
 import { lastEditableMessage } from "../lib/edit-last-message";
@@ -91,6 +92,8 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
   const rows = useMemo(() => head ? [head, ...(replies ?? [])] : replies ?? [], [head, replies]);
   // Replies shown the moment Send is pressed, under the ones the server has (lib/outbox.ts).
   const [outbox] = useState(createOutbox);
+  // They go to the server one at a time, in the order written (lib/send-queue.ts).
+  const [turns] = useState(createSendQueue);
   const [sending, setSending] = useState<Post[]>([]);
   const postKey = outbox.key;
   const shown = useMemo(() => sending.length ? [...rows, ...sending] : rows, [rows, sending]);
@@ -241,7 +244,7 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
       arrived.forEach(upsert);
     };
     try {
-      const post = await withPiiConfirm(askPii, confirmPii => api.post(account, conv, text, root, attachments, confirmPii, also));
+      const post = await turns.inTurn(() => withPiiConfirm(askPii, confirmPii => api.post(account, conv, text, root, attachments, confirmPii, also)));
       releaseSearchFocus();
       settle(post);
       setAlso(false);
@@ -376,7 +379,7 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
           </Pressable>
         )}
         {unavailable || editing ? null : (
-          <Composer members={conversation?.members} mentionAgent me={me} key="reply" draftKey={`thread:${conv}:${root}`} quote={quote} onQuoted={quoteTaken} placeholder="Reply" onSend={send} onTyping={ping} onEditLast={editLast ? () => setEditing(editLast) : undefined} />
+          <Composer members={conversation?.members} mentionAgent me={me} key="reply" draftKey={`thread:${conv}:${root}`} quote={quote} onQuoted={quoteTaken} placeholder="Reply" freeOnSend onSend={send} onTyping={ping} onEditLast={editLast ? () => setEditing(editLast) : undefined} />
         )}
       </ConversationKeyboardView>
       <ConfirmDialog visible={!!confirmDelete} title="Delete message?" description="Your message will be removed for everyone in this conversation." confirmLabel="Delete" onCancel={() => setConfirmDelete(null)}
