@@ -208,3 +208,37 @@ test("a refused attempt can wait for a manager and carry on when the entitlement
   assert.equal(waits, 2);
   await proxy.close(); echo.close(); store.close(); fs.rmSync(dir, { recursive: true, force: true });
 });
+
+// A new release of the server starts while the old one still holds the port.
+test("the listener keeps trying while its port is taken and comes up the moment it is free", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "servant-egress-"));
+  const store = createEgressStore(path.join(dir, "egress.db"));
+  const holder = net.createServer();
+  await new Promise(done => holder.listen(0, "127.0.0.1", done));
+  const port = holder.address().port;
+  const proxy = createEgressProxy({ store, settings: () => egressSettings({ mode: "ask" }), allowed: () => false, active: () => [] });
+  await assert.rejects(proxy.listen(port), /EADDRINUSE/, "one try fails, as before");
+  const waits = [];
+  let bound = null;
+  const listening = proxy.listenWhenFree(port, { retryMs: 20, onWait: error => waits.push(error.code) }).then(p => { bound = p; });
+  await new Promise(r => setTimeout(r, 150));
+  assert.equal(bound, null, "still waiting while the old server holds the port");
+  assert.deepEqual(waits, ["EADDRINUSE"], "said once, not on every try");
+  await new Promise(done => holder.close(done));
+  await listening;
+  assert.equal(bound, port);
+  assert.equal((await connectThrough(port, "api.example.gov:443")).status, 403, "and it answers");
+  await proxy.close();
+  // Closed while still waiting: it stops trying.
+  const again = net.createServer();
+  await new Promise(done => again.listen(port, "127.0.0.1", done));
+  const second = createEgressProxy({ store, settings: () => egressSettings({ mode: "ask" }), allowed: () => false, active: () => [] });
+  let late = false;
+  void second.listenWhenFree(port, { retryMs: 20 }).then(() => { late = true; });
+  await new Promise(r => setTimeout(r, 60));
+  await second.close();
+  await new Promise(done => again.close(done));
+  await new Promise(r => setTimeout(r, 100));
+  assert.equal(late, false);
+  store.close(); fs.rmSync(dir, { recursive: true, force: true });
+});

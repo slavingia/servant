@@ -285,10 +285,26 @@ export function createEgressProxy({ store, settings, allowed, active, known, blo
   });
   server.on("clientError", (_error, socket) => socket.destroy());
 
+  let closed = false;
   return {
     server,
     /** Localhost only: the sandbox is the only thing meant to reach it. */
     listen(port = settings().port) { return new Promise((done, fail) => { server.once("error", fail); server.listen(port, "127.0.0.1", () => { server.off("error", fail); done(server.address().port); }); }); },
-    close() { return new Promise(done => { server.close(() => done()); server.closeAllConnections?.(); }); },
+    /**
+     * Listen, and if the port is taken keep trying until it is free. A new release of the server starts while the
+     * old one is still up and holding this port; a single try would fail and leave nothing listening once the old
+     * one goes, and every agent would be refused. `onWait(error)` is told once, when the first try fails.
+     */
+    listenWhenFree(port = settings().port, { retryMs = 500, onWait = () => {} } = {}) {
+      let told = false;
+      return new Promise(done => {
+        const attempt = () => {
+          if (closed) return;
+          this.listen(port).then(done, error => { if (!told) { told = true; try { onWait(error); } catch { /* keep trying */ } } const timer = setTimeout(attempt, retryMs); timer.unref?.(); });
+        };
+        attempt();
+      });
+    },
+    close() { closed = true; return new Promise(done => { if (!server.listening) { done(); return; } server.close(() => done()); server.closeAllConnections?.(); }); },
   };
 }
