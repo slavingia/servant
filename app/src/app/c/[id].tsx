@@ -458,7 +458,9 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
 
   // Wide screens (browser, Mac app) show Details beside the channel, open by default; Details
   // toggles it. Phones open the Details page.
-  const sideDetails = wide && isChannel && detailsOpen;
+  // Before the conversation is known its id says whether it is a channel (ch_…), so the panel is there, at
+  // its width, from the first frame and the messages are laid out once.
+  const sideDetails = wide && detailsOpen && (conv ? isChannel : id.startsWith("ch_"));
   const openDetails = () => wide ? setDetailsOpen(!detailsOpen) : router.push({ pathname: "/channel-info", params: { id } });
   const openFiles = () => router.push({ pathname: "/files", params: { kind: "conversation", id, title } });
   const canCall = !!conv && joined && features.meetings && callsSupported();
@@ -568,7 +570,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
       </View>
       <ConfirmDialog visible={!!confirmDelete} title="Delete message?" description="Your message will be removed for everyone in this conversation." confirmLabel="Delete" onCancel={() => setConfirmDelete(null)}
         onConfirm={() => { const p = confirmDelete; setConfirmDelete(null); setEditing(null); if (p) void remove(p); }} />
-      {sideDetails ? <ChannelDetails key={id} id={id} panel onClose={() => setDetailsOpen(false)} /> : null}
+      {sideDetails ? <ChannelDetails key={id} id={id} panel initial={conv} onClose={() => setDetailsOpen(false)} /> : null}
     </View>
     </MediaGalleryProvider>
   );
