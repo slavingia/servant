@@ -139,6 +139,20 @@ export function completeRoleIntro(state: UXOnboardingState, now = Date.now()): U
   return { ...current, roleIntroCompletedAt: now };
 }
 
+/**
+ * Where the person is, for the progress bar, counted within the current part
+ * of the flow so each part ends full: the tour (one step per page), then setup
+ * (role, goals, review). 1-based.
+ */
+export function onboardingProgress(step: OnboardingStep, tourPage: number, tourLength: number): { now: number; total: number } {
+  if (step === "why") {
+    const pages = Math.max(1, Math.trunc(tourLength));
+    const page = Math.min(Math.max(0, Math.trunc(Number.isFinite(tourPage) ? tourPage : 0)), pages - 1);
+    return { now: page + 1, total: pages };
+  }
+  return { now: { role: 1, goals: 2, ready: 3 }[step], total: 3 };
+}
+
 export function roleLabel(role: UXRole | null): string {
   return UX_ROLES.find(option => option.id === role)?.label ?? "UX teammate";
 }

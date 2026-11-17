@@ -31,7 +31,7 @@ function MiniPage({ children }: { children: React.ReactNode }) {
 
 const LABELS: Record<TourVisual, string> = {
   study: "a tree test study with two activities and a Preview as participant button",
-  synthesis: "three themes drawn from interviews and survey comments, with sources and one evidence gap",
+  synthesis: "a draft results report: themes drawn from interviews and survey comments, with sources and one evidence gap",
   prototype: "you describe a refund status page and get a live preview of it",
   "design-review": "a design review listing what fits research, what conflicts and what to test next",
   accessibility: "the Accessibility tab of Adjust design listing a small tap target, missing alt text and low contrast, with a button to ask the agent to fix them",

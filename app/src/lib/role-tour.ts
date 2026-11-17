@@ -50,8 +50,8 @@ export const TOUR_DEMOS: Record<string, TourDemo> = {
   },
   "research-synthesis": {
     visual: "synthesis",
-    lead: "Turn scattered evidence into themes.",
-    how: ["Point it at interviews, surveys or Research Hub records", "Get themes, contradictions and gaps, with every source kept"],
+    lead: "Turn test sessions into a results report.",
+    how: ["Point it at session notes, surveys or Research Hub records", "Get a draft report of themes and gaps, every source kept, to check"],
     held: true,
   },
   "research-prototype": prototype,

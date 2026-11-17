@@ -9,6 +9,7 @@ import {
   firstActionForRole,
   moveOnboarding,
   normalizeOnboarding,
+  onboardingProgress,
   onboardingRequired,
   roleIntroRequired,
   startOnboarding,
@@ -95,6 +96,17 @@ test("new onboarding opens on the benefits tour and can go back to it", () => {
   assert.equal(moveOnboarding(fresh, "goals", 50).step, "role");
   // Older saved state without a step and without a role resumes at the role step.
   assert.equal(normalizeOnboarding({ version: ONBOARDING_VERSION, role: null, goals: [], startedAt: 1, updatedAt: 1 }, 2).step, "role");
+});
+
+test("progress counts within each part, so the tour and setup each end full", () => {
+  assert.deepEqual(onboardingProgress("why", 0, 5), { now: 1, total: 5 });
+  assert.deepEqual(onboardingProgress("why", 4, 5), { now: 5, total: 5 });
+  assert.deepEqual(onboardingProgress("role", 0, 5), { now: 1, total: 3 });
+  assert.deepEqual(onboardingProgress("goals", 0, 5), { now: 2, total: 3 });
+  assert.deepEqual(onboardingProgress("ready", 0, 5), { now: 3, total: 3 });
+  // Out-of-range pages stay inside the tour.
+  assert.deepEqual(onboardingProgress("why", 9, 5), { now: 5, total: 5 });
+  assert.deepEqual(onboardingProgress("why", -1, 5), { now: 1, total: 5 });
 });
 
 test("completion requires both a role and a goal", () => {

@@ -3,7 +3,7 @@ import test from "node:test";
 import { AGENT_TIERS, TIER_TOKEN_LIMITS } from "../../../server/usage.mjs";
 import { agentAccessLabel } from "./onboarding.ts";
 import { USD_PER_M_OUTPUT } from "./token-format.ts";
-import { AGENT_LEVELS, BENEFITS, MAX_USD_PER_M, agentLevel, benefitPage, capText, dailyLimitText, maxDailyDollars } from "./onboarding-benefits.ts";
+import { AGENT_LEVELS, BENEFITS, FEATURE_EXAMPLE, MAX_USD_PER_M, agentLevel, benefitPage, capText, dailyLimitText, maxDailyDollars } from "./onboarding-benefits.ts";
 
 test("agent levels and caps match the server", () => {
   const tiers = AGENT_LEVELS.map(level => level.tier).sort();
@@ -14,8 +14,8 @@ test("agent levels and caps match the server", () => {
   }
 });
 
-test("five short pages, in charge first and time saved last", () => {
-  assert.deepEqual(BENEFITS.map(b => b.id), ["charge", "access", "cost", "data", "time"]);
+test("six short pages: in charge first, then a real example, evidence last", () => {
+  assert.deepEqual(BENEFITS.map(b => b.id), ["charge", "example", "access", "cost", "data", "evidence"]);
   for (const b of BENEFITS) {
     const text = `${b.title} ${b.lead} ${b.points.join(" ")}`;
     assert.doesNotMatch(text, /complian|certif|FedRAMP|\bATO\b|secure/i);
@@ -47,4 +47,21 @@ test("caps are shown in dollars, as a ceiling", () => {
   assert.match(dailyLimitText(0, false) ?? "", /No AI access yet/);
   assert.equal(dailyLimitText(null, false), null);
   assert.equal(agentLevel(7), null);
+});
+
+test("the roadmap example's totals add up from its steps", () => {
+  // Each time is "N wk(s)", "N–M wks", "N day(s)", "N–M days" or "N–M hrs"; five working days to a week, eight hours to a day.
+  const days = (t: string) => {
+    const m = t.match(/^(\d+)(?:–(\d+))? (wks?|days?|hrs?)$/);
+    assert.ok(m, t);
+    const per = m[3].startsWith("wk") ? 5 : m[3].startsWith("hr") ? 1 / 8 : 1;
+    return [Number(m[1]) * per, Number(m[2] ?? m[1]) * per];
+  };
+  const sum = (key: "today" | "servant") => FEATURE_EXAMPLE.steps.reduce(([lo, hi], s) => { const [a, b] = days(s[key]); return [lo + a, hi + b]; }, [0, 0]);
+  assert.deepEqual(sum("today").map(d => d / 5), [9, 11]);
+  assert.equal(FEATURE_EXAMPLE.total.today, "9–11 wks");
+  // 3 weeks unchanged plus about 5 to 8 days: about 4 to 5 weeks.
+  const [lo, hi] = sum("servant");
+  assert.ok(Math.round(lo / 5) === 4 && Math.round(hi / 5) === 5, `${lo}–${hi} days`);
+  assert.equal(FEATURE_EXAMPLE.total.servant, "4–5 wks");
 });

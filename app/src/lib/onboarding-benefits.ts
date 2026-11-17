@@ -10,7 +10,7 @@
 /** Same as USD_PER_M_OUTPUT in token-format.ts (the test checks): the app's list-price estimate. */
 export const MAX_USD_PER_M = 15;
 
-export type BenefitId = "charge" | "access" | "cost" | "data" | "time";
+export type BenefitId = "charge" | "example" | "access" | "cost" | "data" | "evidence";
 
 export type Benefit = {
   id: BenefitId;
@@ -24,12 +24,22 @@ export type Benefit = {
 export const BENEFITS: readonly Benefit[] = [
   {
     id: "charge",
-    kicker: "In control",
-    title: "A person is always in charge",
-    lead: "The AI drafts and suggests. You decide what happens.",
+    kicker: "Faster, in control",
+    title: "Faster work, and you stay in charge",
+    lead: "The AI does the legwork. A person approves every action.",
     points: [
-      "It asks before it takes any action",
-      "Stop it at any time",
+      "It drafts the work; your team reviews it",
+      "Nothing runs without a person’s OK",
+    ],
+  },
+  {
+    id: "example",
+    kicker: "A real example",
+    title: "One roadmap feature, start to finish",
+    lead: "From the product owner’s ask to reviewing the build.",
+    points: [
+      "Planning, building and reporting take days, not weeks",
+      "Recruiting and testing still take the time they do",
     ],
   },
   {
@@ -59,17 +69,17 @@ export const BENEFITS: readonly Benefit[] = [
     lead: "Plain answers, before you have to ask.",
     points: [
       "Messages and files are stored on the team's server",
-      "What you ask the AI is sent to the AI provider",
+      "What you ask the AI goes to Treasury Claude Code",
     ],
   },
   {
-    id: "time",
-    kicker: "Your time",
-    title: "Less admin, more research",
-    lead: "Ask in plain words. The AI handles the busywork.",
+    id: "evidence",
+    kicker: "Research that lasts",
+    title: "Decisions backed by evidence",
+    lead: "Ask what past research found, before paying for more.",
     points: [
-      "Bug reports, tickets and setup, handled",
-      "More hours for design and research",
+      "Every answer names the study it came from",
+      "Gaps are named, not guessed",
     ],
   },
 ];
@@ -116,3 +126,25 @@ export function dailyLimitText(tier: number | null | undefined, isOwner: boolean
   if (level.dailyTokens === 0) return "No AI access yet. Ask your owner";
   return `Your cap: about $${maxDailyDollars(level.dailyTokens)} a day at most`;
 }
+
+// The real-world example: one roadmap feature, from the product owner's ask
+// to reviewing the build. "Today" is the UX team's own account of each step.
+// "With Servant" is a pilot estimate, to be measured. Planning and reporting
+// use the Research Hub skills and Research Studio; steps Servant doesn't speed
+// up (recruiting, testing and the build review) keep today's time.
+export type FeatureStep = { step: string; today: string; servant: string; how?: string };
+export const FEATURE_EXAMPLE = {
+  ask: "Product owner asks UX to take on a roadmap feature",
+  steps: [
+    { step: "Plan the study", today: "1 wk", servant: "1–2 hrs", how: "Research Studio drafts it; a researcher edits it" },
+    { step: "Build the prototype", today: "2–3 wks", servant: "2–3 days", how: "Built from the app’s own code, not redrawn" },
+    { step: "Recruit participants", today: "1 wk", servant: "1 wk" },
+    { step: "Run the usability test", today: "1 wk", servant: "1 wk" },
+    { step: "Report results", today: "1 wk", servant: "1 day", how: "AI drafts the report; a researcher checks it" },
+    { step: "Iterate the designs", today: "1–2 wks", servant: "1–2 days", how: "Edit the prototype directly" },
+    { step: "Hand off to developers", today: "1 wk", servant: "1–2 days", how: "Developers get working code to start from" },
+    { step: "Review the build", today: "1 wk", servant: "1 wk" },
+  ] satisfies FeatureStep[],
+  total: { today: "9–11 wks", servant: "4–5 wks" },
+  note: "With Servant: pilot estimates, to be measured",
+} as const;

@@ -207,17 +207,28 @@ the conversation with its agent. A design with a page is **Published**.
   design instead of starters. The workspace refreshes after each reply, so a
   newly published preview appears without reopening it. However a design is
   opened, the sidebar keeps **Design** selected (marked with `aria-current`).
-- **Why Servant tour:** onboarding opens on five short pages, written for
+- **Why Servant tour:** onboarding opens on six short pages, written for
   people new to AI (no tool names or jargon), each with a small drawn example
   in the app's own colors: a person is always in charge (approval and Stop),
+  a real example (one roadmap feature from the product owner's ask to the
+  build review: each step's time today, from the UX team, beside a pilot
+  estimate with Servant, about 9–11 weeks against 4–5),
   access matches the job (the five levels with their daily caps in dollars,
   the person's own level marked), a daily cap like a data plan (their own cap
-  and the team usage report), where your information goes (device, team
-  server, AI provider, and the pilot's no-taxpayer-data rule), and less admin,
-  more research. Caps are shown as the most a day could cost at the app's list
+  and the team usage report), where your information goes (IRS laptop, team
+  server, and Treasury Claude Code, which can reach only approved IRS GitHub
+  repositories), and decisions backed by evidence (asking what past research
+  found, with each answer naming its source study and any gap). The example lives in
+  `FEATURE_EXAMPLE`; its Servant times are estimates until the pilot measures
+  them, and a test checks the totals add up from the steps.
+  Caps are shown as the most a day could cost at the app's list
   prices ($15 per million tokens, every token priced as output). **Skip the
   tour** goes straight to the role step, and Back on the role step returns to
-  the last page. The copy lives in `src/lib/onboarding-benefits.ts`; its test
+  the last page. In a browser at least 960 points wide the tour splits into
+  words and buttons on the left and the example on a panel to the right, the
+  progress bar names the part and step, and setup choices sit in a two-column
+  grid; phones keep the single column. The copy lives in
+  `src/lib/onboarding-benefits.ts`; its test
   fails if the levels or caps drift from `server/usage.mjs` or the copy grows
   jargon or length.
 - **Role tour (optional):** the start page offers **Take the tour**, and You
