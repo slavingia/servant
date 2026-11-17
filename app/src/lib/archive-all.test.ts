@@ -10,6 +10,10 @@ test("a hold moves only the rows not already there", () => {
   assert.deepEqual(rowsToMove(rows, true).map(r => r.id), ["a", "c"]);
   assert.deepEqual(rowsToMove(rows, false).map(r => r.id), ["b"]);
   assert.equal(allLabel(false), "Archive all");
+  // Archive all skips the active ones; Restore all brings back everything.
+  const chats = [{ id: "a", busy: true }, { id: "b", busy: false }, { id: "c", busy: true, archived: true }];
+  assert.deepEqual(rowsToMove(chats, true, c => c.busy).map(r => r.id), ["b"]);
+  assert.deepEqual(rowsToMove(chats, false, c => c.busy).map(r => r.id), ["c"]);
   assert.equal(allLabel(true), "Restore all");
 });
 
@@ -36,4 +40,5 @@ test("holding Archive archives the whole list in channels, chats and the Agent t
   assert.match(home, /rowProps\(c, shownChannels\)/);
   assert.match(dms, /rowProps\(item, list\)/);
   assert.match(agent, /onArchiveAll=\{/);
+  assert.equal(agent.match(/rowsToMove\([^)]*activeAgentTurn\(chat\.latestTurn\)\)/g)?.length, 2);
 });

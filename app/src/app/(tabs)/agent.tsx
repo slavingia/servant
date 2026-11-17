@@ -142,7 +142,7 @@ export default function Chats() {
   };
   // Hold Archive (or Restore) on a row: every chat in that view moves at once, and the server is asked for each.
   const actAll = async (list: readonly Chat[], archive: boolean) => {
-    const moving = rowsToMove(list, archive);
+    const moving = rowsToMove(list, archive, chat => activeAgentTurn(chat.latestTurn));
     if (busy.current || !moving.length) return;
     busy.current = true;
     setBusyId(moving[0].id);
@@ -284,7 +284,7 @@ export default function Chats() {
           return (
             <SwipeRow name={title} kind="conversation" archived={!!item.archived} open={openId === item.id} busy={busyId !== null} canDelete
               onOpen={() => setOpenId(item.id)} onClose={closeRow} onArchive={() => { void act(item); }}
-              onArchiveAll={rows.length > 1 ? () => { void actAll(rows, !item.archived); } : undefined} onDelete={() => { setActionError(null); setDeleting(item); }}>
+              onArchiveAll={rowsToMove(rows, !item.archived, chat => activeAgentTurn(chat.latestTurn)).length > 1 ? () => { void actAll(rows, !item.archived); } : undefined} onDelete={() => { setActionError(null); setDeleting(item); }}>
               {(bind) => (
                 <View style={styles.rowWrap}>
                 <ReplyClock turn={item.latestTurn}>{(time) => (
