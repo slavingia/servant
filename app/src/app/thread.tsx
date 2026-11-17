@@ -233,6 +233,10 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
   const editLast = lastEditableMessage(replies ?? [], me);
 
   const send = async (text: string, attachments: Upload[] = []) => {
+    // "Also send to the conversation" is for this reply only: it is taken as the reply leaves, so the next
+    // one, written while this is still on its way, does not go to the conversation too.
+    const alsoThis = also;
+    if (alsoThis) setAlso(false);
     // A text reply is in the thread the moment it is sent; one with files shows when they have gone up.
     const local = attachments.length ? null : outbox.add({ conversationId: conv, threadRoot: root, text, user: { id: me, name: account.user.name }, after: rows.at(-1),
       sourceDevice: account.user.role === "owner" ? sourceDeviceOf(isDesktop() ? "computer" : Platform.OS === "web" ? "web" : "mobile") : undefined });
@@ -244,14 +248,15 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
       arrived.forEach(upsert);
     };
     try {
-      const post = await turns.inTurn(() => withPiiConfirm(askPii, confirmPii => api.post(account, conv, text, root, attachments, confirmPii, also)));
+      const post = await turns.inTurn(() => withPiiConfirm(askPii, confirmPii => api.post(account, conv, text, root, attachments, confirmPii, alsoThis)));
       releaseSearchFocus();
       settle(post);
-      setAlso(false);
       setError(null);
       return true;
     } catch (e) {
       settle(null);
+      // The reply did not go: its choice comes back with its words.
+      if (alsoThis) setAlso(true);
       if (e instanceof PiiDeclined) return false;
       setError(e instanceof ServerError ? e.message : "Couldn't send. Check your connection");
       return false;
