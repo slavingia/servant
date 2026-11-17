@@ -71,7 +71,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   card: { borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, overflow: "hidden" },
   recentRow: { minHeight: 72, flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.md },
   recentRule: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
-  recentPicture: { width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.line },
+  recentPicture: { width: 40, height: 40, borderRadius: radius.pill, backgroundColor: colors.line },
   recentLines: { flex: 1, gap: space.xs },
   line: { height: 12, borderRadius: radius.sm, backgroundColor: colors.line },
   short: { height: 10 },
