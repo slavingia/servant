@@ -7,6 +7,9 @@ export function standingLine(mine: EntitlementStanding | null, managerName: stri
   const who = managerName || "an owner";
   switch (mine.status) {
     case "granted": return "You have this";
+    // Allowed for one action: the agent's next try goes ahead, the one after asks again.
+    case "once": return "Allowed once";
+    case "used": return "";
     case "requested": return `Waiting for ${who}`;
     case "denied": return mine.reason ? `Declined: ${mine.reason}` : "Declined";
     case "revoked": return mine.reason ? `Taken back: ${mine.reason}` : "Taken back";
@@ -14,8 +17,16 @@ export function standingLine(mine: EntitlementStanding | null, managerName: stri
 }
 
 /** You can ask when you never did, or after a refusal or a revocation. */
-export const canAsk = (mine: EntitlementStanding | null) => !mine || mine.status === "denied" || mine.status === "revoked";
-export const askLabel = (mine: EntitlementStanding | null) => (mine ? "Ask again" : "Ask for this");
+export const canAsk = (mine: EntitlementStanding | null) => !mine || mine.status === "denied" || mine.status === "revoked" || mine.status === "used";
+export const askLabel = (mine: EntitlementStanding | null) => (mine && mine.status !== "used" ? "Ask again" : "Ask for this");
+
+/** A request, for the person deciding it: who wants what, and whether they asked or their agent did by trying. */
+export const requestLine = (request: EntitlementStanding, entitlement: Entitlement) =>
+  request.via === "use" ? `${request.name}'s agent needs ${entitlement.name}` : `${request.name} asked for ${entitlement.name}`;
+/** What the owner is told about the built-in checks. */
+export const checksLine = (mode: "ask" | "off" | undefined) => mode === "ask"
+  ? "Built-in entitlements are checked: before an agent reads or changes files or GitHub for someone, their manager is asked."
+  : "Built-in entitlements are not checked yet, so agents read and change files and GitHub without asking. They are a record until the check is turned on.";
 
 /** The requests that are yours to decide, oldest first, each with its entitlement. */
 export function waitingOnYou(entitlements: readonly Entitlement[]): { entitlement: Entitlement; request: EntitlementStanding }[] {

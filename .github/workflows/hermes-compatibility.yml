@@ -38,6 +38,7 @@ jobs:
       - run: npm ci --prefix app --ignore-scripts
       - run: npm test --prefix app
       - run: python3 scripts/test-ios-share-release.py
+      - run: python3 scripts/test-agent-capabilities.py
       - run: npx --prefix app tsc --noEmit --project app/tsconfig.json
       - run: npm run lint --prefix app
 

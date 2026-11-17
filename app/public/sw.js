@@ -7,7 +7,7 @@
 // the same title, body and routing ids a phone gets (docs/notifications.md). Only those are used.
 
 const text = (value, max, fallback) => typeof value === 'string' && value.trim() ? value.slice(0, max) : fallback;
-const ROUTING = ['userId', 'deviceId', 'conversationId', 'chatId', 'caseId', 'threadRoot', 'messageId'];
+const ROUTING = ['userId', 'deviceId', 'conversationId', 'chatId', 'caseId', 'threadRoot', 'messageId', 'page'];
 
 function alertFrom(event) {
   let message = null;
