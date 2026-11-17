@@ -3,7 +3,7 @@ flowchart LR
     P["Phone app<br/>iOS / Android (Expo)<br/>pins server public key"]
     M["Mac app (Electron)<br/>credential in Keychain<br/>via safeStorage"]
     X["MCP clients<br/>approved on phone"]
-    G["Guests / web visitors<br/>join, guest meeting,<br/>secure inbox pages"]
+    G["Guests / web visitors<br/>join and<br/>secure inbox pages"]
   end
   subgraph CF["Cloudflare - untrusted relay (sees ciphertext, size, timing, IPs)"]
     T["cloudflared quick tunnel<br/>(current)"]

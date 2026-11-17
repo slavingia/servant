@@ -38,13 +38,13 @@ test("theme refresh preserves an in-flight Deep work choice and reconciles other
   const latest = { ...account, deepWork: true, banner: { message: "Old banner" } };
   const updated = reconcileAccountProfile(latest, {
     user: { id: account.user.id, name: "Jo Park" },
-    features: { meetings: false }, theme: { primaryColor: "#663399" },
+    features: { secureInbox: false }, theme: { primaryColor: "#663399" },
     banner: { message: " New banner " }, recordsKept: true, deepWork: false,
   }, true);
   assert.equal(updated.deepWork, true);
   assert.equal(updated.user.name, "Jo Park");
   assert.equal(updated.user.role, "member");
-  assert.equal(updated.features?.meetings, false);
+  assert.equal(updated.features?.secureInbox, false);
   assert.deepEqual(updated.banner, { message: "New banner" });
   assert.equal(updated.recordsKept, true);
   assert.equal(updated.theme?.primaryColor, "#663399");

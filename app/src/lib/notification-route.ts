@@ -1,11 +1,10 @@
 import { ALL_FEATURES, conversationHidden, type Features } from './features.ts';
 
-export type NotificationRoute = { pathname: '/meeting/[id]' | '/code/[id]'; params: { id: string } } | { pathname: '/c/[id]' | '/chat/[id]' | '/inbox/[id]'; params: { id: string } } | { pathname: '/thread'; params: { conv: string; root: string; focus?: string; from?: 'push' } };
-// `features`: what this server uses (features.ts). A tap must never open a call on a server without
-// meetings, or a channel or DM it has turned off, even from a notification sent before the change.
+export type NotificationRoute = { pathname: '/code/[id]'; params: { id: string } } | { pathname: '/c/[id]' | '/chat/[id]' | '/inbox/[id]'; params: { id: string } } | { pathname: '/thread'; params: { conv: string; root: string; focus?: string; from?: 'push' } };
+// `features`: what this server uses (features.ts). A tap must never open a channel or DM it has turned off,
+// even from a notification sent before the change.
 export function notificationRoute(data: Record<string, unknown>, userId: string, deviceId: string, features: Features = ALL_FEATURES): NotificationRoute | null {
   if (data.userId !== userId || data.deviceId !== deviceId) return null;
-  if (features.meetings && typeof data.meetingId === 'string' && /^meet_[A-Za-z0-9_-]{1,40}$/.test(data.meetingId)) return { pathname: '/meeting/[id]', params: { id: data.meetingId } };
   if (typeof data.conversationId === 'string' && /^(ch|dm)_[A-Za-z0-9_-]{1,80}$/.test(data.conversationId)) {
     if (conversationHidden(data.conversationId, features)) return null;
     if (typeof data.threadRoot === 'string' && /^\d{1,16}$/.test(data.threadRoot)) {

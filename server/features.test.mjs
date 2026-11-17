@@ -10,15 +10,15 @@ import { normalizeFeatures, featureForKind, featureOffMessage } from './features
 import { createMessaging } from './messaging.mjs';
 
 // Per-instance feature flags (features.mjs, docs/features.md "Features"): an instance that only wants the
-// agent turns channels, direct messages and meetings off. The config is read per request, so
+// agent turns channels and direct messages off. The config is read per request, so
 // each test rewrites config.json; nothing is deleted, so turning a flag back on restores it all.
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'servant-features-'));
 process.env.SERVANT_DATA_DIR = directory;
 const tokens = { owner: 'features-owner-device', member: 'features-member-device' };
 let server, base, state;
 
-const ALL_ON = { channels: true, directMessages: true, meetings: true, secureInbox: true };
-const ALL_OFF = { channels: false, directMessages: false, meetings: false, secureInbox: false };
+const ALL_ON = { channels: true, directMessages: true, secureInbox: true };
+const ALL_OFF = { channels: false, directMessages: false, secureInbox: false };
 function configure(features) {
   // Upstreams point at a closed port: only agent routes that never call the agent are exercised.
   fs.writeFileSync(path.join(directory, 'config.json'), JSON.stringify({
@@ -75,7 +75,7 @@ test('normalizeFeatures: every flag is on unless its value is exactly false', ()
   assert.deepEqual(normalizeFeatures(undefined), ALL_ON);
   assert.deepEqual(normalizeFeatures(null), ALL_ON);
   assert.deepEqual(normalizeFeatures([]), ALL_ON);
-  assert.deepEqual(normalizeFeatures({ channels: 'false', directMessages: 0, meetings: null }), ALL_ON);
+  assert.deepEqual(normalizeFeatures({ channels: 'false', directMessages: 0, secureInbox: null }), ALL_ON);
   assert.deepEqual(normalizeFeatures({ channels: false }), { ...ALL_ON, channels: false });
   assert.deepEqual(normalizeFeatures({ ...ALL_OFF, extra: false }), ALL_OFF);
   assert.equal(featureForKind('channel'), 'channels');
@@ -86,7 +86,7 @@ test('normalizeFeatures: every flag is on unless its value is exactly false', ()
 
 let channel, dm, channelMessage, dmMessage, recording;
 
-test('with no features key every flag is on: /v1/me says so and channels, DMs and meetings all work', async () => {
+test('with no features key every flag is on: /v1/me says so and channels, DMs and recordings all work', async () => {
   assert.deepEqual(await me(), ALL_ON);
   assert.deepEqual(await me('member'), ALL_ON);
   channel = (await api('/v1/conversations', { method: 'POST', body: { name: 'flags-room', topic: 'kept' } })).conversation;
@@ -97,10 +97,10 @@ test('with no features key every flag is on: /v1/me says so and channels, DMs an
   assert.ok(Array.isArray((await api('/v1/channels/browse')).channels));
   recording = await api('/v1/recordings', { method: 'POST', body: { size: 1024, durationMs: 1000, ext: 'm4a' } });
   assert.match(recording.id, /^rec_/);
-  assert.ok(Array.isArray((await api('/v1/meetings')).meetings));
+  assert.ok(Array.isArray((await api('/v1/recordings')).recordings));
 });
 
-test('all three off: the gated routes refuse clearly and everything else still works', async () => {
+test('all flags off: the gated routes refuse clearly and everything else still works', async () => {
   configure(ALL_OFF);
   assert.deepEqual(await me(), ALL_OFF);
 
@@ -120,14 +120,10 @@ test('all three off: the gated routes refuse clearly and everything else still w
   await refused(`/v1/conversations/${dm.id}/messages`, 'directMessages', { method: 'POST', body: { text: 'nope' } });
   await refused('/v1/conversations', 'directMessages', { method: 'POST', body: { kind: 'dm', userIds: ['member'] } });
   await refused(`/v1/messages/${dmMessage.id}`, 'directMessages', { method: 'DELETE' });
-  // Meetings: no list, no call, no recording, no guest page.
-  await refused('/v1/meetings', 'meetings');
-  await refused('/v1/meetings', 'meetings', { method: 'POST', body: { conversationId: channel.id } });
-  await refused('/v1/recordings', 'meetings');
-  await refused('/v1/recordings', 'meetings', { method: 'POST', body: { size: 1024, durationMs: 1000, ext: 'm4a' } });
-  await refused(`/v1/recordings/${recording.id}`, 'meetings');
-  const guestPage = await fetch(`${base}/m/ABCDEFGH`);
-  assert.equal(guestPage.status, 404, await guestPage.text());
+  // Voice memos are not a meeting feature, so they stay available.
+  assert.ok(Array.isArray((await api('/v1/recordings')).recordings));
+  assert.equal((await api(`/v1/recordings/${recording.id}`)).recording.id, recording.id);
+  assert.equal((await request('/v1/meetings')).status, 404, 'the old meetings API is gone');
   // Search keeps people and drops channels and their messages.
   const found = await api('/v1/search?q=flags');
   assert.deepEqual(found.channels, []);
@@ -158,7 +154,7 @@ test('each flag alone turns off only its own routes', async () => {
   const search = await api('/v1/search?q=flags');
   assert.deepEqual(search.channels, []);
   assert.ok(search.messages.length && search.messages.every(m => m.conversationKind === 'dm'));
-  assert.ok(Array.isArray((await api('/v1/meetings')).meetings));
+  assert.ok(Array.isArray((await api('/v1/recordings')).recordings));
 
   configure({ directMessages: false });
   assert.deepEqual(await me(), { ...ALL_ON, directMessages: false });
@@ -169,11 +165,8 @@ test('each flag alone turns off only its own routes', async () => {
   assert.ok((await api('/v1/search?q=flags')).messages.every(m => m.conversationKind === 'channel'));
 
   configure({ meetings: false });
-  assert.deepEqual(await me(), { ...ALL_ON, meetings: false });
-  assert.ok((await conversations()).some(c => c.id === channel.id) && (await conversations()).some(c => c.id === dm.id));
-  await refused('/v1/meetings', 'meetings', { method: 'POST', body: { conversationId: channel.id } });
-  await refused('/v1/recordings', 'meetings');
-  assert.equal((await post(channel.id, 'Talk goes on without calls')).text, 'Talk goes on without calls');
+  assert.deepEqual(await me(), ALL_ON, 'an old meetings flag is ignored');
+  assert.ok(Array.isArray((await api('/v1/recordings')).recordings));
 });
 
 test('turning everything back on restores the same conversations, messages and recordings', async () => {
@@ -186,8 +179,8 @@ test('turning everything back on restores the same conversations, messages and r
   assert.ok(texts.includes('Flags channel message') && texts.includes('Channels still work without DMs'));
   assert.ok((await api(`/v1/conversations/${dm.id}/messages`)).messages.some(m => m.text === 'Flags direct message'));
   // A recording still being uploaded is not listed yet, so ask for it by id.
-  assert.equal((await api(`/v1/recordings/${recording.id}`)).meeting.id, recording.id);
-  assert.ok(Array.isArray((await api('/v1/meetings')).meetings));
+  assert.equal((await api(`/v1/recordings/${recording.id}`)).recording.id, recording.id);
+  assert.ok(Array.isArray((await api('/v1/recordings')).recordings));
   assert.ok((await api('/v1/search?q=flags')).channels.some(c => c.id === channel.id));
 });
 

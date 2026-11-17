@@ -32,7 +32,7 @@ test("message excerpts include matches deep in long text and collapse whitespace
 });
 
 test("saved messages are discoverable as a personal checklist even when conversation features are hidden", () => {
-  const off = { channels: false, directMessages: false, meetings: false, secureInbox: false };
+  const off = { channels: false, directMessages: false, secureInbox: false };
   for (const query of ["saved", "later", "bookmark", "todo", "checklist"]) {
     assert.equal(omnibarShortcuts(query, false, off).find(item => item.id === "saved")?.path, "/saved");
   }
@@ -40,8 +40,8 @@ test("saved messages are discoverable as a personal checklist even when conversa
 
 test("quick actions that lead to a feature the server turned off are not offered", () => {
   const ids = (features: Features) => omnibarShortcuts("", true, features).map(item => item.id);
-  const off = { channels: false, directMessages: false, meetings: false, secureInbox: false, people: true, home: false };
-  assert.ok(ids({ ...off, channels: true, directMessages: true, meetings: true }).includes("new-message"));
+  const off = { channels: false, directMessages: false, secureInbox: false, people: true, home: false };
+  assert.ok(ids({ ...off, channels: true, directMessages: true }).includes("new-message"));
   assert.deepEqual(ids(off).filter(id => ["new-message", "new-channel", "archive"].includes(id)), []);
   assert.deepEqual(ids({ ...off, channels: true }).filter(id => ["new-message", "new-channel", "archive"].includes(id)), ["new-channel", "archive"]);
   assert.deepEqual(ids({ ...off, directMessages: true }).filter(id => ["new-message", "new-channel", "archive"].includes(id)), ["new-message", "archive"]);

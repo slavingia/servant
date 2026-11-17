@@ -51,8 +51,6 @@ const paths = {
   micOff: "M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 .2 1.1 M15 9.3V6a3 3 0 0 0-5.9-.8 M5 11a7 7 0 0 0 11.5 5.4 M19 11a7 7 0 0 1-.6 2.8 M12 18v3 M3 3l18 18",
   stop: "M7 7h10v10H7z",
   play: "M8 5v14l11-7-11-7Z",
-  // A camera with a lens, for calls and the Meetings screen.
-  meetings: "M3 8a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8Z m13 2 5-3v10l-5-3",
   // The same camera with a line through it: your camera is off.
   cameraOff: "M3 8a2 2 0 0 1 2-2h1.5 M14 6a2 2 0 0 1 2 2v2l5-3v10l-2.4-1.4 M16 16a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8 M3 3l18 18",
   // A screen with an arrow up out of it: share your screen.

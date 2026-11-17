@@ -48,7 +48,7 @@ test("the new commands parse in the right places and nowhere else", () => {
   assert.equal(parseSlash("/archive", false, true)?.name, "archive");
   assert.equal(parseSlash("/stop", false, true)?.name, "stop");
   assert.equal(parseSlash("/stop", true), null, "stop in a channel is just text");
-  assert.equal(parseSlash("/call", false, true), null, "channel commands don't run in an agent chat");
+  assert.equal(parseSlash("/dm @pat hi", false, true), null, "channel commands don't run in an agent chat");
   assert.equal(parseSlash("/invite @maya", false, true), null);
   assert.equal(parseSlash("/archive old stuff", true)?.args, "old stuff");
 });
@@ -66,19 +66,18 @@ test("/help lists exactly the commands that work in that kind of conversation", 
 });
 
 test("commands for a feature the server turned off are not offered, parsed or listed in /help", () => {
-  const off = { channels: false, directMessages: false, meetings: false, secureInbox: false, people: true, home: false };
+  const off = { channels: false, directMessages: false, secureInbox: false, people: true, home: false };
   const names = (list: { name: string }[] | null) => (list ?? []).map(c => c.name);
-  assert.ok(names(slashMatches("/", true, false, off)).every(n => !["call", "dm", "new", "browse"].includes(n)));
+  assert.ok(names(slashMatches("/", true, false, off)).every(n => !["dm", "new", "browse"].includes(n)));
   assert.ok(names(slashMatches("/", true, false, { ...off, channels: true })).includes("browse"), "browse stays while channels are on");
   assert.ok(names(slashMatches("/", false, true, off)).every(n => !["new", "browse"].includes(n)));
-  assert.equal(parseSlash("/call", true, false, { ...off, channels: true, directMessages: true }), null, "no calls without meetings");
-  assert.ok(parseSlash("/call", true), "everything on by default");
+  assert.equal(parseSlash("/call", true), null, "calls are gone");
   assert.equal(parseSlash("/new", false, true, { ...off, channels: true }), null, "no new message without DMs");
   assert.equal(parseSlash("/browse", false, true, { ...off, directMessages: true }), null, "no browsing without channels");
   assert.ok(parseSlash("/people", false, true, off) && parseSlash("/help", false, true, off));
   assert.equal(parseSlash("/people", false, true, { ...off, people: false }), null, "deep work: no /people");
-  assert.doesNotMatch(helpText(true, false, off), /\/call|\/dm|\/new|\/browse/);
-  assert.match(helpText(true, false, { ...off, meetings: true }), /\/call/);
+  assert.doesNotMatch(helpText(true, false, off), /\/dm|\/new|\/browse/);
+  assert.doesNotMatch(helpText(true), /\/call/);
 });
 
 test("/queue carries a message: the text after it is what gets sent later", () => {

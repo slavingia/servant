@@ -72,27 +72,20 @@ else {
       }
       return new Response(result.body, { status: result.status, headers });
     });
-    // Copy actions may write plain text, and meetings may use the camera and
-    // microphone. No clipboard reading, screen capture or other device access.
+    // Copy actions may write plain text, and voice memos may use the microphone
+    // and audio the person shares. Display video is stopped immediately; no clipboard reading or other device access.
     session.defaultSession.setPermissionCheckHandler((contents, permission, origin, details) => contents === window?.webContents && isAppUrl(origin) && allowedPermission(permission, details));
     session.defaultSession.setPermissionRequestHandler(async (contents, permission, callback, details) => {
       if (!(contents === window?.webContents && isAppUrl(details.requestingUrl) && allowedPermission(permission, details))) return callback(false);
-      // macOS keeps its own camera and microphone permission. Without asking it here, a call
-      // quietly joins with no video (others hear you but can't see you).
+      // macOS keeps its own microphone permission. Without asking it here, recording fails quietly.
       if (permission === 'media' && process.platform === 'darwin') {
         const types = details.mediaTypes || (details.mediaType ? [details.mediaType] : []);
-        for (const type of new Set(types.map(t => (t === 'video' ? 'camera' : 'microphone')))) {
-          if (systemPreferences.getMediaAccessStatus(type) !== 'granted' && !(await systemPreferences.askForMediaAccess(type).catch(() => false))) {
-            // Audio-only still works; video can be retried after allowing it in System Settings.
-            if (type === 'microphone') return callback(false);
-          }
-        }
+        if (types.includes('audio') && systemPreferences.getMediaAccessStatus('microphone') !== 'granted' && !(await systemPreferences.askForMediaAccess('microphone').catch(() => false))) return callback(false);
       }
       callback(true);
     });
-    // "Share screen" in a call: macOS shows its own picker (screens and windows), and nothing is
+    // "Include audio from this computer" in a voice memo: macOS shows its own picker, and nothing is
     // captured until the person chooses. If the system picker isn't available, offer the main screen.
-    // Screen share in a call, and "Include meeting audio from this computer" when recording a meeting.
     // On macOS 15+ the system picker handles the request itself (this handler is not called) and
     // decides what audio comes back. Electron's loopback system audio is Windows only, so it is
     // added there; elsewhere the page sees whether an audio track arrived and says so.

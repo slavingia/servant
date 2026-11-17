@@ -11,7 +11,7 @@ import { Button } from "../components/Button";
 import { SavedTaskRow } from "../components/SavedTaskRow";
 import { useFeatures } from "../lib/features";
 import { useLiveActions } from "../lib/live";
-import { durationText } from "../lib/meetings";
+import { durationText } from "../lib/recording-labels";
 import { applySavedCompletion, savedMessagePreview, savedMessagesFor, visibleSavedMessages } from "../lib/saved-messages";
 import { buildWorkLogReport, filterWorkLog, savedWorkLabel, type SavedReportPeriod } from "../lib/saved-report";
 import { visibleWorkLog, workLogActor, workLogChanged, workLogDue, workLogHref, workLogLabel, workLogPreview } from "../lib/work-log";
@@ -115,7 +115,7 @@ function SavedTasks({ account }: { account: Account }) {
       return { ...buildWorkLogReport(workLog, { period, generatedAt: asOf, serverName: account.serverName, personName: account.user.name }),
         rows: filterWorkLog(workLog, period, { now: asOf }), error: null };
     } catch (e) {
-      return { markdown: "", rows: [] as WorkLogEntry[], entryCount: 0, completionCount: 0, taskCount: 0, meetingCount: 0, attendedMeetingCount: 0, recordingCount: 0, agentCompletionCount: 0, periodLabel: "Custom dates", error: e instanceof Error ? e.message : "Enter dates as YYYY-MM-DD." };
+      return { markdown: "", rows: [] as WorkLogEntry[], entryCount: 0, completionCount: 0, taskCount: 0, recordingCount: 0, agentCompletionCount: 0, periodLabel: "Custom dates", error: e instanceof Error ? e.message : "Enter dates as YYYY-MM-DD." };
     }
   }, [workLog, periodName, from, to, asOf, account.serverName, account.user.name]);
   const rows: ListRow[] = view === "history" ? report.rows.map(item => ({ kind: "history", item }))
@@ -205,7 +205,7 @@ function SavedTasks({ account }: { account: Account }) {
         </View> : null}
         {error ? <View style={styles.error}><Text accessibilityRole="alert" style={styles.errorText}>{error}</Text><Button label="Try again" kind="link" compact disabled={!!busy} onPress={() => void load(true)} /></View> : null}
         {view === "history" ? <View style={styles.reportTools}>
-          <Text style={styles.caption}>Meetings you attended or recorded, completed to-dos, and saved tasks appear here automatically. Agent completions are labeled.</Text>
+          <Text style={styles.caption}>Voice memos, completed to-dos, and saved tasks appear here automatically. Agent completions are labeled.</Text>
           <View accessibilityRole="radiogroup" accessibilityLabel="Period" style={styles.periods}>{([["today", "Today"], ["week", "Past 7 days"], ["all", "All time"], ["custom", "Custom"]] as const).map(([value, label]) =>
             <Radio key={value} accessibilityState={{ checked: periodName === value }} aria-checked={periodName === value} onPress={() => { setPeriodName(value); setAsOf(Date.now()); setCopyState("idle"); }}
               style={[styles.period, periodName === value && styles.selectedPeriod]}><Text style={[styles.periodText, periodName === value && styles.tabTextOn]}>{label}</Text></Radio>)}</View>
@@ -214,7 +214,7 @@ function SavedTasks({ account }: { account: Account }) {
             <View style={styles.dateField}><Text style={styles.caption}>To</Text><TextInput accessibilityLabel="To date" placeholder="YYYY-MM-DD" placeholderTextColor={colors.muted} value={to} onChangeText={value => { setTo(value); setCopyState("idle"); }} autoCapitalize="none" style={styles.dateInput} /></View>
           </View> : null}
           {report.error ? <Text accessibilityRole="alert" style={styles.errorText}>{report.error}</Text> : null}
-          <View style={styles.reportSummary}><Text style={styles.caption}>{report.completionCount} {report.completionCount === 1 ? "completion" : "completions"} · {report.meetingCount} {report.meetingCount === 1 ? "meeting" : "meetings"}{report.agentCompletionCount ? ` · ${report.agentCompletionCount} by Agent` : ""}</Text>
+          <View style={styles.reportSummary}><Text style={styles.caption}>{report.completionCount} {report.completionCount === 1 ? "completion" : "completions"} · {report.recordingCount} {report.recordingCount === 1 ? "voice memo" : "voice memos"}{report.agentCompletionCount ? ` · ${report.agentCompletionCount} by Agent` : ""}</Text>
             <Button label="Copy to clipboard" kind="secondary" compact busy={copyState === "copying"} disabled={!data || refreshing || !!error || !!report.error || !report.rows.length} onPress={() => void copyReport()} /></View>
           {copyState === "copied" ? <Text accessibilityLiveRegion="polite" style={styles.copied}>Report copied</Text> : null}
           {copyState === "failed" ? <><Text accessibilityRole="alert" style={styles.errorText}>Couldn't copy the report. Try Copy to clipboard again, or select the report below.</Text><Text testID="saved-report-fallback" selectable style={styles.reportFallback}>{report.markdown}</Text></> : null}
@@ -223,7 +223,7 @@ function SavedTasks({ account }: { account: Account }) {
       ListEmptyComponent={data === null ? refreshing ? <ServeLoader accessibilityLabel="Loading saved tasks" style={styles.loading} /> : undefined
         : <View style={styles.empty}><View style={styles.emptyIcon}><AppIcon name={view === "history" ? "clock" : "check"} size={28} color={colors.greenDark} /></View>
           <Text style={styles.emptyTitle}>{view === "history" ? "No work in this period" : view === "completed" ? "Nothing completed yet" : "Nothing to follow up"}</Text>
-          <Text style={styles.emptyText}>{view === "history" ? "Attend a meeting or finish a task to start your work log, or choose another date range." : view === "completed" ? "Check off a task when you're done. Add a work note first if there's a result you want to remember." : "Open a message's actions and choose Save for later. On your phone, touch and hold the message."}</Text>
+          <Text style={styles.emptyText}>{view === "history" ? "Record a voice memo or finish a task to start your work log, or choose another date range." : view === "completed" ? "Check off a task when you're done. Add a work note first if there's a result you want to remember." : "Open a message's actions and choose Save for later. On your phone, touch and hold the message."}</Text>
         </View>}
       renderItem={({ item: row }) => row.kind === "task" ? <SavedTaskRow item={row.item}
         completion={history.find(entry => entry.messageId === row.item.messageId && entry.completedAt === row.item.completedAt)}
@@ -240,7 +240,7 @@ function WorkLogRow({ item }: { item: WorkLogEntry }) {
   const { colors } = useTheme();
   const href = workLogHref(item);
   const completion = item.kind === "saved" ? item.completion : null;
-  const icon = item.kind === "meeting" ? "meetings" : item.kind === "todo" && item.completedBy.kind === "agent" ? "sparkles" : "check";
+  const icon = item.kind === "recording" ? "mic" : item.kind === "todo" && item.completedBy.kind === "agent" ? "sparkles" : "check";
   return <View testID={completion ? `saved-completion-${completion.id}` : `work-log-${item.id}`} style={styles.logRow}>
     <View style={styles.logMark}><AppIcon name={icon} size={16} color={colors.greenDark} /></View>
     <View style={styles.logBody}>
@@ -253,11 +253,9 @@ function WorkLogRow({ item }: { item: WorkLogEntry }) {
         {completion.reopenedAt !== null ? <Text style={styles.reopened}>Reopened {savedWorkLabel(completion.reopenedAt)}</Text> : null}
       </> : <>
         <Text selectable style={styles.workNote}>{workLogPreview(item)}</Text>
-        {item.kind === "meeting" ? <>
+        {item.kind === "recording" ? <>
           {item.source?.summary ? <Text selectable numberOfLines={5} style={styles.sourceText}>{item.source.summary}</Text> : null}
-          {item.timeBasis === "recording-upload" ? <Text style={styles.logMeta}>Added {savedWorkLabel(item.at)}{item.durationMs !== null ? ` · Recording: ${durationText(item.durationMs)}` : ""}</Text>
-            : <>{item.startedAt !== null ? <Text style={styles.logMeta}>Meeting started {savedWorkLabel(item.startedAt)}</Text> : null}
-              {item.endedAt !== null ? <Text style={styles.logMeta}>Meeting ended {savedWorkLabel(item.endedAt)}</Text> : null}</>}
+          <Text style={styles.logMeta}>Added {savedWorkLabel(item.at)}{item.durationMs !== null ? ` · Recording: ${durationText(item.durationMs)}` : ""}</Text>
         </> : item.kind === "todo" ? <View style={styles.logDetails}>
           {item.completedBy.kind !== "agent" ? <Text style={styles.caption}>Completed by {workLogActor(item)}</Text> : null}
           {item.source ? <Text style={styles.caption}>{[item.source.projectName, item.source.releaseName, item.source.channelName && `#${item.source.channelName}`].filter(Boolean).join(" · ")}</Text> : null}
@@ -267,7 +265,7 @@ function WorkLogRow({ item }: { item: WorkLogEntry }) {
           {item.reopenedAt !== null ? <Text style={styles.reopened}>Reopened {savedWorkLabel(item.reopenedAt)}</Text> : null}
         </View> : null}
       </>}
-      {href ? <View style={styles.sourceLink}><Button label={item.kind === "saved" ? "Open message" : item.kind === "meeting" ? "Open meeting" : "Open to-do"} kind="link" compact onPress={() => router.push(href)} /></View> : null}
+      {href ? <View style={styles.sourceLink}><Button label={item.kind === "saved" ? "Open message" : item.kind === "recording" ? "Open recording" : "Open to-do"} kind="link" compact onPress={() => router.push(href)} /></View> : null}
     </View>
   </View>;
 }

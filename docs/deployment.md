@@ -392,7 +392,7 @@ An instance that should orient around the agent turns the rest off in `config.js
 (docs/features.md "Features an instance doesn't use"); every flag is on unless it is exactly `false`:
 
 ```json
-"features": { "channels": false, "directMessages": false, "meetings": false }
+"features": { "channels": false, "directMessages": false }
 ```
 
 The server reads it per request and reports it to signed-in apps in `GET /v1/me`, so
@@ -446,7 +446,7 @@ Two optional keys in `config.json`, read per request like the rest (no restart):
 "footer": "A personal project of Pat Tester, who does not speak for any agency"
 ```
 
-The iOS push topic is the app's bundle id. It comes from `apnsTopic` in push.json, then the `SERVANT_BUNDLE_ID` environment variable, then `com.example.servant` (see [notifications](notifications.md)); calls use `<bundle id>.voip`. Set it to the bundle id your app is built with, or iPhones get no notifications.
+The iOS push topic is the app's bundle id. It comes from `apnsTopic` in push.json, then the `SERVANT_BUNDLE_ID` environment variable, then `com.example.servant` (see [notifications](notifications.md)). Set it to the bundle id your app is built with, or iPhones get no notifications.
 
 ## In-app feedback
 

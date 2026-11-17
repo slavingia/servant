@@ -68,11 +68,11 @@ export function updateMode(team) {
   return team ? 'install' : 'notify';
 }
 
-// The app window may write copied text and, for meetings, use the camera and
-// microphone and share a screen the person picks. Clipboard reads and everything else stay off.
+// The app window may write copied text and, for voice memos, use the microphone and
+// share computer audio the person picks. Display video is stopped immediately; clipboard reads and everything else stay off.
 export function allowedPermission(permission, details = {}) {
   if (permission === 'clipboard-sanitized-write') return true;
-  // Only reached when the person chooses "Share screen" in a call; they then pick what to share.
+  // Only reached when the person chooses to include computer audio; they then pick what to share.
   if (permission === 'display-capture') return true;
   if (permission !== 'media') return false;
   const types = details.mediaTypes || (details.mediaType ? [details.mediaType] : []);

@@ -15,7 +15,7 @@ import { radius, space, typography, useTheme, createThemedStyles, linkUnderline 
 // A list of to-dos you can work, kept as plain as a list on paper: a box to tick and the words. Tap the words to
 // edit them in place; only then does that row offer what else can be done with it (send it to Agent, its details).
 // Hold a row and drag to reorder. Everything about the list as a whole (filters, tagging several, sending all) is
-// behind one icon at the top. Used under a meeting's notes and on its own screen.
+// behind one icon at the top. Used under a recording's notes and on its own screen.
 //
 // On its own screen it is a board: To do, In progress and Done. In a wide window the three columns sit side by side
 // and a card is dragged from one to another; on a phone one column shows at a time and the row being edited offers

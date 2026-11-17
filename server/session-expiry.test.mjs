@@ -28,7 +28,7 @@ const HOUR = 3_600_000, MINUTE = 60_000;
 const advance = ms => { offset += ms; };
 
 const PUBLIC = 'https://sessions.example';
-const config = { host: '127.0.0.1', port: 0, name: 'Expiring team', agentName: 'Test agent', agentAccess: 'limited', publicUrl: PUBLIC, discoveryUrl: '', adminKey: '', upstreams: {}, guestMeetings: true,
+const config = { host: '127.0.0.1', port: 0, name: 'Expiring team', agentName: 'Test agent', agentAccess: 'limited', publicUrl: PUBLIC, discoveryUrl: '', adminKey: '', upstreams: {},
   emailVerification: { enabled: true, domains: ['example.gov'], mailer: { command: 'true' } }, sessionMaxHours: 12, sessionGraceHours: 72 };
 const sent = [];
 globalThis.__servantEmailSend = async m => { sent.push(m); };
@@ -183,8 +183,8 @@ test('twelve hours after the email step every door closes with session_expired, 
   const paths = [
     ['GET', '/v1/me'], ['GET', '/v1/conversations'], ['GET', `/v1/conversations/${general.id}/messages`], ['POST', `/v1/conversations/${general.id}/messages`, { text: 'hi' }],
     ['POST', '/v1/events', {}], ['GET', '/v1/events'], ['GET', '/v1/attachments/att_nothing'], ['GET', '/v1/people'], ['GET', '/v1/search?q=hi'],
-    ['GET', '/v1/notifications'], ['PUT', '/v1/notifications', { platform: 'ios', token: 'a'.repeat(64), environment: 'production' }], ['PUT', '/v1/notifications/voip', { token: 'b'.repeat(64), environment: 'production' }],
-    ['GET', '/v1/meetings'], ['POST', '/v1/meetings', { conversationId: general.id }], ['GET', '/v1/recordings'],
+    ['GET', '/v1/notifications'], ['PUT', '/v1/notifications', { platform: 'ios', token: 'a'.repeat(64), environment: 'production' }],
+    ['GET', '/v1/recordings'],
     ['GET', '/v1/chats'], ['GET', '/v1/chats/cht_nothing/messages'], ['POST', '/v1/chats', { title: 'x' }], ['GET', '/v1/projects'], ['GET', '/v1/leaderboard'], ['GET', '/v1/feedback'],
     ['POST', '/v1/sign-in-links', {}], ['GET', '/v1/sign-in-links'], ['GET', `/v1/device-links/${link.body.id}`], ['POST', `/v1/device-links/${link.body.id}/approve`, {}],
     ['PATCH', '/v1/people/me', { name: 'Pat T' }], ['POST', '/v1/people/me/email', { email: 'other@example.gov' }], ['POST', '/v1/feedback', { text: 'x', requestId: 'r', context: {} }],
@@ -293,40 +293,15 @@ test('re-entry: the code goes only to the email on file, works once, only for th
   assert.equal((await api('POST', '/v1/session/email', {}, sam.token, { ip: '203.0.113.9' })).status, 429, 'sending is throttled for that address too');
 });
 
-test('guests are untouched: a guest token keeps working on its meeting while the host is held', async () => {
-  advance(11 * MINUTE); // the failure throttle from the test above has passed
-  const host = await joinWithEmail('Host Person', 'host.person@example.gov', 'owner', 'Mac');
-  const general = (await api('GET', '/v1/conversations', undefined, host.token)).body.conversations.find(c => c.name === 'general');
-  const meeting = (await api('POST', '/v1/meetings', { conversationId: general.id }, host.token)).body.meeting;
-  assert.ok(meeting?.id, 'the host starts a call while fresh');
-  const link = await api('POST', `/v1/meetings/${meeting.id}/guest-link`, { action: 'create' }, host.token);
-  assert.equal(link.status, 200, link.text);
-  const code = link.body.url.split('/m/')[1];
-  const knock = await plain('POST', `/g/${code}/knock`, { body: { name: 'Guest Pat' } });
-  assert.equal(knock.status, 200, knock.text);
-  const guestToken = knock.body.guestToken;
-  assert.equal((await plain('GET', `/g/${code}/state`, { token: guestToken })).status, 200);
-  // Age the host's device instead of the clock, so the guest's own six-hour token stays live.
-  mod.mutateStateForTest(state => { for (const d of Object.values(state.devices)) if (d.userId === host.user.id) { d.createdAt -= 13 * HOUR; d.sessionVerifiedAt -= 13 * HOUR; } });
-  expiredError(await api('GET', `/v1/meetings/${meeting.id}`, undefined, host.token));
-  expiredError(await api('POST', `/v1/meetings/${meeting.id}/guests`, { action: 'admit', guestId: 'x' }, host.token));
-  const still = await plain('GET', `/g/${code}/state`, { token: guestToken });
-  assert.equal(still.status, 200, still.text);
-  assert.equal(still.body.state, 'pending');
-  assert.equal((await plain('GET', `/m/${code}`)).status, 200, 'the guest page is up');
-  // A guest token is no device token, expired or not.
-  assert.equal((await api('GET', '/v1/me', undefined, guestToken)).body.error?.code, 'unauthorized');
-});
-
-test('push: a device whose session ended gets no call rings and no message text', async () => {
+test('push: a device whose session ended gets no message text', async () => {
   const file = path.join(directory, 'push-stale.db');
-  const dev = { id: 'dev_1', userId: 'usr_1', push: { platform: 'ios', token: 'x'.repeat(64), environment: 'production' }, voip: { token: 'f'.repeat(64), environment: 'production' }, ringsCalls: true };
+  const dev = { id: 'dev_1', userId: 'usr_1', push: { platform: 'ios', token: 'x'.repeat(64), environment: 'production' } };
   const user = { id: 'usr_1', name: 'Pat', notifications: { ...defaults, contentPreviews: true } };
   const state = { devices: { k: dev }, users: { usr_1: user } };
   const delivered = [];
   let stale = false;
   const push = createPushService({ file, autoDrain: false, state: () => state, mutate: fn => fn(state), stale: () => stale,
-    resolve: (event) => event.call ? { kind: 'dm', conversationId: 'dm_1', title: 'Sam', body: 'Incoming call', meetingId: 'mtg_1', caller: 'Sam' } : { kind: 'dm', conversationId: 'dm_1', title: 'Sam', body: 'the secret budget numbers' },
+    resolve: () => ({ kind: 'dm', conversationId: 'dm_1', title: 'Sam', body: 'the secret budget numbers' }),
     send: async (target, payload) => { delivered.push({ target, payload }); return { ok: true }; } });
   try {
     push.enqueue({ kind: 'message', messageId: 'm1' });
@@ -335,13 +310,11 @@ test('push: a device whose session ended gets no call rings and no message text'
     assert.equal(delivered[0].payload.body, 'the secret budget numbers', 'fresh: the text comes through');
     stale = true;
     push.enqueue({ kind: 'message', messageId: 'm2' });
-    push.enqueue({ kind: 'message', messageId: 'm3', call: true });
     await push.drain();
-    assert.equal(delivered.length, 2, 'the call never rang');
+    assert.equal(delivered.length, 2);
     assert.equal(delivered[1].payload.title, 'Servant');
     assert.equal(delivered[1].payload.body, "Confirm it's you in Servant to see new messages");
     assert.ok(!JSON.stringify(delivered[1].payload).includes('secret'), 'no message text while held');
     assert.equal(delivered[1].target.platform, 'ios');
-    assert.equal(delivered[1].payload.call, undefined);
   } finally { push.close(); }
 });

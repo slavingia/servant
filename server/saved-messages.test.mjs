@@ -14,7 +14,7 @@ function fixture(t, { file = ':memory:', keeping = false } = {}) {
     jo: { id: 'jo', name: 'Jo Park', role: 'member' },
     ana: { id: 'ana', name: 'Ana Ruiz', role: 'member' },
   };
-  const features = { channels: true, directMessages: true, meetings: true };
+  const features = { channels: true, directMessages: true };
   const create = () => createMessaging({ file, users: () => people, agentName: () => 'Agent', features: () => features, recordsPreservation: () => keeping });
   let messaging = create();
   t.after(() => messaging.close());

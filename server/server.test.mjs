@@ -2452,7 +2452,7 @@ test("prototype security: no indexing, no framing tricks, rate limit per visitor
   const ok = await fetch(`${base}/p/${folder}/`);
   assert.equal(ok.headers.get("x-robots-tag"), "noindex, nofollow, noarchive");
   assert.match(ok.headers.get("content-security-policy"), /form-action 'self'; base-uri 'self'/);
-  assert.equal(await (await fetch(`${base}/robots.txt`)).text(), "User-agent: *\nDisallow: /p/\nDisallow: /m/\nDisallow: /g/\n");
+  assert.equal(await (await fetch(`${base}/robots.txt`)).text(), "User-agent: *\nDisallow: /p/\n");
   // 600 a minute per visitor, then a polite wait; another visitor is unaffected.
   const { servePrototype, _resetLimits } = await import("./prototypes.mjs");
   _resetLimits();
@@ -2466,6 +2466,6 @@ test("prototype security: no indexing, no framing tricks, rate limit per visitor
 test("security: the email-code endpoint counts every request per visitor, and the MCP/ffmpeg inputs are constrained", async () => {
   const src = fs.readFileSync(new URL("./server.mjs", import.meta.url), "utf8");
   assert.match(src, /emailStartAllowed\(ip\)/, "every code request is counted");
-  assert.match(fs.readFileSync(new URL("./meetings.mjs", import.meta.url), "utf8"), /"-protocol_whitelist", "file", "-i"/, "ffmpeg reads local files only");
+  assert.match(fs.readFileSync(new URL("./transcription.mjs", import.meta.url), "utf8"), /"-protocol_whitelist", "file", "-i"/, "ffmpeg reads local files only");
   assert.match(fs.readFileSync(new URL("./join-page.mjs", import.meta.url), "utf8"), /name="referrer" content="no-referrer"/);
 });

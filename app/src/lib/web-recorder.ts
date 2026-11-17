@@ -1,5 +1,5 @@
-// Record a meeting in the browser or the Mac app: the microphone, and when the person asks for it
-// the sound of a meeting playing on this computer (a Zoom or Meet tab, or the whole screen's audio),
+// Record a voice memo in the browser or the Mac app: the microphone, and when the person asks for it
+// the sound playing on this computer (a browser tab, a window, or the whole screen's audio),
 // mixed into one stream and recorded with MediaRecorder. The pure parts are tested; the rest needs a browser.
 
 export type RecordingFormat = { mime: string; ext: string };
@@ -29,20 +29,20 @@ export function systemAudioSupported(): boolean {
 }
 
 export type WebRecording = {
-  /** True when the computer's meeting audio is in the recording, not only the microphone. */
+  /** True when the computer's audio is in the recording, not only the microphone. */
   systemAudio: boolean;
-  /** A plain-words reason when the meeting audio could not be included. */
+  /** A plain-words reason when the computer audio could not be included. */
   note: string | null;
   stop: () => Promise<{ blob: Blob; durationMs: number; ext: string }>;
 };
 
-/** Ask for the microphone (and the meeting audio when wanted) and start recording. */
+/** Ask for the microphone (and the computer audio when wanted) and start recording. */
 export async function startWebRecording({ systemAudio, onSystemAudioEnded }: { systemAudio: boolean; onSystemAudioEnded?: () => void }): Promise<WebRecording> {
   const format = pickRecordingFormat(m => g.MediaRecorder.isTypeSupported(m));
   if (!format) throw new Error("This browser can't record audio. Use a current Chrome, Edge or Safari");
   let mic: MediaStream;
   try { mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
-  catch { throw new Error("Allow the microphone to record a meeting"); }
+  catch { throw new Error("Allow the microphone to record a voice memo"); }
 
   let note: string | null = null;
   let system: MediaStream | null = null;
@@ -53,9 +53,9 @@ export async function startWebRecording({ systemAudio, onSystemAudioEnded }: { s
       for (const t of display.getVideoTracks()) t.stop();
       const audio = display.getAudioTracks();
       if (audio.length) system = new MediaStream(audio);
-      else note = "No meeting audio was shared, so this records the microphone only";
+      else note = "No computer audio was shared, so this records the microphone only";
     } catch {
-      note = "Meeting audio wasn't shared, so this records the microphone only";
+      note = "Computer audio wasn't shared, so this records the microphone only";
     }
   }
 

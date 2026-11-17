@@ -18,7 +18,7 @@ How it travels: the browser subscribes with its own push service (Google for Chr
 - **Nothing to configure.** No Apple or Google credentials are involved; `push.json` is not needed for browsers. The server must be able to reach those hosts.
 - **Lifecycle.** Alerts wait up to an hour at the push service for a browser that is closed, and a newer alert for the same conversation replaces one still waiting. A subscription the push service reports gone (404 or 410) is removed. Signing out removes the registration, and the browser stops listening for that server. With several servers signed in, each has its own subscription (a service worker registration under `/push/<server>/`), because a subscription belongs to one server's key.
 - **Quiet while reading.** The page reports the conversation on screen while its window is in front, as the phone app does, so that conversation does not alert, and alerts already showing for it are taken down.
-- **Not included.** Calls show as an ordinary alert and do not ring. There is no unread badge on the browser's icon. The web app is not installable, so there is no push on an iPhone's Home Screen.
+- **Not included.** There is no unread badge on the browser's icon. The web app is not installable, so there is no push on an iPhone's Home Screen.
 
 ## Server configuration
 

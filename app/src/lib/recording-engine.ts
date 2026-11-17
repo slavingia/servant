@@ -1,17 +1,17 @@
-// Record a meeting on iPhone and Android with expo-audio. The Mac app and the browser use
-// recording-engine.web.ts (MediaRecorder) instead; both give the Meetings screen the same engine.
+// Record a voice memo on iPhone and Android with expo-audio. The Mac app and the browser use
+// recording-engine.web.ts (MediaRecorder) instead; both give the Recordings screen the same engine.
 import { useCallback, useEffect, useRef } from "react";
 import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder, useAudioRecorderState } from "expo-audio";
 import { File } from "expo-file-system";
 import type { ChunkReader } from "./document-upload";
-import { extensionOf } from "./meetings";
+import { extensionOf } from "./recording-labels";
 
 /** A finished recording, ready to upload. `discard` deletes the local copy once it is safely on the server. */
 export type RecordingResult = { read: ChunkReader; size: number; ext: string; durationMs: number; discard: () => void };
 export type RecordingEngine = {
   /** This device can record at all. */
   supported: boolean;
-  /** This platform can also take the sound of a meeting playing on the computer (browser and Mac app). */
+  /** This platform can also take the sound playing on the computer (browser and Mac app). */
   systemAudioOffered: boolean;
   start: (o: { systemAudio: boolean }) => Promise<{ systemAudio: boolean; note: string | null }>;
   stop: () => Promise<RecordingResult>;
@@ -31,7 +31,7 @@ export function useRecordingEngine(): RecordingEngine {
 
   const start = useCallback(async () => {
     const permission = await requestRecordingPermissionsAsync();
-    if (!permission.granted) throw new Error("Allow the microphone in Settings to record a meeting");
+    if (!permission.granted) throw new Error("Allow the microphone in Settings to record a voice memo");
     await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
     await recorder.prepareToRecordAsync();
     recorder.record();

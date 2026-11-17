@@ -7,7 +7,6 @@ import { isDesktop } from "../lib/desktop";
 import { useLiveActions, useLiveList, useLivePresence, useLiveUnread } from "../lib/live";
 import { groupPresenceDot } from "../lib/message-status";
 import { refreshProjects, useProjects } from "../lib/projects-store";
-import { refreshMeetings, useMeetings } from "../lib/meetings-store";
 import { sortChannels, withPositions } from "../lib/channel-sort";
 import { useChannelSort } from "../lib/channel-sort-store";
 import { useSession } from "../lib/session";
@@ -75,14 +74,11 @@ export function Sidebar() {
   const [naming, setNaming] = useState(false);
   // Projects change rarely: re-read the list as you move around rather than on a timer.
   const projects = useProjects();
-  // Meetings too: the count beside it is the calls running right now.
-  const meetings = useMeetings();
   // What this server uses (features.ts): sections and entries for the rest never render.
   const features = useFeatures();
-  useEffect(() => { if (account) { void refreshProjects(account); if (features.meetings) void refreshMeetings(account); } }, [pathname, account, features.meetings]);
-  const liveMeetings = (meetings.list ?? []).filter(m => m.status === "live").length;
+  useEffect(() => { if (account) void refreshProjects(account); }, [pathname, account]);
   const viewer = { features, owner: account?.user.role === "owner", canViewSurveys: surveyPermissions.canView };
-  const counts: Record<string, number> = { home: unread.channels, agent: unread.agent, messages: unread.messages, meetings: liveMeetings };
+  const counts: Record<string, number> = { home: unread.channels, agent: unread.agent, messages: unread.messages };
   if (!account) return null;
 
   const active = (conversations ?? []).filter(c => !c.archived);

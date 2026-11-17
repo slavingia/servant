@@ -2,13 +2,12 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { router } from "expo-router";
 import { AppState, Platform } from "react-native";
 import { accountId, activateAccount, loadAccounts, removeAccount, saveAccount, subscribeAccounts, supportsMultipleServers, api, type Account, type Accounts } from "./server";
-import { leaveCall } from "./active-call";
 import { setPendingOrder } from "./channel-sort-store";
 import { clearDrafts, migrateDrafts } from "./drafts";
 import { clearScreenCaches } from "./screen-cache";
 import { resetEmailNudge } from "./email-nudge";
 import { ALL_FEATURES, FeaturesContext, landingHref, normalizeFeatures, withDeepWork } from "./features.ts";
-import { deepWorkFromServer, normalizeMissed, type MissedCall } from "./deep-work.ts";
+import { deepWorkFromServer } from "./deep-work.ts";
 import { reconcileAccountProfile, type ServerProfile } from "./session-profile.ts";
 import { ThemeProvider } from "./theme";
 import { NO_SURVEY_ACCESS, surveyPermissionsFromServer, type SurveyPermissions } from "./survey-permissions.ts";
@@ -27,7 +26,7 @@ type Session = {
   switchAccount: (id: string) => Promise<void>;
   signOut: (id?: string) => Promise<void>;
   deepWork: boolean;
-  setDeepWork: (on: boolean) => Promise<MissedCall[]>;
+  setDeepWork: (on: boolean) => Promise<void>;
   learnDeepWork: (on: boolean) => void;
 };
 const Ctx = createContext<Session | null>(null);
@@ -53,7 +52,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const selected = value.accounts.find(a => accountId(a) === value.activeId);
       const credentialChanged = previous?.token !== selected?.token || previous?.user.id !== selected?.user.id || savedRef.current.activeId !== value.activeId;
       if (credentialChanged) {
-        void leaveCall();
         setPendingOrder(null);
         void resetEmailNudge();
         // What screens kept in memory belongs to the account that was signed in.
@@ -144,14 +142,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [account]);
 
   const setDeepWork = useCallback(async (on: boolean) => {
-    if (!account || !!account.deepWork === on) return [];
+    if (!account || !!account.deepWork === on) return;
     const before = !!account.deepWork;
     deepWorkBusy.current.set(identity, (deepWorkBusy.current.get(identity) ?? 0) + 1);
     try {
       await patchAccount(account, a => ({ ...a, deepWork: on }));
       const answer = await api.setDeepWork(account, on);
       await patchAccount(account, a => ({ ...a, deepWork: deepWorkFromServer(answer.deepWork) }));
-      return on ? [] : normalizeMissed(answer.missed);
     } catch (error) {
       await patchAccount(account, a => ({ ...a, deepWork: before }));
       throw error;

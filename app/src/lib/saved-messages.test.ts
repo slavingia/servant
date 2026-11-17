@@ -62,8 +62,8 @@ test("hidden conversation types conceal content but keep the checklist reference
   const dm = { ...saved, conversation: { id: "dm_example", kind: "dm" as const, name: "Jo Park" } };
   const unavailable = { ...saved, message: null, conversation: null };
   const items = Object.freeze([saved, dm, unavailable]);
-  assert.deepEqual(visibleSavedMessages(items, { channels: true, directMessages: false, meetings: true, secureInbox: true }), [saved, unavailable, unavailable]);
-  assert.deepEqual(visibleSavedMessages(items, { channels: false, directMessages: true, meetings: true, secureInbox: true }), [unavailable, dm, unavailable]);
+  assert.deepEqual(visibleSavedMessages(items, { channels: true, directMessages: false, secureInbox: true }), [saved, unavailable, unavailable]);
+  assert.deepEqual(visibleSavedMessages(items, { channels: false, directMessages: true, secureInbox: true }), [unavailable, dm, unavailable]);
   assert.deepEqual(items, [saved, dm, unavailable]);
 });
 

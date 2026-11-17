@@ -1,7 +1,7 @@
 // The app's identity comes from one setting. Set SERVANT_BUNDLE_ID (a reverse-DNS id such as
 // org.example.servant) when building; it defaults to com.example.servant. The iOS bundle id and
 // the Android package use it as is, the iOS share extension is <id>.share and the app group
-// shared with it is group.<id>. The server's VoIP push topic (<id>.voip) must use the same id.
+// shared with it is group.<id>. The server's APNs topic must use the same id.
 // See "App identity" in app/AGENTS.md.
 const DEFAULT_BUNDLE_ID = "com.example.servant";
 const fs = require("fs");
