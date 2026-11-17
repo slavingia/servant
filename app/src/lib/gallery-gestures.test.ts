@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canStartGalleryDismiss, galleryDismissScale, isZoomedIn, shouldDismissGallery } from "./gallery-gestures.ts";
+import { canStartGalleryDismiss, galleryChromeOpacity, galleryDismissScale, isZoomedIn, shouldDismissGallery } from "./gallery-gestures.ts";
 
 test("pulling down shrinks the picture with the drag, never below half and never above full size", () => {
   assert.equal(galleryDismissScale(0, 800), 1);
@@ -9,6 +9,15 @@ test("pulling down shrinks the picture with the drag, never below half and never
   assert.equal(galleryDismissScale(800, 800), 0.5);
   assert.equal(galleryDismissScale(2000, 800), 0.5);
   assert.equal(galleryDismissScale(100, 0) >= 0.5, true);
+});
+
+test("the header and file details fade out over the first quarter of the pull and come back when it springs back", () => {
+  assert.equal(galleryChromeOpacity(0, 800), 1);
+  assert.equal(galleryChromeOpacity(-30, 800), 1);
+  assert.equal(galleryChromeOpacity(100, 800), 0.5);
+  assert.equal(galleryChromeOpacity(200, 800), 0);
+  assert.equal(galleryChromeOpacity(900, 800), 0);
+  assert.equal(galleryChromeOpacity(10, 0), 0);
 });
 
 test("gallery dismissal leaves taps, carousel swipes and multi-touch gestures alone", () => {

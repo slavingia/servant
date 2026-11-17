@@ -9,7 +9,7 @@ import { useSession } from "../lib/session";
 import { createMediaCache, formatFileSize, isPreviewImage, isPreviewVideo, MAX_FILE_BYTES, MAX_VIDEO_BYTES, mediaRoute, mergeMediaItems, readMediaPage, type MediaItem, type MediaScope } from "../lib/media";
 import { radius, space, typography } from "../lib/theme";
 import { downloadDocument } from "../lib/document-upload";
-import { canStartGalleryDismiss, galleryDismissScale, isZoomedIn, shouldDismissGallery } from "../lib/gallery-gestures";
+import { canStartGalleryDismiss, galleryChromeOpacity, galleryDismissScale, isZoomedIn, shouldDismissGallery } from "../lib/gallery-gestures";
 import { AppIcon } from "./AppIcon";
 import { ZoomableImage } from "./ZoomableImage";
 import { GalleryVideo } from "./VideoMedia";
@@ -239,9 +239,11 @@ function GalleryContent({ account, scope, seeds, opened, onClose }: { account: A
   const date = selected?.createdAt ? new Date(selected.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
   // Native padding uses the modal's own safe area, not AppChrome's consumed
   // top inset. It also updates without waiting for a JS inset/layout roundtrip.
+  // The header and file details fade as the picture is pulled, and the picture draws over where they were.
+  const chromeOpacity = dismissOffset.interpolate({ inputRange: [0, Math.max(1, viewport.height * 0.25)], outputRange: [1, galleryChromeOpacity(viewport.height, viewport.height)], extrapolate: "clamp" });
   return <SafeAreaView accessibilityViewIsModal onAccessibilityEscape={onClose} style={styles.root}>
     <StatusBar style="light" />
-    <View style={styles.header}>
+    <Animated.View style={[styles.header, { opacity: chromeOpacity }]}>
       <Pressable ref={closeButton} testID="gallery-close" accessibilityRole="button" accessibilityLabel="Close gallery" onPress={onClose} style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}><AppIcon name="close" color="#FFFFFF" size={23} /></Pressable>
       <View style={styles.headerCopy}>
         <Text style={styles.counter} accessibilityLiveRegion="polite">{selected ? `${index + 1} of ${items.length}${page.complete ? "" : " loaded"}` : "Conversation files"}</Text>
@@ -249,7 +251,7 @@ function GalleryContent({ account, scope, seeds, opened, onClose }: { account: A
       <Pressable accessibilityRole="button" accessibilityLabel={Platform.OS === "web" ? "Download attachment" : "Share attachment"} accessibilityState={{ disabled: sharing || !selected, busy: sharing }} disabled={sharing || !selected} onPress={() => void share()} style={styles.shareButton}>
         {sharing ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.actionText}>{Platform.OS === "web" ? "Save" : "Share"}</Text>}
       </Pressable>
-    </View>
+    </Animated.View>
     {loading ? <View style={styles.notice}><ActivityIndicator size="small" color="#C5CFDB" /><Text style={styles.note}>Loading conversation files…</Text></View> : null}
     {page.error ? <View style={styles.notice}><Text accessibilityRole="alert" style={styles.note}>{page.error}</Text><Pressable accessibilityRole="button" onPress={() => setAttempt(value => value + 1)} style={styles.retry}><Text style={styles.actionText}>Retry</Text></Pressable></View> : null}
     <View style={styles.viewport} onLayout={event => {
@@ -272,7 +274,7 @@ function GalleryContent({ account, scope, seeds, opened, onClose }: { account: A
       </Animated.View>
     </View>
     {shareError ? <Text accessibilityRole="alert" style={styles.shareError}>{shareError}</Text> : null}
-    <View style={styles.footer}>
+    <Animated.View style={[styles.footer, { opacity: chromeOpacity }]}>
       <View style={styles.caption}>
         {selected ? <><Text numberOfLines={1} style={styles.filename}>{selected.name}</Text>
           <Text numberOfLines={1} style={styles.note}>{[selected.sender.name, date, formatFileSize(selected.size)].filter(Boolean).join(" · ")}</Text>
@@ -282,7 +284,7 @@ function GalleryContent({ account, scope, seeds, opened, onClose }: { account: A
         <Pressable accessibilityRole="button" accessibilityLabel="Previous attachment" accessibilityState={{ disabled: index === 0 || !items.length }} disabled={index === 0 || !items.length} onPress={() => move(-1)} style={[styles.navButton, index === 0 && styles.disabled]}><AppIcon name="chevronRight" color="#FFFFFF" size={20} /></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="Next attachment" accessibilityState={{ disabled: index >= items.length - 1 }} disabled={index >= items.length - 1} onPress={() => move(1)} style={[styles.navButton, styles.nextButton, index >= items.length - 1 && styles.disabled]}><AppIcon name="chevronRight" color="#FFFFFF" size={20} /></Pressable>
       </View>
-    </View>
+    </Animated.View>
   </SafeAreaView>;
 }
 
@@ -324,7 +326,8 @@ const styles = StyleSheet.create({
   notice: { paddingHorizontal: space.side, flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: space.xs, minHeight: 36 },
   note: { ...typography.caption, color: "#BAC3CF", textAlign: "center", flexShrink: 1 },
   retry: { minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center", paddingHorizontal: space.xs },
-  viewport: { flex: 1, minHeight: 0, overflow: "hidden" },
+  // Visible overflow and a raised layer let a pulled picture move over the fading file details.
+  viewport: { flex: 1, minHeight: 0, overflow: "visible", zIndex: 2 },
   gestureSurface: { flex: 1 },
   zoom: { flex: 1 },
   zoomButton: { position: "absolute", top: space.sm, right: space.side, minHeight: 44, minWidth: 60, paddingHorizontal: space.sm, borderRadius: radius.pill, backgroundColor: "#202630DD", alignItems: "center", justifyContent: "center" },
