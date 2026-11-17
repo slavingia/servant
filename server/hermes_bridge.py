@@ -11,6 +11,7 @@ import base64
 import copy
 import inspect
 import json
+import logging
 import re
 import uuid
 from contextvars import ContextVar
@@ -19,6 +20,15 @@ from pathlib import Path
 from aiohttp import web
 from gateway.platforms.api_server import APIServerAdapter, _resolve_media_to_data_urls
 from gateway.platforms.base import MEDIA_TAG_CLEANUP_RE, validate_media_delivery_path
+
+try:
+    # Beside this file in the repository. A bridge bundle made before it existed still starts; its commands are
+    # simply not named for the network gate (docs/agent-egress.md).
+    import hermes_egress
+except ImportError:
+    hermes_egress = None
+
+logger = logging.getLogger("servant.bridge")
 
 _run_context = ContextVar("servant_run_context", default=None)
 POLICY = json.loads(Path(__file__).with_name("member-policy.json").read_text())
@@ -394,6 +404,7 @@ class ServantAPIServerAdapter(APIServerAdapter):
             return await super()._handle_runs(request)
         context = None
         session_id = body.get("session_id") if isinstance(body, dict) else None
+        self._servant_bind_egress(request, session_id)
         if session_id and isinstance(session_id, str):
             history = self._conversation_history_for_session(session_id)
             if inspect.isawaitable(history):
@@ -406,6 +417,24 @@ class ServantAPIServerAdapter(APIServerAdapter):
             return await super()._handle_runs(request)
         finally:
             _run_context.reset(token)
+
+    def _servant_bind_egress(self, request, session_id):
+        # With the network gate on, Servant says whose turn this is; that session's commands then carry the token
+        # to the gate (hermes_egress.py). Restricted agents have no terminal, so there is nothing to name.
+        if hermes_egress is None or self.restricted_member or not isinstance(session_id, str):
+            return
+        token = request.headers.get(hermes_egress.HEADER)
+        if not token:
+            return
+        try:
+            if not hermes_egress.bind(session_id, token):
+                logger.warning("Servant network gate: this turn's commands are not named (no gate, or an unsupported Hermes); they are judged for everyone working")
+        except Exception:
+            logger.exception("Servant network gate: could not name this turn's commands")
+
+    async def _handle_session_chat_stream(self, request):
+        self._servant_bind_egress(request, request.match_info.get("session_id"))
+        return await super()._handle_session_chat_stream(request)
 
     def _create_agent(self, *args, **kwargs):
         if self.restricted_member:

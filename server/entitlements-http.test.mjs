@@ -5,6 +5,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -17,6 +18,24 @@ process.env.SERVANT_PUSH_CONFIG = path.join(directory, "push.json");
 fs.writeFileSync(process.env.SERVANT_PUSH_CONFIG, "{}");
 const config = { host: "127.0.0.1", port: 0, name: "Example team", agentName: "Agent", publicUrl: "", discoveryUrl: "", adminKey: "", upstreams: {},
   agentEgress: { mode: "ask", port: 0, always: ["models.example.gov"] } };
+// A stand-in for the agent: it records what each turn was sent with and holds the reply until the test lets go.
+const turns = [];
+let release = () => {};
+const agent = http.createServer(async (req, res) => {
+  for await (const _ of req) { /* drain */ }
+  const json = (status, value) => res.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify(value));
+  if (req.url === "/v1/capabilities") return json(404, {});
+  if (req.method === "POST" && req.url === "/api/sessions") return json(201, { session: { id: "made" } });
+  if (req.method === "POST" && req.url.endsWith("/chat/stream")) {
+    turns.push({ url: req.url, token: req.headers["x-servant-egress-token"] });
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    res.write(": started\n\n");
+    release = () => res.end('event: assistant.completed\ndata: {"content":"Done"}\n\n');
+    return;
+  }
+  if (req.method === "GET" && req.url.endsWith("/messages")) return json(200, { data: [] });
+  return json(200, { session: { id: "known" } });
+});
 
 const pushes = [];
 globalThis.__servantPushSend = async (target, notification) => { pushes.push({ to: target.token, title: notification.title, body: notification.body }); return { ok: true }; };
@@ -27,6 +46,8 @@ const people = { owner: { name: "Ana Ruiz", role: "owner" }, jo: { name: "Jo Par
 let server, base, mod;
 before(async () => {
   await new Promise(done => echo.listen(0, "127.0.0.1", done));
+  await new Promise(done => agent.listen(0, "127.0.0.1", done));
+  config.upstreams = { owner: { url: `http://127.0.0.1:${agent.address().port}`, key: "fixture-key" } };
   mod = await import("./server.mjs"); server = await mod.startServer(config); base = `http://127.0.0.1:${server.address().port}`;
   mod.mutateStateForTest(state => {
     let at = Date.now() - 10_000;
@@ -39,7 +60,7 @@ before(async () => {
   });
   while (!mod.egressForTest().port) await new Promise(r => setTimeout(r, 10));
 });
-after(async () => { await server?.shutdown(); echo.close(); delete globalThis.__servantPushSend; delete globalThis.__servantEgressTest; fs.rmSync(directory, { recursive: true, force: true }); });
+after(async () => { release(); await server?.shutdown(); echo.close(); agent.close(); agent.closeAllConnections?.(); delete globalThis.__servantPushSend; delete globalThis.__servantEgressTest; fs.rmSync(directory, { recursive: true, force: true }); });
 
 async function call(token, method, route, body) {
   const response = await testFetch(directory, `${base}/v1/${route}`, { method, headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
@@ -182,6 +203,37 @@ test("invite your manager: whoever accepts becomes the sender's manager, and rep
   await api("sam", "POST", `entitlements/${id}/request`, { confirmed: true });
   assert.equal((await call(joined.body.token, "POST", `entitlements/${id}/people/${people.sam.id}`, { decision: "grant" })).body.error.code, "not_held");
   assert.equal((await call(joined.body.token, "POST", `entitlements/${id}/people/${people.sam.id}`, { decision: "deny", reason: "Ask me first" })).status, 200);
+});
+
+test("a turn tells the agent whose it is, and while it runs unnamed traffic counts as that person's", async () => {
+  const chat = (await api("sam", "POST", "chats", {})).body.chat;
+  // The reply streams until the agent finishes, so the request is left open while the turn is examined.
+  const sending = testFetch(directory, `${base}/v1/chats/${chat.id}/messages`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${people.sam.token}` }, body: JSON.stringify({ text: "Fetch the report", requestId: "request_egress_1" }) });
+  for (let i = 0; i < 300 && !turns.length; i++) await new Promise(r => setTimeout(r, 20));
+  assert.equal(turns.length, 1, "the agent received the turn");
+  assert.match(turns[0].token, /^[A-Za-z0-9._-]{20,600}$/);
+  assert.equal(turns[0].token, mod.egressForTest().mint(people.sam.id, chat.id), "the token is Sam's, for this chat");
+  await pushed(0); pushes.length = 0;
+  // A command that presents the token is Sam's.
+  assert.equal((await connectThrough("named.example.org:443", turns[0].token)).status, 403);
+  assert.deepEqual(await pushed(1), [{ to: "push-owner", title: "Agent · blocked", body: "Sam Lee's agent tried named.example.org, which no entitlement covers" }]);
+  // One that presents nothing is judged for whoever's agent is working: Sam, while this turn runs.
+  const unnamed = await connectThrough("unnamed.example.org:443", "");
+  assert.equal(unnamed.status, 403);
+  assert.doesNotMatch(unnamed.text, /no agent turn is running/);
+  assert.deepEqual(await pushed(1), [{ to: "push-owner", title: "Agent · blocked", body: "Sam Lee's agent tried unnamed.example.org, which no entitlement covers" }]);
+  // A reply outside an agent chat (to @agent in a channel) counts the same way while it lasts.
+  release();
+  const sent = await sending;
+  assert.ok(sent.status < 300, `the turn was accepted: ${sent.status}`);
+  await sent.body?.cancel();
+  for (let i = 0; i < 300; i++) { const r = await connectThrough("idle.example.org:443", ""); if (/no agent turn is running/.test(r.text)) break; await new Promise(r => setTimeout(r, 20)); }
+  assert.match((await connectThrough("idle.example.org:443", "")).text, /no agent turn is running/, "once the turn ends nobody is working");
+  const done = mod.egressForTest().working(people.sam.id);
+  assert.doesNotMatch((await connectThrough("channel.example.org:443", "")).text, /no agent turn is running/);
+  done();
+  assert.match((await connectThrough("idle.example.org:443", "")).text, /no agent turn is running/);
+  await pushed(1); pushes.length = 0;
 });
 
 test("someone who joins from an owner's team link reports to that owner", async () => {
