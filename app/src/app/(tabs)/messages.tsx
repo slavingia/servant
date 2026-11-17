@@ -108,7 +108,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   header: { minHeight: 60, paddingLeft: space.side, paddingRight: space.xs, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.xs },
   title: { ...typography.title, color: colors.ink, flexShrink: 1 },
   compose: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
-  filters: { flexDirection: "row", gap: space.xs, paddingHorizontal: space.side, paddingVertical: space.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  filters: { flexDirection: "row", gap: space.xs, paddingHorizontal: space.side, paddingVertical: space.xs },
   filter: { minHeight: 44, paddingHorizontal: space.lg, paddingVertical: space.sm, justifyContent: "center", borderRadius: radius.pill },
   selectedFilter: { backgroundColor: colors.blueSoft },
   filterText: { ...typography.bodyStrong, color: colors.muted },
