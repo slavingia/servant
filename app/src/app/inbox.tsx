@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, AppState, FlatList, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { AppState, FlatList, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Redirect, router, useFocusEffect } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import { AppIcon } from "../components/AppIcon";
@@ -11,6 +11,7 @@ import { useSession } from "../lib/session";
 import { landingHref, useFeatures } from "../lib/features";
 import { createInboxClient, inboxDueLabel, inboxOverdue, pollInbox, type InboxConversation, type InboxFilter, type InboxScope } from "../lib/secure-inbox";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
+import { ServeLoader } from "../components/ServeLoader";
 
 export default function InboxScreen() {
   const { account } = useSession();
@@ -97,7 +98,7 @@ function Inbox({ account }: { account: Account }) {
         {error ? <View style={styles.errorRow}><Text accessibilityRole="alert" style={styles.error}>{error}</Text><Button label="Try again" compact kind="link" onPress={() => setAttempt(value => value + 1)} /></View> : null}
         {actionError ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
       </View>}
-      ListEmptyComponent={error ? undefined : list === null ? <ActivityIndicator style={styles.empty} color={colors.blue} accessibilityLabel="Loading cases" /> : <View style={styles.empty}><AppIcon name="chat" size={28} color={colors.muted} /><Text style={styles.emptyTitle}>{query.trim() ? "No matching cases" : status === "resolved" ? "No resolved cases" : "You're all caught up"}</Text><Text style={styles.emptyText}>{query.trim() ? "Try a different reference, name, or subject." : "Create a case or share your public link to start helping someone."}</Text></View>}
+      ListEmptyComponent={error ? undefined : list === null ? <ServeLoader style={styles.empty} accessibilityLabel="Loading cases" /> : <View style={styles.empty}><AppIcon name="chat" size={28} color={colors.muted} /><Text style={styles.emptyTitle}>{query.trim() ? "No matching cases" : status === "resolved" ? "No resolved cases" : "You're all caught up"}</Text><Text style={styles.emptyText}>{query.trim() ? "Try a different reference, name, or subject." : "Create a case or share your public link to start helping someone."}</Text></View>}
       ListFooterComponent={current?.hasMore ? <Button label="Load more cases" kind="secondary" onPress={() => setPages(value => value + 1)} style={{ marginTop: space.md }} /> : undefined}
       renderItem={({ item }) => <InboxRow item={item} />} />
     {creating ? <NewCaseDialog client={client} onClose={() => setCreating(false)} onCreated={id => { setCreating(false); router.push({ pathname: "/inbox/[id]", params: { id } }); }} /> : null}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Button, ButtonGroup } from "./Button";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { MessageText } from "./MessageText";
@@ -7,6 +7,7 @@ import { ServerError, type Account } from "../lib/server";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
 import { wikiAskPlaceholder, wikiChange, wikiEditedLine, type WikiDraft, type WikiPage as Page } from "../lib/wiki";
 import { wikiApi } from "../lib/wiki-api";
+import { ServeLoader } from "./ServeLoader";
 
 // One page of the wiki. A page is changed by asking Agent: the person says what they want, Agent returns the whole
 // page with the change made, and the person reads it before choosing Save. Nobody types Markdown. Nothing is saved
@@ -98,7 +99,7 @@ export function WikiPage({ account, id, header, fresh = false, onSaved, onDelete
       {header}
       {loadError
         ? <View style={styles.notice}><Text accessibilityRole="alert" style={styles.error}>{loadError}</Text><Button label="Try again" kind="secondary" compact onPress={() => { setLoadError(""); setAttempt(n => n + 1); }} /></View>
-        : <ActivityIndicator accessibilityLabel="Loading page" color={colors.blue} style={styles.loading} />}
+        : <ServeLoader accessibilityLabel="Loading page" style={styles.loading} />}
     </View>;
   }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Redirect, router } from "expo-router";
 import { Button } from "../components/Button";
@@ -10,6 +10,7 @@ import { api, ServerError, type Person } from "../lib/server";
 import { useSession } from "../lib/session";
 import { landingHref, useFeatures } from "../lib/features";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
+import { ServeLoader } from "../components/ServeLoader";
 
 // Pick one person for a direct message, or a few for a group message.
 export default function NewMessage() {
@@ -73,7 +74,7 @@ export default function NewMessage() {
         keyboardShouldPersistTaps="handled"
         ListEmptyComponent={
           people === null ? (
-            <ActivityIndicator style={{ marginTop: 40 }} color={colors.blue} />
+            <ServeLoader style={{ marginTop: 40 }} />
           ) : (
             <View style={styles.empty}>
               <Text accessibilityRole={error ? "alert" : undefined} style={styles.emptyText}>{error ?? (people.length ? "No matches" : "No teammates yet")}</Text>

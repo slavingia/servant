@@ -39,7 +39,7 @@ test("the screens: a conversation hands its message to the thread, and the threa
   assert.match(cache, /kept\.set\(id, before \? \{ \.\.\.before, head: root \} : threadStart\(root, from\)\);/);
   const thread = read("app/thread.tsx");
   // The spinner alone only when not even the first message is known (a push or a link).
-  assert.match(thread, /replies === null && !head \? \(\n\s+<ActivityIndicator/);
-  assert.match(thread, /ListFooterComponent=\{replies === null \? <ActivityIndicator/);
+  assert.match(thread, /replies === null && !head \? \(\n\s+<ServeLoader/);
+  assert.match(thread, /ListFooterComponent=\{replies === null \? <ServeLoader/);
   assert.match(thread, /const replyCount = shownReplyCount\(head, replies, sending\.length\);/);
 });

@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { ActivityIndicator, Linking, StyleSheet, Text, View } from "react-native";
+import { Linking, StyleSheet, Text, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router, useLocalSearchParams } from "expo-router";
 import { Button } from "../components/Button";
@@ -7,11 +7,11 @@ import { parseInvite } from "../lib/invite";
 import { parseDeviceLink } from "../lib/device-link";
 import { scanOptions } from "../lib/scan-mode";
 import { useSession } from "../lib/session";
-import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
+import { radius, space, typography, createThemedStyles } from "../lib/theme";
+import { ServeLoader } from "../components/ServeLoader";
 
 export default function Scan() {
   const styles = useStyles();
-  const { colors } = useTheme();
   const [permission, request] = useCameraPermissions();
   const done = useRef(false);
   const { mode } = useLocalSearchParams<{ mode?: string }>();
@@ -19,7 +19,7 @@ export default function Scan() {
   const { computer, returnTo } = scanOptions(mode, account);
   const [scanError, setScanError] = useState<string | null>(null);
 
-  if (!permission) return <View style={[styles.root, styles.center]}><ActivityIndicator color={colors.blue} accessibilityLabel="Checking camera access" /></View>;
+  if (!permission) return <View style={[styles.root, styles.center]}><ServeLoader accessibilityLabel="Checking camera access" /></View>;
   if (!permission.granted) {
     return (
       <View style={[styles.root, styles.center]}>

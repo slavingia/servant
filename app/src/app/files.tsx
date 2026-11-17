@@ -9,6 +9,7 @@ import { useSession } from "../lib/session";
 import { dayLabel } from "../lib/time-label";
 import { formatFileSize, isPreviewImage, isPreviewVideo, mediaRoute, mergeMediaItems, readMediaPage, type MediaItem, type MediaScope } from "../lib/media";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
+import { ServeLoader } from "../components/ServeLoader";
 
 type Tab = "media" | "files";
 
@@ -76,7 +77,7 @@ function FilesBody({ items, error, refreshing, onRefresh }: { items: MediaItem[]
 
   if (items === null) return <View style={[styles.root, styles.center]}>
     {error ? <><Text accessibilityRole="alert" style={styles.error}>{error}</Text><Button label="Try again" kind="secondary" onPress={onRefresh} busy={refreshing} /></>
-      : <ActivityIndicator accessibilityLabel="Loading files" color={colors.blue} />}
+      : <ServeLoader accessibilityLabel="Loading files" />}
   </View>;
 
   const header = <View style={styles.header}>

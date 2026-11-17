@@ -22,6 +22,7 @@ import { activeAgentTurn, agentTurnLabel, liveAgentLine, replyTime, type AgentTu
 import { useNow } from "../../lib/use-now";
 import { LiveStatus } from "../../components/LiveStatus";
 import { ReplyBar } from "../../components/ReplyBar";
+import { ServeLoader } from "../../components/ServeLoader";
 
 // The line under the title, like the last message in a DM list.
 function lastLine(chat: Chat, author: string, agent = "") {
@@ -229,7 +230,7 @@ export default function Chats() {
               <Button label="Show active conversations" kind="secondary" onPress={() => setView("active")} style={styles.emptyAction} />
             </View>
           ) : chats === null ? (
-            error ? <Button label="Try again" kind="link" busy={refreshing} onPress={() => { setRefreshing(true); void load().finally(() => setRefreshing(false)); }} style={styles.retry} /> : <ActivityIndicator accessibilityLabel="Loading agent conversations" style={{ marginTop: space.xl }} color={colors.blue} />
+            error ? <Button label="Try again" kind="link" busy={refreshing} onPress={() => { setRefreshing(true); void load().finally(() => setRefreshing(false)); }} style={styles.retry} /> : <ServeLoader accessibilityLabel="Loading agent conversations" style={{ marginTop: space.xl }} />
           ) : (
             <View style={styles.empty}>
               <Text accessibilityRole="header" style={styles.emptyTitle}>No conversations yet</Text>
@@ -364,7 +365,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   unreadBadgeText: { ...typography.captionStrong, color: colors.onPrimary },
   // Same filter row as the DM tab.
   filters: { flexDirection: "row", gap: space.xs, paddingHorizontal: space.side, paddingVertical: space.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
-  filter: { flexDirection: "row", alignItems: "center", minHeight: 44, paddingHorizontal: space.lg, paddingVertical: space.sm, justifyContent: "center", borderRadius: radius.pill, backgroundColor: colors.surface },
+  filter: { flexDirection: "row", alignItems: "center", minHeight: 44, paddingHorizontal: space.lg, paddingVertical: space.sm, justifyContent: "center", borderRadius: radius.pill },
   selectedFilter: { backgroundColor: colors.blueSoft },
   filterText: { ...typography.bodyStrong, color: colors.muted },
   selectedFilterText: { color: colors.blueDark },
