@@ -276,6 +276,9 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
     ...(mine && onEdit ? [{ text: "Edit", onPress: onEdit }] : []),
     ...(mine && onDelete ? [{ text: "Delete", onPress: onDelete }] : []),
   ];
+  // Like Slack on a phone: a tap on a message opens its thread; touch and hold still opens the actions.
+  // On a computer a click stays free for selecting text; the thread is in the menu and under the message.
+  const tapOpensThread = Platform.OS !== "web" && available && onOpenThread ? onOpenThread : undefined;
   const actions = () => {
     if (!available || (!post.text && !onReact && !options.length)) return;
     Keyboard.dismiss();
@@ -308,10 +311,10 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
   const label = `${post.user.name}, ${when(post.createdAt)}${deviceLabel ? (post.sourceDevice?.kind === "agent" ? ", posted by an agent" : `, sent from ${deviceLabel}`) : ""}. ${post.deleted ? "Message deleted" : working ? "Working on it…" : post.text}${post.replyCount ? `. ${post.replyCount} ${post.replyCount === 1 ? "reply" : "replies"}` : ""}`;
   return (
     <>
-    <Pressable onLongPress={actions} delayLongPress={400} accessible={false} {...context.bind(contextItems)} style={[styles.post, compact && styles.postCompact, (menu || context.open) && { backgroundColor: colors.surface }]}>
+    <Pressable testID={`message-${post.id}`} onPress={tapOpensThread} onLongPress={actions} delayLongPress={400} accessible={false} {...context.bind(contextItems)} style={({ pressed }) => [styles.post, compact && styles.postCompact, (menu || context.open || (pressed && tapOpensThread)) && { backgroundColor: colors.surface }]}>
       <View style={styles.gutter}>{compact ? null : <Avatar name={post.user.name} agent={post.user.agent} userId={post.user.id} tapToMessage />}</View>
       <View style={styles.postContent}>
-        <View accessible accessibilityLabel={label} accessibilityHint={available ? "Touch and hold to copy, select text, react or open message actions" : undefined} accessibilityActions={available ? [{ name: "activate", label: "Copy, react or open message actions" }] : undefined} onAccessibilityAction={actions}>
+        <View accessible accessibilityLabel={label} accessibilityHint={available ? (tapOpensThread ? "Opens the thread. Touch and hold to copy, select text, react or open message actions" : "Touch and hold to copy, select text, react or open message actions") : undefined} accessibilityActions={available ? [{ name: "activate", label: tapOpensThread ? "Open thread" : "Copy, react or open message actions" }, ...(tapOpensThread ? [{ name: "longpress", label: "Copy, react or open message actions" }] : [])] : undefined} onAccessibilityAction={e => (tapOpensThread && e.nativeEvent.actionName === "activate" ? tapOpensThread() : actions())}>
         {!compact || deviceLabel ? (
           <View style={styles.meta}>
             {!compact ? <Text style={styles.author}>{post.user.name}</Text> : null}
