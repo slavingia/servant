@@ -39,7 +39,16 @@ HTTPS stays encrypted from the agent to the site: the proxy sees the host name a
 
    On a Mac the wrapper uses `sandbox-exec`: the command and everything it starts can open outbound connections only to the gate's port (and local sockets between its own processes). It can still listen, read and write files and run commands. `SERVANT_SANDBOX_LOCAL_PORTS="9222 5432"` opens other localhost ports it needs. On Linux the wrapper uses `systemd-run` with `IPAddressDeny=any` and `IPAddressAllow=localhost`; for a unit, put those two lines and the proxy variables in its `[Service]` section. If no sandbox is available the wrapper refuses to start the agent rather than start it open.
 
-4. Make entitlements for the systems the team's agents should reach ([entitlements.md](entitlements.md)).
+4. Close the server's own files to the agent (Mac). The agent runs as the same user as the server, so without this it can read the server's keys and databases whenever it may read files at all, including the secret that signs the tokens saying whose traffic is whose. Close the data folder and open only the folders the agent is handed files in:
+
+   ```sh
+   export SERVANT_SANDBOX_DENY_PATHS="/Users/you/servant/server/data:/Users/you/.config/servant"
+   export SERVANT_SANDBOX_ALLOW_PATHS="/Users/you/servant/server/data/chat-files:/Users/you/servant/server/data/project-files:/Users/you/servant/server/data/prototypes:/Users/you/servant/server/data/long-messages"
+   ```
+
+   A closed path can't be read, written, listed, moved, copied or linked to by the agent or anything it starts, and a file that doesn't exist yet is closed for when it does. Paths must be absolute; the wrapper refuses to start if one can't be resolved. On Linux use `InaccessiblePaths=` and `BindPaths=` in the agent's unit; the wrapper refuses these two settings there rather than ignore them.
+
+5. Make entitlements for the systems the team's agents should reach ([entitlements.md](entitlements.md)).
 
 The gate without the sandbox does nothing: a command can ignore the proxy variables. The sandbox without the gate leaves the agent with no network at all, which is the safe way for it to fail.
 
@@ -53,4 +62,4 @@ Say these out loud before relying on it.
 - **The token is not a wall between people.** It keeps a command honest about whose it is. Commands still run as one user on one computer, and one that goes looking can read another's environment. For a real wall, run each person's agent under its own account or container.
 - **Tools that don't use a proxy** (some websocket and browser paths) have no network inside the sandbox.
 - **The Linux wrapper has not been run on a server yet**; the Mac one has.
-- The sandbox limits the network only. Files and commands on the server's computer are as open as they were; see [member-security.md](member-security.md).
+- Apart from the network and the paths you close (step 4), files and commands on the server's computer are as open to the agent as they were; see [member-security.md](member-security.md). The agent's own profile (its model credentials, memory and skills) has to stay readable to it.
