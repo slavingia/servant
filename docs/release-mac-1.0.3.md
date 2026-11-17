@@ -1,6 +1,6 @@
 # Servant for Mac 1.0.3 preview — November 3, 2026
 
-Download: https://servant-desktop.web.app
+Download: https://servant-mac.web.app
 
 - Return sends a message; Shift+Return adds a new line
 - Web links in messages and agent replies open in your browser

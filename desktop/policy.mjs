@@ -2,7 +2,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 
 export const APP_URL = 'servant-app://app';
-export const DOWNLOAD_PAGE = 'https://servant-desktop.web.app';
+export const DOWNLOAD_PAGE = 'https://servant-mac.web.app';
 export function isAppUrl(value) {
   try { const url = new URL(value); return url.protocol === 'servant-app:' && url.host === 'app' && !url.username && !url.password; }
   catch { return false; }

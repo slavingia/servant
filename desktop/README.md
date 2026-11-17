@@ -178,8 +178,8 @@ checks pass on the exact artifact being published.
 
 ## Publish the download page
 
-The dedicated Firebase Hosting site is **servant-desktop**, at
-<https://servant-desktop.web.app>. The Firebase project that owns it is yours to choose:
+The dedicated Firebase Hosting site is **servant-mac**, at
+<https://servant-mac.web.app>. The Firebase project that owns it is yours to choose:
 set `SERVANT_FIREBASE_PROJECT` to its project id before deploying (there is no default).
 `downloads/index.html` is the page source. Hosting serves only the HTML page and checksums in `desktop/dist/downloads/`.
 The Spark plan rejects executable uploads, so installers are published through
