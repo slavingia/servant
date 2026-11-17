@@ -12,7 +12,7 @@ const b64 = (x) => Buffer.from(JSON.stringify(x)).toString('base64url');
 const clip = (v, max, fallback) => typeof v === 'string' && v.trim() ? (v.length > max ? v.slice(0, max - 1) + '…' : v) : fallback;
 function privateNotification(n) {
   const data = {};
-  for (const key of ['userId', 'deviceId', 'conversationId', 'chatId', 'caseId', 'codeRequestId', 'threadRoot', 'messageId', 'meetingId']) {
+  for (const key of ['userId', 'deviceId', 'conversationId', 'chatId', 'caseId', 'codeRequestId', 'threadRoot', 'messageId', 'meetingId', 'page']) {
     const value = n.data?.[key];
     if (typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(value)) data[key] = value;
   }

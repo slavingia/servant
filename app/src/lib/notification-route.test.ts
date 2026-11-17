@@ -39,6 +39,16 @@ test('a case notification opens the case, and nothing on a server that turned Ca
   assert.equal(notificationRoute(base, 'u', 'd', { channels: true, directMessages: true, meetings: true, secureInbox: false }), null);
 });
 
+// An entitlement request, decision or refused host: the alert opens the Entitlements screen.
+test('an entitlement notification opens Entitlements, only for the person and device it was sent to', () => {
+  const base = { userId: 'u', deviceId: 'd', page: 'entitlements' };
+  assert.deepEqual(notificationRoute(base, 'u', 'd'), { pathname: '/entitlements' });
+  assert.equal(notificationRoute(base, 'other', 'd'), null);
+  assert.equal(notificationRoute(base, 'u', 'other'), null);
+  assert.equal(notificationRoute({ ...base, page: 'settings' }, 'u', 'd'), null, 'no other page can be opened this way');
+  assert.equal(notificationRoute({ ...base, page: 'https://example.gov' }, 'u', 'd'), null);
+});
+
 test('a code request opens its entry screen, and only a well-formed id does', () => {
   const base = { userId: 'u', deviceId: 'd', codeRequestId: 'code_abcDEF123_-x' };
   assert.deepEqual(notificationRoute(base, 'u', 'd'), { pathname: '/code/[id]', params: { id: 'code_abcDEF123_-x' } });

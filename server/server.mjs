@@ -2738,7 +2738,7 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
       // A visitor wrote to the secure inbox: the team hears as it would for a direct message, and not at all in deep work.
       if (event.kind === "case") return normalizeFeatures((fixedCfg || loadConfig()).features).secureInbox && !inDeepWork(user) ? inbox().notificationFor(user, event.caseId, event.sequence) : null;
       // An entitlement request, decision or refusal: only for the people it names.
-      if (event.kind === "entitlement") return Array.isArray(event.to) && event.to.includes(user.id) ? { kind: "agent", title: event.title, body: event.body } : null;
+      if (event.kind === "entitlement") return Array.isArray(event.to) && event.to.includes(user.id) ? { kind: "agent", title: event.title, body: event.body, page: "entitlements" } : null;
       // A code request: only its own person, never after it expires, and never the code itself (there is none yet). The
       // separate worker process that sends alerts cannot see the requests held in the API's memory, so the alert is built
       // from the event; the process that made the request also drops it once the request is answered or cancelled.
