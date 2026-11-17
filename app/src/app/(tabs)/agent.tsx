@@ -7,6 +7,7 @@ import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { deleteDescription } from "../../lib/records-notice";
 import { SwipeRow } from "../../components/SwipeChannelRow";
+import { allFailed, forEachRow, rowsToMove } from "../../lib/archive-all";
 import { canonical, choiceKey, newChatOptions, offered } from "../../lib/new-chat-choice";
 import { getItem } from "../../lib/storage";
 import { refreshProjects, useProjects } from "../../lib/projects-store";
@@ -139,6 +140,25 @@ export default function Chats() {
       setBusyId(null);
     }
   };
+  // Hold Archive (or Restore) on a row: every chat in that view moves at once, and the server is asked for each.
+  const actAll = async (list: readonly Chat[], archive: boolean) => {
+    const moving = rowsToMove(list, archive);
+    if (busy.current || !moving.length) return;
+    busy.current = true;
+    setBusyId(moving[0].id);
+    setActionError(null);
+    setChanges(waiting => moving.reduce((m, chat) => setRowChange(m, chat.id, { archived: archive }), waiting));
+    closeRow();
+    try {
+      const failed = await forEachRow(moving, chat => archive ? api.archiveChat(account, chat.id) : api.restoreChat(account, chat.id));
+      if (failed.length) setActionError(allFailed(failed.length, moving.length, archive));
+      await load();
+    } finally {
+      setChanges(waiting => moving.reduce((m, chat) => setRowChange(m, chat.id, null), waiting));
+      busy.current = false;
+      setBusyId(null);
+    }
+  };
   const active = (chats ?? []).filter(chat => !chat.archived);
   const archived = (chats ?? []).filter(chat => chat.archived);
   const everyoneLabel = account.user.role === "owner" ? "Everyone's" : "Shared by others";
@@ -263,7 +283,8 @@ export default function Chats() {
           }
           return (
             <SwipeRow name={title} kind="conversation" archived={!!item.archived} open={openId === item.id} busy={busyId !== null} canDelete
-              onOpen={() => setOpenId(item.id)} onClose={closeRow} onArchive={() => { void act(item); }} onDelete={() => { setActionError(null); setDeleting(item); }}>
+              onOpen={() => setOpenId(item.id)} onClose={closeRow} onArchive={() => { void act(item); }}
+              onArchiveAll={rows.length > 1 ? () => { void actAll(rows, !item.archived); } : undefined} onDelete={() => { setActionError(null); setDeleting(item); }}>
               {(bind) => (
                 <View style={styles.rowWrap}>
                 <ReplyClock turn={item.latestTurn}>{(time) => (

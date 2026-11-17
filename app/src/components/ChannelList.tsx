@@ -191,11 +191,13 @@ const ChannelRows = memo(function ChannelRows({ archived, conversations, error, 
             }}
             onSettle={() => setLifted(false)}
             onDrop={ids => void saveOrder(ids)}
-            renderRow={(c, drag) => <SwipeChannelRow {...rowProps(c)} compact drag={unreadOnly ? undefined : drag} reordering={reordering}
+            renderRow={(c, drag) => <SwipeChannelRow {...rowProps(c, shownChannels)} compact drag={unreadOnly ? undefined : drag} reordering={reordering}
               onPress={() => openConversation(c)} />} />;
           if (item.kind === "channel" || item.kind === "dm") {
             const c = item.conversation;
-            return <SwipeChannelRow {...rowProps(c)} compact onPress={() => openConversation(c)} />;
+            // Holding Archive archives the section the row is in; on Archived, holding Restore restores them all.
+            const group = archived ? [...archivedChannels, ...archivedDms] : c.kind === "channel" ? shownChannels : shownDms;
+            return <SwipeChannelRow {...rowProps(c, group)} compact onPress={() => openConversation(c)} />;
           }
           if (item.kind === "project") return <Pressable accessibilityRole="button" accessibilityLabel={item.project.name} onPress={() => { closeRow(); router.push({ pathname: "/project", params: { id: item.project.id } }); }} style={({ pressed }) => [styles.projectRow, pressed && styles.pressed]}>
             <View style={styles.projectIcon}><AppIcon name="project" size={19} color={colors.muted} /></View>

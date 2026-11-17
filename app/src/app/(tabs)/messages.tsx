@@ -96,7 +96,7 @@ const MessageRows = memo(function MessageRows({ conversations, error, connected 
             </View>
           )
         }
-        renderItem={({ item }) => <SwipeChannelRow {...rowProps(item)} onPress={() => { openingConversation(account, item.id); router.push({ pathname: "/c/[id]", params: { id: item.id } }); }} />}
+        renderItem={({ item }) => <SwipeChannelRow {...rowProps(item, list)} onPress={() => { openingConversation(account, item.id); router.push({ pathname: "/c/[id]", params: { id: item.id } }); }} />}
         contentContainerStyle={styles.content}
       />
       {dialog}
