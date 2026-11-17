@@ -336,6 +336,8 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     if (!db.prepare("PRAGMA table_info(messages)").all().some(column => column.name === "activity")) {
       db.exec("ALTER TABLE messages ADD COLUMN activity TEXT");
     }
+    // #agent-feed posts used to be plain (unread-counting) messages; they are silent activity lines now.
+    db.prepare("UPDATE messages SET activity = 'feed' WHERE user_id = ? AND activity IS NULL AND conversation_id IN (SELECT id FROM conversations WHERE kind = 'channel' AND name = ?)").run(AGENT_ID, FEED_CHANNEL);
     if (!db.prepare('PRAGMA table_info(messages)').all().some(value => value.name === 'suggestions')) {
       db.exec('ALTER TABLE messages ADD COLUMN suggestions TEXT');
     }
@@ -857,17 +859,24 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     });
   }
 
-  /** The agent's activity log for the whole team: one public #agent-feed, posted by the agent. Quiet: it counts as unread but never pushes. */
+  /** The agent's activity log for the whole team: one public #agent-feed, posted by the agent. Silent: each post is an
+   *  activity line, so it never pushes, never shows a desktop notification and adds nothing to unread counts or badges. */
   function feedFromAgent(text, { attachments = [] } = {}) {
     text = String(text || "").trim().slice(0, MAX_TEXT);
     if (!text && !attachments.length) throw httpError(400, "empty", "Write the message first");
     return transaction(() => {
-      const conv = ensureChannel(FEED_CHANNEL, "What the agent is doing: messages it sends, things it ships, scheduled jobs. Updated automatically");
-      for (const uid of Object.keys(users())) if (!st.member.get(conv.id, uid)) addChannelMember(conv, uid);
-      const m = post(conv, AGENT_ID, text, null, { attachments, queueAgent: false, quiet: true });
+      const conv = ensureFeedChannel();
+      const seq = Number(st.insertActivity.run(conv.id, AGENT_ID, text, now(), "feed").lastInsertRowid);
+      for (const a of attachments) st.insertAttachment.run(newId("file"), seq, a.name, a.mime, a.data.length, a.data);
+      publish(conv.id, "message.created", msgView(st.msg.get(seq)));
       publish(conv.id, "conversation.updated", { id: conv.id });
-      return { conversationId: conv.id, messageId: String(m.seq) };
+      return { conversationId: conv.id, messageId: String(seq) };
     });
+  }
+  function ensureFeedChannel() {
+    const conv = ensureChannel(FEED_CHANNEL, "What the agent did lately. Updated automatically, never notifies");
+    for (const uid of Object.keys(users())) if (!st.member.get(conv.id, uid)) addChannelMember(conv, uid);
+    return conv;
   }
 
   /** What the agent did lately, as items for the Feed screen (everyone on the server can see it). */
