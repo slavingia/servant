@@ -51,3 +51,8 @@ test("the root layout keeps the launch screen up until that code is in, in a bro
   assert.ok(FIRST_SCREENS_WAIT_MS >= 2000 && FIRST_SCREENS_WAIT_MS <= 8000);
   assert.match(read("./use-first-screens.ts"), /export function useFirstScreens\([^)]*\): boolean \{\n\s+return true;\n\}/, "a phone waits for nothing");
 });
+
+test("the redirect from the root keeps the launch screen up while it happens", () => {
+  const index = read("../app/index.tsx");
+  assert.match(index, /return <><LaunchScreen \/><Redirect href=\{account && validServerKey\(account\.serverKey\) \? landing : "\/welcome"\} \/><\/>;/);
+});

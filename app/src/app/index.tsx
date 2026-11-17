@@ -11,5 +11,7 @@ export default function Index() {
   if (!ready) {
     return <LaunchScreen />;
   }
-  return <Redirect href={account && validServerKey(account.serverKey) ? landing : "/welcome"} />;
+  // The redirect takes a frame or more, and by itself draws nothing: the launch screen stays for it, so the
+  // page is not empty between the app's shape and the screen it lands on.
+  return <><LaunchScreen /><Redirect href={account && validServerKey(account.serverKey) ? landing : "/welcome"} /></>;
 }
