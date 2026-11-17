@@ -156,6 +156,8 @@ test("allow once lets one action through and the next asks again; allow always s
   store.decide(id, "usr_pat", { decision: "once", by: "usr_ana" });
   assert.equal(store.grant(id, "usr_pat").status, "once");
   assert.equal(store.allows("usr_pat", "github.com"), false, "nothing opens until it is used");
+  const looked = store.use("usr_pat", "github-write", "Run: git push", { consume: false });
+  assert.deepEqual([looked.verdict, looked.once, store.grant(id, "usr_pat").status], ["allow", true, "once"], "looking doesn't spend it");
   const used = store.use("usr_pat", "github-write", "Run: git push");
   assert.deepEqual([used.verdict, used.once], ["allow", true]);
   assert.equal(store.grant(id, "usr_pat").status, "used");
@@ -189,5 +191,25 @@ test("allow once lets one action through and the next asks again; allow always s
   assert.deepEqual(capabilitySettings(undefined), { mode: "off", waitSeconds: 120 });
   assert.deepEqual(capabilitySettings({ mode: "ask", waitSeconds: 5000 }), { mode: "ask", waitSeconds: 900 });
   assert.deepEqual(capabilitySettings({ mode: "ask", waitSeconds: 0 }), { mode: "ask", waitSeconds: 0 });
+  done();
+});
+
+test("the agent action log keeps every line, newest first, and can't be changed", () => {
+  const { store, file, time, done } = setup();
+  store.logAction({ userId: "usr_pat", chatId: "cht_1", needs: ["github-write", "fs-write"], verdict: "waiting", detail: "Run: git commit -am fix && git push" });
+  time.now += 1000;
+  store.logAction({ userId: "usr_pat", chatId: "cht_1", needs: ["github-write"], verdict: "allowed-once", detail: "Run: git push" });
+  store.logAction({ userId: "usr_ana", needs: ["fs-read"], verdict: "allowed-owner", detail: "Read README.md  " + "x".repeat(400) });
+  const all = store.actions();
+  assert.deepEqual(all.map(a => [a.userId, a.verdict, a.needs.join("+")]), [["usr_ana", "allowed-owner", "fs-read"], ["usr_pat", "allowed-once", "github-write"], ["usr_pat", "waiting", "github-write+fs-write"]]);
+  assert.equal(all[0].detail.length, 300, "what it was about to do is kept short");
+  assert.equal(all[2].chatId, "cht_1");
+  assert.equal("chatId" in all[0], false);
+  assert.deepEqual(store.actions({ userId: "usr_pat" }).map(a => a.detail), ["Run: git push", "Run: git commit -am fix && git push"]);
+  assert.deepEqual(store.actions({ before: all[0].seq, limit: 1 }).map(a => a.detail), ["Run: git push"], "paged back from a line");
+  const raw = new DatabaseSync(file);
+  assert.throws(() => raw.exec("DELETE FROM actions"), /append-only/);
+  assert.throws(() => raw.exec("UPDATE actions SET verdict='allowed'"), /append-only/);
+  raw.close();
   done();
 });

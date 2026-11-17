@@ -1,0 +1,20 @@
+flowchart TB
+  P["Person sends to Agent<br/>(tier 1-3 or 5, full agent)"] --> T["Turn carries a signed token:<br/>this person, this chat"]
+  T --> H{"Agent is about to use a tool"}
+  H -- "touches neither files nor GitHub" --> GO["Tool runs"]
+  H -- "reads or changes files or GitHub" --> ASK["Bridge asks the server first<br/>(stops the call if it can't ask)"]
+  ASK --> HOLD{"Does the person hold<br/>the built-in entitlement?"}
+  HOLD -- "yes, or the person is an owner" --> LOG
+  HOLD -- "no" --> MGR["Their manager is told and sees<br/>what the agent was about to do"]
+  MGR -- "Allow once / Allow always" --> LOG["Written to the agent action log<br/>(append-only), then allowed"]
+  MGR -- "Decline, or no answer yet" --> STOP["Written to the log, then stopped;<br/>the agent tells the person"]
+  LOG --> GO
+  GO --> NET{"Tool opens a network connection"}
+  NET --> SB["OS sandbox: the only way out<br/>is the server's gate on localhost"]
+  SB --> GATE{"Host on the always list, or covered by<br/>an entitlement this person holds?"}
+  GATE -- "yes" --> OUT["Connection made<br/>(never to this Mac or a private network)"]
+  GATE -- "no" --> REF["Refused, written down,<br/>person or owners told"]
+  SB -. "server keys and databases<br/>closed to the agent" .-> X["Operation not permitted"]
+  classDef risk fill:#fde8e8,stroke:#D11242,color:#000;
+  classDef safe fill:#e6f4ea,stroke:#1e7e34,color:#000;
+  class STOP,REF,X safe; class GO,OUT risk;

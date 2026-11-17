@@ -5,9 +5,9 @@ import { useFocusEffect } from "expo-router";
 import { Button } from "../components/Button";
 import { CheckBox } from "../components/CheckBox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { api, ServerError, type Entitlement, type EntitlementsPage, type EntitlementStanding } from "../lib/server";
+import { api, ServerError, type AgentAction, type Entitlement, type EntitlementsPage, type EntitlementStanding } from "../lib/server";
 import { useSession } from "../lib/session";
-import { askLabel, canAsk, checksLine, holders, hostsLine, parseHosts, refusedLine, requestLine, standingLine, waitingOnYou } from "../lib/entitlements";
+import { actionLine, askLabel, canAsk, checksLine, holders, hostsLine, parseHosts, refusedLine, requestLine, standingLine, waitingOnYou } from "../lib/entitlements";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
 
 // Entitlements (docs/entitlements.md): the named access a person's agent may use. Everyone sees the list and asks
@@ -21,6 +21,8 @@ export default function EntitlementsScreen() {
   const { account } = useSession();
   const [page, setPage] = useState<EntitlementsPage | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Owners: the latest lines of the agent action log.
+  const [actions, setActions] = useState<AgentAction[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   // What is being worked on right now, so one tap can't fire twice: "<entitlement id>:<person id or action>".
   const [busy, setBusy] = useState<string | null>(null);
@@ -37,7 +39,12 @@ export default function EntitlementsScreen() {
 
   const load = useCallback(async () => {
     if (!account) return;
-    try { setPage(await api.entitlements(account)); setError(null); }
+    try {
+      const loaded = await api.entitlements(account);
+      setPage(loaded); setError(null);
+      // The log is the owner's to read; a failure to load it leaves the rest of the page as it is.
+      if (loaded.canCreate) api.agentActions(account).then(r => setActions(r.actions), () => {});
+    }
     catch (e) { setError(e instanceof ServerError ? e.message : "Couldn't load entitlements. Pull down to try again"); }
   }, [account]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
@@ -157,6 +164,17 @@ export default function EntitlementsScreen() {
           })}
         </View>
         {owner ? <Button testID="new-entitlement" label="New entitlement" onPress={() => openDraft()} style={styles.add} /> : null}
+      </View> : null}
+
+      {/* Owners: what agents did or were stopped from doing, newest first. Each line is kept for good on the server. */}
+      {owner && actions.length ? <View>
+        <Text accessibilityRole="header" style={styles.section}>Agent activity</Text>
+        <View style={styles.list}>
+          {actions.map(action => <View key={action.seq} testID={`action-${action.seq}`} style={styles.row}>
+            <Text style={styles.body}>{`${action.name}: ${action.detail || "An action"}`}</Text>
+            <Text style={styles.meta}>{`${actionLine(action)} · ${new Date(action.at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}</Text>
+          </View>)}
+        </View>
       </View> : null}
 
       {/* Owners: what agents were refused lately, so a missing entitlement or host shows up here. */}

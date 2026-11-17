@@ -43,6 +43,14 @@ Turn the check on in the server's `config.json` and restart:
 
 It is off by default. It needs a bridge that can ask before a tool call (`server/hermes_guard.py` and `server/hermes_capabilities.py` beside `server/hermes_bridge.py`); the server checks that the bridge says it can, and refuses to hand a turn to one that can't rather than let the agent act unasked. If the bridge can't reach the server to ask, the tool call is stopped.
 
+### The agent action log
+
+With the check on, every tool call that was checked is written down before it is answered: whose agent, in which chat, what it was about to do (one line, up to 300 characters), which built-in entitlements that needed, and how it ended: allowed, allowed once, allowed because the person is an owner, declined, or still waiting. An owner's own agent is not asked about, but its actions are logged the same way. If the line can't be written, the action is refused.
+
+The log is in `entitlements.db` (`actions`). It refuses updates and deletes, and nothing in Servant removes lines from it. Owners read it in the app (**Agent activity** at the bottom of Entitlements shows the latest) or with `GET /v1/entitlements/actions?limit=&before=&user=`, newest first.
+
+It holds command lines and file paths, which can be sensitive in themselves; it never holds file contents, command output, prompts or replies. Tools that touch neither files nor GitHub are not checked and so not logged, and neither is anything while the check is off.
+
 ### How the agent's actions are read
 
 - The agent's own file tools are exact: reading and searching files need Filesystem read; writing and patching need Filesystem write.
@@ -128,6 +136,7 @@ All under the encrypted `/v1/` API.
 | `POST /v1/entitlements/<id>/request` | anyone | `{ "confirmed": true, "note" }` |
 | `POST /v1/entitlements/<id>/people/<user id>` | their manager or an owner | `{ "decision": "grant" \| "once" \| "deny" \| "revoke", "reason" }` (`once` for built-in ones) |
 | `GET /v1/entitlements/<id>/history` | owner | Every step, newest first. |
+| `GET /v1/entitlements/actions` | owner | The agent action log, newest first (`limit`, `before`, `user`). |
 | `PUT /v1/people/<user id>/manager` | their manager or an owner | `{ "managerId" }` |
 | `POST /v1/people/me/manager-invite` | anyone but an owner | `{ "name" }`; returns a one-use invite link. |
 

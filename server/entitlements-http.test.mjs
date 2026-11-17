@@ -259,24 +259,31 @@ test("built-in entitlements: the first use asks the manager, who allows once or 
   assert.equal((await use("pat", [], "Use todo")).verdict, "allow");
   assert.equal((await use("pat", ["sudo"], "x")).verdict, "allow", "only the four built-in ones are checked");
 
-  // Pat's agent is about to push. Pat's manager is told once; the agent is told to wait and pass that on.
+  // Pat's agent is about to commit and push. Pat's manager is told once about each thing it needs; the agent is told to wait.
   const held = await use("pat", ["github-write", "fs-write"], "Run: git commit -am fix && git push");
   assert.equal(held.verdict, "wait");
-  assert.equal(held.capability, "github-write", "the weightiest is asked about first");
-  assert.match(held.message, /^Servant is holding this: Ana Ruiz has been asked to allow GitHub write for Pat Tester/);
+  assert.equal(held.capability, "github-write", "the weightiest is named first");
+  assert.match(held.message, /^Servant is holding this: Ana Ruiz has been asked to allow GitHub write and Filesystem write for Pat Tester/);
   assert.equal((await use("pat", ["github-write"], "Run: git push")).verdict, "wait");
-  assert.deepEqual(await pushed(1), [{ to: "push-owner", title: "Entitlement request", body: "Pat Tester's agent needs GitHub write" }], "told once, without what the agent was doing");
+  assert.deepEqual((await pushed(2)).sort((a, b) => a.body.localeCompare(b.body)), [
+    { to: "push-owner", title: "Entitlement request", body: "Pat Tester's agent needs Filesystem write" },
+    { to: "push-owner", title: "Entitlement request", body: "Pat Tester's agent needs GitHub write" },
+  ], "told once about each, without what the agent was doing");
   const waiting = (await api("owner", "GET", "entitlements")).body.entitlements.find(e => e.capability === "github-write").people;
   assert.deepEqual(waiting.map(p => [p.name, p.status, p.via, p.detail]), [["Pat Tester", "requested", "use", "Run: git push"]], "the manager sees the latest thing it tried");
   assert.equal((await api("pat", "GET", "entitlements")).body.entitlements.find(e => e.capability === "github-write").mine.status, "requested");
 
-  // Allow once: that push goes ahead (and can reach GitHub), then the next one asks again.
+  // Allow once for GitHub write. The commit-and-push also needs files, which is still waiting, so the single
+  // allowance is not spent on it.
   assert.equal((await api("owner", "POST", `entitlements/native-github-write/people/${people.pat.id}`, { decision: "once" })).status, 200);
   assert.deepEqual(await pushed(1), [{ to: "push-pat", title: "Entitlements", body: "GitHub write was allowed once" }]);
-  const once = await use("pat", ["github-write", "fs-write"], "Run: git commit -am fix && git push");
-  assert.deepEqual([once.verdict, once.capability], ["wait", "fs-write"], "GitHub was allowed; files are a separate question");
+  const still = await use("pat", ["github-write", "fs-write"], "Run: git commit -am fix && git push");
+  assert.deepEqual([still.verdict, still.capability], ["wait", "fs-write"]);
+  assert.equal((await connectThrough("github.com:443", mod.egressForTest().mint(people.pat.id, "chat_use"))).status, 403, "nothing was used, so nothing opened");
+  assert.deepEqual(await pushed(1), [{ to: "push-pat", title: "Agent · access needed", body: "The agent couldn't reach github.com. Ask for GitHub read or GitHub write in Entitlements" }]);
+  // A push by itself needs only GitHub write: it goes ahead, can reach GitHub, and uses the allowance up.
+  assert.equal((await use("pat", ["github-write"], "Run: git push")).verdict, "allow");
   assert.equal((await connectThrough("github.com:443", mod.egressForTest().mint(people.pat.id, "chat_use"))).status, 200, "the push can reach GitHub");
-  assert.deepEqual(await pushed(1), [{ to: "push-owner", title: "Entitlement request", body: "Pat Tester's agent needs Filesystem write" }]);
   assert.equal((await use("pat", ["github-write"], "Run: git push")).verdict, "wait", "once was used up");
   assert.deepEqual(await pushed(1), [{ to: "push-owner", title: "Entitlement request", body: "Pat Tester's agent needs GitHub write" }]);
 
@@ -307,6 +314,24 @@ test("built-in entitlements: the first use asks the manager, who allows once or 
   assert.equal((await api("owner", "DELETE", "entitlements/native-github-write")).status, 400, "a built-in entitlement can't be retired");
   assert.equal((await api("owner", "POST", `entitlements/native-github-write/people/${people.pat.id}`, { decision: "revoke" })).status, 200);
   await pushed(1); pushes.length = 0;
+
+  // The action log has every checked call with how it ended: the owner's own, the waits, the single allowance, the no.
+  assert.equal((await api("pat", "GET", "entitlements/actions")).status, 403, "owners only");
+  const log = (await api("owner", "GET", "entitlements/actions?limit=200")).body.actions.reverse();
+  assert.deepEqual(log.slice(0, 6).map(a => [a.name, a.verdict, a.needs.join("+"), a.detail]), [
+    ["Ana Ruiz", "allowed-owner", "github-write+fs-write", "Run: git push"],
+    ["Pat Tester", "waiting", "github-write+fs-write", "Run: git commit -am fix && git push"],
+    ["Pat Tester", "waiting", "github-write", "Run: git push"],
+    ["Pat Tester", "waiting", "github-write+fs-write", "Run: git commit -am fix && git push"],
+    ["Pat Tester", "allowed-once", "github-write", "Run: git push"],
+    ["Pat Tester", "waiting", "github-write", "Run: git push"],
+  ]);
+  assert.ok(log.every(a => a.chatId === "chat_use"), "each line names the chat it happened in");
+  assert.deepEqual([...new Set(log.map(a => a.verdict))].sort(), ["allowed", "allowed-once", "allowed-owner", "denied", "waiting"]);
+  assert.equal(log.filter(a => a.verdict === "denied").length, 2);
+  const patOnly = (await api("owner", "GET", `entitlements/actions?user=${people.pat.id}&limit=3`)).body.actions;
+  assert.equal(patOnly.length, 3);
+  assert.ok(patOnly.every(a => a.name === "Pat Tester"));
 
   // An agent whose bridge can't ask is not handed a turn while the checks are on. With them off, nothing is asked.
   checksSupported = false;
