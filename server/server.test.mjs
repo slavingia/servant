@@ -2452,7 +2452,7 @@ test("prototype security: no indexing, no framing tricks, rate limit per visitor
   const ok = await fetch(`${base}/p/${folder}/`);
   assert.equal(ok.headers.get("x-robots-tag"), "noindex, nofollow, noarchive");
   assert.match(ok.headers.get("content-security-policy"), /form-action 'self'; base-uri 'self'/);
-  assert.equal(await (await fetch(`${base}/robots.txt`)).text(), "User-agent: *\nDisallow: /p/\n");
+  assert.equal(await (await fetch(`${base}/robots.txt`)).text(), "User-agent: *\nDisallow: /p/\nDisallow: /review/\n");
   // 600 a minute per visitor, then a polite wait; another visitor is unaffected.
   const { servePrototype, _resetLimits } = await import("./prototypes.mjs");
   _resetLimits();

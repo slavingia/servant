@@ -84,6 +84,8 @@ export type Presence = { userId: string; online: boolean; lastSeenAt: number | n
 export type Person = { /** Who decides this person's entitlement requests; owners have none. */ managerId?: string; email?: string | null; emailVerified?: boolean; agentTier?: number; tokenLimit?: number; vibeCoder?: boolean; unlimitedTokens?: boolean; id: string; name: string; agent?: boolean; owner?: boolean; online?: boolean; lastSeenAt?: number | null; deepWork?: boolean; photo?: string | null };
 export type EntitlementStanding = { entitlementId: string; userId: string; status: "requested" | "granted" | "once" | "used" | "denied" | "revoked"; note: string; requestedAt: number; /** "use": the agent asked by trying; `detail` is what it was about to do. */ via?: "use"; detail?: string; decidedBy?: string; decidedAt?: number; reason?: string; name?: string; decidedByName?: string };
 export type Entitlement = { /** Built in: on every server, asked for by use. */ native?: boolean; capability?: string; id: string; name: string; description: string; hosts: string[]; confirmation: string; mine: EntitlementStanding | null; people: EntitlementStanding[] };
+export type PrototypeComment = { id: string; page: string; anchor: string; text: string; createdAt: number; todoId?: string };
+export type PrototypeShare = { id: string; email: string; createdAt: number; verifiedAt?: number; lastSeenAt?: number; endedAt?: number; comments: PrototypeComment[] };
 export type EntitlementDraft = { name: string; description: string; hosts: string[]; confirmation: string };
 export type EntitlementsPage = { /** Whether built-in entitlements are checked before the agent acts. */ capabilities?: { mode: "ask" | "off" }; entitlements: Entitlement[]; canCreate: boolean; waiting: number; manager: { id: string; name: string } | null; reports: { id: string; name: string }[];
   egress: { mode: "ask" | "off"; always?: string[]; refused?: { userId: string; name: string; host: string; attempts: number; lastAt: number }[] } };
@@ -477,6 +479,10 @@ export const api = {
   readAllChats: (a: Account) => request(a, "/v1/chats/read-all", { method: "POST", body: "{}" }).then(() => undefined),
   readChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/read`, { method: "POST", body: "{}" }).then(() => undefined),
   chat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}`).then((r) => r.json()).then((d) => d.chat as Chat),
+  // Share a prototype with a business owner by work email; they confirm a code, see it and comment (docs/prototype-reviews.md).
+  prototypeShares: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/shares`).then(json<{ shares: PrototypeShare[] }>),
+  sharePrototype: (a: Account, id: string, email: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/shares`, { method: "POST", body: JSON.stringify({ email }) }).then(json<{ shares: PrototypeShare[] }>),
+  endPrototypeShare: (a: Account, id: string, shareId: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/shares/${encodeURIComponent(shareId)}`, { method: "DELETE" }).then(json<{ shares: PrototypeShare[] }>),
   // Edit mode in the prototype preview: save the changed page over the prototype's file.
   savePrototype: (a: Account, id: string, path: string, changes: PrototypeChanges) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype`, { method: "POST", body: JSON.stringify({ path, ...changes }) }).then(json<{ ok: true; path: string; missed: string[] }>),
   setChatShared: (a: Account, id: string, shared: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ shared }) }).then((r) => r.json()).then((d) => d.chat as Chat),

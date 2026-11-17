@@ -38,6 +38,7 @@ test('an entitlement notification opens Entitlements, only for the person and de
   assert.equal(notificationRoute(base, 'other', 'd'), null);
   assert.equal(notificationRoute(base, 'u', 'other'), null);
   assert.equal(notificationRoute({ ...base, page: 'settings' }, 'u', 'd'), null, 'no other page can be opened this way');
+  assert.deepEqual(notificationRoute({ ...base, page: 'todos' }, 'u', 'd'), { pathname: '/todos' }, 'a comment on a shared prototype opens To-dos');
   assert.equal(notificationRoute({ ...base, page: 'https://example.gov' }, 'u', 'd'), null);
 });
 
