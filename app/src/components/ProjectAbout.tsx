@@ -1,6 +1,6 @@
 import { Radio } from "./Radio";
 import { useState } from "react";
-import { ActivityIndicator, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
@@ -15,6 +15,7 @@ import { parseReviewers, reviewerText, stageReviewers } from "../lib/releases";
 import { api, ServerError, type Account, type Person, type Project, type ProjectLevel, type ProjectPerson } from "../lib/server";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
 import { Toggle } from "./Toggle";
+import { ServeLoader } from "./ServeLoader";
 
 const MAX_FILE = 20 * 1024 * 1024;
 const size = (bytes: number) => bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -251,7 +252,7 @@ export function ProjectAbout({ account, project, onChange }: { account: Account;
           <Pressable accessibilityViewIsModal style={styles.card} onPress={() => {}}>
             <Text accessibilityRole="header" style={styles.cardTitle}>Add people</Text>
             {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-            {people === null ? <ActivityIndicator color={colors.blue} style={{ margin: space.lg }} /> : (() => {
+            {people === null ? <ServeLoader style={{ margin: space.lg }} /> : (() => {
               const here = new Set(project.people.map(p => p.id).filter(Boolean));
               const choices = people.filter(p => !here.has(p.id) && !p.agent);
               return choices.length === 0 ? <Text style={styles.empty}>No more people to add</Text>

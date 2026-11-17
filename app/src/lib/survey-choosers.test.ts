@@ -21,7 +21,7 @@ test("the tabs look like the filters on Direct messages", () => {
   const filters = read("app/(tabs)/messages.tsx");
   assert.match(filters, /selectedFilter: \{ backgroundColor: colors\.blueSoft \}/, "the look this test compares with");
   for (const [name, source] of Object.entries(screens)) {
-    assert.match(source, /tab: \{ minHeight: 44, paddingHorizontal: space\.lg, paddingVertical: space\.sm, justifyContent: 'center', borderRadius: radius\.pill, backgroundColor: colors\.surface \}/, `${name}: no border, the filter's size, pill corners and soft fill`);
+    assert.match(source, /tab: \{ minHeight: 44, paddingHorizontal: space\.lg, paddingVertical: space\.sm, justifyContent: 'center', borderRadius: radius\.pill \}/, `${name}: no border, the filter's size, pill corners, no fill until chosen`);
     assert.match(source, /tabSelected: \{ backgroundColor: colors\.blueSoft \}/, `${name}: the chosen tab is filled`);
     assert.match(source, /tabText: \{ \.\.\.typography\.bodyStrong, color: colors\.muted \}/, `${name}: quiet until chosen`);
     assert.match(source, /tabTextSelected: \{ color: colors\.blueDark \}/, `${name}: the chosen tab's words`);

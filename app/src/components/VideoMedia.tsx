@@ -3,12 +3,13 @@ import { useEvent } from "expo";
 import { randomUUID } from "expo-crypto";
 import { File, Paths } from "expo-file-system";
 import { useVideoPlayer, VideoView } from "expo-video";
-import { ActivityIndicator, AppState, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { AppState, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import type { Attachment } from "../lib/server";
 import { formatFileSize } from "../lib/media";
 import { radius, space, typography } from "../lib/theme";
 import { useMediaGallery } from "./MediaGalleryContext";
+import { ServeLoader } from "./ServeLoader";
 
 // Decorative: hidden from screen readers. On the web only aria-hidden reaches the
 // DOM (the native-only props become invalid attributes there).
@@ -111,7 +112,7 @@ function InlineVideo({ file, onSize }: { file: Attachment; onSize: (aspect: numb
 }
 
 function VideoLoading({ compact = false }: { compact?: boolean }) {
-  return <View style={styles.center}><ActivityIndicator accessibilityLabel="Loading video" color="#FFFFFF" size={compact ? "small" : "large"} />{compact ? null : <Text style={styles.note}>Loading video…</Text>}</View>;
+  return <View style={styles.center}><ServeLoader accessibilityLabel="Loading video" size={compact ? "small" : "large"} />{compact ? null : <Text style={styles.note}>Loading video…</Text>}</View>;
 }
 
 // One clip plays at a time across the timeline.
@@ -160,7 +161,7 @@ function Playback({ uri, name, autoPlay, paused, onRetry, onSize, compact = fals
   if (status === "error") return <VideoError text={compact ? "This video couldn't play here." : "This video couldn't play on your device. You can still save or share the original."} onRetry={onRetry} compact={compact} />;
   return <View style={[styles.player, compact && styles.inlinePlayer]}>
     <VideoView player={player} accessibilityLabel={`Video player for ${name}`} nativeControls contentFit="contain" surfaceType="textureView" fullscreenOptions={{ enable: compact }} allowsPictureInPicture={false} startsPictureInPictureAutomatically={false} playsInline style={styles.video} />
-    {status === "loading" ? <View pointerEvents="none" style={styles.loading}><ActivityIndicator color="#FFFFFF" size="large" /></View> : null}
+    {status === "loading" ? <View pointerEvents="none" style={styles.loading}><ServeLoader size="large" /></View> : null}
   </View>;
 }
 

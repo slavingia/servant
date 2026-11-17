@@ -1208,6 +1208,23 @@ async function handle(req, res, cfg) {
     if (name) noteIfLeft(true, String(body.userId), name);
     return send(res, 200, { ok: true, removed: !!name, name });
   }
+  // Scripts on this Mac (cron jobs, alerts) notify someone through the agent: `servant notify`.
+  if (method === "POST" && url.pathname === "/admin/notify") {
+    if (!adminAllowed()) return fail(res, 403, "forbidden", "Not allowed");
+    const body = await readBody(req, MAX_UPLOAD_BODY);
+    const people = readState().users;
+    const target = body.userId ? people[String(body.userId)] : Object.values(people).find((u) => u.role === "owner");
+    if (!target) return fail(res, 404, "not_found", "No such person");
+    const attachments = validateUploads(body.attachments || [], { mediaOnly: true });
+    return send(res, 200, messaging.notifyFromAgent(target.id, body.text, { attachments }));
+  }
+  // The team-visible log of what the agent did: `servant feed`.
+  if (method === "POST" && url.pathname === "/admin/feed") {
+    if (!adminAllowed()) return fail(res, 403, "forbidden", "Not allowed");
+    const body = await readBody(req, MAX_UPLOAD_BODY);
+    const attachments = validateUploads(body.attachments || [], { mediaOnly: true });
+    return send(res, 200, messaging.feedFromAgent(body.text, { attachments }));
+  }
   if (method === "POST" && url.pathname === "/admin/releases") {
     if (!adminAllowed()) return fail(res, 403, "forbidden", "Not allowed");
     const body = await readBody(req);
@@ -1877,6 +1894,12 @@ async function handle(req, res, cfg) {
   if (messaging && (await messaging.handle(req, res, { user, device, method, parts, url, send, fail, readBody: readAuthorizedBody, cors: CORS,
     isAuthorized: () => authenticate(req, readState())?.user.id === user.id,
   }))) return undefined;
+
+  // ----- feed: what the agent did lately, from #agent-feed (everyone on the server can see it) -----
+  if (method === "GET" && parts[1] === "feed" && parts.length === 2) {
+    requireAuth(req, readState());
+    return send(res, 200, messaging ? messaging.feedItems() : { items: [] });
+  }
 
   // ----- loops: the agent's recurring automations (everyone on the server can see them) -----
   if (method === "GET" && parts[1] === "loops" && parts.length === 2) {
@@ -2893,6 +2916,32 @@ if (isMain) {
       const r = publishRollback({ dir, runtimeVersion: runtime });
       console.log(`Phones on runtime ${runtime} go back to the version built into their app (${r.id}).`);
     } else { console.error("Usage: servant ota status | publish | rollback --runtime <v>"); process.exit(2); }
+  } else if (cmd === "notify") {
+    // server.mjs notify [--to <userId>] [--file <image>]... <text | -> : the agent tells them in their agent conversation.
+    const args = process.argv.slice(3); let to = null; const files = []; const words = [];
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === "--to") to = args[++i];
+      else if (args[i] === "--file") files.push(args[++i]);
+      else words.push(args[i]);
+    }
+    let text = words.join(" ");
+    if (text === "-" || (!text && !process.stdin.isTTY)) text = fs.readFileSync(0, "utf8");
+    if (!text.trim() && !files.length) { console.error("usage: server.mjs notify [--to <userId>] [--file <path>]... <text | ->"); process.exit(2); }
+    const attachments = files.map((f) => ({ name: path.basename(f), data: fs.readFileSync(f).toString("base64") }));
+    const { r, data } = await adminPost("/admin/notify", { userId: to || undefined, text, attachments });
+    if (!r.ok) { console.error(`Couldn't notify (${r.status}): ${data.error?.message || "server not running?"}`); process.exit(1); }
+    console.log(`Posted in ${data.conversationId} (message ${data.messageId})`);
+  } else if (cmd === "feed") {
+    // server.mjs feed [--file <image>]... <text | -> : the agent posts in #agent-feed, which everyone can read.
+    const args = process.argv.slice(3); const files = []; const words = [];
+    for (let i = 0; i < args.length; i++) { if (args[i] === "--file") files.push(args[++i]); else words.push(args[i]); }
+    let text = words.join(" ");
+    if (text === "-" || (!text && !process.stdin.isTTY)) text = fs.readFileSync(0, "utf8");
+    if (!text.trim() && !files.length) { console.error("usage: server.mjs feed [--file <path>]... <text | ->"); process.exit(2); }
+    const attachments = files.map((f) => ({ name: path.basename(f), data: fs.readFileSync(f).toString("base64") }));
+    const { r, data } = await adminPost("/admin/feed", { text, attachments });
+    if (!r.ok) { console.error(`Couldn't post to the feed (${r.status}): ${data.error?.message || "server not running?"}`); process.exit(1); }
+    console.log(`Posted in ${data.conversationId} (message ${data.messageId})`);
   } else if (cmd === "release") {
     const [build, file] = process.argv.slice(3);
     if (!build || !file) {

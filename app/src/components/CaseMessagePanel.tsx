@@ -11,6 +11,7 @@ import { createInboxDraftId, createInboxLane, inboxCursor, mergeInboxMessages, p
 import { pickInboxFiles } from "../lib/secure-inbox-files";
 import { formatFileSize } from "../lib/media";
 import { createThemedStyles, linkUnderline, radius, space, typography, useTheme } from "../lib/theme";
+import { ServeLoader } from "./ServeLoader";
 
 type Entry = InboxMessage | InboxNote;
 type Props = { client: InboxClient; id: string; audience: InboxAudience; visitorName: string; active: boolean; compact: boolean; onFocusChange: (focused: boolean) => void; onChanged: () => void };
@@ -101,7 +102,7 @@ export function CaseMessagePanel({ client, id, audience, visitorName, active, co
 
   return <View style={[styles.root, !active && styles.hidden]} accessibilityElementsHidden={!active} importantForAccessibility={active ? "auto" : "no-hide-descendants"}>
     {!(compact && focused) ? <View style={[styles.audience, team && styles.teamAudience]}><AppIcon name={team ? "lock" : "chat"} size={17} color={colors.muted} /><View style={styles.audienceCopy}><Text style={styles.audienceTitle}>{team ? "Private to your team" : `Conversation with ${visitorName}`}</Text><Text style={styles.caption}>{team ? "Notes and files here are visible only to your teammates." : "Replies and files here are shared with the visitor."}</Text></View></View> : null}
-    {messages === null && !loadError ? <View style={styles.center}><ActivityIndicator color={colors.blue} accessibilityLabel={team ? "Loading team notes" : "Loading conversation"} /></View> : <FlatList testID={team ? "team-message-history" : "public-message-history"} inverted data={[...(messages ?? [])].reverse()} keyExtractor={message => message.id} style={styles.messages} contentContainerStyle={styles.messageContent} keyboardShouldPersistTaps="handled"
+    {messages === null && !loadError ? <View style={styles.center}><ServeLoader accessibilityLabel={team ? "Loading team notes" : "Loading conversation"} /></View> : <FlatList testID={team ? "team-message-history" : "public-message-history"} inverted data={[...(messages ?? [])].reverse()} keyExtractor={message => message.id} style={styles.messages} contentContainerStyle={styles.messageContent} keyboardShouldPersistTaps="handled"
       ListEmptyComponent={!loadError ? <Text style={styles.empty}>{team ? "Keep context, decisions, and working files here for the team." : "Share the visitor link or send a reply to start this conversation."}</Text> : undefined}
       renderItem={({ item }) => <MessageRow message={item} team={team} downloading={downloading} onDownload={file => void download(file)} />} />}
     <ScrollView style={styles.composerScroll} contentContainerStyle={[styles.composer, { paddingBottom: Math.max(insets.bottom, space.sm) }]} keyboardShouldPersistTaps="handled">

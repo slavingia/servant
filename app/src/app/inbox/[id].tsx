@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { AppState, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { Redirect, Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import { Button, ButtonGroup } from "../../components/Button";
@@ -13,7 +13,8 @@ import { useSession } from "../../lib/session";
 import { useWideLayout } from "../../lib/layout";
 import { landingHref, useFeatures } from "../../lib/features";
 import { createInboxClient, inboxContactConfirmed, inboxDueLabel, inboxOverdue, inboxReplyEmailLine, pollInbox, type InboxCase } from "../../lib/secure-inbox";
-import { createThemedStyles, radius, space, typography, useTheme } from "../../lib/theme";
+import { createThemedStyles, radius, space, typography } from "../../lib/theme";
+import { ServeLoader } from "../../components/ServeLoader";
 
 type CaseTab = "conversation" | "team" | "tasks" | "activity";
 // The third tab is named for what the screen under it calls them: follow-ups.
@@ -30,7 +31,6 @@ export default function InboxConversationScreen() {
 
 function CaseWorkspace({ account, id, initialTab }: { account: Account; id: string; initialTab: CaseTab }) {
   const styles = useStyles();
-  const { colors } = useTheme();
   const mobile = !useWideLayout();
   const { width } = useWindowDimensions();
   const columns = !mobile && width >= COLUMNS_MIN_WIDTH;
@@ -87,7 +87,7 @@ function CaseWorkspace({ account, id, initialTab }: { account: Account; id: stri
     finally { if (!actions.current.signal.aborted) setCopying(false); }
   };
 
-  if (!workspace) return <View style={styles.center}>{loadError ? <><Text accessibilityRole="alert" style={styles.error}>{loadError}</Text><Button label="Try again" kind="secondary" onPress={refresh} /></> : <ActivityIndicator accessibilityLabel="Loading case" color={colors.blue} />}</View>;
+  if (!workspace) return <View style={styles.center}>{loadError ? <><Text accessibilityRole="alert" style={styles.error}>{loadError}</Text><Button label="Try again" kind="secondary" onPress={refresh} /></> : <ServeLoader accessibilityLabel="Loading case" />}</View>;
   const conversation = workspace.conversation;
   const next = workspace.nextAction;
   const open = conversation.status === "open";

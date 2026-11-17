@@ -173,18 +173,20 @@ export function createDictationCoordinator(speech: Speech, { permissionMayBackgr
               try { speech.stop(); }
               catch { run.failed = true; try { speech.abort(); } catch {} settle(run, false); }
             }
-            if (run.native && graceMs > 0 && owner === run) {
-              run.grace = setTimeout(() => {
-                if (owner !== run || run.cancelled || run.failed) return;
-                const heard = session.state.partial.trim();
-                if (heard) session.onText(heard);
-                run.cancelled = true;
-                run.resolve(true);
-                update(session, { listening: false, partial: '' });
-                // Ownership stays until end so late words can't land in the next draft.
-                try { speech.abort(); } catch { settle(run, false); }
-              }, graceMs);
-            }
+          }
+          // Also when the mic button already asked it to stop: iOS may never
+          // end, and Send must not sit out the long timeout (a second tap).
+          if (run.native && graceMs > 0 && owner === run && !run.grace) {
+            run.grace = setTimeout(() => {
+              if (owner !== run || run.cancelled || run.failed) return;
+              const heard = session.state.partial.trim();
+              if (heard) session.onText(heard);
+              run.cancelled = true;
+              run.resolve(true);
+              update(session, { listening: false, partial: '' });
+              // Ownership stays until end so late words can't land in the next draft.
+              try { speech.abort(); } catch { settle(run, false); }
+            }, graceMs);
           }
           return run.done;
         },

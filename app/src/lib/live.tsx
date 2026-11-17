@@ -316,7 +316,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const counted = useMemo(() => {
     const u = { channels: 0, messages: 0 };
     for (const c of shown ?? []) {
-      if (!c.archived) u[c.kind === "channel" ? "channels" : "messages"] += c.unread;
+      if (!c.archived && !c.muted) u[c.kind === "channel" ? "channels" : "messages"] += c.unread;
     }
     return u;
   }, [shown]);

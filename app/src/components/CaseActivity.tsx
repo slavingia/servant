@@ -1,12 +1,12 @@
 import { useCallback, useRef, useState } from "react";
-import { ActivityIndicator, AppState, FlatList, Platform, StyleSheet, Text, View } from "react-native";
+import { AppState, FlatList, Platform, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { inboxCursor, mergeInboxMessages, pollInbox, type InboxActivity, type InboxClient } from "../lib/secure-inbox";
-import { createThemedStyles, space, typography, useTheme } from "../lib/theme";
+import { createThemedStyles, space, typography } from "../lib/theme";
+import { ServeLoader } from "./ServeLoader";
 
 export function CaseActivity({ client, id, active }: { client: InboxClient; id: string; active: boolean }) {
   const styles = useStyles();
-  const { colors } = useTheme();
   const [activity, setActivity] = useState<InboxActivity[] | null>(null);
   const history = useRef<InboxActivity[]>([]);
   const [error, setError] = useState("");
@@ -29,7 +29,7 @@ export function CaseActivity({ client, id, active }: { client: InboxClient; id: 
   return <View style={[styles.root, !active && styles.hidden]} accessibilityElementsHidden={!active} importantForAccessibility={active ? "auto" : "no-hide-descendants"}>
     <FlatList data={activity ?? []} keyExtractor={item => item.id} contentContainerStyle={styles.content}
       ListHeaderComponent={<View style={styles.header}><Text accessibilityRole="header" style={styles.title}>Activity</Text><Text style={styles.caption}>A lasting record of this case. Only your team sees it.</Text>{error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}</View>}
-      ListEmptyComponent={!error && activity === null ? <ActivityIndicator accessibilityLabel="Loading case activity" color={colors.blue} /> : undefined}
+      ListEmptyComponent={!error && activity === null ? <ServeLoader accessibilityLabel="Loading case activity" /> : undefined}
       renderItem={({ item }) => <View style={styles.event}><Text style={styles.eventText}>{item.text}</Text><Text style={styles.caption}>{item.actorName} · {new Date(item.at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</Text></View>} />
   </View>;
 }

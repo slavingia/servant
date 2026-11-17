@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { ActivityIndicator, AppState, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { AppState, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { TodoList } from "../components/TodoList";
 import { todoFilterSummary } from "../lib/todo-list";
@@ -8,6 +8,7 @@ import { useProjects } from "../lib/projects-store";
 import { accountId, api, ServerError, type Account, type TodoItem } from "../lib/server";
 import { useSession } from "../lib/session";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
+import { ServeLoader } from "../components/ServeLoader";
 
 // Every to-do you can see, as a board: To do, In progress and Done. Yours, the ones for you, and your projects'.
 // Filter the board by project or release, add your own, tag them, give them a due date, send them to the agent.
@@ -119,7 +120,7 @@ function TodoScreen({ account, params }: { account: Account; params: { id?: stri
       <Stack.Screen options={{ title: current ? `${current.name} to-dos` : "To-dos" }} />
       {selectedId ? <Button label="All to-dos" kind="link" disabled={writing} onPress={() => setSelectedId(undefined)} /> : null}
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-      {todos === null ? <ActivityIndicator style={{ marginTop: space.xl }} color={colors.blue} />
+      {todos === null ? <ServeLoader style={{ marginTop: space.xl }} />
         : <TodoList account={account} todos={todos} board={!selectedId} allowAdd={!selectedId} filters={filters} filterSummary={summary} onChange={onChange} onBusyChange={onBusyChange} onReload={() => void load()} empty={selectedId ? "This to-do is no longer available." : EMPTY} />}
     </ScrollView>
   );

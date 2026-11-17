@@ -5,11 +5,13 @@ import { Button, ButtonGroup, IconButton } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Avatar } from "../components/Messaging";
 import { AppIcon } from "../components/AppIcon";
+import { Toggle } from "../components/Toggle";
 import { api, ServerError, type Conversation, type Person } from "../lib/server";
 import { useLiveActions } from "../lib/live";
 import { useSession } from "../lib/session";
 import { landingHref, useFeatures } from "../lib/features";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
+import { ServeLoader } from "../components/ServeLoader";
 
 export default function ChannelInfo() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -32,6 +34,7 @@ export function ChannelDetails({ id, panel = false, onClose }: { id: string; pan
   const [confirmingLeave, setConfirmingLeave] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [muting, setMuting] = useState(false);
 
   const load = useCallback(() => {
     if (!account) return Promise.resolve();
@@ -52,7 +55,7 @@ export function ChannelDetails({ id, panel = false, onClose }: { id: string; pan
   if (!account || !conv) return <View style={[styles.root, styles.loading]}>{error ? <>
     <Text accessibilityRole="alert" style={styles.loadError}>{error}</Text>
     <Button label="Try again" kind="secondary" busy={retrying} onPress={() => { setRetrying(true); void load().finally(() => setRetrying(false)); }} />
-  </> : <ActivityIndicator accessibilityLabel="Loading channel details" color={colors.blue} />}</View>;
+  </> : <ServeLoader accessibilityLabel="Loading channel details" />}</View>;
   const memberIds = new Set((conv.members ?? []).map((m) => m.id));
   const notIn = everyone.filter((p) => !memberIds.has(p.id));
 
@@ -111,6 +114,15 @@ export function ChannelDetails({ id, panel = false, onClose }: { id: string; pan
       <Text style={styles.sub}>
         {conv.archived ? "Archived · " : ""}{conv.private ? "Private channel" : "Public channel"} · {conv.memberCount} {conv.memberCount === 1 ? "member" : "members"}
       </Text>
+
+      <View style={styles.muteRow}>
+        <View style={styles.muteCopy}><Text style={styles.muteTitle}>Mute channel</Text><Text style={[styles.helper, { marginBottom: 0 }]}>Only @mentions of you and your threads notify you</Text></View>
+        <Toggle label="Mute channel" disabled={muting} value={!!conv.muted} onValueChange={(next) => {
+          setMuting(true); setError(null);
+          setConv({ ...conv, muted: next });
+          void api.muteConversation(account, conv.id, next).then(() => refresh()).catch((e) => { setConv({ ...conv, muted: !next }); setError(e instanceof ServerError ? e.message : "Couldn't change that. Try again."); }).finally(() => setMuting(false));
+        }} />
+      </View>
 
       {error && !confirmingLeave ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
 
@@ -180,5 +192,8 @@ const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create
   link: { ...typography.captionStrong, color: colors.blue, ...linkUnderline },
   person: { minHeight: 56, paddingVertical: space.xs, flexDirection: "row", alignItems: "center" },
   personName: { ...typography.body, flex: 1, minWidth: 0, marginLeft: space.sm, marginRight: space.xs, color: colors.ink },
+  muteRow: { marginTop: space.md, minHeight: 60, paddingVertical: space.xs, flexDirection: "row", alignItems: "center", gap: space.sm, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
+  muteCopy: { flex: 1, minWidth: 0 },
+  muteTitle: { ...typography.body, color: colors.ink },
   leaveSection: { marginTop: space.xl, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
 }));

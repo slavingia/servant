@@ -1,3 +1,4 @@
+import { shapeFeed } from "./feed.mjs";
 import { agentTierOf, TIER_TOKEN_LIMITS } from "./usage.mjs";
 import { ftsQuery, parseSearch, SEARCH_SCHEMA } from "./search.mjs";
 import { firstLink } from "./link-preview.mjs";
@@ -51,6 +52,7 @@ const CALL_PUSH_MS = 45_000; // matches how long the app rings
 // Every build's notes go here, one post per build, so testers can see what
 // changed and talk about it in that post's thread.
 export const RELEASES_CHANNEL = "whats-new";
+export const FEED_CHANNEL = "agent-feed";
 const PAGE = 50;
 const PRESENCE_LEASE_MS = 60000;
 
@@ -327,6 +329,10 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     if (!db.prepare("PRAGMA table_info(members)").all().some(column => column.name === "position")) {
       db.exec("ALTER TABLE members ADD COLUMN position INTEGER");
     }
+    // Muted (like Slack): the conversation stays, but only mentions and threads you're in alert you, and it adds nothing to your badges.
+    if (!db.prepare("PRAGMA table_info(members)").all().some(column => column.name === "muted_at")) {
+      db.exec("ALTER TABLE members ADD COLUMN muted_at INTEGER");
+    }
     if (!db.prepare("PRAGMA table_info(messages)").all().some(column => column.name === "activity")) {
       db.exec("ALTER TABLE messages ADD COLUMN activity TEXT");
     }
@@ -544,7 +550,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     setAgentText: q("UPDATE messages SET text = ?, pending = ? WHERE seq = ?"),
     softDelete: q("UPDATE messages SET text = '', deleted_at = ? WHERE seq = ?"),
     markRead: q("UPDATE members SET last_read_seq = MAX(last_read_seq, ?) WHERE conversation_id = ? AND user_id = ?"),
-    mine: q(`SELECT c.*, m.last_read_seq,
+    mine: q(`SELECT c.*, m.last_read_seq, m.muted_at,
                (SELECT COUNT(*) FROM messages x WHERE x.conversation_id = c.id AND (x.thread_root IS NULL OR x.in_channel = 1)
                   AND x.seq > m.last_read_seq AND x.user_id != m.user_id AND x.deleted_at IS NULL AND x.activity IS NULL) AS unread,
                (SELECT MAX(seq) FROM messages x WHERE x.conversation_id = c.id AND (x.thread_root IS NULL OR x.in_channel = 1)) AS last_seq
@@ -575,6 +581,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     updateConv: q("UPDATE conversations SET name = ?, topic = ? WHERE id = ?"),
     archive: q("UPDATE conversations SET archived_at = ? WHERE id = ?"),
     archiveMember: q("UPDATE members SET archived_at = ? WHERE conversation_id = ? AND user_id = ?"),
+    muteMember: q("UPDATE members SET muted_at = ? WHERE conversation_id = ? AND user_id = ?"),
     setPosition: q("UPDATE members SET position = ? WHERE conversation_id = ? AND user_id = ?"),
     deleteConv: q("DELETE FROM conversations WHERE id = ?"),
     deleteAgentThreads: q("DELETE FROM agent_threads WHERE substr(key, 1, length(?) + 1) = ? || ':'"),
@@ -768,6 +775,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
       private: !!c.private,
       createdBy: c.created_by,
       archived: !!membership?.archived_at,
+      muted: !!membership?.muted_at,
       // This person's own place for the channel when they sort by hand.
       position: membership?.position ?? null,
       memberCount: memberIds.length,
@@ -834,6 +842,41 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
       publish(conv.id, "conversation.updated", { id: conv.id });
       return st.msg.get(m.seq);
     });
+  }
+
+  /** Scripts on this Mac (cron, alerts) tell someone something: the agent posts it in their own agent conversation, so it notifies like any message. */
+  function notifyFromAgent(userId, text, { attachments = [] } = {}) {
+    text = String(text || "").trim().slice(0, MAX_TEXT);
+    if (!text && !attachments.length) throw httpError(400, "empty", "Write the message first");
+    return transaction(() => {
+      if (!users()[userId]) throw httpError(404, "not_found", "No such person");
+      const conv = welcomeFromAgentInTransaction(userId);
+      const m = post(conv, AGENT_ID, text, null, { attachments, queueAgent: false });
+      publish(conv.id, "conversation.updated", { id: conv.id });
+      return { conversationId: conv.id, messageId: String(m.seq) };
+    });
+  }
+
+  /** The agent's activity log for the whole team: one public #agent-feed, posted by the agent. Quiet: it counts as unread but never pushes. */
+  function feedFromAgent(text, { attachments = [] } = {}) {
+    text = String(text || "").trim().slice(0, MAX_TEXT);
+    if (!text && !attachments.length) throw httpError(400, "empty", "Write the message first");
+    return transaction(() => {
+      const conv = ensureChannel(FEED_CHANNEL, "What the agent is doing: messages it sends, things it ships, scheduled jobs. Updated automatically");
+      for (const uid of Object.keys(users())) if (!st.member.get(conv.id, uid)) addChannelMember(conv, uid);
+      const m = post(conv, AGENT_ID, text, null, { attachments, queueAgent: false, quiet: true });
+      publish(conv.id, "conversation.updated", { id: conv.id });
+      return { conversationId: conv.id, messageId: String(m.seq) };
+    });
+  }
+
+  /** What the agent did lately, as items for the Feed screen (everyone on the server can see it). */
+  function feedItems({ days = 14 } = {}) {
+    const conv = st.convByName.get(FEED_CHANNEL);
+    if (!conv) return { items: [] };
+    const rows = db.prepare("SELECT seq, text, created_at FROM messages WHERE conversation_id = ? AND user_id = ? AND deleted_at IS NULL AND thread_root IS NULL AND created_at > ? ORDER BY seq DESC LIMIT 500")
+      .all(conv.id, AGENT_ID, now() - days * 86400_000);
+    return { items: shapeFeed(rows), conversationId: conv.id };
   }
 
   function joinDefaults(...args) { return transaction(() => joinDefaultsInTransaction(...args)); }
@@ -949,7 +992,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     }).catch(() => { /* no preview */ });
   }
 
-  function postInTransaction(conv, userId, text, threadRoot = null, { pending = false, attachments = [], queueAgent = externalWorker, device, call = null, inChannel = false } = {}) {
+  function postInTransaction(conv, userId, text, threadRoot = null, { pending = false, attachments = [], queueAgent = externalWorker, device, call = null, inChannel = false, quiet = false } = {}) {
     conv = userId === AGENT_ID ? st.conv.get(conv.id) : requireConversation(conv.id, userId, true);
     if (!conv || conv.archived_at) throw httpError(404, 'not_found', 'That conversation is gone');
     if (threadRoot) {
@@ -967,7 +1010,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     const m = st.msg.get(seq);
     publish(conv.id, "message.created", msgView(m));
     if (threadRoot) publish(conv.id, "message.updated", msgView(st.msg.get(threadRoot)));
-    if (!pending) notifyMessage(m.seq, call);
+    if (!pending && !quiet) notifyMessage(m.seq, call);
     if (!pending && userId !== AGENT_ID) afterCommit(() => previewLater(m.seq));
     if (queueAgent && externalWorker && userId !== AGENT_ID && wantsAgent(conv, m)) {
       db.prepare('INSERT OR IGNORE INTO agent_jobs (trigger_seq, created_at) VALUES (?, ?)').run(m.seq, now());
@@ -1374,19 +1417,23 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     if (inDeepWork(user)) return null;
     // No delayed push after the recipient has already read the top-level post.
     if (!call && (!m.thread_root || m.in_channel) && membership.last_read_seq >= m.seq) return null;
+    const badge = () => st.mine.all(user.id, 0).reduce((n, x) => n + (x.muted_at ? 0 : x.unread), 0);
     const participant = !!m.thread_root && !!db.prepare("SELECT 1 FROM messages WHERE conversation_id = ? AND (seq = ? OR thread_root = ?) AND user_id = ? AND deleted_at IS NULL AND seq < ? LIMIT 1").get(c.id, m.thread_root, m.thread_root, user.id, m.seq);
     if (call) {
       const caller = person(call.by).name;
-      return { kind: c.kind, conversationId: c.id, meetingId: call.id, caller, place: c.kind === "channel" ? `#${c.name}` : "", mentioned: true, participant: false, badge: st.mine.all(user.id, 0).reduce((n, x) => n + x.unread, 0),
+      return { kind: c.kind, conversationId: c.id, meetingId: call.id, caller, place: c.kind === "channel" ? `#${c.name}` : "", mentioned: true, participant: false, badge: badge(),
         title: `${caller} is calling`, body: c.kind === "channel" ? `In #${c.name}. Tap to join` : "Tap to join" };
     }
     const sender = person(m.user_id).name;
     // New build notes reach everyone, like an @here.
     const release = !m.thread_root && st.releaseBySeq.get(m.seq);
-    const unread = st.mine.all(user.id, 0).reduce((n, c) => n + c.unread, 0);
+    const mentioned = !!release || isMention(m.text, user);
+    // Muted: only an @mention of you by name, or a reply in a thread you're in, still alerts. Not @here, @channel or build notes. Calls (above) always ring.
+    if (membership.muted_at && !participant && !isMention(m.text.replace(/@(channel|here)\b/gi, ""), user)) return null;
+    const unread = badge();
     // Tapping a build's notes opens its thread, where testers discuss it.
     return { kind: c.kind, conversationId: c.id, messageId: String(m.seq), threadRoot: release ? m.seq : m.thread_root,
-      mentioned: !!release || isMention(m.text, user), participant, badge: unread,
+      mentioned, participant, badge: unread,
       title: release ? `Build ${release.build} is out` : c.kind === "channel" ? `${sender} in #${c.name}` : sender,
       body: m.text || (st.attachments.all(m.seq).length ? "Sent an attachment" : ""), };
   }
@@ -1748,6 +1795,17 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
         send(res, 200, { ok: true });
         return true;
       }
+      if ((sub === "mute" || sub === "unmute") && method === "POST") {
+        if (!isMember)
+          return fail(res, 403, "forbidden", conv.kind === "dm" ? "You're not in this conversation" : "Join the channel first"), true;
+        transaction(() => {
+          requireConversation(conv.id, user.id, true);
+          st.muteMember.run(sub === "mute" ? now() : null, conv.id, user.id);
+          publish(conv.id, "conversation.updated", { id: conv.id }, [user.id]);
+        });
+        send(res, 200, { ok: true, muted: sub === "mute" });
+        return true;
+      }
       if (!sub && method === "DELETE" && conv.kind === "dm") {
         // Anyone in a direct conversation can delete it, for everyone in it.
         if (!isMember) return fail(res, 403, "forbidden", "You're not in this conversation"), true;
@@ -2031,7 +2089,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
   function personChanged(userId) { publish('', 'person.updated', { userId }, Object.keys(users())); }
   // Their deep work switch moved: everyone's "Deep work" label and the person's other devices update at once.
   const presenceChanged = userId => publishPresence(userId);
-  return { ...meetingHooks, workLog, channelFor, postActivity, personChanged, presenceChanged, handle, forwardSource, forwardInto, notificationFor, joinDefaults, joinEveryone, welcomeFromAgent, ensureAgentDms, congratulateLimit, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, keep, keepAll, close: () => { closeEvents(); db.close(); }, db };
+  return { ...meetingHooks, workLog, channelFor, postActivity, personChanged, presenceChanged, handle, forwardSource, forwardInto, notificationFor, joinDefaults, joinEveryone, welcomeFromAgent, notifyFromAgent, feedFromAgent, feedItems, ensureAgentDms, congratulateLimit, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, keep, keepAll, close: () => { closeEvents(); db.close(); }, db };
 }
 
 function httpError(status, code, message) {

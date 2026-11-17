@@ -10,7 +10,7 @@
     "components/CallVideo.tsx": 1,
     "components/GuestInvite.tsx": 10,
     "components/IncomingCall.tsx": 5,
-    "components/MediaGallery.tsx": 21,
+    "components/MediaGallery.tsx": 20,
     "components/Messaging.tsx": 3,
     "components/NoiseToggle.tsx": 4,
     "components/OtherDeviceNote.tsx": 2,
@@ -19,7 +19,7 @@
     "components/ProjectCredit.tsx": 1,
     "components/ReorderableList.tsx": 1,
     "components/ServerBanner.tsx": 1,
-    "components/VideoMedia.tsx": 18,
+    "components/VideoMedia.tsx": 16,
     "lib/notifications.native.tsx": 1,
     "lib/share-sample.ts": 8
   },

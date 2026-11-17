@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Redirect, router, Stack, useIsFocused, useLocalSearchParams } from "expo-router";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -30,7 +30,8 @@ import { reuseEqual } from "../lib/reuse-equal";
 import { useSession } from "../lib/session";
 import { conversationHidden, landingHref, useFeatures } from "../lib/features";
 import { askAgentAbout } from "../lib/ask-agent";
-import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
+import { space, typography, createThemedStyles } from "../lib/theme";
+import { ServeLoader } from "../components/ServeLoader";
 
 export default function ThreadScreen() {
   const { conv, root, title, focus, from } = useLocalSearchParams<{ conv: string; root: string; title?: string; focus?: string; from?: string }>();
@@ -46,7 +47,6 @@ export default function ThreadScreen() {
 function OpenThread({ account, conv, root, title, focus, from }: { account: Account; conv: string; root: string; title?: string; focus?: string; from?: string }) {
   const { ask: askPii, dialog: piiDialog } = usePiiConfirm();
   const styles = useStyles();
-  const { colors } = useTheme();
   // A push lands on the notified reply: highlight it, but it is not a search match.
   const matchLabel = from === "push" ? null : from === "saved" ? "Saved message" : "Search match";
   const focused = useIsFocused();
@@ -345,7 +345,7 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
           </View>
         ) : error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         {head === null && replies !== null && replies.length === 0 && error ? null : replies === null && !head ? (
-          <ActivityIndicator style={{ flex: 1 }} color={colors.blue} />
+          <ServeLoader style={{ flex: 1 }} />
         ) : (
           <FlatList
             {...readTracking}
@@ -362,7 +362,7 @@ function OpenThread({ account, conv, root, title, focus, from }: { account: Acco
             keyExtractor={postKey}
             contentContainerStyle={styles.list}
             // The first message is up; its replies are on their way.
-            ListFooterComponent={replies === null ? <ActivityIndicator style={styles.loadingReplies} color={colors.blue} /> : undefined}
+            ListFooterComponent={replies === null ? <ServeLoader style={styles.loadingReplies} /> : undefined}
             renderItem={renderItem}
           />
         )}
