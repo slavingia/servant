@@ -6,7 +6,7 @@ Seven diagrams of how Servant works, written for an ATO or cyber reviewer. Each 
 
 Known gaps, stated up front:
 
-- Agent access is currently set to **full**, by owner decision on October 31, 2026. Anyone who can message the agent gets the owner's Hermes tools on the owner's Mac. See diagram 4 and [member-security.md](../member-security.md).
+- Agent access is currently set to **full**, by owner decision on October 31, 2026. Anyone who can message the agent gets the owner's Hermes tools on the owner's Mac. See diagram 4 and [member-security.md](../../member-security.md).
 - Servant does not encrypt data at rest. Plaintext sits in the data directory on the owner's Mac, so protection relies on the Mac itself (FileVault, account security).
 - The Cloudflare Worker relay is built and tested but **not deployed**. Today's path is a cloudflared quick tunnel, which uses a GitHub Gist for discovery.
 - Plaintext leaves the trusted boundary in four cases:
@@ -41,7 +41,7 @@ The invite carries the server's public key, and the app pins it. Every request t
 - a 2-minute timestamp window and replay checks
 - the bearer token *inside* the ciphertext
 
-Details: [encryption.md](../encryption.md).
+Details: [encryption.md](../../encryption.md).
 
 ## 4. Agent access tiers
 
@@ -51,7 +51,7 @@ Details: [encryption.md](../encryption.md).
 
 ![Records preservation](05-data-and-records.png)
 
-When `recordsPreservation` is on, edits and deletes first copy the earlier version into the archive. If that copy fails, the change is refused. The archive is append-only: SQL triggers block changes, and a hash chain makes tampering detectable but not impossible. Servant has no disposition path; the agency decides retention. Details: [records-management.md](../records-management.md).
+When `recordsPreservation` is on, edits and deletes first copy the earlier version into the archive. If that copy fails, the change is refused. The archive is append-only: SQL triggers block changes, and a hash chain makes tampering detectable but not impossible. Servant has no disposition path; the agency decides retention. Details: [records-management.md](../../records-management.md).
 
 ## 6. Deployment environment
 
@@ -70,29 +70,33 @@ Two concerns reviewers raise, and how they're handled:
 
 ## 8. Entitlements, approvals and the network gate
 
-Built after the first seven diagrams, and off until an owner turns them on. Source: `08-entitlements-and-approvals.mmd` (drawn in [review-response.md](review-response.md#1-the-agent-acting-for-someone-who-shouldnt-be-able-to-make-it)).
+Built after the first seven diagrams, and off until an owner turns them on.
+
+![Entitlements and approvals](08-entitlements-and-approvals.png)
+
+Source: [08-entitlements-and-approvals.mmd](08-entitlements-and-approvals.mmd).
 
 - **Approval before acting** (`agentCapabilities`): before the full agent reads or changes files or GitHub for someone, their manager sees the action and allows it once, always, or declines. Fails closed.
 - **Network gate** (`agentEgress` with the sandbox wrapper): the agent reaches only the `always` list and the hosts a person was granted. The same sandbox can close the server's keys and databases to the agent.
 - **Records**: every request, decision and checked action is kept in tables that refuse updates and deletes.
 
-Details: [entitlements.md](../entitlements.md), [agent-egress.md](../agent-egress.md).
+Details: [entitlements.md](../../entitlements.md), [agent-egress.md](../../agent-egress.md).
 
-A broader system and change view is in [Architecture diagrams](../architecture/README.md).
+A broader system and change view is in [Architecture diagrams](../README.md).
 
 ## Source documents
 
-- [ato-data-flows.md](../ato-data-flows.md): every external data flow
-- [encryption.md](../encryption.md)
-- [relay-transport.md](../relay-transport.md)
-- [member-security.md](../member-security.md)
-- [entitlements.md](../entitlements.md)
-- [agent-egress.md](../agent-egress.md)
-- [piv-sign-in.md](../piv-sign-in.md)
-- [email-sign-in.md](../email-sign-in.md)
-- [notifications.md](../notifications.md)
-- [records-management.md](../records-management.md)
-- [deployment.md](../deployment.md)
-- [SECURITY.md](../../SECURITY.md)
+- [ato-data-flows.md](../../ato-data-flows.md): every external data flow
+- [encryption.md](../../encryption.md)
+- [relay-transport.md](../../relay-transport.md)
+- [member-security.md](../../member-security.md)
+- [entitlements.md](../../entitlements.md)
+- [agent-egress.md](../../agent-egress.md)
+- [piv-sign-in.md](../../piv-sign-in.md)
+- [email-sign-in.md](../../email-sign-in.md)
+- [notifications.md](../../notifications.md)
+- [records-management.md](../../records-management.md)
+- [deployment.md](../../deployment.md)
+- [SECURITY.md](../../../SECURITY.md)
 
 To re-render: `npx -y @mermaid-js/mermaid-cli -i NN-name.mmd -o NN-name.png --size 1500 -b white`

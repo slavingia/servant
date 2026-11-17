@@ -1,8 +1,16 @@
 # Architecture diagrams
 
+This folder is the home for Servant's architecture, security, design and technical diagrams. Keep each diagram's Mermaid source (`.mmd`) beside its rendered `.png` and `.svg`, and link those files from other docs instead of copying diagrams inline.
+
+| Area | Location |
+| --- | --- |
+| System and recent changes | This page |
+| Security architecture and review | [security/](security/README.md) |
+| New design or technical diagrams | A topic folder under `docs/architecture/` |
+
 These diagrams show Servant as of `origin/main` commit `9233c79`, including the changes merged between November 16, 2026 at 14:00 and November 17, 2026 at 14:00 Eastern time. Each diagram has an editable Mermaid source (`.mmd`) and rendered `.png` and `.svg` files.
 
-For the security-review diagrams and their known gaps, see [security-architecture](../security-architecture/README.md). Where a diagram and a detailed document disagree, the detailed document and the code win.
+For the security-review diagrams and their known gaps, see [security architecture](security/README.md). Where a diagram and a detailed document disagree, the detailed document and the code win.
 
 ## 1. Current system
 
@@ -41,7 +49,7 @@ The code stays in API memory and is never placed in the push queue. A push alert
 
 ## Re-render
 
-From this directory:
+From the diagram's directory:
 
 ```sh
 for f in *.mmd; do

@@ -15,7 +15,7 @@ Servant is agents for public servants, with self-hosted secure team messaging: a
 | `deploy/` | Mac installer (`deploy/mac`) and Linux installer and systemd units (`deploy/linux`). |
 | `config/` | Reproducible restricted member agent profiles (`config/profiles`) and the supported Hermes versions (`hermes-versions.json`). |
 | `scripts/` | Release helpers (TestFlight, Firebase App Distribution, Play, App Store Connect notes, OTA publish), Hermes compatibility tests, and `scrub-check.sh` with its denylist. |
-| `docs/` | Operator guides, design notes, release notes and captures. |
+| `docs/` | Operator guides, design notes, release notes and captures. Architecture, security, design and technical diagrams live in `docs/architecture/`. |
 | `.github/` | CI workflows (`hermes-compatibility.yml`: server, app, relay and Hermes contracts; `scrub.yml`: the scrub check), issue and pull request templates. |
 
 ## Commands
@@ -45,6 +45,7 @@ bash scripts/scrub-check.sh                          # no org names, people, int
 - Never commit credentials, data or personal information: tokens, invite codes, keys and certificates, Firebase or Google config files, `.env` files, `push.json`, a real `config.json`, anything from `server/data/`, databases, logs, recordings, real names, emails or home-directory paths. See the full list in [CONTRIBUTING.md](CONTRIBUTING.md#never-commit).
 - No hardcoded identifiers. Bundle ids derive from `SERVANT_BUNDLE_ID` (default `com.example.servant`: share extension `<id>.share`, app group `group.<id>`, Mac app `<id>.desktop`). Apple team ids, provisioning profiles, App Store Connect, Play and Firebase settings come from environment variables (`SERVANT_APPLE_TEAM_ID`, `SERVANT_IOS_APP_PROFILE`, `SERVANT_IOS_SHARE_PROFILE`, `SERVANT_ASC_CONFIG`, `PLAY_JSON_KEY`, `SERVANT_FIREBASE_PROJECT`). Hostnames, contact addresses, allowed email domains and project names come from the server's `config.json` (`publicUrl`, `contactEmail`, `emailVerification.domains`, `prototypesProject`) or `push.json` (`apnsTopic`).
 - Examples and tests use placeholders: `example-org`, the projects `example-app` and `prototypes`, the domain `example.gov`, and made-up people such as Pat Tester, Jo Park and Ana Ruiz.
+- Architecture, security, design and technical diagrams live under `docs/architecture/`. Keep each Mermaid source (`.mmd`) with rendered `.png` and `.svg` files, link to them from other docs, and do not keep diagram-only copies elsewhere.
 - The app ships English strings only: there is no translation layer or Spanish locale. Do not add strings in other languages unless a localization layer is added on purpose.
 - Plain words in the app: "server", not "hub"; the agent is "Agent", mentioned with `@agent`. Errors say what failed, at which step, and what to do next.
 
