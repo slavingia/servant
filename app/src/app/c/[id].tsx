@@ -1,4 +1,4 @@
-import { FlashList } from "@shopify/flash-list";
+import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import { RECYCLING_CONVERSATION_LIST, isNewest, listOrder, olderNeighbour } from "../../lib/conversation-list";
 import { showsInConversation, threadOf } from "../../lib/also-in-channel";
 import { Activity, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -16,6 +16,7 @@ import { useReadReceipts } from "../../lib/use-read-receipts";
 import { mergeReadEvent } from "../../lib/read-receipts";
 import { notedPlace, readNotes } from "../../lib/read-cache";
 import { createUnreadVisits, readPlace } from "../../lib/unread-line";
+import { useListOpening } from "../../lib/use-list-opening";
 import { latestMessageReceipts } from "../../lib/message-status";
 import { canCompactPost, sourceDeviceOf } from "../../lib/message-device";
 import { createOutbox } from "../../lib/outbox";
@@ -134,6 +135,10 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
     return () => sub.remove();
   }, [visits]);
   const readTracking = useReadReceipts(account, id, focused, joined && posts !== null && !unavailable, undefined, posts ?? undefined, ids => visits.read(ids));
+  // The recycling list builds its first screen in several passes. It is held undrawn, at its end, until that
+  // screen has settled, and shown once: the conversation opens in one step, at its newest message (lib/list-opening.ts).
+  const list = useRef<FlashListRef<Post>>(null);
+  const opening = useListOpening(list, RECYCLING_CONVERSATION_LIST && posts !== null, focused);
 
   const applyPosts = useCallback((incoming: Post[]) => {
     for (const post of incoming) snapshot.current?.updates.set(post.id, post);
@@ -527,6 +532,8 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
           // while the screen is covered, it is not measured, and it is picked up again exactly as it was.
           <Activity mode={focused ? "visible" : "hidden"}>
           <FlashList
+            ref={list}
+            style={opening}
             {...readTracking}
             data={data as Post[]}
             keyExtractor={postKey}

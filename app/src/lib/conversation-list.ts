@@ -4,7 +4,8 @@ import { Platform } from "react-native";
 //
 // In a browser and the Mac app: a recycling list (FlashList) in reading order, oldest first, which starts at the
 // newest message and loads older ones when the top comes near. Measured on a 2,000-message channel it does a
-// fraction of the work of the list it replaced (docs/performance.md).
+// fraction of the work of the list it replaced (docs/performance.md). It builds its first screen in several
+// passes, so it is held undrawn until that screen has settled and then shown once (lib/list-opening.ts).
 //
 // On a phone: still React Native's own list, turned upside down so the newest message is first. The recycling
 // list has not been run on a phone yet; change this one line once it has.

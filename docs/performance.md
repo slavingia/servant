@@ -2,6 +2,28 @@
 
 What was measured, how, and what it showed. The scripts are in [scripts/perf](../scripts/perf/README.md); the raw medians and ranges are in [captures/performance/measurements.json](captures/performance/measurements.json).
 
+## 11/16: a channel opens in one step
+
+Opening a channel in a browser or the Mac app drew the conversation in steps: the newest message alone, then the messages around it, then the final picture. The recycling list builds its first screen in passes (the last row, then the rows around it at heights it has guessed, then again once it has measured them) and each pass was painted. One of those passes was often far from the end, and the list could be left there: it scrolls to the last row by guessed heights and stops correcting after a tenth of a second.
+
+The list is now laid out but not drawn while it builds, is kept at its end, and is shown once every message in view has been measured (`app/src/lib/list-opening.ts`). It is never held for longer than 300 ms: a list that has not settled by then is shown as it is and still kept at its end until it settles. Phones do not use this list and are not changed.
+
+Measured from inside the page, on every frame: how many different pictures of the conversation were drawn on the way in (the rows on screen, the first and last of them and where they are). Three channels (`#general` with 300 messages, a 40-message channel, one with a tall picture), first and later visits, 21 opens of each build at each width, the builds run in turn. "Before" is `main` at `6c8c476`.
+
+| | Before | After |
+| --- | --- | --- |
+| Phone width: opens drawn in one step | 3 of 21 | 21 of 21 |
+| Phone width: layout shifts | 7 | 0 |
+| Phone width: opens with a step drawn away from the end | 1 (164 points) | 0 |
+| Wide window: opens drawn in one step | 3 of 21 | 21 of 21 |
+| Wide window: layout shifts | 8 | 0 |
+| Wide window: opens with a step drawn away from the end | 4 (up to 1,277 points) | 0 |
+| Wide window: opens that ended away from the end | 4 of 21 | 0 |
+
+With the processor slowed four times the result is the same: 1 of 7 opens in one step before, 7 of 7 after.
+
+What it costs: the list is not drawn for one to three frames (two in most opens), and the frame that used to show the newest message alone is gone. Counted from the frame the list's rows are first on the page, the final picture came one frame later (the median) before and two frames later after: the whole conversation appears about a frame later than the old last step did. In milliseconds the final picture came at 326 ms before and 524 ms after at phone width, and 339 and 482 ms in a wide window (medians, from the press). Those figures overstate it: the test browser drew a frame only every 67 ms, where a screen draws one every 17, so each frame of waiting counts four times over here. It was not measured on a screen.
+
 ## 11/15: every press under 300 ms
 
 The owner's target: everything should feel instant, under 300 ms. Measured from inside the page (`scripts/perf/instant.cjs`): from the pointer going down until what the press was for is on screen and opaque, checked on every frame, plus one frame for it to be painted. A phone-sized page, the same server and channel as below, three runs, the median. "Before" is `main` at `f9d0263`; "after" is this change together with the three below.
