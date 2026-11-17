@@ -23,3 +23,10 @@ const HEADERS: [string, string][] = [
 test("the tab headers have no divider under them", () => {
   for (const [file, key] of HEADERS) assert.doesNotMatch(style(file, key), /border(Bottom)?Width/, `${file} ${key}`);
 });
+
+test("People's sort options are the same pills as the filters on the other tabs, with no stray label", () => {
+  const pill = (file: string, key: string) => style(file, key).replace(/^\s*\w+: /, "");
+  assert.equal(pill("app/(tabs)/members.tsx", "sort"), pill("components/ChannelList.tsx", "filter").replace(/, flexDirection: "row", alignItems: "center", gap: space.xs/, ", justifyContent: \"center\""));
+  assert.equal(pill("app/(tabs)/members.tsx", "sorts"), pill("components/ChannelList.tsx", "filters"));
+  assert.doesNotMatch(fs.readFileSync(path.join(root, "app/(tabs)/members.tsx"), "utf8"), /sortLabel/);
+});
