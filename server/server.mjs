@@ -64,6 +64,8 @@ import { tierCosts } from "./usage-cost.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { createEgressProxy, createEgressStore, egressSettings } from "./egress.mjs";
 import { capabilitySettings, createEntitlements, NATIVE } from "./entitlements.mjs";
+import { createPrototypeReviews, maskEmail, reviewDomains } from "./prototype-reviews.mjs";
+import { reviewPage, reviewPageHeaders } from "./prototype-review-page.mjs";
 import { createCodeRequests } from "./code-requests.mjs";
 import { supportsDurableRuns, supportsEntitlementChecks, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
 import { createReadmeCache } from "./project-readme.mjs";
@@ -870,7 +872,101 @@ let todosStore = null;
 let workChatStarter = null;
 let otaServer;
 const ota = () => otaServer ??= createOta({ dir: path.join(DATA_DIR, "ota") });
-let entitlementDb = null, egressDb = null, egressProxy = null;
+let entitlementDb = null, egressDb = null, egressProxy = null, reviewDb = null;
+// Prototypes shared with a business owner by email, and the comments they left (docs/prototype-reviews.md).
+const prototypeReviews = () => reviewDb ??= createPrototypeReviews(path.join(DATA_DIR, "prototype-reviews.db"));
+const sendMail = (message, settings) => (globalThis.__servantEmailSend || commandSender)(message, settings);
+const publicOrigin = cfg => String(cfg.publicUrl || "").replace(/\/+$/, "");
+// A handful of tries a minute per network address is plenty for one person reading a prototype, and stops guessing at links.
+const reviewHits = new Map();
+function reviewAllowed(ip, limit = 60) {
+  const at = now();
+  if (reviewHits.size > 5000) for (const [k, v] of reviewHits) if (at - v.start > 60_000) reviewHits.delete(k);
+  const h = reviewHits.get(ip);
+  if (!h || at - h.start > 60_000) { reviewHits.set(ip, { start: at, n: 1 }); return true; }
+  return ++h.n <= limit;
+}
+/**
+ * The business owner's side: /review/<link> and its calls, plain HTTPS, no account. The link alone shows who shared
+ * what and a masked address; the prototype and the comments need a code confirmed from that address.
+ */
+async function handleReview(req, res, url, cfg) {
+  const parts = url.pathname.split("/").filter(Boolean);
+  if (parts[0] !== "review" || parts.length < 2 || parts.length > 3) return false;
+  const method = req.method || "GET";
+  const json = (status, value) => { res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" }); res.end(JSON.stringify(value)); return true; };
+  const refuse = (status, code, message) => json(status, { error: { code, message } });
+  if (!reviewAllowed(clientIp(req))) return refuse(429, "rate_limited", "Too many tries. Wait a minute");
+  const reviews = prototypeReviews();
+  const token = parts[1];
+  const share = /^[A-Za-z0-9_-]{20,64}$/.test(token) ? reviews.byToken(token) : null;
+  const state = readState();
+  const chat = share && state.chats[share.chatId];
+  const sharer = share && state.users[share.createdBy];
+  // A share only works while its chat, its prototype and the person who shared it are all still here.
+  const open = !!share && !!chat && !chat.deletedAt && chat.vibeFolder === share.folder && !!sharer && !isRemoved(sharer);
+  if (parts.length === 2) {
+    if (method !== "GET" && method !== "HEAD") { res.writeHead(405, { Allow: "GET, HEAD" }); res.end(); return true; }
+    const nonce = crypto.randomBytes(16).toString("base64");
+    res.writeHead(open ? 200 : 404, reviewPageHeaders(nonce));
+    res.end(method === "HEAD" ? undefined : reviewPage({ nonce, theme: cfg.theme, ended: !open, title: share?.title, sharedBy: sharer?.name, masked: share ? maskEmail(share.email) : "", serverName: cfg.name }));
+    return true;
+  }
+  if (!open) return refuse(404, "not_found", "This link doesn't work. Ask for the prototype to be shared with you again");
+  const body = async () => {
+    const chunks = []; let size = 0;
+    for await (const chunk of req) { size += chunk.length; if (size > 16384) throw requestError(413, "too_large", "That is too long"); chunks.push(chunk); }
+    try { return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"); } catch { throw requestError(400, "bad_request", "That request could not be read"); }
+  };
+  const settings = { ...emailSettings(cfg), domains: reviewDomains(emailSettings(cfg)) };
+  const bearer = String(req.headers.authorization || "").startsWith("Bearer ") ? String(req.headers.authorization).slice(7).trim() : "";
+  const view = c => ({ id: c.id, page: c.page, x: c.x, y: c.y, anchor: c.anchor, text: c.text, createdAt: c.createdAt });
+  const opened = current => ({ prototype: `/p/${current.folder}/`, title: current.title, comments: reviews.comments({ shareId: current.id }).map(view) });
+  try {
+    // The code always goes to the address the prototype was shared with. The visitor never chooses where it is sent.
+    if (method === "POST" && parts[2] === "code") {
+      const sent = await emailVerifier.start({ email: share.email, inviteKey: `review:${share.id}`, mail: (code, minutes) => ({
+        subject: `Your code to see "${share.title}" is ${code}`,
+        text: `Your code to see the prototype "${share.title}" that ${sharer.name} shared with you is ${code}. It works for ${minutes} minutes. If you didn't ask for it, ignore this email.` }) }, settings);
+      return json(200, { challenge: sent.id, expiresInSeconds: 600 });
+    }
+    if (method === "POST" && parts[2] === "verify") {
+      const given = await body();
+      emailVerifier.check({ id: given.challenge, code: given.code, inviteKey: `review:${share.id}` });
+      const session = reviews.startSession(share.id);
+      return json(200, { session: session.secret, expiresAt: session.expiresAt, ...opened(share) });
+    }
+    if (parts[2] === "comments") {
+      const current = reviews.session(token, bearer);
+      if (!current) return refuse(401, "unauthorized", "Confirm your email again to carry on");
+      if (method === "GET") return json(200, opened(current));
+      if (method === "POST") {
+        const given = await body();
+        const comment = reviews.comment(current, given);
+        reviewCommented(current, comment, sharer, cfg);
+        return json(201, { comment: view(comment) });
+      }
+    }
+  } catch (error) {
+    if (!error.status) throw error;
+    return refuse(error.status, error.code || "bad_request", error.message);
+  }
+  return refuse(404, "not_found", "No such route");
+}
+// A comment arrived: it becomes a to-do for the person who shared the prototype (who can hand it to the agent from
+// there), and they are told. Neither step can lose the comment, which is already saved.
+function reviewCommented(share, comment, sharer, cfg) {
+  const where = `${comment.anchor ? `On "${comment.anchor}", ` : ""}${comment.page}`;
+  const link = publicOrigin(cfg) ? `${publicOrigin(cfg)}/p/${share.folder}/${comment.page === "index.html" ? "" : comment.page}` : "";
+  try {
+    const todo = todosStore?.create(sharer, { text: `Comment on ${share.title}: ${comment.text}`,
+      description: [`${share.email} commented on the prototype "${share.title}".`, "", comment.text, "", `Where: ${where}`, link ? `Page: ${link}` : null, `Prototype files: prototypes/${share.folder}`].filter(l => l !== null).join("\n") },
+      { source: { kind: "prototype-review", id: share.chatId, title: share.title } });
+    if (todo?.id) prototypeReviews().linkTodo(comment.id, todo.id);
+  } catch (error) { console.error("[servant] review comment to-do", error.message); }
+  try { push?.enqueue({ kind: "note", eventId: id("rev"), to: [sharer.id], page: "todos", title: `Comment on ${share.title}`, body: `${share.email}: ${comment.text}` }); }
+  catch (error) { console.error("[servant] review comment alert", error.message); }
+}
 // One-time codes an automation asks its own person for (docs/code-requests.md). Memory only: a restart forgets them.
 const codeRequests = createCodeRequests({ clock: () => now() });
 // Entitlements (docs/entitlements.md): who holds which named access, and who decides. The agent's outbound gate asks here.
@@ -1030,9 +1126,11 @@ async function handle(req, res, cfg) {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" });
     return res.end(joinPage(cfg.downloads, cfg.webUrl, cfg.footer, cfg.theme));
   }
-  if (url.pathname === "/robots.txt") { res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" }); res.end("User-agent: *\nDisallow: /p/\nDisallow: /m/\nDisallow: /g/\n"); return undefined; }
+  if (url.pathname === "/robots.txt") { res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" }); res.end("User-agent: *\nDisallow: /p/\nDisallow: /m/\nDisallow: /g/\nDisallow: /review/\n"); return undefined; }
   // Guests in meetings (guest-meetings.mjs): the page at /m/<code> and its /g/<code>/… calls, plain HTTPS, no account.
   if ((url.pathname.startsWith("/m/") || url.pathname.startsWith("/g/")) && guests && (await guests.handle(req, res, url, { ip: clientIp(req) }))) return undefined;
+  // A prototype shared with a business owner (prototype-reviews.mjs): the page at /review/<link> and its calls.
+  if (url.pathname.startsWith("/review/") && (await handleReview(req, res, url, cfg))) return undefined;
   // Prototypes built in Prototyping chats (prototypes.mjs): public by unguessable folder name, sandboxed.
   if (url.pathname.startsWith("/p/") && servePrototype(req, res, url, { dir: PROTOTYPES_DIR, kitDir: expandPath(vibeProject()?.path), ip: clientIp(req) })) return undefined;
   // Public app-store pages remain readable without an account or JavaScript.
@@ -2209,6 +2307,44 @@ async function handle(req, res, cfg) {
     try { return send(res, 200, { ok: true, ...savePrototypePage(PROTOTYPES_DIR, chat.vibeFolder, body.path, { edits: body.edits, styles: body.styles }) }); }
     catch (e) { return fail(res, e.status || 500, e.status === 404 ? "not_found" : "bad_request", e.message || "Couldn't save the page"); }
   }
+  // Share the prototype with a business owner (docs/prototype-reviews.md): they get a link by email, confirm a code
+  // sent to that address, and can then see it and comment on it. Only the chat's own person shares, lists or ends.
+  if (parts[3] === "prototype" && parts[4] === "shares" && (parts.length === 5 || parts.length === 6)) {
+    if (chat.userId !== user.id) return fail(res, 403, "forbidden", "Only the person who made this prototype can share it");
+    if (chat.mode !== "vibe" || chat.hosted !== "server" || !chat.vibeFolder) return fail(res, 404, "not_found", "This chat has no prototype to share");
+    const reviews = prototypeReviews();
+    const listing = () => {
+      const comments = reviews.comments({ chatId: chat.id });
+      return { shares: reviews.forChat(chat.id).map(s => ({ id: s.id, email: s.email, createdAt: s.createdAt, ...(s.verifiedAt ? { verifiedAt: s.verifiedAt } : {}), ...(s.lastSeenAt ? { lastSeenAt: s.lastSeenAt } : {}), ...(s.endedAt ? { endedAt: s.endedAt } : {}),
+        comments: comments.filter(c => c.shareId === s.id).map(c => ({ id: c.id, page: c.page, anchor: c.anchor, text: c.text, createdAt: c.createdAt, ...(c.todoId ? { todoId: c.todoId } : {}) })) })) };
+    };
+    if (method === "GET" && parts.length === 5) return send(res, 200, listing());
+    if (method === "POST" && parts.length === 5) {
+      const body = await readAuthorizedBody(req);
+      const origin = publicOrigin(cfg), settings = emailSettings(cfg);
+      if (!origin) return fail(res, 400, "not_set_up", "This server has no public address yet, so there is no link to send. Ask an owner to set it up");
+      if (!settings.mailer?.command && !globalThis.__servantEmailSend) return fail(res, 400, "not_set_up", "This server can't send email yet, so the link can't be sent. Ask an owner to set up email");
+      let made;
+      try { made = reviews.share({ chatId: chat.id, folder: chat.vibeFolder, title: chat.title, email: body.email, by: user.id, domains: reviewDomains(settings) }); }
+      catch (e) { if (!e.status) throw e; return fail(res, e.status, e.code, e.message); }
+      try {
+        await sendMail({ to: made.share.email, code: "", minutes: 0, subject: `${user.name} shared a prototype with you: ${made.share.title}`,
+          text: `${user.name} shared the prototype "${made.share.title}" with you on ${cfg.name} and would like your comments.\n\nOpen it here: ${origin}/review/${made.token}\n\nYou'll be asked to confirm this email address with a code. Then right-click anywhere on the prototype to leave a comment.\n\nIf you weren't expecting this, ignore this email.` }, settings);
+      } catch (error) {
+        // A link nobody received is ended, so it can't be found later by someone else.
+        reviews.end(made.share.id, chat.id, user.id);
+        console.error("[servant] review share email failed:", error?.message || error);
+        return fail(res, 502, "email_send_failed", "Couldn't send the email. Try again, or ask an owner to check email setup");
+      }
+      return send(res, 201, listing());
+    }
+    if (method === "DELETE" && parts.length === 6) {
+      requireAuth(req);
+      if (!reviews.end(parts[5], chat.id, user.id)) return fail(res, 404, "not_found", "That share has already ended");
+      return send(res, 200, listing());
+    }
+    return fail(res, 404, "not_found", "No such route");
+  }
   // Invite people into the chat (read only), with how much of what came before they see:
   // none, the last day, the last week or all of it. Only the author invites or removes.
   if (method === "POST" && parts[3] === "members" && parts.length === 4) {
@@ -2274,6 +2410,8 @@ async function handle(req, res, cfg) {
     agentTurns?.deleteChat(chat.id);
     removeLongMessages(chat.id);
     if (chat.hosted === "server") removePrototype(PROTOTYPES_DIR, chat.vibeFolder, { keep: recordsPreservationEnabled(cfg.recordsPreservation) });
+    // Every review link for it stops working. The comments stay on record.
+    if (chat.hosted === "server") prototypeReviews().endChat(chat.id, user.id);
     hermes(chatUp, "DELETE", `/api/sessions/${encodeURIComponent(chat.hermesSessionId)}`).catch(() => {});
     return send(res, 200, { ok: true });
   }
@@ -2738,6 +2876,8 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
       // A visitor wrote to the secure inbox: the team hears as it would for a direct message, and not at all in deep work.
       if (event.kind === "case") return normalizeFeatures((fixedCfg || loadConfig()).features).secureInbox && !inDeepWork(user) ? inbox().notificationFor(user, event.caseId, event.sequence) : null;
       // An entitlement request, decision or refusal: only for the people it names.
+      // A short note to named people that opens a page of the app (a comment on a shared prototype opens To-dos).
+      if (event.kind === "note") return Array.isArray(event.to) && event.to.includes(user.id) && ["todos", "entitlements"].includes(event.page) ? { kind: "agent", title: event.title, body: event.body, page: event.page } : null;
       if (event.kind === "entitlement") return Array.isArray(event.to) && event.to.includes(user.id) ? { kind: "agent", title: event.title, body: event.body, page: "entitlements" } : null;
       // A code request: only its own person, never after it expires, and never the code itself (there is none yet). The
       // separate worker process that sends alerts cannot see the requests held in the API's memory, so the alert is built
@@ -2966,7 +3106,7 @@ export function startServer(fixedCfg) {
     agentTurns?.close(); agentTurns = null;
     chatMedia?.close(); chatMedia = null; usageDb?.close(); usageDb = null;
     await egressProxy?.close(); egressProxy = null;
-    entitlementDb?.close(); entitlementDb = null; egressDb?.close(); egressDb = null;
+    entitlementDb?.close(); entitlementDb = null; egressDb?.close(); egressDb = null; reviewDb?.close(); reviewDb = null;
     secureTransport?.close(); secureTransport = null;
     stateStore?.close(); stateStore = null;
   })();

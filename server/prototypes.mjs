@@ -93,6 +93,36 @@ addEventListener("message",function(e){var d=e.data;try{d=typeof d==="string"?JS
 addEventListener("beforeunload",function(e){if(dirty&&!busy){e.preventDefault();e.returnValue=""}});
 })()</script>`;
 
+// Review mode (?review=1): a business owner looking at a shared prototype (docs/prototype-reviews.md). Right-click
+// (or press and hold on a touch screen) anywhere to say where a comment goes; the review page around this frame
+// shows the box to write it in, keeps it, and sends back the numbered pins to draw. The page is sandboxed, so it
+// can't reach this server: everything goes through postMessage to the page that framed it. Links inside the
+// prototype keep review mode on.
+const REVIEW = `<script data-servant-review>(function(){if(window.__servantReview)return;window.__servantReview=1;
+function send(m){m.servant="prototype-review";m.page=location.pathname;try{parent.postMessage(JSON.stringify(m),"*")}catch(x){}}
+function words(n){while(n&&n.nodeType===1&&n!==document.documentElement){var t=(n.getAttribute("aria-label")||n.getAttribute("alt")||n.textContent||"").replace(/\\s+/g," ").trim();if(t)return t.slice(0,120);n=n.parentElement}return ""}
+function at(e,p){var d=document.documentElement,b=document.body||d;var w=Math.max(d.scrollWidth,b.scrollWidth,1),h=Math.max(d.scrollHeight,b.scrollHeight,1);
+send({type:"at",x:p.pageX/w,y:p.pageY/h,left:p.clientX,top:p.clientY,anchor:words(e.target)})}
+document.addEventListener("contextmenu",function(e){if(e.target&&e.target.closest&&e.target.closest("[data-servant-pin]"))return;e.preventDefault();at(e,e)},true);
+var hold=null,start=null;
+document.addEventListener("touchstart",function(e){if(e.touches.length!==1)return;var t=e.touches[0];start={x:t.clientX,y:t.clientY};hold=setTimeout(function(){hold=null;at(e,t)},600)},{passive:true,capture:true});
+function drop(){if(hold){clearTimeout(hold);hold=null}}
+document.addEventListener("touchend",drop,true);document.addEventListener("touchcancel",drop,true);
+document.addEventListener("touchmove",function(e){var t=e.touches[0];if(start&&t&&(Math.abs(t.clientX-start.x)>10||Math.abs(t.clientY-start.y)>10))drop()},{passive:true,capture:true});
+document.addEventListener("click",function(e){var a=e.target&&e.target.closest&&e.target.closest("a[href]");if(!a)return;var u;try{u=new URL(a.getAttribute("href"),location.href)}catch(x){return}
+if(u.origin!==location.origin||u.pathname===location.pathname||!/^\\/p\\//.test(u.pathname)||a.target==="_blank")return;u.searchParams.set("review","1");e.preventDefault();location.href=u.toString()},true);
+var css=document.createElement("style");css.setAttribute("data-servant-review","");
+css.textContent="[data-servant-pin]{position:absolute;z-index:2147483646;width:28px;height:28px;margin:-30px 0 0 4px;border-radius:14px;border:2px solid #fff;background:#2672de;color:#fff;font:700 13px/24px -apple-system,system-ui,sans-serif;text-align:center;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.4);padding:0}[data-servant-pin]:focus-visible{outline:3px solid #1b1b1b;outline-offset:2px}";
+document.head.appendChild(css);
+function draw(pins){[].forEach.call(document.querySelectorAll("[data-servant-pin]"),function(n){n.remove()});var d=document.documentElement,b=document.body||d;var w=Math.max(d.scrollWidth,b.scrollWidth,1),h=Math.max(d.scrollHeight,b.scrollHeight,1);
+(pins||[]).forEach(function(p){var n=document.createElement("button");n.type="button";n.setAttribute("data-servant-pin",p.id);n.setAttribute("aria-label","Comment "+p.n);n.textContent=String(p.n);n.style.left=(p.x*w)+"px";n.style.top=(p.y*h)+"px";
+n.addEventListener("click",function(e){e.preventDefault();e.stopPropagation();send({type:"pin",id:p.id})});b.appendChild(n)})}
+var last=[];
+addEventListener("message",function(e){var d=e.data;try{d=typeof d==="string"?JSON.parse(d):d}catch(x){return}if(d&&d.servant==="prototype-pins"){last=d.pins||[];draw(last)}});
+addEventListener("resize",function(){draw(last)});
+addEventListener("load",function(){send({type:"ready"})});send({type:"ready"});
+})()</script>`;
+
 /**
  * Save the tweaks made in edit mode to the page's source. Words are swapped where they are written in the file
  * (prototypes often draw their screens from a script, so a snapshot of the rendered page would be undone on the next
@@ -225,7 +255,7 @@ export function servePrototype(req, res, url, { dir, kitDir, ip = "" }) {
     // Live reload only for a prototype's own pages, never the shared kit.
     if (!KIT.has(first) && /\.html?$/i.test(real)) {
       const html = body.toString("utf8");
-      const inject = CLIENT + (url.searchParams.get("edit") === "1" ? EDITOR : "");
+      const inject = CLIENT + (url.searchParams.get("edit") === "1" ? EDITOR : "") + (url.searchParams.get("review") === "1" ? REVIEW : "");
       body = Buffer.from(/<\/body>/i.test(html) ? html.replace(/<\/body>(?![\s\S]*<\/body>)/i, () => `${inject}</body>`) : html + inject);
     }
     return send(200, body, {

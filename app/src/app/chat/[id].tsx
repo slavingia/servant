@@ -1,4 +1,5 @@
 import { Radio } from "../../components/Radio";
+import { PrototypeReviewSheet } from "../../components/PrototypeReviewSheet";
 import { FlashList } from "@shopify/flash-list";
 import { RECYCLING_CONVERSATION_LIST, listOrder } from "../../lib/conversation-list";
 import { createElement, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -312,7 +313,7 @@ function ReplyText({ text, failed }: { text: string; failed?: boolean }) {
 }
 
 // Header "•••": chat options. Your own chat is private until you choose to share it with the server; Files lives here too.
-function OptionsSheet({ id, title, onRename, shared, projectId, projectShared, onProject, onProjectShared, onChange, onClose, members, onInvite, onUninvite }: { onRename?: (title: string) => void; members: ChatMember[] | null; onInvite: () => void; onUninvite: (userId: string) => void; id: string; title: string; shared: boolean | null; projectId: string | null; projectShared: boolean; onProject: (projectId: string | null) => void; onProjectShared: (shared: boolean) => void; onChange: (shared: boolean) => void; onClose: () => void }) {
+function OptionsSheet({ id, title, onRename, shared, projectId, projectShared, onProject, onProjectShared, onChange, onClose, members, onInvite, onUninvite, onReview }: { /** A prototyping chat of your own: share its prototype with a business owner. */ onReview?: () => void; onRename?: (title: string) => void; members: ChatMember[] | null; onInvite: () => void; onUninvite: (userId: string) => void; id: string; title: string; shared: boolean | null; projectId: string | null; projectShared: boolean; onProject: (projectId: string | null) => void; onProjectShared: (shared: boolean) => void; onChange: (shared: boolean) => void; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const { account } = useSession();
@@ -404,6 +405,7 @@ function OptionsSheet({ id, title, onRename, shared, projectId, projectShared, o
           </View>)}
           <Pressable testID="add-people" accessibilityRole="button" onPress={onInvite} style={styles.menuAction}><Text style={styles.menuActionText}>Add people</Text></Pressable>
         </> : null}
+        {onReview ? <Pressable testID="share-prototype" accessibilityRole="button" onPress={onReview} style={styles.menuAction}><Text style={styles.menuActionText}>Share with a business owner</Text></Pressable> : null}
         <Pressable testID="open-files" accessibilityRole="button" onPress={() => { onClose(); router.push({ pathname: "/files", params: { kind: "chat", id, title } }); }} style={styles.menuAction}><Text style={styles.menuActionText}>Files</Text></Pressable>
         <Pressable accessibilityRole="button" onPress={onClose} style={styles.menuAction}><Text style={styles.menuActionText}>Done</Text></Pressable>
       </Pressable>
@@ -460,6 +462,8 @@ function ChatConversation({ account }: { account: Account }) {
   const features = useFeatures();
   const [shared, setShared] = useState<boolean | null>(kept?.info ? kept.info.shared !== false : null);
   const [sharing, setSharing] = useState(false);
+  // The sheet for sharing this chat's prototype with a business owner (PrototypeReviewSheet).
+  const [reviewing, setReviewing] = useState(false);
   const [projectId, setProjectId] = useState<string | null>(kept?.info?.projectId ?? null);
   const [projectShared, setProjectShared] = useState(kept?.info?.projectShared === true);
   const [previewUrl, setPreviewUrl] = useState<string | null>(kept?.info?.mode === "vibe" && kept.info.previewUrl ? kept.info.previewUrl : null);
@@ -1042,7 +1046,9 @@ function ChatConversation({ account }: { account: Account }) {
       <Stack.Screen options={{ title: heading, headerTitle: titleButton(showTitle, setShowTitle, headerLinks.length), ...filesHeader(String(id), heading, colors.blue, headerLinks, false) }} />
       {showTitle ? <FullTitle title={heading} onClose={() => setShowTitle(false)} /> : null}
       {sharing ? <OptionsSheet id={String(id)} title={heading} onRename={readOnly ? undefined : renamed} shared={shared} projectId={projectId} projectShared={projectShared} onProject={setProjectId} onProjectShared={setProjectShared} onChange={setShared} onClose={() => setSharing(false)}
-        members={readOnly ? null : members} onInvite={() => { setSharing(false); setInviteError(null); setInviting(true); }} onUninvite={userId => { void uninvite(userId); }} /> : null}
+        members={readOnly ? null : members} onInvite={() => { setSharing(false); setInviteError(null); setInviting(true); }} onUninvite={userId => { void uninvite(userId); }}
+        onReview={previewUrl && !readOnly ? () => { setSharing(false); setReviewing(true); } : undefined} /> : null}
+      {reviewing ? <PrototypeReviewSheet account={account} chatId={String(id)} title={heading} onClose={() => setReviewing(false)} /> : null}
       {inviting ? <PeopleSheet title={fresh ? "Invite to this chat" : "Add people"} exclude={members.map(m => m.id)} withHistory={!fresh} busy={inviteBusy} error={inviteError}
         onDone={(userIds, history) => { void invite(userIds, history); }} onClose={() => setInviting(false)} /> : null}
       {choosing && projects ? <ProjectSheet visible projects={pickable(projects)} vibe={projects.vibe !== false} vibeLinks={projects.vibeLinks} selected={about} title="This chat is about" onPick={project => { void pickAbout(project); }} onClose={() => setChoosing(false)} /> : null}

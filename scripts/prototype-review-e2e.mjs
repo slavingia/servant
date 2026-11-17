@@ -1,0 +1,200 @@
+#!/usr/bin/env node
+// Sharing a prototype with a business owner, in real browsers against a temporary server: the person who built it
+// sends a link from the chat's options in the app; the business owner opens the link, confirms the emailed code,
+// right-clicks the prototype and leaves a comment; the comment becomes the sharer's to-do. Saves captures to
+// docs/shots/prototype-review.
+// Run after npm ci --prefix app and npm ci --prefix desktop, then: cd desktop && npx playwright install chromium.
+//   node scripts/prototype-review-e2e.mjs
+// SERVANT_E2E_BROWSER=chrome uses installed Chrome. SERVANT_REVIEW_E2E_APP=0 skips the app half (no Expo needed).
+// No live data is used and no email is sent: the mailer is replaced by a list in this script.
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import net from 'node:net';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
+import { setTimeout as delay } from 'node:timers/promises';
+
+const repository = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const require = createRequire(path.join(repository, 'desktop/package.json'));
+const { chromium } = require('playwright');
+const withApp = process.env.SERVANT_REVIEW_E2E_APP !== '0';
+const scratch = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'servant-review-e2e-'));
+const shots = path.join(repository, 'docs/shots/prototype-review');
+fs.mkdirSync(shots, { recursive: true });
+for (const key of Object.keys(process.env)) if (/^(SERVANT_(?!E2E_|REVIEW_E2E_)|HERMES_)/.test(key) || key === 'API_SERVER_KEY') delete process.env[key];
+process.env.SERVANT_DATA_DIR = scratch;
+process.env.SERVANT_PUSH_CONFIG = path.join(scratch, 'push.json');
+fs.writeFileSync(process.env.SERVANT_PUSH_CONFIG, '{}');
+const freePort = () => new Promise((resolve, reject) => {
+  const listener = net.createServer();
+  listener.on('error', reject);
+  listener.listen(0, '127.0.0.1', () => { const port = listener.address().port; listener.close(() => resolve(port)); });
+});
+const FOLDER = 'proto-0123456789abcdef01';
+const PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Refund tracker</title>
+<style>body{font:17px/1.5 -apple-system,system-ui,sans-serif;margin:0;color:#1b1b1b}header{background:#162e51;color:#fff;padding:20px 24px}main{max-width:640px;margin:0 auto;padding:24px}
+.card{border:1px solid #c9c9c9;border-radius:8px;padding:20px;margin:16px 0}.amount{font-size:34px;font-weight:700}button{font:inherit;font-weight:600;background:#005ea2;color:#fff;border:0;border-radius:6px;padding:12px 20px}</style></head>
+<body><header><strong>Refund tracker</strong></header><main><h1>Your refund</h1><div class="card"><p>Estimated refund</p><p class="amount">$1,284</p><p>Expected by March 14</p></div>
+<div class="card"><h2>Balance due on another year</h2><p>You owe $210 for 2024.</p><button id="pay">Pay now</button></div></main></body></html>`;
+
+let browser, server, webServer, webOutput = '';
+const mail = [], pageErrors = [];
+globalThis.__servantEmailSend = async message => { mail.push(message); };
+try {
+  const mod = await import('../server/server.mjs');
+  const { testFetch } = await import('../server/encrypted-test-client.mjs');
+  const { serverIdentity } = await import('../server/secure-transport.mjs');
+  const { TERMS_VERSION, TERMS_ITEMS } = await import('../server/terms.mjs');
+  const { ACCOUNTS_KEY, accountId, accountStorageKey } = await import('../app/src/lib/accounts-store.ts');
+  const port = await freePort();
+  const base = `http://127.0.0.1:${port}`;
+  // Both the fixed settings and config.json say where the server is: the chat's preview link is read from the file.
+  const config = { host: '127.0.0.1', port, name: 'Example team', agentName: 'Agent', publicUrl: base, discoveryUrl: '', adminKey: '',
+    upstreams: { owner: { url: 'http://127.0.0.1:9', key: 'fixture-key' } }, emailVerification: { enabled: false, domains: ['example.gov'] } };
+  fs.writeFileSync(path.join(scratch, 'config.json'), JSON.stringify(config));
+  server = await mod.startServer(config);
+  fs.mkdirSync(path.join(scratch, 'prototypes', FOLDER), { recursive: true });
+  fs.writeFileSync(path.join(scratch, 'prototypes', FOLDER, 'index.html'), PAGE);
+  const pat = { id: 'usr_pat', name: 'Pat Tester', token: crypto.randomBytes(32).toString('base64url') };
+  mod.mutateStateForTest(state => {
+    state.users[pat.id] = { id: pat.id, name: pat.name, role: 'member', createdAt: Date.now(), agentTier: 2, termsAcceptances: [{ version: TERMS_VERSION, items: TERMS_ITEMS, acceptedAt: Date.now(), deviceId: 'dev_pat' }] };
+    state.devices[crypto.createHash('sha256').update(pat.token).digest('hex')] = { id: 'dev_pat', userId: pat.id, label: 'Browser E2E', createdAt: Date.now(), lastSeenAt: Date.now() };
+    state.chats.cht_proto = { id: 'cht_proto', userId: pat.id, title: 'Refund tracker', role: 'owner', mode: 'vibe', vibeFolder: FOLDER, hosted: 'server', createdAt: Date.now(), updatedAt: Date.now(), startedAt: Date.now() };
+  });
+  const api = async (method, route, body) => {
+    const response = await testFetch(scratch, base + route, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${pat.token}` }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    const json = await response.json();
+    assert.ok(response.ok, `${method} ${route}: ${response.status} ${JSON.stringify(json)}`);
+    return json;
+  };
+  browser = await chromium.launch({ ...(process.env.SERVANT_E2E_BROWSER ? { channel: process.env.SERVANT_E2E_BROWSER } : {}) });
+  const shot = (page, name) => page.screenshot({ path: path.join(shots, name), animations: 'disabled' });
+  const phone = { width: 390, height: 844 }, desktop = { width: 1280, height: 900 };
+  const watch = page => { page.setDefaultTimeout(60000); page.on('pageerror', error => pageErrors.push(error.message)); return page; };
+
+  // 1. The person who built the prototype shares it from the chat's options in the app.
+  if (withApp) {
+    const webUrl = `http://127.0.0.1:${await freePort()}`;
+    const env = { ...process.env, CI: '1', EXPO_NO_TELEMETRY: '1' };
+    webServer = spawn(process.execPath, [path.join(repository, 'app/node_modules/expo/bin/cli'), 'start', '--web', '--localhost', '--port', new URL(webUrl).port], { cwd: path.join(repository, 'app'), env, stdio: ['ignore', 'pipe', 'pipe'] });
+    webServer.stdout.on('data', chunk => { webOutput += chunk; });
+    webServer.stderr.on('data', chunk => { webOutput += chunk; });
+    for (let i = 0; ; i++) {
+      if (webServer.exitCode !== null) throw new Error(`Expo web exited with ${webServer.exitCode}`);
+      try { if ((await fetch(webUrl, { signal: AbortSignal.timeout(1000) })).ok) break; } catch { /* starting */ }
+      if (i > 240) throw new Error('Expo web did not become ready');
+      await delay(250);
+    }
+    const account = { token: pat.token, user: { id: pat.id, name: pat.name, role: 'member' }, server: { name: 'Example team' }, serverUrl: base, serverKey: serverIdentity(scratch).publicKey, serverName: 'Example team' };
+    const context = await browser.newContext({ viewport: phone, reducedMotion: 'reduce' });
+    const id = accountId(account);
+    await context.addInitScript(({ saved, key, indexKey, id }) => {
+      localStorage.setItem(key, JSON.stringify(saved));
+      localStorage.setItem(indexKey, JSON.stringify({ version: 1, ids: [id], activeId: id }));
+    }, { saved: account, key: accountStorageKey(id), indexKey: ACCOUNTS_KEY, id });
+    const app = watch(await context.newPage());
+    await app.goto(`${webUrl}/chat/cht_proto`);
+    await app.getByTestId('open-options').click();
+    await app.getByTestId('share-prototype').click();
+    await app.getByTestId('review-send').click();
+    await app.getByText("Enter the business owner's work email", { exact: true }).waitFor();
+    await app.getByTestId('review-email').fill('jo.park@example.com');
+    await app.getByTestId('review-send').click();
+    await app.getByText('Use an email that ends in @example.gov', { exact: true }).waitFor();
+    await app.getByTestId('review-email').fill('jo.park@example.gov');
+    await shot(app, 'share-sheet-phone.png');
+    await app.getByTestId('review-send').click();
+    await app.getByTestId('review-sent').waitFor();
+    assert.equal(await app.getByTestId('review-sent').innerText(), 'Sent to jo.park@example.gov.');
+    await app.getByText("Hasn't opened it yet", { exact: true }).waitFor();
+    await shot(app, 'share-sent-phone.png');
+    await context.close();
+  } else {
+    await api('POST', '/v1/chats/cht_proto/prototype/shares', { email: 'jo.park@example.gov' });
+  }
+  assert.equal(mail.length, 1, 'one email went out');
+  assert.equal(mail[0].to, 'jo.park@example.gov');
+  assert.equal(mail[0].subject, 'Pat Tester shared a prototype with you: Refund tracker');
+  const link = mail.splice(0)[0].text.match(/http:\/\/127\.0\.0\.1:\d+\/review\/[A-Za-z0-9_-]+/)[0];
+
+  // 2. The business owner opens the link: no account, just the code sent to their address.
+  const reviewer = watch(await (await browser.newContext({ viewport: desktop, reducedMotion: 'reduce' })).newPage());
+  const blocked = [];
+  reviewer.on('console', message => { if (/Content Security Policy|Refused to/.test(message.text())) blocked.push(message.text()); });
+  await reviewer.goto(link);
+  await reviewer.getByRole('heading', { name: 'Pat Tester shared a prototype with you' }).waitFor();
+  assert.equal(await reviewer.locator('iframe').getAttribute('src'), null, 'the prototype is not loaded before the code');
+  await shot(reviewer, 'review-confirm-desktop.png');
+  await reviewer.getByRole('button', { name: 'Email me a code' }).click();
+  await reviewer.getByLabel('Six-digit code').waitFor();
+  assert.equal(mail.length, 1);
+  assert.equal(mail[0].to, 'jo.park@example.gov');
+  const code = mail.splice(0)[0].code;
+  await reviewer.getByLabel('Six-digit code').fill(code === '000000' ? '111111' : '000000');
+  await reviewer.getByRole('button', { name: 'See the prototype' }).click();
+  await reviewer.getByText("That code isn't right. Check it and try again", { exact: true }).waitFor();
+  await reviewer.getByLabel('Six-digit code').fill(code);
+  await reviewer.getByRole('button', { name: 'See the prototype' }).click();
+
+  // 3. They see the prototype and right-click the part they want to talk about.
+  const frame = reviewer.frameLocator('#frame');
+  await frame.getByRole('button', { name: 'Pay now' }).waitFor();
+  await reviewer.getByText('None yet. Right-click the part of the prototype you want to talk about.', { exact: true }).waitFor();
+  await shot(reviewer, 'review-prototype-desktop.png');
+  await frame.getByRole('button', { name: 'Pay now' }).click({ button: 'right' });
+  await reviewer.getByRole('dialog', { name: 'Leave a comment' }).waitFor();
+  assert.equal(await reviewer.locator('#onWhat').innerText(), 'On “Pay now”');
+  await reviewer.getByRole('button', { name: 'Save comment' }).click();
+  await reviewer.getByText('Write your comment first', { exact: true }).waitFor();
+  await reviewer.getByLabel('Comment', { exact: true }).fill('This should say "Pay in full". People think it pays the refund.');
+  await shot(reviewer, 'review-comment-desktop.png');
+  await reviewer.getByRole('button', { name: 'Save comment' }).click();
+  await reviewer.getByText('1 comment', { exact: true }).waitFor();
+  await frame.getByRole('button', { name: 'Comment 1' }).waitFor();
+  await frame.getByText('$1,284').click({ button: 'right' });
+  await reviewer.getByLabel('Comment', { exact: true }).fill('Is this before or after the offset?');
+  await reviewer.getByRole('button', { name: 'Save comment' }).click();
+  await reviewer.getByText('2 comments', { exact: true }).waitFor();
+  await frame.getByRole('button', { name: 'Comment 2' }).waitFor();
+  await frame.getByRole('button', { name: 'Comment 1' }).click();
+  await reviewer.locator('#list li[data-on=true]').waitFor();
+  assert.match(await reviewer.locator('#list li[data-on=true]').innerText(), /This should say "Pay in full"/);
+  await shot(reviewer, 'review-comments-desktop.png');
+  // Coming back in the same tab needs no new code; the pins are drawn again.
+  await reviewer.reload();
+  await frame.getByRole('button', { name: 'Comment 2' }).waitFor();
+  assert.deepEqual(blocked, [], 'nothing on the review page was blocked by its own policy');
+
+  // The same page on a phone.
+  const small = watch(await (await browser.newContext({ viewport: phone, reducedMotion: 'reduce' })).newPage());
+  await small.goto(link);
+  await small.getByRole('heading', { name: 'Pat Tester shared a prototype with you' }).waitFor();
+  await shot(small, 'review-confirm-phone.png');
+
+  // 4. Each comment is a to-do for the person who shared it, and shows in the share list.
+  const todos = (await api('GET', '/v1/todos')).todos.filter(t => t.text.startsWith('Comment on Refund tracker'));
+  assert.deepEqual(todos.map(t => t.text).sort(), ['Comment on Refund tracker: Is this before or after the offset?', 'Comment on Refund tracker: This should say "Pay in full". People think it pays the refund.']);
+  assert.match(todos.find(t => /Pay in full/.test(t.text)).description, /Where: On "Pay now", index\.html/);
+  const shares = (await api('GET', '/v1/chats/cht_proto/prototype/shares')).shares;
+  assert.deepEqual(shares.map(s => [s.email, s.comments.length, !!s.verifiedAt]), [['jo.park@example.gov', 2, true]]);
+  // Ending the share closes the page for them.
+  await api('DELETE', `/v1/chats/cht_proto/prototype/shares/${shares[0].id}`);
+  await reviewer.reload();
+  await reviewer.getByRole('heading', { name: "This link doesn't work" }).waitFor();
+  assert.deepEqual(pageErrors, [], 'no page errors');
+  console.log(`prototype-review-e2e: OK, captures saved in ${path.relative(repository, shots)}`);
+} catch (error) {
+  console.error(error);
+  if (webOutput) console.error('--- web ---\n' + webOutput.slice(-1500));
+  process.exitCode = 1;
+} finally {
+  await browser?.close().catch(() => {});
+  if (webServer && webServer.exitCode === null) { webServer.kill('SIGTERM'); await Promise.race([new Promise(resolve => webServer.once('exit', resolve)), delay(1500)]); if (webServer.exitCode === null) webServer.kill('SIGKILL'); }
+  await server?.shutdown?.().catch(() => {});
+  delete globalThis.__servantEmailSend;
+  fs.rmSync(scratch, { recursive: true, force: true });
+}
