@@ -17,7 +17,29 @@ From an MCP tool: call `request_code` with `label` (and optionally `hint`, `leng
 
 ## Filling the code from Messages
 
-The code field is marked as a one-time code, so the keyboard offers a code that just arrived in Messages and one tap fills it in; the screen then sends it by itself. iOS keeps a code back when the text names the website it is for (a last line like `@login.gov #123456`, which Login.gov sends): it offers that code only in that website or its app, never in Servant. For those, read the code from the text and type it.
+The code field is marked as a one-time code, so the keyboard offers a code that just arrived in Messages and one tap fills it in; the screen then sends it by itself. iOS keeps a code back when the text names the website it is for (a last line like `@login.gov #123456`, which Login.gov sends): it offers that code only in that website or its app, never in Servant or any other app.
+
+### With a Shortcuts automation
+
+For those texts, a Shortcuts automation on your iPhone can pass the text to Servant as it arrives:
+
+1. In **Shortcuts**, open **Automation**, tap **+**, and choose **Message**.
+2. Under **Message Contains**, type the line that ends the texts, such as `@login.gov`. Choose **Run Immediately**, then **Next**, then **New Blank Automation**.
+3. Add **URL Encode** with **Shortcut Input** (the message) as its input.
+4. Add **Open URLs**. Type `servant://code?text=`, then insert the **URL Encoded Text** variable after it.
+5. Tap **Done**.
+
+If more than one Servant app is on the phone, they all answer to `servant://`, so use the app's own id instead (for example `com.example.servant://code?text=`) to open the one signed in to the server your automation uses.
+
+When the text arrives, Servant opens, finds the code in it, and sends it to the request that is waiting:
+
+- **One request waiting:** the code is sent with no tap, if it is as long as the automation said to expect.
+- **Several waiting:** Servant asks which sign-in the code is for.
+- **None yet:** Servant waits up to a minute for one, since the text can arrive before the automation asks. If nothing asks, the code is not sent.
+
+The automation runs for every matching text, so Servant also opens for sign-ins you do yourself; with nothing waiting, it sends nothing. Turn the automation off in Shortcuts when you don't need it.
+
+The link never makes a request or reads one; it can only answer a request you already have, and never one made on the same device. Only the code goes to the server, the same way as a code you type. On the phone, the rest of the text is dropped as the link opens, before any screen sees it. When Servant can't tell which number in a text is the code, it sends nothing. `servant://code?code=123456` works too. Any app on the phone can open a Servant link, so the same rules hold for a link you did not expect: it can only answer a request that is waiting, and a request only waits while an automation signed in as you is at its code step.
 
 ## What protects the code
 
