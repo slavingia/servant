@@ -81,11 +81,13 @@ var spot={left:0,top:0};
 function place(){var r=frame.getBoundingClientRect(),host=composer.parentElement.getBoundingClientRect();var left=r.left-host.left+spot.left+12,top=r.top-host.top+spot.top+12;
 left=Math.max(8,Math.min(left,host.width-composer.offsetWidth-8));top=Math.max(8,Math.min(top,host.height-composer.offsetHeight-8));composer.style.left=left+"px";composer.style.top=top+"px"}
 function note(m){say(cerr,m);place()}
-function ask(d){pending={page:page,x:d.x,y:d.y,anchor:String(d.anchor||"").slice(0,120)};say(cerr,"");say(onWhat,pending.anchor?"On \\u201c"+pending.anchor+"\\u201d":"At this spot");composer.hidden=false;
+function ask(d){pending={page:page,x:d.x,y:d.y,anchor:String(d.anchor||"").slice(0,120)};say(cerr,"");say(onWhat,pending.anchor?"On \\u201c"+pending.anchor+"\\u201d":d.whole?"About this page as a whole":"At this spot");composer.hidden=false;
 spot={left:+d.left||0,top:+d.top||0};text.value="";place();text.focus()}
 text.addEventListener("input",function(){if(cerr.textContent)note("")});addEventListener("resize",function(){if(!composer.hidden)place()});
 function closeComposer(){composer.hidden=true;pending=null}
 cancel.addEventListener("click",closeComposer);
+// Without a mouse or a long press: a comment about the page as a whole, pinned at its top.
+$("add").addEventListener("click",function(){ask({x:.5,y:0,left:frame.clientWidth/2-170,top:0,anchor:"",whole:true})});
 composer.addEventListener("keydown",function(e){if(e.key==="Escape")closeComposer();if(e.key==="Enter"&&(e.metaKey||e.ctrlKey))save.click()});
 save.addEventListener("click",function(){if(!pending)return;var words=text.value.trim();if(!words){note("Write your comment first");return}
 busy(save,true,"Saving…");api("POST","/comments",{page:pending.page,x:pending.x,y:pending.y,anchor:pending.anchor,text:words}).then(function(j){comments.push(j.comment);busy(save,false,"Save comment");closeComposer();draw(j.comment.id)},
@@ -121,6 +123,7 @@ export function reviewPage({ nonce, theme, title = "", sharedBy = "", masked = "
   <header class="bar">
     <h1>${esc(title)}</h1>
     <p class="small muted">Right-click anywhere on the prototype to leave a comment (on a phone, press and hold). <span id="count" aria-live="polite"></span></p>
+    <button class="secondary" id="add" type="button">Comment on this page</button>
   </header>
   <div class="work">
     <iframe id="frame" title="Prototype: ${esc(title)}" sandbox="allow-scripts allow-forms allow-popups allow-modals"></iframe>

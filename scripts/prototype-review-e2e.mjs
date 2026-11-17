@@ -6,6 +6,7 @@
 // Run after npm ci --prefix app and npm ci --prefix desktop, then: cd desktop && npx playwright install chromium.
 //   node scripts/prototype-review-e2e.mjs
 // SERVANT_E2E_BROWSER=chrome uses installed Chrome. SERVANT_REVIEW_E2E_APP=0 skips the app half (no Expo needed).
+// SERVANT_REVIEW_E2E_VIDEO=<folder> also records both halves as video there, at a pace a person can follow.
 // No live data is used and no email is sent: the mailer is replaced by a list in this script.
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -22,6 +23,8 @@ const repository = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const require = createRequire(path.join(repository, 'desktop/package.json'));
 const { chromium } = require('playwright');
 const withApp = process.env.SERVANT_REVIEW_E2E_APP !== '0';
+const videoDir = process.env.SERVANT_REVIEW_E2E_VIDEO ? path.resolve(process.env.SERVANT_REVIEW_E2E_VIDEO) : null;
+const record = (name, size) => (videoDir ? { recordVideo: { dir: path.join(videoDir, name), size } } : {});
 const scratch = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'servant-review-e2e-'));
 const shots = path.join(repository, 'docs/shots/prototype-review');
 fs.mkdirSync(shots, { recursive: true });
@@ -71,7 +74,7 @@ try {
     assert.ok(response.ok, `${method} ${route}: ${response.status} ${JSON.stringify(json)}`);
     return json;
   };
-  browser = await chromium.launch({ ...(process.env.SERVANT_E2E_BROWSER ? { channel: process.env.SERVANT_E2E_BROWSER } : {}) });
+  browser = await chromium.launch({ ...(process.env.SERVANT_E2E_BROWSER ? { channel: process.env.SERVANT_E2E_BROWSER } : {}), ...(videoDir ? { slowMo: 450 } : {}) });
   const shot = (page, name) => page.screenshot({ path: path.join(shots, name), animations: 'disabled' });
   const phone = { width: 390, height: 844 }, desktop = { width: 1280, height: 900 };
   const watch = page => { page.setDefaultTimeout(60000); page.on('pageerror', error => pageErrors.push(error.message)); return page; };
@@ -90,7 +93,7 @@ try {
       await delay(250);
     }
     const account = { token: pat.token, user: { id: pat.id, name: pat.name, role: 'member' }, server: { name: 'Example team' }, serverUrl: base, serverKey: serverIdentity(scratch).publicKey, serverName: 'Example team' };
-    const context = await browser.newContext({ viewport: phone, reducedMotion: 'reduce' });
+    const context = await browser.newContext({ viewport: phone, reducedMotion: 'reduce', ...record('share', phone) });
     const id = accountId(account);
     await context.addInitScript(({ saved, key, indexKey, id }) => {
       localStorage.setItem(key, JSON.stringify(saved));
@@ -122,7 +125,8 @@ try {
   const link = mail.splice(0)[0].text.match(/http:\/\/127\.0\.0\.1:\d+\/review\/[A-Za-z0-9_-]+/)[0];
 
   // 2. The business owner opens the link: no account, just the code sent to their address.
-  const reviewer = watch(await (await browser.newContext({ viewport: desktop, reducedMotion: 'reduce' })).newPage());
+  const reviewerContext = await browser.newContext({ viewport: desktop, reducedMotion: 'reduce', ...record('review', desktop) });
+  const reviewer = watch(await reviewerContext.newPage());
   const blocked = [];
   reviewer.on('console', message => { if (/Content Security Policy|Refused to/.test(message.text())) blocked.push(message.text()); });
   await reviewer.goto(link);
@@ -160,6 +164,10 @@ try {
   await reviewer.getByRole('button', { name: 'Save comment' }).click();
   await reviewer.getByText('2 comments', { exact: true }).waitFor();
   await frame.getByRole('button', { name: 'Comment 2' }).waitFor();
+  // Without a mouse: the button in the bar comments on the page as a whole.
+  await reviewer.getByRole('button', { name: 'Comment on this page' }).click();
+  assert.equal(await reviewer.locator('#onWhat').innerText(), 'About this page as a whole');
+  await reviewer.getByRole('button', { name: 'Cancel' }).click();
   await frame.getByRole('button', { name: 'Comment 1' }).click();
   await reviewer.locator('#list li[data-on=true]').waitFor();
   assert.match(await reviewer.locator('#list li[data-on=true]').innerText(), /This should say "Pay in full"/);
@@ -185,6 +193,7 @@ try {
   await api('DELETE', `/v1/chats/cht_proto/prototype/shares/${shares[0].id}`);
   await reviewer.reload();
   await reviewer.getByRole('heading', { name: "This link doesn't work" }).waitFor();
+  await reviewerContext.close();
   assert.deepEqual(pageErrors, [], 'no page errors');
   console.log(`prototype-review-e2e: OK, captures saved in ${path.relative(repository, shots)}`);
 } catch (error) {

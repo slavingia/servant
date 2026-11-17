@@ -18,7 +18,7 @@ It needs the server to have a public address (`publicUrl`) and a mailer (`emailV
 
 1. The email says who shared what, with a link.
 2. The page shows who shared it and a masked address ("j***@example.gov") and offers to email a code. The code always goes to the address the prototype was shared with; the page never asks for one.
-3. With the code entered, the prototype opens. **Right-click** anywhere (on a phone, press and hold) to open a box at that spot, write the comment and save it. A numbered pin stays where it was made, and the comments are listed beside the prototype.
+3. With the code entered, the prototype opens. **Right-click** anywhere (on a phone, press and hold) to open a box at that spot, write the comment and save it. A numbered pin stays where it was made, and the comments are listed beside the prototype. **Comment on this page** in the bar does the same without a mouse, for the page as a whole.
 4. Coming back in the same browser tab needs no new code for twelve hours.
 
 They see only their own comments, not other reviewers', and nothing else on the server.
