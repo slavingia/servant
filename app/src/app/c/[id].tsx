@@ -14,7 +14,8 @@ import { mediaFromPosts } from "../../lib/media";
 import { PresenceLine, usePresentPeers } from "../../components/Presence";
 import { useReadReceipts } from "../../lib/use-read-receipts";
 import { mergeReadEvent } from "../../lib/read-receipts";
-import { createUnreadVisits, readPlace, unreadLineAbove } from "../../lib/unread-line";
+import { notedPlace, readNotes } from "../../lib/read-cache";
+import { createUnreadVisits, readPlace } from "../../lib/unread-line";
 import { latestMessageReceipts } from "../../lib/message-status";
 import { canCompactPost, sourceDeviceOf } from "../../lib/message-device";
 import { createOutbox } from "../../lib/outbox";
@@ -76,23 +77,6 @@ function PeerPresence({ peers }: { peers: Person[] }) {
   </View>;
 }
 
-// Coming back to a screen that was left open: from another screen over it, another tab, or the app in the
-// background. Not the first time it is shown.
-function useOnReturn(focused: boolean, onReturn: () => void) {
-  const here = useRef(focused && AppState.currentState === "active");
-  const back = useStableCallback(onReturn);
-  useEffect(() => {
-    const update = (foreground: boolean) => {
-      const now = focused && foreground;
-      if (now && !here.current) back();
-      here.current = now;
-    };
-    update(AppState.currentState === "active");
-    const sub = AppState.addEventListener("change", state => update(state === "active"));
-    return () => sub.remove();
-  }, [focused, back]);
-}
-
 function OpenConversation({ account, id, compose }: { account: Account; id: string; compose?: string }) {
   const { ask: askPii, dialog: piiDialog } = usePiiConfirm();
   const styles = useStyles();
@@ -134,11 +118,21 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
   const snapshot = useRef<{ sequence: number; replace: boolean; updates: Map<string, Post>; reads: Extract<LiveEvent, { event: "messages.read" }>["data"][] } | null>(null);
   const typingNames = useTyping(id, null, account?.user.id ?? "");
   const ping = useTypingPing(account, id);
-  // The "New" line (lib/unread-line.ts): above the first message that came since this person last read here,
-  // decided once for each visit and left alone while they read.
+  // The "New" line (lib/unread-line.ts): above the first message that came since this person last read here.
+  // It is placed as the screen opens, from the place the list says they had read to and the messages kept from
+  // before, so it is in the first frame and not put in later. It stays there for the visit: a thread, Details
+  // or Files over this screen is the same visit, and only a long time away from the app starts another.
   const [visits] = useState(() => createUnreadVisits(account.user.id));
-  const [unreadMark, setUnreadMark] = useState<number | null>(null);
-  useOnReturn(focused, () => visits.returned());
+  const [unreadMark, setUnreadMark] = useState<number | null>(() => visits.open(readPlace(peek(id)?.readThrough), kept?.posts ?? null, notedPlace(readNotes, id)));
+  const shownPosts = useRef(posts);
+  useEffect(() => { shownPosts.current = posts; }, [posts]);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", state => {
+      if (state === "active") setUnreadMark(visits.back(shownPosts.current));
+      else visits.away();
+    });
+    return () => sub.remove();
+  }, [visits]);
   const readTracking = useReadReceipts(account, id, focused, joined && posts !== null && !unavailable, undefined, posts ?? undefined, ids => visits.read(ids));
 
   const applyPosts = useCallback((incoming: Post[]) => {
@@ -431,7 +425,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
       </View>
     </View>
   ) : undefined;
-  const newAbove = useMemo(() => unreadLineAbove(posts ?? [], unreadMark, me, more), [posts, unreadMark, me, more]);
+  const newAbove = useMemo(() => visits.lineAbove(posts ?? [], unreadMark, more), [visits, posts, unreadMark, more]);
   const renderItem = useCallback(({ item, index }: { item: Post; index: number }) => {
     const above = olderNeighbour(data, index, RECYCLING_CONVERSATION_LIST);
     const newDay = !above || new Date(item.createdAt).toDateString() !== new Date(above.createdAt).toDateString();

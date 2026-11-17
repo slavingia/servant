@@ -365,8 +365,12 @@ A channel or DM with unread messages shows one **New** line above the first of
 them (`UnreadLine`, placed by `lib/unread-line.ts`): a rule across the stream in
 `primary`, ending in a filled "New" like the unread badges. It is above the date
 when both fall on one message, and the message under it always shows its author.
-It marks where reading started for this visit, so it does not move as messages
-are read or arrive.
+It marks where reading started for this visit. It is placed as the conversation
+opens, in the first frame, and stays there until the visit ends: it does not
+appear, move or go as messages are read, as they arrive, or when a fresh copy of
+the conversation loads. A thread, Details or Files opened over the conversation
+is the same visit; leaving the conversation ends it, and so does being away from
+the app for more than five minutes.
 
 Replies, mentions, reaction chips, delivery/read status, typing, and presence
 remain contextual to their conversation. Reaction chips retain 44-point hit
