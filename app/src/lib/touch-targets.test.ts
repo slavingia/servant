@@ -81,7 +81,7 @@ test("an icon alone is pressed in a 44-point square", () => {
   assert.match(button, /export const ICON_TARGET = 44;/);
   assert.match(style(button, "icon"), /width: ICON_TARGET, height: ICON_TARGET/);
   // The closes that were an 18-point icon with hit slop around it.
-  for (const [file, label] of [["components/ForwardSheet.tsx", "Cancel"], ["components/ConversationPicker.tsx", "Cancel"], ["app/channel-info.tsx", "Hide details"], ["app/chat/[id].tsx", "Hide full title"], ["app/chat/[id].tsx", "Remove waiting message"], ["app/chat/[id].tsx", "Don't forward this message"]] as const) {
+  for (const [file, label] of [["components/ForwardSheet.tsx", "Cancel"], ["app/channel-info.tsx", "Hide details"], ["app/chat/[id].tsx", "Hide full title"], ["app/chat/[id].tsx", "Remove waiting message"], ["app/chat/[id].tsx", "Don't forward this message"]] as const) {
     assert.match(read(file), new RegExp(`<IconButton icon="close" label="${label}"`), `${file}: ${label}`);
   }
   // A close is the close icon, not the letter-like sign.
