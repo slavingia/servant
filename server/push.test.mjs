@@ -308,6 +308,20 @@ test('multi-server clients retain their aggregate badge when another server push
   } finally { push.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('a registration keeps which app it came from, when the app says so with a plain id', () => {
+  const state = { devices: {} };
+  const device = { id: 'd_app' };
+  state.devices.x = device;
+  updatePushRegistration(state, device, { platform: 'ios', token: 'a'.repeat(64), app: 'com.example.other' });
+  assert.deepEqual(device.push, { platform: 'ios', token: 'a'.repeat(64), environment: 'production', app: 'com.example.other' });
+  updatePushRegistration(state, device, { platform: 'ios', token: 'a'.repeat(64) });
+  assert.equal('app' in device.push, false, 'an older build names none');
+  for (const bad of ['', 'has space', 'https://example.gov', '../x', 7, null, 'a'.repeat(200)]) {
+    updatePushRegistration(state, device, { platform: 'android', token: 't'.repeat(30), app: bad });
+    assert.equal('app' in device.push, false, String(bad));
+  }
+});
+
 // An entitlement request, decision or refused host opens the Entitlements screen; nothing else about it leaves the server.
 test('an entitlement alert routes to the Entitlements page and passes only that to the provider', () => {
   const alert = { kind: 'agent', title: 'Entitlement request', body: 'Pat Tester asked for Tax data API', page: 'entitlements' };

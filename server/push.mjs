@@ -182,7 +182,10 @@ export function updatePushRegistration(s, device, body) {
   }
   // A physical install belongs to only its latest paired account/device.
   for (const other of Object.values(s.devices)) if (other.id !== device.id && other.push?.token === token) delete other.push;
-  device.push = { platform, token, environment, ...(body.aggregateBadge === true ? { aggregateBadge: true } : {}) };
+  // Which app this is (its bundle id or package), when the app says. A server can hold push credentials for more than
+  // one app (push.json "apps"), and an alert has to be sent with the credentials of the app that will receive it.
+  const app = typeof body.app === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,154}$/.test(body.app) ? body.app : null;
+  device.push = { platform, token, environment, ...(app ? { app } : {}), ...(body.aggregateBadge === true ? { aggregateBadge: true } : {}) };
 }
 export function updatePreferences(user, body, now = Date.now()) {
   const p = preferences(user);

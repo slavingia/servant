@@ -35,6 +35,14 @@ Store a private JSON file at `~/.config/servant/push.json`, or set `SERVANT_PUSH
 }
 ```
 
+**More than one app on one server.** The fields above are for the server's own app. When people also use a build with a different bundle id or package (a personal build next to the team's, say), add that app's credentials under `"apps"`, keyed by its id:
+
+```json
+"apps": { "com.example.other": { "apnsKeyId": "…", "apnsTeamId": "…", "apnsKeyPath": "/Users/you/.config/servant/other.p8" } }
+```
+
+(`fcmKeyPath` and `fcmProjectId` go in the same entry for an Android build.) The app tells the server which app it is when it registers, and the alert is sent with that app's key and, on iPhone, its id as the topic. An iPhone app the server has no entry for gets no alerts and keeps its registration, so alerts start as soon as the entry is added; the file is read for every send, so no restart is needed. Builds from before this was added name no app and use the server's own credentials.
+
 Use directory mode 0700 and file mode 0600. Never commit credentials. The FCM service account needs `cloudmessaging.messages.create` on the Firebase project. `apnsTopic` is the iOS app's bundle id, which APNs uses as the topic. Without it the server uses the `SERVANT_BUNDLE_ID` environment variable, then `com.example.servant`; set it to the bundle id you build the app with. The APNs key is restricted to production notifications for that bundle id; release provisioning must include the production `aps-environment` entitlement. The release script uses the `Servant Push App Store` provisioning profile.
 
 Device tokens live in private server state. Jobs are persisted in `server/data/push.db` for up to one hour and re-check membership, preferences, archive status, device revocation, and message visibility before sending. Transient delivery failures retry with backoff; invalid tokens are removed without deleting a newly rotated token. Signing out removes the device registration. Ordinary channel jobs store message references. Legacy private-agent jobs may still contain reply text in this private on-Mac database; queue storage is not encrypted at rest. Agent replies are also stored as plain text in the job queue (previously only some legacy jobs were).
