@@ -1,0 +1,53 @@
+flowchart LR
+  subgraph CLIENTS["People and tools"]
+    APP["Phone, browser and Mac apps<br/>channels, DMs, agent chats,<br/>voice memos, to-dos"]
+    MCP["MCP clients and automation<br/>signed in as a person"]
+    REV["Business owner<br/>prototype review page"]
+  end
+
+  subgraph EDGE["Untrusted network path"]
+    TUN["Tunnel or relay<br/>sees ciphertext and metadata"]
+  end
+
+  subgraph HOST["Owner-controlled server host"]
+    SUP["Supervisor<br/>loopback ingress"]
+    API["Servant API<br/>encrypted /v1/ routes"]
+    PUB["Public pages<br/>/review, /p, /a, join and inbox"]
+    LIVE["Live connection<br/>events with opaque ids"]
+    WK["Push worker<br/>durable alert queue"]
+    GOV["Agent governance<br/>entitlements, approvals,<br/>action log"]
+    GATE["Agent network gate<br/>localhost proxy"]
+    SAND["OS sandbox<br/>agent + Hermes bridge"]
+    DATA[("Data directory<br/>SQLite, files, recordings,<br/>previews, keys")]
+  end
+
+  subgraph OUT["External services"]
+    MODEL["Model provider"]
+    PUSH["APNs, FCM and web push<br/>one or more app credentials"]
+    MAIL["Owner mail command"]
+    NET["Approved internet hosts"]
+  end
+
+  APP -- "encrypted API" --> TUN --> SUP --> API
+  MCP -- "same encrypted API" --> TUN
+  REV -- "HTTPS public review flow" --> TUN
+  SUP --> PUB
+  API <--> DATA
+  PUB <--> DATA
+  API --> LIVE --> APP
+  API --> WK --> PUSH
+  API --> GOV --> DATA
+  API -- "agent turn" --> SAND
+  SAND -- "file or GitHub tool check" --> GOV
+  SAND -- "all outbound traffic" --> GATE
+  GATE --> MODEL
+  GATE --> NET
+  API --> MAIL
+  classDef trusted fill:#e8f5e9,stroke:#2e7d32,color:#000;
+  classDef edge fill:#fff3e0,stroke:#ef6c00,color:#000;
+  classDef ext fill:#e3f2fd,stroke:#1565c0,color:#000;
+  classDef control fill:#f3e5f5,stroke:#7b1fa2,color:#000;
+  class SUP,API,PUB,LIVE,WK,DATA trusted;
+  class TUN,REV edge;
+  class MODEL,PUSH,MAIL,NET ext;
+  class GOV,GATE,SAND control;

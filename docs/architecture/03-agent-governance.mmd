@@ -1,0 +1,20 @@
+flowchart TB
+  P["Person asks Agent"] --> T["Server starts a turn<br/>signed person + chat context"]
+  T --> S["Agent and Hermes bridge<br/>inside the OS sandbox"]
+  S --> TOOL{"Tool touches files<br/>or GitHub?"}
+  TOOL -- "no" --> RUN["Tool continues"]
+  TOOL -- "yes" --> HOLD{"Person holds the<br/>built-in entitlement?"}
+  HOLD -- "yes or owner" --> LOG["Append-only action log"]
+  HOLD -- "no" --> WAIT["Manager sees who is waiting<br/>and the exact action"]
+  WAIT -- "allow once or always" --> LOG
+  WAIT -- "decline or no answer" --> STOP["Stop and log refusal"]
+  LOG --> RUN
+  RUN --> NET{"Network connection?"}
+  NET -- "yes" --> GATE{"Always-list host or<br/>covered by an entitlement?"}
+  GATE -- "yes" --> REC["Record person, host, day<br/>then connect"]
+  GATE -- "no" --> REF["Refuse with a readable reason<br/>and notify once"]
+  S -. "denied" .-> DATA["Server keys and databases"]
+  classDef ok fill:#e8f5e9,stroke:#2e7d32,color:#000;
+  classDef stop fill:#ffebee,stroke:#c62828,color:#000;
+  classDef record fill:#f3e5f5,stroke:#7b1fa2,color:#000;
+  class RUN,REC ok; class STOP,REF,DATA stop; class LOG,WAIT record;

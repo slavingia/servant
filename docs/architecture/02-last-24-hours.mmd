@@ -1,0 +1,35 @@
+flowchart TB
+  START["Window reviewed<br/>Nov 16 14:00 to Nov 17 14:00 ET"]
+
+  subgraph ADD["Added or expanded"]
+    A1["App preview<br/>use, comment and edit a project's web app"]
+    A2["Prototype reviews<br/>emailed link, code, pins and comments"]
+    A3["Built-in entitlements<br/>allow once, allow always or decline"]
+    A4["Append-only agent action log<br/>and recorded gate connections"]
+    A5["Sandbox closes server keys<br/>and databases to the agent"]
+    A6["Multi-app push credentials<br/>one server, several app ids"]
+    A7["Code requests<br/>push worker + live in-app prompt"]
+  end
+
+  subgraph CHANGE["Changed behavior"]
+    C1["Server listener retries<br/>until its port is free"]
+    C2["Unrouted alerts are shown<br/>instead of disappearing"]
+    C3["Voice memos keep transcription,<br/>notes and next-step to-dos"]
+    C4["Chat reliability and layout<br/>queued sends, stable image sizes,<br/>new-message marker and reactions"]
+  end
+
+  subgraph REMOVE["Removed"]
+    R1["Meetings and guest meetings"]
+    R2["Loops, Agent feed and Surveys"]
+    R3["Unused call and WebRTC leftovers"]
+  end
+
+  START --> ADD
+  START --> CHANGE
+  START --> REMOVE
+  classDef add fill:#e8f5e9,stroke:#2e7d32,color:#000;
+  classDef change fill:#e3f2fd,stroke:#1565c0,color:#000;
+  classDef remove fill:#ffebee,stroke:#c62828,color:#000;
+  class A1,A2,A3,A4,A5,A6,A7 add;
+  class C1,C2,C3,C4 change;
+  class R1,R2,R3 remove;

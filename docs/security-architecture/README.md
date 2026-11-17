@@ -78,6 +78,8 @@ Built after the first seven diagrams, and off until an owner turns them on. Sour
 
 Details: [entitlements.md](../entitlements.md), [agent-egress.md](../agent-egress.md).
 
+A broader system and change view is in [Architecture diagrams](../architecture/README.md).
+
 ## Source documents
 
 - [ato-data-flows.md](../ato-data-flows.md): every external data flow

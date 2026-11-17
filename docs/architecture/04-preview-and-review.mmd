@@ -1,0 +1,22 @@
+sequenceDiagram
+  autonumber
+  participant B as Builder in Servant
+  participant S as Servant server
+  participant A as Sandboxed app or prototype
+  participant O as Business owner
+  participant M as Mail command
+  participant G as Agent chat
+  B->>S: Open project preview
+  S-->>B: Servant screen with /a/project/ iframe
+  B->>A: Use, comment or edit with sample data
+  A-->>B: Bridge reports click, words and location
+  B->>G: Review drafted ask, then send
+  B->>S: Share prototype with an email
+  S->>M: Send review link
+  O->>S: Open /review/link and request code
+  S->>M: Send one-time code
+  O->>S: Verify code and add a comment
+  S->>S: Store hashed session and append-only comment
+  S-->>B: To-do and alert for the comment
+  B->>S: Open own preview
+  S-->>B: Numbered review pins

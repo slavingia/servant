@@ -114,6 +114,7 @@ Open the invite link, or in the Mac app choose **Paste an invite link**. On a ph
 - [Entitlements](docs/entitlements.md) and the [agent's network gate](docs/agent-egress.md): who may have the agent work with what, and a sandbox that refuses everything else
 - [Code requests](docs/code-requests.md): automation running as you asks your phone for a one-time sign-in code instead of stopping
 - [Records preservation](docs/records-management.md) and the [business information filter](docs/business-info-filter.md)
+- [Architecture diagrams](docs/architecture/README.md): the current system and the November 17, 2026 changes
 - [Projects](docs/projects.md), [OTA updates](docs/ota.md) and the [design system](docs/design-system.md)
 
 ## Features
