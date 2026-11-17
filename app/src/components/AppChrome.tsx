@@ -6,7 +6,6 @@ import { isDesktop } from "../lib/desktop";
 import { useWideLayout } from "../lib/layout";
 import { createThemedStyles } from "../lib/theme";
 import { Sidebar } from "./Sidebar";
-import { ActiveCallBar } from "./ActiveCallBar";
 import { ServerBanner } from "./ServerBanner";
 import { OfflineBanner } from "./OfflineBanner";
 import { useLiveList } from "../lib/live";
@@ -37,7 +36,7 @@ export function AppChrome({ enabled, children }: { enabled: boolean; children: R
       <View style={styles.wideRoot}>
         {Platform.OS === "web" ? <style>{dragCss}</style> : null}
         <Sidebar key={`${account?.token ?? ""}:${account?.serverKey ?? ""}`} />
-        <View style={[styles.content, styles.widePane]}><OfflineBanner /><ServerBanner /><ActiveCallBar />{children}</View>
+        <View style={[styles.content, styles.widePane]}><OfflineBanner /><ServerBanner />{children}</View>
       </View>
     );
   }
@@ -53,7 +52,6 @@ export function AppChrome({ enabled, children }: { enabled: boolean; children: R
         <ServerBanner topInset={unreachable ? 0 : insets.top} />
         {/* Phones have no search bar: a white status bar area, then each page's own title. */}
         {hasBanner ? null : <View style={[styles.statusArea, { height: insets.top }]} />}
-        <ActiveCallBar />
       </View> : null}
       <ChromeHeightContext.Provider value={enabled ? barHeight : 0}>
         {/* The fixed bar has already consumed the top inset. Keep the bottom

@@ -199,10 +199,9 @@ test("filtering and report generation preserve the supplied history and sort det
 });
 
 const savedEntry: WorkLogEntry = { kind: "saved", id: `saved:${completed.id}`, at: completed.completedAt, completion: completed };
-const meetingEntry: Extract<WorkLogEntry, { kind: "meeting" }> = {
-  kind: "meeting", id: "meeting:call:meeting_1", at: instant("2026-03-08T17:00:00Z"), meetingId: "meeting_1", meetingKind: "call", timeBasis: "meeting",
-  startedAt: instant("2026-03-08T16:30:00Z"), endedAt: instant("2026-03-08T17:00:00Z"), durationMs: 1800000,
-  source: { title: "Release review", summary: "Agreed on the release checks", conversationId: "ch_example" },
+const recordingEntry: Extract<WorkLogEntry, { kind: "recording" }> = {
+  kind: "recording", id: "recording:rec_1", at: instant("2026-03-08T17:00:00Z"), recordingId: "rec_1", durationMs: 125500,
+  source: { title: "Release review", summary: "Agreed on the release checks" },
 };
 const todoEntry: Extract<WorkLogEntry, { kind: "todo" }> = {
   kind: "todo", id: "todo:completion_2", at: instant("2026-03-08T18:00:00Z"), todoId: "10", createdAt: completed.savedAt, reopenedAt: null, originKind: "recording",
@@ -210,61 +209,42 @@ const todoEntry: Extract<WorkLogEntry, { kind: "todo" }> = {
   source: { text: "Checked the links", projectId: "p_1", projectName: "example-app", releaseId: "r_1", releaseName: "Release one", channelId: "ch_example", channelName: "example-app" },
 };
 
-test("mixed report separates completion, task and meeting counts and explicitly credits Agent", () => {
-  const report = buildWorkLogReport([savedEntry, meetingEntry, todoEntry], options);
+test("mixed report separates completion, task and voice memo counts and explicitly credits Agent", () => {
+  const report = buildWorkLogReport([savedEntry, recordingEntry, todoEntry], options);
   assert.equal(report.completionCount, 2);
   assert.equal(report.taskCount, 2, "matching saved-message and to-do ids are different tasks");
-  assert.equal(report.meetingCount, 1);
+  assert.equal(report.recordingCount, 1);
   assert.equal(report.agentCompletionCount, 1);
   assert.ok(report.markdown.startsWith("# Work log\n"));
-  assert.ok(report.markdown.includes("2 completion events; 2 distinct tasks; 1 attended meeting; 0 recorded meetings; 1 completion by Agent"));
+  assert.ok(report.markdown.includes("2 completion events; 2 distinct tasks; 1 voice memo; 1 completion by Agent"));
   assert.ok(report.markdown.includes("## 1. Completed by Agent"));
   assert.ok(report.markdown.includes("**Completed by**\n\n> Agent"));
   assert.ok(report.markdown.includes(completed.note));
   assert.ok(report.markdown.includes("Release review"));
   assert.ok(report.markdown.includes("Checked the links"));
-  assert.ok(report.markdown.includes("Meeting started"));
-  assert.ok(report.markdown.includes("Meeting ended"));
-  assert.ok(!report.markdown.includes("Attendance duration"));
-});
-
-test("recording uploads export their added time and duration without inventing a meeting interval", () => {
-  const recording: WorkLogEntry = {
-    ...meetingEntry, id: "meeting:recording:rec_1", meetingId: "rec_1", meetingKind: "recording", timeBasis: "recording-upload",
-    at: instant("2026-03-08T19:00:00Z"), startedAt: null, endedAt: null, durationMs: 125500,
-  };
-  const report = buildWorkLogReport([recording], options);
-  assert.equal(report.entryCount, 1);
-  assert.equal(report.completionCount, 0);
-  assert.equal(report.attendedMeetingCount, 0);
-  assert.equal(report.recordingCount, 1);
-  assert.ok(report.markdown.includes("## 1. Recorded meeting"));
   assert.ok(report.markdown.includes("**Recording added**"));
-  assert.ok(report.markdown.includes("2026-03-08T19:00:00.000Z"));
   assert.ok(report.markdown.includes("125.5 seconds"));
-  assert.ok(!report.markdown.includes("**Meeting started**"));
-  assert.ok(!report.markdown.includes("**Meeting ended**"));
 });
 
-test("mixed period filters use event times rather than source creation or meeting start", () => {
+test("mixed period filters use event times rather than source creation", () => {
   const before = { ...todoEntry, id: "todo:before", at: instant("2026-03-08T04:59:59.999Z") };
-  const first = { ...meetingEntry, startedAt: instant("2026-03-07T23:00:00Z"), at: instant("2026-03-08T05:00:00Z") };
+  const first = { ...recordingEntry, at: instant("2026-03-08T05:00:00Z") };
   const last = { ...todoEntry, at: instant("2026-03-09T03:59:59.999Z") };
   const after = { ...savedEntry, id: "saved:after", at: instant("2026-03-09T04:00:00Z") };
   assert.deepEqual(filterWorkLog([before, first, last, after], "today", { now: options.generatedAt, timeZone: options.timeZone }).map(entry => entry.id), [last.id, first.id]);
 });
 
-test("mixed report preserves history while hiding source details for unavailable or disabled features", () => {
-  const entries = visibleWorkLog([savedEntry, meetingEntry, todoEntry], { channels: false, directMessages: false, meetings: false });
+test("mixed report preserves history while hiding source details for disabled conversations", () => {
+  const entries = visibleWorkLog([savedEntry, recordingEntry, todoEntry], { channels: false, directMessages: false, secureInbox: false, people: false, home: false });
   const report = buildWorkLogReport(entries, options);
-  assert.equal(report.entryCount, 2);
-  assert.equal(report.meetingCount, 0);
+  assert.equal(report.entryCount, 3);
+  assert.equal(report.recordingCount, 1);
   assert.ok(report.markdown.includes(completed.note));
   assert.ok(report.markdown.includes("Completed by Agent"));
   assert.ok(!report.markdown.includes("Review the release notes"));
-  assert.ok(!report.markdown.includes("Release review"));
-  assert.ok(!report.markdown.includes("Checked the links"));
-  assert.ok(!report.markdown.includes("example-app"));
+  assert.ok(report.markdown.includes("Release review"));
+  assert.ok(report.markdown.includes("Checked the links"));
+  assert.ok(!report.markdown.includes("Channel: example-app"));
   assert.ok(report.markdown.includes("Source unavailable"));
 });
 
@@ -285,8 +265,8 @@ test("mixed report allowlists source fields, quotes untrusted text, and leaves i
     ...todoEntry,
     source: { ...todoEntry.source!, text: "Real words\n# Forged entry\n```\n<script>fake</script>", token: "must-not-export-token", apiUrl: "https://example.gov/v1/private" },
   };
-  const meeting = { ...meetingEntry, source: { ...meetingEntry.source!, transcript: "must-not-export-transcript", title: "Meeting\n# Forged title" } };
-  const entries = Object.freeze([injected, meeting, savedEntry]);
+  const recording = { ...recordingEntry, source: { ...recordingEntry.source!, transcript: "must-not-export-transcript", title: "Recording\n# Forged title" } };
+  const entries = Object.freeze([injected, recording, savedEntry]);
   const before = JSON.stringify(entries);
   const report = buildWorkLogReport(entries, options);
   assert.ok(!report.markdown.includes("must-not-export"));

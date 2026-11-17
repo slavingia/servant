@@ -1,4 +1,3 @@
-import { shapeFeed } from "./feed.mjs";
 import { agentTierOf, TIER_TOKEN_LIMITS } from "./usage.mjs";
 import { ftsQuery, parseSearch, SEARCH_SCHEMA } from "./search.mjs";
 import { firstLink } from "./link-preview.mjs";
@@ -49,11 +48,9 @@ export function limitRaisedText(name, limit) {
 export const WELCOME_SUGGESTIONS = ["Show me around", "Summarize a document", "Draft a message", "Plan my week"];
 const isAgentDm = conv => conv?.kind === "dm" && typeof conv.dm_key === "string" && conv.dm_key.startsWith("agent:");
 const MAX_TEXT = 8000;
-const CALL_PUSH_MS = 45_000; // matches how long the app rings
 // Every build's notes go here, one post per build, so testers can see what
 // changed and talk about it in that post's thread.
 export const RELEASES_CHANNEL = "whats-new";
-export const FEED_CHANNEL = "agent-feed";
 const PAGE = 50;
 const PRESENCE_LEASE_MS = 60000;
 
@@ -297,7 +294,7 @@ const maybeHidden = text => { const start = text.trim(); return !!start && ("<se
  * @param {() => string} o.agentName
  * @param {(o:{sessionId:string, sessionKey:string, text:string, attachments:Array, onDelta:(t:string)=>void, onStatus:(t:string)=>void}) => Promise<string|{text:string,attachments:Array}>} o.askAgent
  */
-export function createMessaging({ file, users, agentName, managerOf = () => null, emailChecks = () => false, askAgent, onMessage = () => {}, externalWorker = false, onUsage = () => {}, features = () => ({ channels: true, directMessages: true, meetings: true }), linkPreview = null, messageExtras = () => null, startWorkChat = null, piiWarning = () => false, reportFalseAlarm = null, recordsPreservation = () => false, tierCosts = () => null }) {
+export function createMessaging({ file, users, agentName, managerOf = () => null, emailChecks = () => false, askAgent, onMessage = () => {}, externalWorker = false, onUsage = () => {}, features = () => ({ channels: true, directMessages: true }), linkPreview = null, startWorkChat = null, piiWarning = () => false, reportFalseAlarm = null, recordsPreservation = () => false, tierCosts = () => null }) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(file);
   db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON');
@@ -338,9 +335,6 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     if (!db.prepare("PRAGMA table_info(messages)").all().some(column => column.name === "activity")) {
       db.exec("ALTER TABLE messages ADD COLUMN activity TEXT");
     }
-    // #agent-feed posts used to be plain (unread-counting) messages; they are silent activity lines now.
-    // (The very first digest went out under the owner's name; it reads "Sent\n- …".)
-    db.prepare("UPDATE messages SET activity = 'feed' WHERE (user_id = ? OR text LIKE 'Sent' || char(10) || '- %') AND activity IS NULL AND thread_root IS NULL AND conversation_id IN (SELECT id FROM conversations WHERE kind = 'channel' AND name = ?)").run(AGENT_ID, FEED_CHANNEL);
     if (!db.prepare('PRAGMA table_info(messages)').all().some(value => value.name === 'suggestions')) {
       db.exec('ALTER TABLE messages ADD COLUMN suggestions TEXT');
     }
@@ -485,8 +479,8 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
   }
   // A failed archive write aborts the whole change (it is in the same transaction), so nothing was destroyed. Say so plainly.
   const preservationFailed = () => httpError(503, 'records_preservation_failed', "This can't be changed or deleted right now because its record could not be saved. Try again, or ask your administrator.");
-  function notifyMessage(messageId, call = null) {
-    const event = { kind: 'message', messageId: String(messageId), ...(call ? { call: { id: String(call.id), by: String(call.by) } } : {}) };
+  function notifyMessage(messageId) {
+    const event = { kind: 'message', messageId: String(messageId) };
     db.prepare('INSERT OR IGNORE INTO notification_outbox VALUES (?, ?, ?)').run(`message:${messageId}`, JSON.stringify(event), now());
     if (!externalWorker) afterCommit(() => {
       onMessage(event);
@@ -760,8 +754,6 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     lastReplyAt: m.last_reply_at,
     createdAt: m.created_at,
     editedAt: m.edited_at,
-    // Meetings attach their live card and one-tap next steps to agent posts.
-    ...(m.user_id === AGENT_ID && !m.deleted_at ? safeExtras(m) : {}),
     // One-tap replies the agent offers under its own message.
     ...(m.user_id === AGENT_ID && !m.deleted_at && m.suggestions ? { suggestions: parseSuggestions(m.suggestions) } : {}),
   });
@@ -769,9 +761,6 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     const root = st.msg.get(seq);
     const text = !root || root.deleted_at || root.pending ? "" : root.text.replace(/\s+/g, " ").trim();
     return { user: root ? person(root.user_id).name : "", text: text.length > 120 ? text.slice(0, 119).trimEnd() + "…" : text };
-  }
-  function safeExtras(m) {
-    try { return messageExtras(m) || {}; } catch (e) { console.error("[servant] message extras", e); return {}; }
   }
   function convView(c, me, includeMembers = false) {
     const memberIds = st.members.all(c.id).map((r) => r.user_id);
@@ -872,35 +861,6 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
       publish(conv.id, "conversation.updated", { id: conv.id });
       return { conversationId: conv.id, messageId: String(m.seq) };
     });
-  }
-
-  /** The agent's activity log for the whole team: one public #agent-feed, posted by the agent. Silent: each post is an
-   *  activity line, so it never pushes, never shows a desktop notification and adds nothing to unread counts or badges. */
-  function feedFromAgent(text, { attachments = [] } = {}) {
-    text = String(text || "").trim().slice(0, MAX_TEXT);
-    if (!text && !attachments.length) throw httpError(400, "empty", "Write the message first");
-    return transaction(() => {
-      const conv = ensureFeedChannel();
-      const seq = Number(st.insertActivity.run(conv.id, AGENT_ID, text, now(), "feed").lastInsertRowid);
-      for (const a of attachments) storeAttachment(seq, a);
-      publish(conv.id, "message.created", msgView(st.msg.get(seq)));
-      publish(conv.id, "conversation.updated", { id: conv.id });
-      return { conversationId: conv.id, messageId: String(seq) };
-    });
-  }
-  function ensureFeedChannel() {
-    const conv = ensureChannel(FEED_CHANNEL, "What the agent did lately. Updated automatically, never notifies");
-    for (const uid of Object.keys(users())) if (!st.member.get(conv.id, uid)) addChannelMember(conv, uid);
-    return conv;
-  }
-
-  /** What the agent did lately, as items for the Feed screen (everyone on the server can see it). */
-  function feedItems({ days = 14 } = {}) {
-    const conv = st.convByName.get(FEED_CHANNEL);
-    if (!conv) return { items: [] };
-    const rows = db.prepare("SELECT seq, text, created_at FROM messages WHERE conversation_id = ? AND user_id = ? AND deleted_at IS NULL AND thread_root IS NULL AND created_at > ? ORDER BY seq DESC LIMIT 500")
-      .all(conv.id, AGENT_ID, now() - days * 86400_000);
-    return { items: shapeFeed(rows), conversationId: conv.id };
   }
 
   function joinDefaults(...args) { return transaction(() => joinDefaultsInTransaction(...args)); }
@@ -1016,7 +976,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     }).catch(() => { /* no preview */ });
   }
 
-  function postInTransaction(conv, userId, text, threadRoot = null, { pending = false, attachments = [], queueAgent = externalWorker, device, call = null, inChannel = false, quiet = false } = {}) {
+  function postInTransaction(conv, userId, text, threadRoot = null, { pending = false, attachments = [], queueAgent = externalWorker, device, inChannel = false, quiet = false } = {}) {
     conv = userId === AGENT_ID ? st.conv.get(conv.id) : requireConversation(conv.id, userId, true);
     if (!conv || conv.archived_at) throw httpError(404, 'not_found', 'That conversation is gone');
     if (threadRoot) {
@@ -1034,7 +994,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     const m = st.msg.get(seq);
     publish(conv.id, "message.created", msgView(m));
     if (threadRoot) publish(conv.id, "message.updated", msgView(st.msg.get(threadRoot)));
-    if (!pending && !quiet) notifyMessage(m.seq, call);
+    if (!pending && !quiet) notifyMessage(m.seq);
     if (!pending && userId !== AGENT_ID) afterCommit(() => previewLater(m.seq));
     if (queueAgent && externalWorker && userId !== AGENT_ID && wantsAgent(conv, m)) {
       db.prepare('INSERT OR IGNORE INTO agent_jobs (trigger_seq, created_at) VALUES (?, ?)').run(m.seq, now());
@@ -1429,30 +1389,22 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
   function notificationFor(messageId, user, event = null) {
     const m = st.msg.get(Number(messageId));
     if (!m || m.activity || m.pending || m.deleted_at || m.user_id === user.id) return null;
-    const call = event?.call;
-    // A call alert is only worth sending while it is ringing, and never to the person who started it.
-    if (call && (call.by === user.id || now() - m.created_at > CALL_PUSH_MS)) return null;
     const c = st.conv.get(m.conversation_id);
     const membership = c && st.member.get(c.id, user.id);
     if (!c || c.archived_at || !membership || membership.archived_at) return null;
     // Nothing rings or buzzes for a kind of conversation this instance has turned off.
     if (hidden(c)) return null;
-    // Nor for someone in deep work (deep-work.mjs): no channel message, mention, DM, call or meeting invite. The message still arrives and counts as unread.
+    // Nor for someone in deep work (deep-work.mjs): no channel message, mention or DM. The message still arrives and counts as unread.
     if (inDeepWork(user)) return null;
     // No delayed push after the recipient has already read the top-level post.
-    if (!call && (!m.thread_root || m.in_channel) && membership.last_read_seq >= m.seq) return null;
+    if ((!m.thread_root || m.in_channel) && membership.last_read_seq >= m.seq) return null;
     const badge = () => st.mine.all(user.id, 0).reduce((n, x) => n + (x.muted_at ? 0 : x.unread), 0);
     const participant = !!m.thread_root && !!db.prepare("SELECT 1 FROM messages WHERE conversation_id = ? AND (seq = ? OR thread_root = ?) AND user_id = ? AND deleted_at IS NULL AND seq < ? LIMIT 1").get(c.id, m.thread_root, m.thread_root, user.id, m.seq);
-    if (call) {
-      const caller = person(call.by).name;
-      return { kind: c.kind, conversationId: c.id, meetingId: call.id, caller, place: c.kind === "channel" ? `#${c.name}` : "", mentioned: true, participant: false, badge: badge(),
-        title: `${caller} is calling`, body: c.kind === "channel" ? `In #${c.name}. Tap to join` : "Tap to join" };
-    }
     const sender = person(m.user_id).name;
     // New build notes reach everyone, like an @here.
     const release = !m.thread_root && st.releaseBySeq.get(m.seq);
     const mentioned = !!release || isMention(m.text, user);
-    // Muted: only an @mention of you by name, or a reply in a thread you're in, still alerts. Not @here, @channel or build notes. Calls (above) always ring.
+    // Muted: only an @mention of you by name, or a reply in a thread you're in, still alerts. Not @here, @channel or build notes.
     if (membership.muted_at && !participant && !isMention(m.text.replace(/@(channel|here)\b/gi, ""), user)) return null;
     const unread = badge();
     // Tapping a build's notes opens its thread, where testers discuss it.
@@ -2086,34 +2038,10 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     return true;
   }
 
-  // ----- hooks for features that post on the agent's behalf (meetings) -----
-  const meetingHooks = {
-    isMember: (conversationId, userId) => { const c = st.conv.get(conversationId); return !!c && !c.archived_at && canSee(c, userId) && !!st.member.get(conversationId, userId); },
-    conversationInfo: (conversationId) => { const c = st.conv.get(conversationId); return c && { id: c.id, kind: c.kind, name: c.name || "" }; },
-    roomsFor: (userId) => db.prepare("SELECT c.id, c.name FROM conversations c JOIN members m ON m.conversation_id = c.id AND m.user_id = ? WHERE c.kind = 'channel' AND c.archived_at IS NULL ORDER BY c.name").all(userId).map(c => ({ id: c.id, name: c.name })),
-    agentPost: (conversationId, text, opts = {}) => { const c = st.conv.get(conversationId); if (!c) throw httpError(404, 'not_found', 'That conversation is gone'); return post(c, AGENT_ID, text.slice(0, MAX_TEXT), null, opts.call ? { call: opts.call } : {}); },
-    updateAgentMessage: (seq, text) => transaction(() => {
-      const m = st.msg.get(seq);
-      if (!m || m.deleted_at || m.user_id !== AGENT_ID) return;
-      st.setAgentText.run(text.slice(0, MAX_TEXT), 0, seq);
-      publish(m.conversation_id, "message.updated", msgView(st.msg.get(seq)));
-    }),
-    refreshMessage: (seq) => { const m = st.msg.get(seq); if (m && !m.deleted_at) publish(m.conversation_id, "message.updated", msgView(m)); },
-    notifyConversation: (conversationId) => { if (st.conv.get(conversationId)) publish(conversationId, "conversation.updated", { id: conversationId }); },
-    // A tapped next step is posted as the person, in a thread under the notes,
-    // and wakes the agent exactly as if they had typed it.
-    postFromUser: (conversationId, user, text, threadRoot) => {
-      const c = requireConversation(conversationId, user.id, true);
-      const m = post(c, user.id, text.slice(0, MAX_TEXT), threadRoot || null, { queueAgent: true });
-      if (!externalWorker && wantsAgent(c, m)) agentReply(c, m).catch((e) => console.error("[servant] agent reply", e));
-      return m;
-    },
-  };
-
   function personChanged(userId) { publish('', 'person.updated', { userId }, Object.keys(users())); }
   // Their deep work switch moved: everyone's "Deep work" label and the person's other devices update at once.
   const presenceChanged = userId => publishPresence(userId);
-  return { ...meetingHooks, workLog, channelFor, postActivity, personChanged, presenceChanged, handle, forwardSource, forwardInto, notificationFor, joinDefaults, joinEveryone, welcomeFromAgent, notifyFromAgent, feedFromAgent, feedItems, ensureAgentDms, congratulateLimit, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, keep, keepAll, close: () => { closeEvents(); db.close(); }, db };
+  return { workLog, channelFor, postActivity, personChanged, presenceChanged, handle, forwardSource, forwardInto, notificationFor, joinDefaults, joinEveryone, welcomeFromAgent, notifyFromAgent, ensureAgentDms, congratulateLimit, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, keep, keepAll, close: () => { closeEvents(); db.close(); }, db };
 }
 
 function httpError(status, code, message) {

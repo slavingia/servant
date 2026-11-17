@@ -40,7 +40,7 @@ export default function Settings() {
   // Tapping the tab you're already on scrolls back to the top.
   const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
   useScrollToTop(scrollRef);
-  const { account, setAccount, signOut, surveyPermissions } = useSession();
+  const { account, setAccount, signOut } = useSession();
   const features = useFeatures();
   const { colors } = useTheme();
   const styles = useStyles();
@@ -267,7 +267,7 @@ export default function Settings() {
       <Text accessibilityRole="header" style={styles.section}>Servers</Text>
       <View style={[styles.group, { paddingHorizontal: space.md, paddingVertical: space.xs }]}><ServerSwitcher /></View>
       {/* The same places as the sidebar, under the same names and in the same groups (destinations.ts). */}
-      {destinationGroups("you", { features, owner, canViewSurveys: surveyPermissions.canView }).map(entry => <View key={entry.group}>
+      {destinationGroups("you", { features, owner }).map(entry => <View key={entry.group}>
         <Text accessibilityRole="header" style={styles.section}>{entry.title}</Text>
         <View style={styles.group}>
           {entry.places.map(place => <Row key={place.id} label={place.label} onPress={() => router.push(place.path as Href)} />)}

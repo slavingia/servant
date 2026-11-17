@@ -8,7 +8,6 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { SessionProvider, useSession } from "../lib/session";
 import { NotificationsProvider } from "../lib/notifications";
 import { LiveProvider } from "../lib/live";
-import { IncomingCall } from "../components/IncomingCall";
 import { PhotoProvider } from "../lib/photos";
 import { AppChrome } from "../components/AppChrome";
 import { Button } from "../components/Button";
@@ -139,7 +138,6 @@ function SessionNavigation() {
         <Stack.Screen name="reverify" options={{ title: "Confirm it's you", headerBackVisible: false, headerLeft: () => null, gestureEnabled: false }} />
         <Stack.Screen name="c/[id]" options={{ title: "", ...sidebarScreen }} />
         <Stack.Screen name="thread" options={{ title: "Thread", ...childScreen }} />
-        <Stack.Screen name="meeting/[id]" options={{ headerShown: false, presentation: "fullScreenModal", gestureEnabled: false }} />
         <Stack.Screen name="new-channel" options={{ title: "New channel", ...sidebarScreen }} />
         <Stack.Screen name="new-message" options={{ title: "New message", ...sidebarScreen }} />
         <Stack.Screen name="inbox" options={{ title: "Cases", ...sidebarScreen }} />
@@ -153,7 +151,6 @@ function SessionNavigation() {
         {/* Where a share from another app lands (share.tsx); the share waits natively through sign-in. */}
         <Stack.Screen name="share" options={{ title: "Send to agent", ...childScreen }} />
         <Stack.Screen name="feedback" options={{ title: "Send feedback", ...childScreen }} />
-        <Stack.Screen name="surveys" options={{ title: "Feedback", ...sidebarScreen }} />
         <Stack.Screen name="queue" options={{ title: "Feedback", ...sidebarScreen }} />
         <Stack.Screen name="saved" options={{ title: "Saved", ...sidebarScreen }} />
         <Stack.Screen name="todos" options={{ title: "To-dos", ...sidebarScreen }} />
@@ -161,17 +158,14 @@ function SessionNavigation() {
         {/* Where Text shortcuts used to be; it redirects to the wiki's Abbreviations page. */}
         <Stack.Screen name="lexicon" options={{ title: "Wiki", ...sidebarScreen }} />
         <Stack.Screen name="notifications" options={{ title: "Notifications", ...childScreen }} />
-        <Stack.Screen name="feed" options={{ title: "Agent feed", ...childScreen }} />
         <Stack.Screen name="code/[id]" options={{ title: "Enter code", ...childScreen }} />
-        <Stack.Screen name="loops" options={{ title: "Loops", ...childScreen }} />
         <Stack.Screen name="entitlements" options={{ title: "Entitlements", ...childScreen }} />
         <Stack.Screen name="leaderboard" options={{ title: "Agent usage", ...childScreen }} />
         <Stack.Screen name="invite" options={{ title: "Invite someone", ...childScreen }} />
-        <Stack.Screen name="meetings/index" options={{ title: "Meetings", ...sidebarScreen }} />
-        <Stack.Screen name="meetings/[id]" options={{ title: "Meeting", ...childScreen }} />
+        <Stack.Screen name="recordings/index" options={{ title: "Recordings", ...sidebarScreen }} />
+        <Stack.Screen name="recordings/[id]" options={{ title: "Recording", ...childScreen }} />
       </Stack.Protected>
     </Stack>
-    {paired ? <IncomingCall /> : null}
     {paired ? <SessionExpiryGate /> : null}
     {paired ? <ShareGate /> : null}
     </AppChrome>

@@ -1,5 +1,4 @@
 import { memo, useId, useLayoutEffect, useEffect, useRef, useState, type ComponentRef, type ReactNode } from "react";
-import { MeetingCard } from "./MeetingCard";
 import { useProjectGlossary } from "../lib/use-project-glossary";
 import { findUnknownAbbreviations } from "../lib/abbreviations";
 import { lexiconApi } from "../lib/lexicon-api";
@@ -341,7 +340,6 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
         {!post.deleted ? mediaEmbeds(post.text).map(embed => <MediaEmbed key={embed.key} embed={embed} />) : null}
         {post.preview && !post.deleted ? <LinkPreview preview={post.preview} /> : null}
         {post.editedAt && !post.deleted ? <Text style={styles.edited}>Edited</Text> : null}
-        {post.meeting && post.user.agent && !post.deleted ? <MeetingCard meeting={post.meeting} /> : null}
         </View>
         {onSuggest && post.user.agent && !post.deleted && post.suggestions?.length ? (
           <View style={styles.suggestionRow} accessibilityLabel="Quick replies">

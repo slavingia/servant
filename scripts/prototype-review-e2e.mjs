@@ -6,7 +6,8 @@
 // Run after npm ci --prefix app and npm ci --prefix desktop, then: cd desktop && npx playwright install chromium.
 //   node scripts/prototype-review-e2e.mjs
 // SERVANT_E2E_BROWSER=chrome uses installed Chrome. SERVANT_REVIEW_E2E_APP=0 skips the app half (no Expo needed).
-// SERVANT_REVIEW_E2E_VIDEO=<folder> also records both halves as video there, at a pace a person can follow.
+// SERVANT_REVIEW_E2E_VIDEO=<folder> also saves a picture of each half four times a second there, at a pace a person
+// can follow: `ffmpeg -framerate 4 -i <folder>/review/%05d.png -pix_fmt yuv420p review.mp4` turns them into a video.
 // No live data is used and no email is sent: the mailer is replaced by a list in this script.
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -24,7 +25,15 @@ const require = createRequire(path.join(repository, 'desktop/package.json'));
 const { chromium } = require('playwright');
 const withApp = process.env.SERVANT_REVIEW_E2E_APP !== '0';
 const videoDir = process.env.SERVANT_REVIEW_E2E_VIDEO ? path.resolve(process.env.SERVANT_REVIEW_E2E_VIDEO) : null;
-const record = (name, size) => (videoDir ? { recordVideo: { dir: path.join(videoDir, name), size } } : {});
+// Frames, not the browser's own recorder: that needs a download this script shouldn't depend on.
+function film(page, name) {
+  if (!videoDir) return async () => {};
+  const dir = path.join(videoDir, name);
+  fs.mkdirSync(dir, { recursive: true });
+  let n = 0, live = true, busy = Promise.resolve();
+  const timer = setInterval(() => { if (!live) return; const file = path.join(dir, `${String(++n).padStart(5, '0')}.png`); busy = busy.then(() => page.screenshot({ path: file, animations: 'disabled' }).catch(() => {})); }, 250);
+  return async () => { live = false; clearInterval(timer); await busy; };
+}
 const scratch = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'servant-review-e2e-'));
 const shots = path.join(repository, 'docs/shots/prototype-review');
 fs.mkdirSync(shots, { recursive: true });
@@ -93,13 +102,14 @@ try {
       await delay(250);
     }
     const account = { token: pat.token, user: { id: pat.id, name: pat.name, role: 'member' }, server: { name: 'Example team' }, serverUrl: base, serverKey: serverIdentity(scratch).publicKey, serverName: 'Example team' };
-    const context = await browser.newContext({ viewport: phone, reducedMotion: 'reduce', ...record('share', phone) });
+    const context = await browser.newContext({ viewport: phone, reducedMotion: 'reduce' });
     const id = accountId(account);
     await context.addInitScript(({ saved, key, indexKey, id }) => {
       localStorage.setItem(key, JSON.stringify(saved));
       localStorage.setItem(indexKey, JSON.stringify({ version: 1, ids: [id], activeId: id }));
     }, { saved: account, key: accountStorageKey(id), indexKey: ACCOUNTS_KEY, id });
     const app = watch(await context.newPage());
+    const cutShare = film(app, 'share');
     await app.goto(`${webUrl}/chat/cht_proto`);
     await app.getByTestId('open-options').click();
     await app.getByTestId('share-prototype').click();
@@ -115,6 +125,7 @@ try {
     assert.equal(await app.getByTestId('review-sent').innerText(), 'Sent to jo.park@example.gov.');
     await app.getByText("Hasn't opened it yet", { exact: true }).waitFor();
     await shot(app, 'share-sent-phone.png');
+    await cutShare();
     await context.close();
   } else {
     await api('POST', '/v1/chats/cht_proto/prototype/shares', { email: 'jo.park@example.gov' });
@@ -125,8 +136,9 @@ try {
   const link = mail.splice(0)[0].text.match(/http:\/\/127\.0\.0\.1:\d+\/review\/[A-Za-z0-9_-]+/)[0];
 
   // 2. The business owner opens the link: no account, just the code sent to their address.
-  const reviewerContext = await browser.newContext({ viewport: desktop, reducedMotion: 'reduce', ...record('review', desktop) });
+  const reviewerContext = await browser.newContext({ viewport: desktop, reducedMotion: 'reduce' });
   const reviewer = watch(await reviewerContext.newPage());
+  const cutReview = film(reviewer, 'review');
   const blocked = [];
   reviewer.on('console', message => { if (/Content Security Policy|Refused to/.test(message.text())) blocked.push(message.text()); });
   await reviewer.goto(link);
@@ -175,6 +187,7 @@ try {
   // Coming back in the same tab needs no new code; the pins are drawn again.
   await reviewer.reload();
   await frame.getByRole('button', { name: 'Comment 2' }).waitFor();
+  await cutReview();
   assert.deepEqual(blocked, [], 'nothing on the review page was blocked by its own policy');
 
   // The same page on a phone.

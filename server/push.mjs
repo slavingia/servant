@@ -42,7 +42,6 @@ export function notificationPayload(info, user, deviceId, { plain = false } = {}
     title: title || 'Servant',
     body: body || (plain ? 'Confirm it\'s you in Servant to see new messages' : 'You have a new message'),
     group: info.conversationId || info.chatId || info.caseId || info.codeRequestId,
-    ...(info.meetingId ? { call: { meetingId: info.meetingId, caller: info.caller || '', place: info.place || '' } } : {}),
     // The app icon shows the person's real unread total. When there is none to give (nothing unread, or a kind of
     // push that has no count), leave the icon alone: a made-up 1 put a cleared badge back.
     badge: Number.isSafeInteger(info.badge) && info.badge > 0 ? info.badge : null,
@@ -50,13 +49,13 @@ export function notificationPayload(info, user, deviceId, { plain = false } = {}
     data: { userId: user.id, deviceId, ...(info.conversationId ? { conversationId: info.conversationId } : info.caseId ? { caseId: info.caseId } : info.codeRequestId ? { codeRequestId: info.codeRequestId } : info.chatId ? { chatId: info.chatId } : {}),
       // A page of the app to open rather than a conversation (an entitlement request or decision opens Entitlements).
       ...(info.page ? { page: info.page } : {}),
-      ...(info.meetingId ? { meetingId: info.meetingId } : {}), ...(info.threadRoot ? { threadRoot: String(info.threadRoot) } : {}), ...(info.messageId ? { messageId: String(info.messageId) } : {}) },
+      ...(info.threadRoot ? { threadRoot: String(info.threadRoot) } : {}), ...(info.messageId ? { messageId: String(info.messageId) } : {}) },
   };
 }
 
 // The durable queue stores routing references. Eligibility is resolved just
 // before delivery, after checking current membership and device status.
-// `stale(device, user)`: true while that device's session has ended; it then gets no call rings and no message text.
+// `stale(device, user)`: true while that device's session has ended; it then gets no message text.
 export function createPushService({ file, state, mutate, resolve, send, clock = Date.now, log = console.warn, autoDrain = true, stale = () => false }) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA busy_timeout=5000');
@@ -109,22 +108,16 @@ export function createPushService({ file, state, mutate, resolve, send, clock = 
       if (!device?.push || device.revokedAt || device.userId !== user?.id || clock() - job.created_at > 3600000 || !wantsNotification(info, preferences(user), clock())) {
         remove.run(job.id); continue;
       }
-      // A session that ended neither rings nor reads along: calls are dropped, messages arrive without their text.
+      // A session that ended does not read along: messages arrive without their text.
       const expired = stale(device, user) === true;
-      if (expired && event.call) { remove.run(job.id); continue; }
-      // A call only rings once. Someone already looking at the conversation sees the in-app ring.
-      if (event.call && device.pushPresence?.until > clock() && device.pushPresence.conversation === info.conversationId) { remove.run(job.id); continue; }
-      if (!event.call && device.pushPresence?.until > clock() && device.pushPresence.conversation === (info.conversationId || info.chatId || info.caseId)) {
+      if (device.pushPresence?.until > clock() && device.pushPresence.conversation === (info.conversationId || info.chatId || info.caseId)) {
         // Give a background transition time to clear its presence lease.
         // Ordinary messages are rechecked against read state before delivery.
         if (event.kind === 'agent' && clock() - job.created_at >= 5000) remove.run(job.id);
         else postpone.run(Math.min(device.pushPresence.until, clock() + 5000), job.id);
         continue;
       }
-      // iPhones with a VoIP token get a real ringing call (CallKit); everyone else a normal alert or Android call push.
-      const voip = !!event.call && device.voip?.token ? device.voip : null;
-      // Android builds that can ring say so (device.ringsCalls); older builds keep getting a normal alert.
-      const target = voip ? { platform: 'ios-voip', token: voip.token, environment: voip.environment } : { ...device.push, ringing: !!(event.call && device.ringsCalls) };
+      const target = device.push;
       const token = target.token;
       try {
         const notification = notificationPayload(info, user, device.id, { plain: expired });
@@ -134,8 +127,7 @@ export function createPushService({ file, state, mutate, resolve, send, clock = 
         if (stopped) break;
         if (result.invalid) mutate(s => {
           const d = Object.values(s.devices).find(d => d.id === job.device_id);
-          if (voip) { if (d?.voip?.token === token) delete d.voip; }
-          else if (d?.push?.token === token) delete d.push;
+          if (d?.push?.token === token) delete d.push;
         });
         if (result.ok || result.invalid || !result.retry || job.attempts >= 5) {
           remove.run(job.id);
@@ -174,14 +166,13 @@ export function createPushService({ file, state, mutate, resolve, send, clock = 
 }
 
 export function updatePushRegistration(s, device, body) {
-  if (body.token === null) { delete device.push; delete device.voip; delete device.ringsCalls; delete device.pushPresence; return; }
+  if (body.token === null) { delete device.push; delete device.pushPresence; return; }
   const { platform, token, environment = 'production' } = body;
   if (platform === 'web') {
     // A browser: its push service's address for it and the keys alerts are encrypted to (web-push.mjs).
     const subscription = webSubscription(body);
     if (!subscription) throw Object.assign(new Error('Invalid notification registration'), { status: 400, code: 'bad_push_token' });
     for (const other of Object.values(s.devices)) if (other.id !== device.id && other.push?.token === subscription.token) delete other.push;
-    delete device.voip; delete device.ringsCalls;
     device.push = { platform: 'web', ...subscription };
     return;
   }
@@ -192,17 +183,6 @@ export function updatePushRegistration(s, device, body) {
   // A physical install belongs to only its latest paired account/device.
   for (const other of Object.values(s.devices)) if (other.id !== device.id && other.push?.token === token) delete other.push;
   device.push = { platform, token, environment, ...(body.aggregateBadge === true ? { aggregateBadge: true } : {}) };
-}
-// The PushKit token an iPhone gets for incoming calls. It is separate from the alert token.
-export function updateVoipRegistration(s, device, body) {
-  if (body.android === true) { device.ringsCalls = true; return; }
-  if (body.token === null) { delete device.voip; return; }
-  const { token, environment = 'production' } = body;
-  if (typeof token !== 'string' || !/^[a-f0-9]{64,200}$/i.test(token) || !['development', 'production'].includes(environment)) {
-    throw Object.assign(new Error('Invalid call registration'), { status: 400, code: 'bad_push_token' });
-  }
-  for (const other of Object.values(s.devices)) if (other.id !== device.id && other.voip?.token === token) delete other.voip;
-  device.voip = { token, environment };
 }
 export function updatePreferences(user, body, now = Date.now()) {
   const p = preferences(user);

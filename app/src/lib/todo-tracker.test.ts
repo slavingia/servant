@@ -23,7 +23,7 @@ test("a card's quiet line leads with its key and says only what is set", () => {
   assert.deepEqual(trackerMeta({ key: "EA-7", type: "epic", estimate: 1, commentCount: 1 }), { lead: "EA-7 · Epic · 1 pt", tail: "1 comment" });
   assert.deepEqual(trackerMeta({}), { lead: "", tail: "" }, "a server from before the tracker adds nothing");
   assert.deepEqual([pointsText(0.5), pointsText(0), pointsText(null), pointsText(undefined)], ["0.5 pts", "0 pts", "", ""]);
-  // Only the board shows it: a meeting's follow-ups stay as they were.
+  // Only the board shows it: a recording's follow-ups stay as they were.
   assert.match(component, /const tracker = board \? trackerMeta\(t\) : \{ lead: "", tail: "" \};/);
   assert.match(component, /\{tracker\.lead \? <Text testID="todo-key">\{tracker\.lead\}<\/Text> : null\}/);
 });

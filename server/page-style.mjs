@@ -1,5 +1,5 @@
 // One stylesheet for every page the server renders itself: the landing page, join, support, privacy, terms and the
-// public survey. It is the app's design system (docs/design-system.md) in CSS: the palette in light and dark with
+// public page. It is the app's design system (docs/design-system.md) in CSS: the palette in light and dark with
 // the workspace's color (theme.mjs pageColors), the type roles, 6 and 10 pixel corners, 48-point controls, the four
 // buttons, and links that are always underlined. A page adds only its own layout after it.
 import { pageColors } from "./theme.mjs";

@@ -31,7 +31,7 @@ test("a screen's header title is one style: the heading role when wide, bodyStro
 
 test("one-off sizes use the nearest role", () => {
   for (const [file, name, role] of [
-    ["components/ProjectCredit.tsx", "text", "caption"], ["components/AgentSteps.tsx", "code", "meta"], ["components/IncomingCall.tsx", "name", "display"],
+    ["components/ProjectCredit.tsx", "text", "caption"], ["components/AgentSteps.tsx", "code", "meta"],
     ["components/MessageText.tsx", "h1", "heading"], ["components/MessageText.tsx", "code", "caption"], ["app/leaderboard.tsx", "totalValue", "display"], ["lib/typing.tsx", "text", "caption"],
   ] as const) assert.match(style(read(file), name), new RegExp(`^ \\.\\.\\.typography\\.${role}\\b`), `${file} ${name}`);
 });

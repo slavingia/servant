@@ -7,7 +7,6 @@ import { isDesktop } from "../lib/desktop";
 import { useLiveActions, useLiveList, useLivePresence, useLiveUnread } from "../lib/live";
 import { groupPresenceDot } from "../lib/message-status";
 import { refreshProjects, useProjects } from "../lib/projects-store";
-import { refreshMeetings, useMeetings } from "../lib/meetings-store";
 import { sortChannels, withPositions } from "../lib/channel-sort";
 import { useChannelSort } from "../lib/channel-sort-store";
 import { useSession } from "../lib/session";
@@ -56,7 +55,7 @@ const drag = { dataSet: { servantDrag: "on" } } as object;
 export function Sidebar() {
   const styles = useStyles();
   const colors = useSidebarColors();
-  const { account, deepWork, surveyPermissions } = useSession();
+  const { account, deepWork } = useSession();
   const { conversations, error, connected } = useLiveList();
   const unread = useLiveUnread();
   const { expired: sessionExpired } = useSessionExpiry();
@@ -75,14 +74,11 @@ export function Sidebar() {
   const [naming, setNaming] = useState(false);
   // Projects change rarely: re-read the list as you move around rather than on a timer.
   const projects = useProjects();
-  // Meetings too: the count beside it is the calls running right now.
-  const meetings = useMeetings();
   // What this server uses (features.ts): sections and entries for the rest never render.
   const features = useFeatures();
-  useEffect(() => { if (account) { void refreshProjects(account); if (features.meetings) void refreshMeetings(account); } }, [pathname, account, features.meetings]);
-  const liveMeetings = (meetings.list ?? []).filter(m => m.status === "live").length;
-  const viewer = { features, owner: account?.user.role === "owner", canViewSurveys: surveyPermissions.canView };
-  const counts: Record<string, number> = { home: unread.channels, agent: unread.agent, messages: unread.messages, meetings: liveMeetings };
+  useEffect(() => { if (account) void refreshProjects(account); }, [pathname, account]);
+  const viewer = { features, owner: account?.user.role === "owner" };
+  const counts: Record<string, number> = { home: unread.channels, agent: unread.agent, messages: unread.messages };
   if (!account) return null;
 
   const active = (conversations ?? []).filter(c => !c.archived);
@@ -131,7 +127,7 @@ export function Sidebar() {
       {/* Your Deep work switch (deep-work.ts), just above your name. */}
       <DeepWorkSwitch onNavy />
       <Pressable accessibilityRole="button" accessibilityLabel={`${account.user.name}${connected && deepWork ? ", Deep work" : ""}, your profile and settings`} onPress={() => go(pathname, "/you")}
-        style={state => [styles.footer, (hovered(state) || ["/you", "/notifications", "/feedback", "/leaderboard", "/loops", "/feed", "/entitlements"].includes(pathname)) && styles.hovered]}>
+        style={state => [styles.footer, (hovered(state) || ["/you", "/notifications", "/feedback", "/leaderboard", "/entitlements"].includes(pathname)) && styles.hovered]}>
         <View>
           <Avatar name={account.user.name} userId={account.user.id} size={30} />
           {/* Your own badge: the moon while you're in deep work (deep-work.ts), so the quiet you chose is what you see too. */}

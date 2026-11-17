@@ -12,21 +12,16 @@ const b64 = (x) => Buffer.from(JSON.stringify(x)).toString('base64url');
 const clip = (v, max, fallback) => typeof v === 'string' && v.trim() ? (v.length > max ? v.slice(0, max - 1) + '…' : v) : fallback;
 function privateNotification(n) {
   const data = {};
-  for (const key of ['userId', 'deviceId', 'conversationId', 'chatId', 'caseId', 'codeRequestId', 'threadRoot', 'messageId', 'meetingId', 'page']) {
+  for (const key of ['userId', 'deviceId', 'conversationId', 'chatId', 'caseId', 'codeRequestId', 'threadRoot', 'messageId', 'page']) {
     const value = n.data?.[key];
     if (typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(value)) data[key] = value;
   }
-  const c = n.call, id = typeof c?.meetingId === 'string' && /^meet_[a-zA-Z0-9_-]{1,40}$/.test(c.meetingId) ? c.meetingId : null;
-  const call = id ? { meetingId: id, caller: clip(c.caller, 80, 'Someone'), place: clip(c.place, 80, '') } : null;
-  return { data, call, group: data.conversationId || data.chatId || data.caseId || data.codeRequestId || 'messages',
+  return { data, group: data.conversationId || data.chatId || data.caseId || data.codeRequestId || 'messages',
     title: clip(n.title, 80, 'Servant'), body: clip(n.body, 240, 'You have a new message'),
     badge: n.badge === null ? null : Number.isSafeInteger(n.badge) && n.badge > 0 ? Math.min(n.badge, 9999) : 1 };
 }
-export function fcmMessage(token, notification, ringing = false) {
+export function fcmMessage(token, notification) {
   const n = privateNotification(notification);
-  // A call is data only: the app builds its own full-screen ringing notification.
-  if (n.call && ringing) return { message: { token, data: { type: 'call', meetingId: n.call.meetingId, caller: n.call.caller, place: n.call.place, sentAt: String(Date.now()) },
-    android: { priority: 'HIGH', ttl: '45s' } } };
   return { message: {
     token,
     notification: { title: n.title, body: n.body },
@@ -47,16 +42,11 @@ export function apnsPayload(notification) {
   // no route and just opens the app. Top-level copies stay for older builds.
   return { aps: { alert: { title: n.title, body: n.body }, sound: 'default', ...(n.badge === null ? {} : { badge: n.badge }), 'thread-id': n.group }, ...n.data, body: n.data };
 }
-// PushKit: wakes the app to show the system call screen. Apple requires the app to report a call for every one.
-export function voipPayload(notification) {
-  const n = privateNotification(notification);
-  return n.call ? { meetingId: n.call.meetingId, caller: n.call.caller, place: n.call.place, sentAt: Date.now() } : null;
-}
 // The APNs topic is the iOS app's bundle id. push.json's apnsTopic wins, then
-// SERVANT_BUNDLE_ID, then the open-source placeholder. VoIP pushes use <id>.voip.
-export function apnsTopic(c, voip = false, env = process.env) {
+// SERVANT_BUNDLE_ID, then the open-source placeholder.
+export function apnsTopic(c, env = process.env) {
   const id = (typeof c?.apnsTopic === 'string' && c.apnsTopic.trim()) || (env.SERVANT_BUNDLE_ID || '').trim() || 'com.example.servant';
-  return voip ? id + '.voip' : id;
+  return id;
 }
 // `webPush()` gives this server's browser-push signing identity and the contact address that goes with it.
 export function createPushTransport(config, fetcher = fetch, webPush = () => null) {
@@ -95,7 +85,7 @@ export function createPushTransport(config, fetcher = fetch, webPush = () => nul
       if (!c?.fcmKeyPath || !c?.fcmProjectId) throw new Error('FCM_NOT_CONFIGURED');
       const r = await fetcher(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(c.fcmProjectId)}/messages:send`, {
         method: 'POST', headers: { Authorization: `Bearer ${await googleToken(c)}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(fcmMessage(device.token, notification, device.ringing)), signal: AbortSignal.timeout(15000),
+        body: JSON.stringify(fcmMessage(device.token, notification)), signal: AbortSignal.timeout(15000),
       });
       const result = await r.json();
       if (r.ok) return { ok: true };
@@ -104,9 +94,6 @@ export function createPushTransport(config, fetcher = fetch, webPush = () => nul
       return { ok: false, invalid: code === 'UNREGISTERED', retry: r.status === 429 || r.status >= 500 || r.status === 401, code };
     }
     if (!c?.apnsKeyPath || !c?.apnsKeyId || !c?.apnsTeamId) throw new Error('APNS_NOT_CONFIGURED');
-    const voip = device.platform === 'ios-voip';
-    const voipBody = voip ? voipPayload(notification) : null;
-    if (voip && !voipBody) return { ok: false, retry: false, code: 'NOT_A_CALL' };
     // Environment comes from the signed app registration, not a caller-supplied URL.
     const host = device.environment === 'development' ? 'https://api.sandbox.push.apple.com' : 'https://api.push.apple.com';
     const authorization = appleToken(c);
@@ -121,9 +108,9 @@ export function createPushTransport(config, fetcher = fetch, webPush = () => nul
       const timer = setTimeout(() => finish(new Error('APNS_TIMEOUT')), 15000);
       client.on('error', () => finish(new Error('APNS_CONNECTION_FAILED')));
       const req = client.request({ ':method': 'POST', ':path': '/3/device/' + device.token,
-        authorization: 'bearer ' + authorization, 'apns-topic': apnsTopic(c, voip), 'apns-push-type': voip ? 'voip' : 'alert',
-        'apns-priority': '10', 'apns-expiration': String(Math.floor(Date.now() / 1000) + (voip ? 45 : 3600)),
-        ...(voip ? {} : { 'apns-collapse-id': crypto.createHash('sha256').update(privateNotification(notification).group).digest('hex') }),
+        authorization: 'bearer ' + authorization, 'apns-topic': apnsTopic(c), 'apns-push-type': 'alert',
+        'apns-priority': '10', 'apns-expiration': String(Math.floor(Date.now() / 1000) + 3600),
+        'apns-collapse-id': crypto.createHash('sha256').update(privateNotification(notification).group).digest('hex'),
       });
       let status = 0, body = '';
       req.on('response', h => { status = Number(h[':status']); });
@@ -133,7 +120,7 @@ export function createPushTransport(config, fetcher = fetch, webPush = () => nul
         let reason; try { reason = JSON.parse(body).reason; } catch { /* success has no body */ }
         finish(null, { ok: status === 200, invalid: ['Unregistered', 'BadDeviceToken', 'DeviceTokenNotForTopic'].includes(reason), retry: status === 429 || status >= 500, code: reason || String(status) });
       });
-      req.end(JSON.stringify(voip ? voipBody : apnsPayload(notification)));
+      req.end(JSON.stringify(apnsPayload(notification)));
     });
   };
 }

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { ALL_FEATURES, anyTalk, conversationHidden, landingHref, normalizeFeatures, sameFeatures, tabsFor, withDeepWork } from "./features.ts";
 
 // Everything a server can turn off; People is not a server flag and stays.
-const off = { channels: false, directMessages: false, meetings: false, secureInbox: false, people: true, home: false };
+const off = { channels: false, directMessages: false, secureInbox: false, people: true, home: false };
 // Deep work hides that and People.
 const deepOff = { ...off, people: false };
 // ...and keeps Home (projects) where the server has channels.
@@ -14,8 +14,8 @@ test("every flag is on unless the server said exactly false", () => {
   assert.deepEqual(normalizeFeatures(null), ALL_FEATURES);
   assert.deepEqual(normalizeFeatures("nope"), ALL_FEATURES);
   assert.deepEqual(normalizeFeatures([]), ALL_FEATURES);
-  assert.deepEqual(normalizeFeatures({ channels: "false", directMessages: 0, meetings: null }), ALL_FEATURES);
-  assert.deepEqual(normalizeFeatures({ meetings: false }), { ...ALL_FEATURES, meetings: false });
+  assert.deepEqual(normalizeFeatures({ channels: "false", directMessages: 0, secureInbox: null }), ALL_FEATURES);
+  assert.deepEqual(normalizeFeatures({ secureInbox: false }), { ...ALL_FEATURES, secureInbox: false });
   assert.deepEqual(normalizeFeatures({ ...off, other: false }), off);
   assert.deepEqual(normalizeFeatures({ people: false }), ALL_FEATURES, "a server cannot hide People; only Deep work does");
   assert.ok(sameFeatures(normalizeFeatures({}), ALL_FEATURES));
@@ -30,21 +30,20 @@ test("tabs: Home first with channels; the agent first without; People stays unle
   // Deep work keeps Home (its projects) first and hides the rest of the talk.
   assert.deepEqual(tabsFor(withDeepWork(ALL_FEATURES, true)), ["channels", "agent", "you"]);
   assert.deepEqual(tabsFor(withDeepWork({ ...ALL_FEATURES, channels: false, home: false }, true)), ["agent", "you"], "a server without channels has no Home to keep");
-  // Meetings have no tab; the flag changes nothing here.
-  assert.deepEqual(tabsFor({ ...ALL_FEATURES, meetings: false }), tabsFor(ALL_FEATURES));
+  assert.deepEqual(tabsFor({ ...ALL_FEATURES, secureInbox: false }), tabsFor(ALL_FEATURES));
 });
 
 test("the landing screen follows Home: the agent when channels are off", () => {
   assert.equal(landingHref(ALL_FEATURES), "/channels");
-  assert.equal(landingHref({ ...ALL_FEATURES, directMessages: false, meetings: false }), "/channels");
+  assert.equal(landingHref({ ...ALL_FEATURES, directMessages: false }), "/channels");
   assert.equal(landingHref({ ...ALL_FEATURES, channels: false, home: false }), "/agent");
   assert.equal(landingHref(off), "/agent");
 });
 
-test("deep work hides channels, DMs and meetings on top of the server's flags, keeps Home, and never turns one back on", () => {
+test("deep work hides channels and DMs on top of the server's flags, keeps Home, and never turns one back on", () => {
   assert.deepEqual(withDeepWork(ALL_FEATURES, true), deepHome);
   assert.equal(withDeepWork(ALL_FEATURES, false), ALL_FEATURES, "off: the server's flags, untouched");
-  assert.deepEqual(withDeepWork({ ...ALL_FEATURES, meetings: false }, true), deepHome);
+  assert.deepEqual(withDeepWork({ ...ALL_FEATURES, secureInbox: false }, true), deepHome);
   assert.deepEqual(withDeepWork(off, true), deepOff);
   const serverSaysNoChannels = { ...ALL_FEATURES, channels: false, home: false };
   assert.deepEqual(withDeepWork(serverSaysNoChannels, false), serverSaysNoChannels, "switching deep work off never grants what the server has off");

@@ -1,9 +1,9 @@
 // When the server keeps records (server/records-preserve.mjs), "delete" hides content from view but does not destroy it. The app
 // must not say "permanently deletes" or "can't be undone" in that case: it would be untrue, and for a records setting that matters.
-export type DeleteKind = "agent-chat" | "dm" | "channel" | "meeting";
+export type DeleteKind = "agent-chat" | "dm" | "channel" | "recording";
 
 export function deleteDescription(kind: DeleteKind, recordsKept: boolean): string {
-  if (kind === "meeting") {
+  if (kind === "recording") {
     return recordsKept
       ? "This removes the recording, the notes and the transcript from your list. Your organization keeps a record of recordings for its records policy, so they are not erased. Work already handed to the agent stays in its chat."
       : "The recording, the notes and the transcript are deleted. Work already handed to the agent stays in its chat.";

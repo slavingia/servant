@@ -61,7 +61,7 @@ Nothing a person needs to read is cut off with an ellipsis. Names, titles,
 labels, values, statuses and options wrap, and their row grows. A line limit
 (`numberOfLines`) is only for a preview whose full text is one press away (a
 conversation's last message, a search snippet), a file name under a tile, and
-the call and media screens. `truncation.test.ts` lists each of those with its
+the media screens. `truncation.test.ts` lists each of those with its
 reason and refuses a limit anywhere else.
 
 ### Color
@@ -121,7 +121,6 @@ The full-screen media viewer retains its dark canvas in both modes.
 | `bubbleMine` | `#0071BC` | Retained token; current message streams do not use bubbles |
 | `bubbleAgent` | `#F4F7FA` | Retained token; current message streams do not use bubbles |
 | `scrim` | navy at 42% | What dims the page behind a dialog, a sheet, a menu and search; black at 60% in dark mode, where navy would lighten the page |
-| `series` | `#C2571A` | The second series in a chart, beside `blue`; `#E07B39` in dark mode. At least 3 to 1 against the track and the page |
 
 A fill with words or an icon on it uses `primary` (or `danger`): those keep
 enough contrast for white in both appearances. `blue`, `green` and `red` are
@@ -207,8 +206,8 @@ exists: a color outside the palette, a type size, weight or line height beside
 the roles, a corner radius that is not from `radius`, and padding, margin or a
 gap off the spacing scale. `token-ratchet.json` holds today's counts. A file
 may not gain one, and when it loses one its number comes down, so the total
-only falls. Most of what is left is deliberate: the call screen and the media
-viewer are dark in both appearances and carry their own colors, emoji and
+only falls. Most of what is left is deliberate: the media
+viewer is dark in both appearances and carry their own colors, emoji and
 initials are sized from their container, and a few rows sit 2 or 6 points
 apart.
 
@@ -232,8 +231,7 @@ apart.
   the confirm button of a `ConfirmDialog`. `link` is words only, underlined on
   the web: navigation and quiet actions such as Cancel. Do not draw a button
   with a `Pressable` and a `Text`; `button-standard.test.ts` refuses a
-  destructive label anywhere but on a `danger` Button (the call screen, a swipe
-  action and a menu row are listed there with their reasons).
+  destructive label anywhere but on a `danger` Button (a swipe action and a menu row are listed there with their reasons).
 - `IconButton`: an icon alone (close, remove, more) in a 44-point square. Its
   `label` says the action for a screen reader. Words are better when there is
   room.
@@ -344,8 +342,7 @@ sidebar of a wide window, the **You** tab (a phone has no sidebar) and search
 all draw from that list, so a place is called the same thing everywhere and a
 new one is added in one line. There are three groups, in the order a day uses
 them: **Conversations** (Home, Agent, Direct messages, Cases), **Your work** (To-dos,
-Saved, Meetings, and Archived on You) and **Team** (People, Surveys, Feedback
-queue, Wiki, and Invite people and Agent usage on You). The sidebar
+Saved, Recordings, and Archived on You) and **Team** (People, Wiki, and Invite people and Agent usage on You). The sidebar
 draws them as one list in that order, with no gap between groups (the groups
 are named for a screen reader); You gives each a heading.
 
@@ -400,7 +397,7 @@ reply. Do not add a Stop or Steer button to the stream.
 
 ## Pages the server renders
 
-The landing page, join, support, privacy, terms and the public survey are plain
+The landing page, join, support, privacy and terms are plain
 HTML from the server, with no app. They share one stylesheet,
 `server/page-style.mjs`: the same palette as CSS variables in light and dark
 (following `prefers-color-scheme`), the workspace's configured color, the type

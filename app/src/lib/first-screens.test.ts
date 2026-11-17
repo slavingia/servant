@@ -21,9 +21,8 @@ test("opening it on a screen waits for that screen and the layouts above it, not
   assert.deepEqual(firstScreens("/c/ch_123", "/channels", keys), ["./c/[id].tsx"]);
   assert.deepEqual(firstScreens("/chat/chat_9?compose=1", "/channels", keys), ["./chat/[id].tsx"]);
   assert.deepEqual(firstScreens("/thread?conv=ch_1&root=5", "/channels", keys), ["./thread.tsx"]);
-  assert.deepEqual(firstScreens("/meetings", "/channels", keys), ["./meetings/index.tsx"]);
-  assert.deepEqual(firstScreens("/meetings/m_1", "/channels", keys), ["./meetings/[id].tsx"]);
-  assert.deepEqual(firstScreens("/meeting/m_1", "/channels", keys), ["./meeting/[id].tsx"]);
+  assert.deepEqual(firstScreens("/recordings", "/channels", keys), ["./recordings/index.tsx"]);
+  assert.deepEqual(firstScreens("/recordings/rec_1", "/channels", keys), ["./recordings/[id].tsx"]);
 });
 
 test("an address no screen answers to waits for nothing", () => {

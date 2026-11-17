@@ -2,7 +2,7 @@
 
 Agents for public servants.
 
-Servant gives a public-sector team an agent it can ask for help, on a server the team runs. It is a phone app, a Mac app and a small server that runs on a computer you control. The people you invite can ask the agent running on that computer for help from anywhere, in private agent chats or alongside colleagues in channels, direct messages, threads and calls, without putting the conversation through a consumer chat service. Messages are encrypted from the app to your server inside HTTPS, and the server's private key never leaves your machine. There is no hosted Servant service in the message path: the only addresses the project maintains are the optional browser join page and the Mac download page, and `webUrl` and `downloads` in `config.json` point an instance at your own.
+Servant gives a public-sector team an agent it can ask for help, on a server the team runs. It is a phone app, a Mac app and a small server that runs on a computer you control. The people you invite can ask the agent running on that computer for help from anywhere, in private agent chats or alongside colleagues in channels, direct messages and threads, without putting the conversation through a consumer chat service. Messages are encrypted from the app to your server inside HTTPS, and the server's private key never leaves your machine. There is no hosted Servant service in the message path: the only addresses the project maintains are the optional browser join page and the Mac download page, and `webUrl` and `downloads` in `config.json` point an instance at your own.
 
 Servant is an independent open-source project and is not affiliated with any government agency.
 
@@ -49,7 +49,7 @@ npm ci
 SERVANT_BUNDLE_ID=com.yourorg.servant npx expo run:ios      # or run:android, or eas build
 ```
 
-`SERVANT_BUNDLE_ID` (default `com.example.servant`) sets the iOS bundle id and Android package; the share extension is `<id>.share`, its app group `group.<id>`, and the VoIP push topic `<id>.voip`. Run the server with the same value so push notifications reach the app. `npx expo start --web` gives you a browser build for trying things out. See [app/AGENTS.md](app/AGENTS.md).
+`SERVANT_BUNDLE_ID` (default `com.example.servant`) sets the iOS bundle id and Android package; the share extension is `<id>.share`, and its app group `group.<id>`. Run the server with the same value so push notifications reach the app. `npx expo start --web` gives you a browser build for trying things out. See [app/AGENTS.md](app/AGENTS.md).
 
 **3. Build the Mac app (optional).**
 
@@ -96,7 +96,7 @@ Open the invite link, or in the Mac app choose **Paste an invite link**. On a ph
 - [Entitlements](docs/entitlements.md) and the [agent's network gate](docs/agent-egress.md): who may have the agent work with what, and a sandbox that refuses everything else
 - [Code requests](docs/code-requests.md): automation running as you asks your phone for a one-time sign-in code instead of stopping
 - [Records preservation](docs/records-management.md) and the [business information filter](docs/business-info-filter.md)
-- [Projects](docs/projects.md), [OTA updates](docs/ota.md), [call ringing](docs/call-ringing.md) and the [design system](docs/design-system.md)
+- [Projects](docs/projects.md), [OTA updates](docs/ota.md) and the [design system](docs/design-system.md)
 
 ## Features
 
@@ -107,19 +107,16 @@ The feature guide, [docs/features.md](docs/features.md), covers each of these:
 - [Saved messages](docs/features.md#saved-messages)
 - [Attachments](docs/features.md#attachments)
 - [Roles](docs/features.md#roles)
-- [Surveys and private feedback](docs/features.md#surveys-and-private-feedback)
 - [Encryption through the tunnel](docs/features.md#encryption-through-the-tunnel)
 - [When someone leaves the team](docs/features.md#when-someone-leaves-the-team)
 - [Sessions that end](docs/features.md#sessions-that-end)
-- [Guests in meetings](docs/features.md#guests-in-meetings)
 - [Secure case workspace](docs/features.md#secure-case-workspace)
 - [Features an instance doesn't use](docs/features.md#features-an-instance-doesnt-use)
 - [A banner for everyone](docs/features.md#a-banner-for-everyone)
 - [A warning before personal information](docs/features.md#a-warning-before-personal-information)
 - [Records preservation](docs/features.md#records-preservation)
 - [Deep work](docs/features.md#deep-work)
-- [Screen sharing in calls](docs/features.md#screen-sharing-in-calls)
-- [Noise reduction and echo in calls](docs/features.md#noise-reduction-and-echo-in-calls)
+- [Voice memos](docs/features.md#voice-memos)
 
 ## Security notes
 

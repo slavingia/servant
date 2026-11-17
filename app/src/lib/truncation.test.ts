@@ -1,7 +1,7 @@
 // Nothing a person needs to read is cut off with an ellipsis (docs/design-system.md, "Type"): names, titles, labels,
 // values, statuses and options wrap. A line limit is only for a preview whose full text is one press away, a file
 // name on a tile, and the call and media screens, and each place that has one is listed here with its reason.
-// Before this there were 94 limits: people's names, project and channel names, meeting titles, to-do tags, the
+// Before this there were 94 limits: people's names, project and channel names, recording titles, to-do tags, the
 // reason an approval is needed and an owner's work email were all cut to one line.
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -18,7 +18,7 @@ const PREVIEWS: Record<string, [number, string]> = {
   "app/inbox.tsx": [2, "a case row's last message and next action; each opens its full conversation or task"],
   "app/inbox/[id].tsx": [1, "the next follow-up preview; View follow-ups opens the full task"],
   "components/Omnibar.tsx": [1, "a search result's snippet; the result opens in full"],
-  "app/saved.tsx": [2, "the source message and meeting summary under a work log entry; Open message and Open meeting show them in full"],
+  "app/saved.tsx": [2, "the source message and recording summary under a work log entry; Open message and Open recording show them in full"],
   "components/SavedTaskRow.tsx": [1, "a saved message, with a control to show all of it"],
   "components/ForwardSheet.tsx": [1, "the message being forwarded"],
   "components/AgentSteps.tsx": [1, "a step's output; the chat has it in full"],
@@ -29,10 +29,6 @@ const PREVIEWS: Record<string, [number, string]> = {
   "components/VideoMedia.tsx": [1, "a file name on a video tile"],
   "app/share.tsx": [2, "a shared link and file names on tiles"],
   "components/MediaGallery.tsx": [4, "the media viewer's dark canvas"],
-  "components/GuestInvite.tsx": [4, "the call screen"],
-  "components/CallControls.tsx": [2, "the call screen"],
-  "components/ActiveCallBar.tsx": [1, "the one-line call bar"],
-  "app/meeting/[id].tsx": [1, "the call screen"],
   "components/WebTabBar.tsx": [1, "tab labels are one short word"],
   "lib/typing.tsx": [1, "the line that says who is typing"],
 };

@@ -1,4 +1,4 @@
-// To-dos: the next steps that come out of a recorded meeting (or are typed in), kept as items the team
+// To-dos: the next steps that come out of a voice memo (or are typed in), kept as items the team
 // can edit, reorder, tag with a project and a release, hand to the agent with one tap, and watch get
 // finished. They are shared by default: a to-do tagged with a project is a team item that everyone in
 // that project sees; until it is tagged only the person who made it (and whoever it is for) sees it.
@@ -232,7 +232,7 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
   const person = id => users()[id] || null;
   // Hand-offs in flight, by to-do id: a second tap while the first is still starting the chat waits for it and gets the same chat.
   const starting = new Map();
-  const hidden = todo => ["recording", "call"].includes(todo?.source_kind) && features().meetings === false;
+  const hidden = todo => todo?.source_kind === "call";
 
   /** Can this person see this to-do? */
   function canSee(todo, user) {
@@ -281,7 +281,7 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
       const todo = st.get.get(entry.todo_id);
       const originKind = entry.origin_kind;
       const flags = features();
-      const allowed = todo && canSee(todo, user) && !(originKind && flags.meetings === false);
+      const allowed = todo && canSee(todo, user) && originKind !== "call";
       const p = allowed && todo.project_id ? project(user, todo.project_id, todo.release_id) : null;
       const c = allowed && flags.channels !== false && todo.channel_id ? channel(user.id, todo.channel_id) : null;
       return {
@@ -550,7 +550,7 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
     return view(st.get.get(todo.id), user);
   }
 
-  /** Change several at once (apply a project, release or channel to a whole meeting's list). One channel line, not many. */
+  /** Change several at once (apply a project, release or channel to a whole recording's list). One channel line, not many. */
   function bulk(...args) { return transaction(() => bulkInTransaction(...args)); }
   function bulkInTransaction(user, ids, patch = {}) {
     if (!Array.isArray(ids) || !ids.length || ids.length > 100) throw fault(400, "bad_request", "Choose some to-dos");
@@ -650,7 +650,7 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
     const run = (async () => {
       const p = todo.project_id ? project(user, todo.project_id, todo.release_id) : null;
       const brief = agentBrief({ todo: { text: todo.text, assigneeName: todo.assignee_name }, projectName: p?.projectName, releaseName: p?.releaseName,
-        source: todo.source_kind === "recording" && todo.created_by === user.id ? `the recorded meeting "${todo.source_title || "Meeting"}"` : "" });
+        source: todo.source_kind === "recording" && todo.created_by === user.id ? `the voice memo "${todo.source_title || "Voice memo"}"` : "" });
       const chat = await startWork({ userId: user.id, deviceId: device?.id, title: todo.text, where: "a to-do", transcript: brief, projectId: todo.project_id || undefined, beforeEnqueue });
       if (!linkedChatId || chat?.id !== linkedChatId) throw new Error("The agent did not link its work chat before starting");
     })();
@@ -686,7 +686,7 @@ export function createTodos({ file, db: suppliedDb, legacyFile, users, project, 
     });
   }
 
-  /** The next steps from a recorded meeting become to-dos for the person who recorded it. Once only. */
+  /** The next steps from a voice memo become to-dos for the person who recorded it. Once only. */
   function fromRecording(user, recordingId, title, steps) {
     return transaction(() => {
       if (st.recordingImported.get(recordingId)) return [];

@@ -42,7 +42,7 @@ test('only Developer ID builds install updates in place', () => {
   assert.equal(updateMode('AB12CD34EF'), 'install');
   assert.equal(updateMode(null), 'notify');
 });
-test('the window may use the camera, microphone and a shared screen for meetings but nothing else', () => {
+test('the window may use the microphone and shared computer audio for voice memos but nothing else', () => {
   assert.equal(allowedPermission('clipboard-sanitized-write'), true);
   assert.equal(allowedPermission('display-capture', {}), true);
   assert.equal(allowedPermission('media', { mediaTypes: ['audio', 'video'] }), true);

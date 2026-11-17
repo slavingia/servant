@@ -31,7 +31,6 @@ could not be saved"). People see no difference otherwise: an edited message show
 | An agent turn **ends** | the full approval record (what the agent asked to run, and the person's allow or deny decision) and the names, types and sizes of what was attached, which used to be blanked |
 | A **personal recording** is deleted | hidden from the person, but the audio, transcript and notes stay |
 | A **to-do** is edited, deleted, or removed with its recording | its full earlier row (type, priority, estimate, description and epic included; for a deleted to-do, its comments too) is copied into `records_archive` in `messages.db`, in the same transaction as the to-do change; archive failure refuses the change |
-| A **meeting's audio** and `keepRecordings: false` | the audio is kept anyway; this switch wins over the storage-saving one |
 | A **project file or project** is deleted | moved into `project-files/.removed/`, out of view and out of every listing |
 | A **wiki page** is edited or deleted | its title and Markdown text as they were, who last wrote them, who changed or deleted the page, when. Moving a page under another changes neither, so it archives nothing |
 
@@ -47,7 +46,7 @@ These originals and activity records are kept in the live inbox database, separa
 
 Saved-task work notes and original completion times stay in `saved_message_completions` in `messages.db`. Reopening records a separate time; removing a saved reference or deleting its source message leaves this work log intact. SQL triggers reject rewriting the authored notes or original times and reject deleting completion entries. This applies with preservation on or off. Because there is no path to edit or delete the notes, their original content stays in the live database rather than being copied into `records_archive`. Backups of `messages.db` include both. The personal **Work log → Copy to clipboard** action exports only that person's selected completion history and currently accessible source information.
 
-To-do completion events also stay in `messages.db`: their original times, participants and actor kind cannot be rewritten or deleted, and a reopening adds its own time. They remain after the current to-do is removed. Call attendance and ended-call events are immutable in `meetings/meetings.db`; uploaded-recording events are immutable in `recordings/recordings.db`. Include these databases in backups. These events store identity and timing metadata, not copies of transcripts or source content. Work-log reads recheck current access; removed sources become unavailable. Disabling meetings hides meeting entries and meeting-derived to-do details without erasing them. This personal clipboard export is separate from the records archive export below.
+To-do completion events also stay in `messages.db`: their original times, participants and actor kind cannot be rewritten or deleted, and a reopening adds its own time. They remain after the current to-do is removed. Uploaded-recording events are immutable in `recordings/recordings.db`. Include this database in backups. These events store identity and timing metadata, not copies of transcripts or source content. Work-log reads recheck current access; removed sources become unavailable. This personal clipboard export is separate from the records archive export below.
 
 ```sh
 node server.mjs records status          # on or off, how many entries by kind, whether the chain is intact
@@ -81,8 +80,8 @@ Read this part before relying on it.
 - **Agent chats with no mirrored copy.** If the agent's history never returned a message to Servant, only the upstream transcript
   holds it.
 - **Three paths still reduce content and are not archived**, because they change what is *stored* rather than what a person
-  *deleted*: posts and edits are cut to 8,000 characters, meeting notes and transcripts are condensed by design, and the agent's
-  progress steps keep the last 40. Raw meeting audio is kept (see above), so the full content survives there.
+  *deleted*: posts and edits are cut to 8,000 characters, recording notes are condensed by design, and the agent's
+  progress steps keep the last 40. Raw recording audio is kept (see above), so the full content survives there.
 - **Not tested with a real records system, and not reviewed by a records officer or counsel.** Treat the claims in this file as
   engineering statements about the code.
 

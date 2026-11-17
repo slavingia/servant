@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createPushTransport } from './push-transport.mjs';
 
-test('APNs sends alerts and calls using the configured app topic and signed credentials', async t => {
+test('APNs sends alerts using the configured app topic and signed credentials', async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'servant-push-transport-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const { privateKey, publicKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
@@ -45,33 +45,24 @@ test('APNs sends alerts and calls using the configured app topic and signed cred
   for (const topic of [undefined, 'com.example.servant', 'com.example.other']) {
     const config = { apnsKeyPath: keyPath, apnsKeyId: 'fixture-key', apnsTeamId: 'fixture-team', ...(topic ? { apnsTopic: topic } : {}) };
     const send = createPushTransport(() => config);
-    for (const voip of [false, true]) {
-      const result = await send({ platform: voip ? 'ios-voip' : 'ios', token: 'a'.repeat(64), environment: voip ? 'development' : 'production' }, {
-        title: 'A message', body: 'Hello', data: { conversationId: 'ch_test' },
-        call: { meetingId: 'meet_test', caller: 'A friend', place: 'Test room' },
-      });
-      assert.equal(result.ok, true);
-      const request = sent.at(-1);
-      assert.equal(request.host, voip ? 'https://api.sandbox.push.apple.com' : 'https://api.push.apple.com');
-      assert.equal(request.headers[':method'], 'POST');
-      assert.equal(request.headers[':path'], '/3/device/' + 'a'.repeat(64));
-      assert.equal(request.headers['apns-topic'], (topic || 'com.example.servant') + (voip ? '.voip' : ''));
-      assert.equal(request.headers['apns-push-type'], voip ? 'voip' : 'alert');
-      if (voip) {
-        assert.equal(request.body.meetingId, 'meet_test');
-        assert.equal(request.body.aps, undefined);
-        assert.equal(request.headers['apns-collapse-id'], undefined);
-      } else {
-        assert.equal(request.body.aps.alert.body, 'Hello');
-        assert.equal(request.body.body.conversationId, 'ch_test');
-        assert.ok(request.headers['apns-collapse-id']);
-      }
-      const [header, payload, signature] = request.headers.authorization.replace(/^bearer /, '').split('.');
-      assert.deepEqual(JSON.parse(Buffer.from(header, 'base64url')), { alg: 'ES256', kid: 'fixture-key' });
-      assert.equal(JSON.parse(Buffer.from(payload, 'base64url')).iss, 'fixture-team');
-      assert.ok(crypto.verify('sha256', Buffer.from(header + '.' + payload), { key: publicKey, dsaEncoding: 'ieee-p1363' }, Buffer.from(signature, 'base64url')));
-      assert.equal(request.destroyed, true);
-    }
+    const result = await send({ platform: 'ios', token: 'a'.repeat(64), environment: 'production' }, {
+      title: 'A message', body: 'Hello', data: { conversationId: 'ch_test' },
+    });
+    assert.equal(result.ok, true);
+    const request = sent.at(-1);
+    assert.equal(request.host, 'https://api.push.apple.com');
+    assert.equal(request.headers[':method'], 'POST');
+    assert.equal(request.headers[':path'], '/3/device/' + 'a'.repeat(64));
+    assert.equal(request.headers['apns-topic'], topic || 'com.example.servant');
+    assert.equal(request.headers['apns-push-type'], 'alert');
+    assert.equal(request.body.aps.alert.body, 'Hello');
+    assert.equal(request.body.body.conversationId, 'ch_test');
+    assert.ok(request.headers['apns-collapse-id']);
+    const [header, payload, signature] = request.headers.authorization.replace(/^bearer /, '').split('.');
+    assert.deepEqual(JSON.parse(Buffer.from(header, 'base64url')), { alg: 'ES256', kid: 'fixture-key' });
+    assert.equal(JSON.parse(Buffer.from(payload, 'base64url')).iss, 'fixture-team');
+    assert.ok(crypto.verify('sha256', Buffer.from(header + '.' + payload), { key: publicKey, dsaEncoding: 'ieee-p1363' }, Buffer.from(signature, 'base64url')));
+    assert.equal(request.destroyed, true);
   }
-  assert.equal(sent.length, 6);
+  assert.equal(sent.length, 3);
 });

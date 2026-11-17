@@ -246,7 +246,7 @@ export default function ShareScreen() {
 
 const TILE = 104;
 const kindWord = (file: SharedFile) => file.kind === "image" ? "Photo" : file.kind === "video" ? "Video" : file.kind === "audio" ? "Audio file" : "File";
-const kindIcon = (file: SharedFile): AppIconName => file.kind === "image" ? "image" : file.kind === "video" ? "meetings" : file.kind === "audio" ? "speaker" : "paperclip";
+const kindIcon = (file: SharedFile): AppIconName => file.kind === "image" ? "image" : file.kind === "video" ? "image" : file.kind === "audio" ? "speaker" : "paperclip";
 
 // Thumbnails for photos and videos, cards for everything else, a card for a link. A file that can't go
 // (share-payload.ts fileProblem) is always a card: a red edge, the warning sign and the reason in words,
