@@ -170,14 +170,14 @@ function ForwardedPost({ text }: { text: string }) {
   const styles = useStyles();
   const parsed = parseForward(text);
   // A person's own words are formatted as they typed them: *bold*, _italics_, `code`, quotes and lists.
-  if (!parsed) return <MessageText chat text={text} />;
+  if (!parsed) return <MessageText chat inMenuBubble text={text} />;
   const where = [parsed.forward.where, parsed.forward.when].filter(Boolean).join(" · ");
   return <>
     <View accessible accessibilityLabel={`Forwarded message from ${parsed.forward.author}, ${where}. ${parsed.forward.quote || "No text"}`} style={styles.forwardCard}>
       <Text style={styles.forwardLabel}>Forwarded from {parsed.forward.author}<Text style={styles.forwardWhere}> · {where}</Text></Text>
       {parsed.forward.quote ? <Text selectable={Platform.OS === "web"} style={styles.body}>{parsed.forward.quote}</Text> : null}
     </View>
-    {parsed.rest ? <MessageText chat text={parsed.rest} /> : null}
+    {parsed.rest ? <MessageText chat inMenuBubble text={parsed.rest} /> : null}
   </>;
 }
 
@@ -330,7 +330,7 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
         ) : working || (post.pending && !post.text && !post.attachments?.length) ? (
           <Text style={styles.deleted}>Working…</Text>
         ) : post.text ? (
-          post.user.agent ? <MessageText text={post.text} /> : <ForwardedPost text={post.text} />
+          post.user.agent ? <MessageText inMenuBubble text={post.text} /> : <ForwardedPost text={post.text} />
         ) : null}
         {!post.deleted ? tweetIds(post.text).map(id => <TweetEmbed key={id} id={id} />) : null}
         {!post.deleted ? mediaEmbeds(post.text).map(embed => <MediaEmbed key={embed.key} embed={embed} />) : null}

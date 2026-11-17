@@ -303,10 +303,10 @@ function PreviewPane({ url, version, stacked, onSave }: { url: string; version: 
 function ReplyText({ text, failed }: { text: string; failed?: boolean }) {
   const styles = useStyles();
   const match = text.match(/(?:^|\n)PREVIEW:\s*(https?:\/\/\S+)\s*$/);
-  if (!match) return <MessageText text={text} failed={failed} />;
+  if (!match) return <MessageText inMenuBubble text={text} failed={failed} />;
   const body = text.slice(0, match.index).trimEnd();
   return <View>
-    {body ? <MessageText text={body} failed={failed} /> : null}
+    {body ? <MessageText inMenuBubble text={body} failed={failed} /> : null}
     {canSplitPreview ? null : <Button label="Open preview" compact onPress={() => openPreview(match[1]!)} style={styles.previewInline} />}
   </View>;
 }
@@ -1193,10 +1193,10 @@ function MessageActions({ item, author, chatId, canForward, onForward, label, st
 function ForwardedText({ item }: { item: Row }) {
   const styles = useStyles();
   const parsed = item.forwardPreview ? { forward: item.forwardPreview, rest: item.text } : parseForward(item.text);
-  if (!parsed) return item.text ? <Text selectable style={[styles.text, item.failed && styles.failedText]}>{item.text}</Text> : null;
+  if (!parsed) return item.text ? <Text selectable={Platform.OS === "web"} style={[styles.text, item.failed && styles.failedText]}>{item.text}</Text> : null;
   return <>
     <ForwardBlock card={parsed.forward} />
-    {parsed.rest ? <Text selectable style={[styles.text, item.failed && styles.failedText]}>{parsed.rest}</Text> : null}
+    {parsed.rest ? <Text selectable={Platform.OS === "web"} style={[styles.text, item.failed && styles.failedText]}>{parsed.rest}</Text> : null}
   </>;
 }
 
@@ -1205,7 +1205,7 @@ function ForwardBlock({ card, files = 0, lines }: { card: ForwardCard; files?: n
   const where = [card.where, card.when].filter(Boolean).join(" · ");
   return <View accessible accessibilityLabel={`Forwarded message from ${card.author}${where ? `, ${where}` : ""}. ${card.quote || "No text"}`} style={styles.forward}>
     <Text style={styles.forwardLabel}>Forwarded from {card.author}{where ? <Text style={styles.forwardWhere}> · {where}</Text> : null}</Text>
-    {card.quote ? <Text selectable={!lines} numberOfLines={lines} style={styles.forwardQuote}>{card.quote}</Text> : null}
+    {card.quote ? <Text selectable={!lines && Platform.OS === "web"} numberOfLines={lines} style={styles.forwardQuote}>{card.quote}</Text> : null}
     {files ? <Text style={styles.forwardWhere}>{files === 1 ? "1 attachment" : `${files} attachments`}</Text> : null}
   </View>;
 }
