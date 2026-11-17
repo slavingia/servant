@@ -10,6 +10,7 @@ In the prototyping chat, open **•••** and choose **Share with a business o
 - The sheet lists everyone it was shared with, whether they have opened it, and what they said. **End** stops one person's link.
 - Sending again to the same address makes a fresh link and ends the old one.
 - Each comment becomes a to-do of yours ("Comment on Refund tracker: This should say Pay in full"), with who said it, where on which page, and a link to that page. From To-dos you can hand it to the agent like any other. You also get an alert that opens To-dos.
+- In the chat's own preview, a link in the bar ("2 comments") puts a numbered pin where each comment was made; pressing a pin shows what was said and by whom.
 - Only the person whose chat it is can share, list or end. Deleting the chat ends every link for it.
 
 It needs the server to have a public address (`publicUrl`) and a mailer (`emailVerification.mailer.command`, the same one sign-in codes use); without either the sheet says which is missing.

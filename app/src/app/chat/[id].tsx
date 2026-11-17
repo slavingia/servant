@@ -1,5 +1,6 @@
 import { Radio } from "../../components/Radio";
 import { PrototypeReviewSheet } from "../../components/PrototypeReviewSheet";
+import { commentBy, commentCount, numberedComments, pageOf, pinsOn, type PinnedComment } from "../../lib/prototype-reviews";
 import { FlashList } from "@shopify/flash-list";
 import { RECYCLING_CONVERSATION_LIST, listOrder } from "../../lib/conversation-list";
 import { createElement, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -259,14 +260,19 @@ export const canSplitPreview = Platform.OS === "web" || !!NativeWebView;
 
 // Edit mode: the page gets a small editor (tap text to change it; color, size, spacing; undo; save). The page is
 // sandboxed, so it hands its changes (words before and after, styles per element) to us and we save it through the signed-in API.
-export const editUrl = (url: string, version: number, editing: boolean) => `${url}${url.includes("?") ? "&" : "?"}v=${version}${editing ? "&edit=1" : ""}`;
+export const editUrl = (url: string, version: number, editing: boolean, reviewing = false) => `${url}${url.includes("?") ? "&" : "?"}v=${version}${editing ? "&edit=1" : reviewing ? "&review=1" : ""}`;
 
-function PreviewPane({ url, version, stacked, onSave }: { url: string; version: number; stacked: boolean; onSave?: (path: string, changes: PrototypeChanges) => Promise<{ missed?: string[] }> }) {
+function PreviewPane({ url, version, stacked, onSave, comments = [] }: { /** What business owners said about this prototype, numbered (prototype-reviews.ts). */ comments?: PinnedComment[]; url: string; version: number; stacked: boolean; onSave?: (path: string, changes: PrototypeChanges) => Promise<{ missed?: string[] }> }) {
   const styles = useStyles();
   const [editing, setEditing] = useState(false);
+  // Comments: the prototype shows a numbered pin where each was made; pressing one shows what was said.
+  const [reviewing, setReviewing] = useState(false);
+  const [picked, setPicked] = useState<string | null>(null);
+  const shown = reviewing && !editing && comments.length > 0;
+  const chosen = shown ? comments.find(c => c.id === picked) ?? null : null;
   // A state ref (not useRef): the frame is set once it mounts and read only in handlers.
   const [frame, setFrame] = useState<any>(null);
-  const src = editUrl(url, version, editing);
+  const src = editUrl(url, version, editing, shown);
   const reply = useCallback((result: { ok: boolean; message?: string; missed?: string[] }) => {
     const msg = { servant: "prototype-saved", ...result };
     if (Platform.OS === "web") frame?.contentWindow?.postMessage(JSON.stringify(msg), "*");
@@ -275,18 +281,31 @@ function PreviewPane({ url, version, stacked, onSave }: { url: string; version: 
   const handle = useCallback((raw: unknown) => {
     let d: any = raw;
     try { d = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { return; }
+    if (d && d.servant === "prototype-review") {
+      // The page in the frame says it is ready (draw its pins) or that a pin was pressed (show that comment).
+      if (d.type === "pin" && typeof d.id === "string") setPicked(d.id);
+      if (d.type === "ready") {
+        const msg = JSON.stringify({ servant: "prototype-pins", pins: pinsOn(comments, pageOf(String(d.page || ""))) });
+        if (Platform.OS === "web") frame?.contentWindow?.postMessage(msg, "*");
+        else frame?.injectJavaScript(`window.postMessage(${JSON.stringify(msg)}, "*"); true;`);
+      }
+      return;
+    }
     if (!d || d.servant !== "prototype-save" || !onSave) return;
     onSave(String(d.path || ""), { edits: Array.isArray(d.edits) ? d.edits : [], styles: Array.isArray(d.styles) ? d.styles : [] }).then((r) => reply({ ok: true, missed: r.missed }), (e) => reply({ ok: false, message: e instanceof ServerError ? e.message : "Couldn't save. Try again" }));
-  }, [onSave, reply]);
+  }, [onSave, reply, comments, frame]);
   useEffect(() => {
-    if (Platform.OS !== "web" || !editing) return;
+    if (Platform.OS !== "web" || (!editing && !shown)) return;
     const listen = (e: MessageEvent) => { if (e.source && e.source === frame?.contentWindow) handle(e.data); };
     window.addEventListener("message", listen);
     return () => window.removeEventListener("message", listen);
-  }, [editing, handle, frame]);
+  }, [editing, shown, handle, frame]);
   return <View testID="preview-pane" style={[styles.previewPane, stacked && styles.previewPaneStacked]}>
     <View style={styles.previewBar}>
       <Text accessibilityRole="header" style={[styles.turnLabel, styles.turnCopy]}>{editing ? "Editing" : "Preview"}</Text>
+      {comments.length && !editing ? <Pressable testID="preview-comments" accessibilityRole="button" accessibilityState={{ selected: shown }} aria-pressed={shown} accessibilityLabel={shown ? "Hide comments" : `Show ${commentCount(comments.length)} on the prototype`} onPress={() => { setReviewing(v => !v); setPicked(null); }} style={styles.previewBarLink}>
+        <Text style={styles.headerLinkText}>{shown ? "Hide comments" : commentCount(comments.length)}</Text>
+      </Pressable> : null}
       {onSave ? <Pressable testID="edit-preview" accessibilityRole="button" accessibilityLabel={editing ? "Done editing" : "Edit the words and styles"} onPress={() => setEditing(e => !e)} style={styles.previewBarLink}>
         <Text style={styles.headerLinkText}>{editing ? "Done" : "Edit"}</Text>
       </Pressable> : null}
@@ -294,6 +313,11 @@ function PreviewPane({ url, version, stacked, onSave }: { url: string; version: 
         <Text style={styles.headerLinkText}>{Platform.OS === "web" ? "Open" : "Full screen"}</Text>
       </Pressable>
     </View>
+    {chosen ? <View testID="preview-comment" accessibilityLiveRegion="polite" style={styles.previewComment}>
+      <Text style={styles.turnLabel}>{`Comment ${chosen.n}`}</Text>
+      <Text style={styles.previewCommentText}>{chosen.text}</Text>
+      <Text style={styles.turnDetail}>{commentBy(chosen)}</Text>
+    </View> : shown ? <Text style={[styles.turnDetail, styles.previewComment]}>Press a numbered pin to read the comment.</Text> : null}
     {Platform.OS !== "web" ? <NativeWebView ref={setFrame} key={src} source={{ uri: src }} style={{ flex: 1, backgroundColor: "#FFFFFF" }} startInLoadingState setSupportMultipleWindows={false} onMessage={(e: { nativeEvent: { data: string } }) => handle(e.nativeEvent.data)} />
     : createElement("iframe", { ref: setFrame, key: src, src, title: "Preview", style: { flex: 1, width: "100%", height: "100%", border: 0, backgroundColor: "#FFFFFF" }, sandbox: "allow-scripts allow-same-origin allow-forms allow-popups" })}
   </View>;
@@ -955,6 +979,15 @@ function ChatConversation({ account }: { account: Account }) {
   // A finished reply's steps, fetched when its summary is opened.
   // The preview is always shown once there is something to see (the agent has replied).
   const previewOpen = !!previewUrl && canSplitPreview && (messages ?? []).some(m => m.role === "assistant" && !m.pending);
+  // What business owners said about this prototype, for pins in the preview. Read when the preview opens and again
+  // after the share sheet closes; a chat that isn't yours, or has no prototype on this server, simply has none.
+  const [reviewComments, setReviewComments] = useState<PinnedComment[]>([]);
+  useEffect(() => {
+    if (!previewOpen || readOnly || reviewing) return;
+    let live = true;
+    api.prototypeShares(account, String(id)).then(r => { if (live) setReviewComments(numberedComments(r.shares)); }, () => { if (live) setReviewComments([]); });
+    return () => { live = false; };
+  }, [previewOpen, readOnly, reviewing, account, id]);
   const savePrototype = (path: string, changes: PrototypeChanges) => api.savePrototype(account, String(id), path, changes);
   const loadSteps = useStableCallback((turnId: string) => api.agentTurn(account, String(id), turnId).then(found => found?.steps ?? []));
   const headerLinks: HeaderLink[] = [
@@ -1129,7 +1162,7 @@ function ChatConversation({ account }: { account: Account }) {
           holdToQueue={busy || activeAgentTurn(turn)} onStop={stoppable ? () => { void stop(); } : undefined} /> : null}
       </ConversationKeyboardView>
       </View>
-      {previewOpen && previewUrl && canSplitPreview ? <PreviewPane url={previewUrl} version={0} stacked={stacked} onSave={savePrototype} /> : null}
+      {previewOpen && previewUrl && canSplitPreview ? <PreviewPane url={previewUrl} version={0} stacked={stacked} onSave={savePrototype} comments={reviewComments} /> : null}
       </View>
     </View>
     </MediaGalleryProvider>
@@ -1343,6 +1376,8 @@ const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create
   previewBar: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingLeft: space.side, paddingRight: space.side + space.xxs, minHeight: 44, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   // Text sits on the bar's right padding, in line with the header and message menus; the tap target stays 44.
   previewBarLink: { minHeight: 44, minWidth: 44, alignItems: "flex-end", justifyContent: "center" },
+  previewComment: { paddingHorizontal: space.md, paddingVertical: space.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line, backgroundColor: colors.background },
+  previewCommentText: { ...typography.body, color: colors.ink },
   headerLinkText: { ...typography.label, color: colors.blue, ...linkUnderline },
   shareError: { ...typography.meta, color: colors.red, marginTop: space.xxs },
   message: { flexDirection: "row", paddingHorizontal: space.side, paddingVertical: space.sm, gap: 10 },
