@@ -27,6 +27,7 @@ import { validateAttachmentSelection } from "../lib/media";
 import { getDraft, loadDrafts, setDraft } from "../lib/drafts";
 import { shouldEditLastMessage } from "../lib/edit-last-message";
 import { Attachments, DraftAttachments, attachmentsFromFiles, pickAttachments, pickDocuments, type DraftAttachment } from "./Attachments";
+import { SendBall } from "./SendBall";
 import { AppIcon } from "./AppIcon";
 import { SaveMessageAction } from "./SaveMessageAction";
 import { useContextMenu, type ContextMenuItem } from "./ContextMenu";
@@ -883,9 +884,11 @@ export function Composer({
             accessibilityHint={canStop ? "Stops the reply in progress. What it wrote so far stays" : holdHint ? "Adds it to the reply in progress. Touch and hold to send it after that reply instead" : undefined}
             accessibilityState={{ disabled: off && !canStop, busy }} onPressIn={sendOnPressIn} onPressOut={sendOnPressOut} onPress={sendOnPress} onLongPress={holdToQueue ? sendOnLongPress : undefined} delayLongPress={400}
             accessibilityActions={holdHint ? [{ name: "longpress", label: "Send after the current reply" }] : undefined} onAccessibilityAction={event => { if (event.nativeEvent.actionName === "longpress" && ready()) void send("queue"); }}
-            disabled={busy || picking} style={({ pressed }) => [styles.send, off && !canStop && styles.sendDisabled, pressed && (!off || canStop) && { backgroundColor: colors.primaryPressed }]}>
-            {busy ? <ActivityIndicator size="small" color={colors.muted} /> : canStop ? <View style={styles.stopMark} />
-              : sendLabel === "Send" ? <AppIcon name="send" size={19} color={off ? colors.muted : colors.onPrimary} /> : <Text style={[styles.sendText, off && { color: colors.muted }]}>{sendLabel}</Text>}
+            disabled={busy || picking} style={({ pressed }) => sendLabel === "Send" || canStop || busy ? styles.sendTarget : [styles.send, off && !canStop && styles.sendDisabled, pressed && (!off || canStop) && { backgroundColor: colors.primaryPressed }]}>
+            {({ pressed }) => sendLabel === "Send" || canStop || busy
+              ? busy ? <ActivityIndicator size="small" color={colors.muted} />
+                : <SendBall mark={canStop ? "stop" : "send"} off={off && !canStop} pressed={pressed} offFill={colors.subtle} offInk={colors.muted} />
+              : <Text style={[styles.sendText, off && { color: colors.muted }]}>{sendLabel}</Text>}
           </Pressable>
         </View>
       </View>
@@ -1029,9 +1032,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   // One step of alpha is invisible and not zero.
   inputOverlay: { color: "#00000001", backgroundColor: "transparent", ...(Platform.OS === "web" ? { caretColor: colors.ink, outlineStyle: "none" } as object : {}) },
   send: { minHeight: 44, minWidth: 44, paddingHorizontal: space.sm, borderRadius: radius.sm, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  sendTarget: { minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center" },
   sendDisabled: { backgroundColor: colors.subtle },
-  // A solid square: stop. Drawn, not the outlined icon, so it can't be read as an empty box.
-  stopMark: { width: 12, height: 12, backgroundColor: colors.onPrimary },
   sendText: { ...typography.label, color: colors.onPrimary },
   cancel: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.xs },
   cancelText: { ...typography.label, color: colors.blue, ...linkUnderline },
