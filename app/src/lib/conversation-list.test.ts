@@ -36,7 +36,7 @@ test("both lists agree on which message is older and which is newest", () => {
 test("a browser gets the recycling list and a phone keeps the list it had", () => {
   assert.match(source, /export const RECYCLING_CONVERSATION_LIST = Platform\.OS === "web";/);
   const screen = read("../app/c/[id].tsx");
-  assert.match(screen, /RECYCLING_CONVERSATION_LIST \? \(\n\s+<FlashList/);
+  assert.match(screen, /RECYCLING_CONVERSATION_LIST \? \(\n(?:\s+\/\/.*\n)*\s+<Activity mode=\{focused \? "visible" : "hidden"\}>\n\s+<FlashList/);
   assert.match(screen, /\) : \(\n\s+<FlatList\n\s+\{\.\.\.readTracking\}\n\s+inverted/, "the phone's list is as it was");
   assert.equal(screen.match(/\{\.\.\.readTracking\}/g)?.length, 2, "both lists report what was read");
   assert.match(screen, /onStartReached=\{onEndReached\}/, "older messages load when the top comes near");
@@ -45,6 +45,17 @@ test("a browser gets the recycling list and a phone keeps the list it had", () =
   assert.match(screen, /<View key=\{item\.id\}>/, "a row's own state never moves to another message when its place is reused");
   assert.match(screen, /olderNeighbour\(data, index, RECYCLING_CONVERSATION_LIST\)/);
   assert.match(screen, /isNewest\(data\.length, index, RECYCLING_CONVERSATION_LIST\)/);
+});
+
+// Under a thread, Details or Files the page gives the channel no size. Measured at nothing, the recycling
+// list forgot its rows' heights and drew twice as many: back in the channel the same scroll position showed
+// messages a thousand points from the ones being read. Set aside (React's Activity) it is not measured while
+// covered, keeps its rows and its place, and is picked up as it was.
+test("a channel under another screen keeps its place: the recycling list is set aside, not measured at nothing", () => {
+  const screen = read("../app/c/[id].tsx");
+  assert.match(screen, /import \{ Activity, [^}]*\} from "react";/);
+  assert.match(screen, /const focused = useIsFocused\(\);/);
+  assert.match(screen, /<Activity mode=\{focused \? "visible" : "hidden"\}>\n\s+<FlashList\n[\s\S]*?\/>\n\s+<\/Activity>\n\s+\) : \(\n\s+<FlatList/, "only the browser's list; the phone's is as it was");
 });
 
 test("the compiler that saves re-renders is on, and the gesture and animation libraries are the app's own dependencies", () => {

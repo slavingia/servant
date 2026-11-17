@@ -1,7 +1,7 @@
 import { FlashList } from "@shopify/flash-list";
 import { RECYCLING_CONVERSATION_LIST, isNewest, listOrder, olderNeighbour } from "../../lib/conversation-list";
 import { showsInConversation, threadOf } from "../../lib/also-in-channel";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Activity, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppState, FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Redirect, router, Stack, useIsFocused, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -527,6 +527,11 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
         {posts === null ? (
           <ServeLoader style={{ flex: 1 }} />
         ) : RECYCLING_CONVERSATION_LIST ? (
+          // Under another screen (a thread, Details, Files) the page gives this list no size at all, and a
+          // recycling list measured at nothing forgets the heights it knew: coming back, the same scroll
+          // position showed messages a thousand points away from the ones that were being read. Set aside
+          // while the screen is covered, it is not measured, and it is picked up again exactly as it was.
+          <Activity mode={focused ? "visible" : "hidden"}>
           <FlashList
             {...readTracking}
             data={data as Post[]}
@@ -543,6 +548,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
             contentContainerStyle={styles.list}
             ListHeaderComponent={intro}
           />
+          </Activity>
         ) : (
           <FlatList
             {...readTracking}
