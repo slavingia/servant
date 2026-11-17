@@ -20,7 +20,7 @@ From an MCP tool: call `request_code` with `label` (and optionally `hint` and `t
 - **It never travels in a push.** The alert names the device and what the code is for; the code goes from your phone to the server over the app's encrypted connection, and from the server to the automation the same way.
 - **Only you.** A request belongs to the person whose device made it. Nobody else sees it, can answer it, or is alerted.
 - **Only the device that asked, and only once.** Other devices of yours can answer but not pick up. The asking device cannot answer its own request. After pickup the code is gone.
-- **Memory only.** Codes are never written to disk or logs, and a server restart forgets every request. Answers are never sent back to the phone.
+- **Memory only.** Codes are never written to disk or logs, and a server restart forgets every request. Answers are never sent back to the phone. The alert itself (device name, what the code is for and when the request expires, never the code) waits in the push queue on disk like any other notification, because a separate worker process sends alerts; an alert for a request that has expired is not sent.
 - **Short-lived.** Requests last ten minutes by default and fifteen at most; finished ones are forgotten a minute after they expire. A person can have five waiting at a time.
 - Removing a person drops their requests.
 

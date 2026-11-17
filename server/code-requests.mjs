@@ -58,6 +58,8 @@ export function createCodeRequests({ clock = Date.now } = {}) {
     list(user) { sweep(); return [...requests.values()].filter(r => r.userId === user.id && r.status === 'pending').sort((a, b) => a.createdAt - b.createdAt).map(view); },
     get(id, user) { return view(find(id, user)); },
     pending(id, userId) { sweep(); const r = requests.get(id); return r && r.userId === userId && r.status === 'pending' ? view(r) : null; },
+    // Whether this process holds the request at all. The worker that delivers alerts is a separate process and never does.
+    known(id) { sweep(); return requests.has(id); },
     // From the person's phone (any of their devices but the one that asked).
     answer(id, user, device, value) {
       const r = find(id, user);
