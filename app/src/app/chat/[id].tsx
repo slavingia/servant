@@ -2,7 +2,7 @@ import { Radio } from "../../components/Radio";
 import { FlashList } from "@shopify/flash-list";
 import { RECYCLING_CONVERSATION_LIST, listOrder } from "../../lib/conversation-list";
 import { createElement, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, AppState, FlatList, Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, AppState, FlatList, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { randomUUID } from "expo-crypto";
@@ -52,6 +52,7 @@ import * as Clipboard from "expo-clipboard";
 import { headerTitleType, radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../../lib/theme";
 import { useWideLayout } from "../../lib/layout";
 import { Toggle } from "../../components/Toggle";
+import { SelectableText } from "../../components/SelectableText";
 
 const rowKey = (row: { id: string }) => row.id;
 
@@ -1150,10 +1151,11 @@ function MessageActions({ item, author, chatId, canForward, onForward, label, st
   const styles = useStyles();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [selecting, setSelecting] = useState(false);
   const text = (item.role === "user" ? parseForward(item.text)?.rest ?? item.text : item.text) || "";
   const forwardable = canForward && /^msg_/.test(item.id) && (!!item.text || !!item.attachments?.length);
   const available = forwardable || !!text;
-  const show = () => { if (available) { setCopied(null); setOpen(true); } };
+  const show = () => { if (available) { setCopied(null); setSelecting(false); setOpen(true); } };
   const forward = () => { setOpen(false); onForward({ chatId, messageId: item.id, author, text: text.replace(/\n?PREVIEW:\s*https?:\/\/\S+\s*$/, ""), files: item.attachments?.length ?? 0 }); };
   const copy = async () => {
     try { setCopied(await Clipboard.setStringAsync(text) ? "Copied" : "Couldn't copy"); } catch { setCopied("Couldn't copy"); }
@@ -1171,9 +1173,16 @@ function MessageActions({ item, author, chatId, canForward, onForward, label, st
         <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel="Dismiss message actions" onPress={() => setOpen(false)} />
         <View accessibilityViewIsModal style={styles.menuCard}>
           <Text style={styles.menuAuthor}>{author}</Text>
-          {forwardable ? <Pressable testID="message-forward" accessibilityRole="button" onPress={forward} style={styles.menuAction}><Text style={styles.menuActionText}>Forward</Text></Pressable> : null}
-          {text ? <Pressable testID="message-copy" accessibilityRole="button" onPress={() => { void copy(); }} style={styles.menuAction}><Text style={styles.menuActionText}>Copy</Text></Pressable> : null}
-          {copied ? <Text accessibilityRole="alert" style={styles.menuStatus}>{copied}</Text> : null}
+          {selecting ? <ScrollView style={styles.selectScroll}>
+            <SelectableText testID="message-selectable-text" style={styles.selectableText}>{text}</SelectableText>
+          </ScrollView> : <>
+            {forwardable ? <Pressable testID="message-forward" accessibilityRole="button" onPress={forward} style={styles.menuAction}><Text style={styles.menuActionText}>Forward</Text></Pressable> : null}
+            {text ? <Pressable testID="message-copy" accessibilityRole="button" onPress={() => { void copy(); }} style={styles.menuAction}><Text style={styles.menuActionText}>Copy</Text></Pressable> : null}
+            {copied ? <Text accessibilityRole="alert" style={styles.menuStatus}>{copied}</Text> : null}
+          </>}
+          {text && Platform.OS !== "web" ? <Pressable testID="message-select-text" accessibilityRole="button" onPress={() => setSelecting(!selecting)} style={styles.menuAction}>
+            <Text style={styles.menuActionText}>{selecting ? "Back to message actions" : "Select text"}</Text>
+          </Pressable> : null}
         </View>
       </View>
     </Modal> : null}
@@ -1212,6 +1221,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   menuAction: { minHeight: 48, paddingVertical: space.sm, justifyContent: "center", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   menuActionText: { ...typography.body, color: colors.blue },
   menuStatus: { ...typography.caption, color: colors.muted, marginTop: space.xs },
+  selectScroll: { maxHeight: 360, marginTop: space.xs },
+  selectableText: { ...typography.body, color: colors.ink, marginBottom: space.md },
   forward: { borderLeftWidth: 3, borderLeftColor: colors.blue, paddingLeft: space.sm, paddingVertical: 2, marginTop: 2, marginBottom: space.xxs, gap: 2 },
   forwardLabel: { ...typography.captionStrong, color: colors.ink },
   forwardWhere: { ...typography.meta, fontWeight: "400", color: colors.muted },

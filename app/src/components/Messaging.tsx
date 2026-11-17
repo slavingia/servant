@@ -39,6 +39,7 @@ import { replyContext } from "../lib/also-in-channel";
 import { tweetIds } from "../lib/tweet-embed";
 import { conversationPreview } from "../lib/conversation-preview";
 import { parseForward } from "../lib/forward";
+import { SelectableText } from "./SelectableText";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
 import { openNewChat } from "../lib/new-chat";
 
@@ -389,7 +390,9 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
               <Pressable testID="message-select-text" accessibilityRole="button" onPress={() => setSelecting(!selecting)} style={styles.menuAction}>
                 <Text style={styles.menuActionText}>{selecting ? "Back to message actions" : "Select text"}</Text>
               </Pressable>
-              <Text key={selecting ? "full-text" : "preview"} testID="message-selectable-text" selectable={selecting} numberOfLines={selecting ? undefined : 4} style={styles.menuPreview}>{post.text}</Text>
+              {selecting
+                ? <SelectableText key="full-text" testID="message-selectable-text" style={styles.selectableText}>{post.text}</SelectableText>
+                : <Text key="preview" testID="message-selectable-text" numberOfLines={4} style={styles.menuPreview}>{post.text}</Text>}
             </> : null}
             {account && !selecting ? <SaveMessageAction key={`${accountId(account)}:${account.token}:${account.serverKey}:${post.id}`} account={account} messageId={post.id}
               onOpenSaved={() => { setMenu(false); router.push("/saved"); }} /> : null}
@@ -941,6 +944,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   copyStatus: { ...typography.caption, color: colors.muted, marginVertical: space.xs },
   menuAuthor: { ...typography.bodyStrong, color: colors.ink, marginBottom: space.xs },
   menuPreview: { ...typography.body, color: colors.muted, marginTop: space.xs, marginBottom: space.md },
+  selectableText: { ...typography.body, color: colors.ink, marginTop: space.xs, marginBottom: space.md },
   reactionWho: { ...typography.body, color: colors.ink, paddingVertical: space.xxs },
   menuTitle: { ...typography.label, color: colors.muted, marginTop: space.xs, marginBottom: space.xs },
   emojiGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: space.xxs, marginBottom: space.sm },
