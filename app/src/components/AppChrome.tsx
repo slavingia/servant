@@ -8,6 +8,8 @@ import { createThemedStyles } from "../lib/theme";
 import { Sidebar } from "./Sidebar";
 import { ActiveCallBar } from "./ActiveCallBar";
 import { ServerBanner } from "./ServerBanner";
+import { OfflineBanner } from "./OfflineBanner";
+import { useLiveList } from "../lib/live";
 
 
 const ChromeHeightContext = createContext(0);
@@ -27,14 +29,15 @@ export function AppChrome({ enabled, children }: { enabled: boolean; children: R
   const [barHeight, setBarHeight] = useState(insets.top + 64);
   const contentInsets = useMemo(() => enabled ? { ...insets, top: 0 } : insets, [enabled, insets]);
 
-  const hasBanner = Boolean(account?.banner?.message);
+  const { unreachable } = useLiveList();
+  const hasBanner = Boolean(account?.banner?.message) || unreachable;
   if (enabled && wide) {
     // Desktop: a persistent sidebar beside the navigator, like Slack or ChatGPT.
     return (
       <View style={styles.wideRoot}>
         {Platform.OS === "web" ? <style>{dragCss}</style> : null}
         <Sidebar key={`${account?.token ?? ""}:${account?.serverKey ?? ""}`} />
-        <View style={[styles.content, styles.widePane]}><ServerBanner /><ActiveCallBar />{children}</View>
+        <View style={[styles.content, styles.widePane]}><OfflineBanner /><ServerBanner /><ActiveCallBar />{children}</View>
       </View>
     );
   }
@@ -45,7 +48,9 @@ export function AppChrome({ enabled, children }: { enabled: boolean; children: R
       {isDesktop() ? <><style>{dragCss}</style><View {...({ dataSet: { servantDrag: "on" } } as object)} style={styles.titlebar} /></> : null}
       {enabled ? <View style={styles.header} onLayout={event => setBarHeight(event.nativeEvent.layout.height)}>
         {/* The banner sits at the very top and paints the status bar area itself. */}
-        <ServerBanner topInset={insets.top} />
+        <OfflineBanner topInset={insets.top} />
+        {/* Only the topmost bar pads for the status bar. */}
+        <ServerBanner topInset={unreachable ? 0 : insets.top} />
         {/* Phones have no search bar: a white status bar area, then each page's own title. */}
         {hasBanner ? null : <View style={[styles.statusArea, { height: insets.top }]} />}
         <ActiveCallBar />

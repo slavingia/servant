@@ -17,10 +17,10 @@ export default function Messages() {
   // Under another screen the list is handed what it last showed until the changes pause (lib/hidden-screen.ts):
   // it does not draw every row for every message anywhere, and coming back draws nothing when nothing changed.
   const list = useWhileHidden(useLiveList(), useIsFocused());
-  return <MessageRows conversations={list.conversations} error={list.error} connected={list.connected} />;
+  return <MessageRows conversations={list.conversations} error={list.error} connected={list.connected} unreachable={list.unreachable} />;
 }
 
-const MessageRows = memo(function MessageRows({ conversations, error, connected }: { conversations: Conversation[] | null; error: string | null; connected: boolean }) {
+const MessageRows = memo(function MessageRows({ conversations, error, unreachable, connected }: { conversations: Conversation[] | null; error: string | null; unreachable: boolean; connected: boolean }) {
   const styles = useStyles();
   // Tapping the tab you're already on scrolls back to the top.
   const scrollRef = useRef<FlatList<Conversation>>(null);
@@ -83,7 +83,7 @@ const MessageRows = memo(function MessageRows({ conversations, error, connected 
             <Text aria-hidden={!reconnecting} accessibilityLiveRegion="polite" style={[styles.status, { opacity: reconnecting ? 1 : 0 }]}>Reconnecting…</Text>
             </View>
             {actionError ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
-            {error && conversations ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+            {error && !unreachable && conversations ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           </View>
         }
         ListEmptyComponent={

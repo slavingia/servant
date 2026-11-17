@@ -40,10 +40,10 @@ export function ChannelList({ archived = false }: { archived?: boolean }) {
   // Under another screen the list is handed what it last showed until the changes pause (lib/hidden-screen.ts):
   // it does not draw every row for every message anywhere, and coming back draws nothing when nothing changed.
   const list = useWhileHidden(useLiveList(), useIsFocused());
-  return <ChannelRows archived={archived} conversations={list.conversations} error={list.error} connected={list.connected} />;
+  return <ChannelRows archived={archived} conversations={list.conversations} error={list.error} connected={list.connected} unreachable={list.unreachable} />;
 }
 
-const ChannelRows = memo(function ChannelRows({ archived, conversations, error, connected }: { archived: boolean; conversations: Conversation[] | null; error: string | null; connected: boolean }) {
+const ChannelRows = memo(function ChannelRows({ archived, conversations, error, unreachable, connected }: { archived: boolean; conversations: Conversation[] | null; error: string | null; unreachable: boolean; connected: boolean }) {
   const styles = useStyles();
   // Tapping the tab you're already on scrolls back to the top.
   const scrollRef = useRef<FlatList<HomeRow>>(null);
@@ -169,7 +169,7 @@ const ChannelRows = memo(function ChannelRows({ archived, conversations, error, 
           </View> : null}
           {orderError ? <Text accessibilityRole="alert" style={styles.error}>{orderError}</Text> : null}
           {actionError ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
-          {error && conversations !== null ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+          {error && !unreachable && conversations !== null ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           {archived && reconnecting ? <Text style={styles.note}>Reconnecting…</Text> : null}
         </View>}
         ListEmptyComponent={conversations === null ?
