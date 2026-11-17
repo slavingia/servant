@@ -125,9 +125,9 @@ export async function streamAgent(a: Account, chatId: string, text: string): Pro
  * Ask your own phone for a one-time code and wait for it (docs/code-requests.md). Your phone gets a push; you type the
  * code in Servant; this returns it. Gives up when the request expires, is cancelled, or `signal` aborts.
  */
-export async function requestCode(a: Account, label: string, hint?: string, { timeoutSeconds = 600, log = (_: string) => {}, signal, intervalMs = 2000 }:
-  { timeoutSeconds?: number; log?: (s: string) => void; signal?: AbortSignal; intervalMs?: number } = {}): Promise<string> {
-  const { request } = await call<{ request: { id: string; expiresAt: number } }>(a, "POST", "/v1/code-requests", { label, ...(hint ? { hint } : {}), ttlSeconds: timeoutSeconds });
+export async function requestCode(a: Account, label: string, hint?: string, { timeoutSeconds = 600, length, log = (_: string) => {}, signal, intervalMs = 2000 }:
+  { timeoutSeconds?: number; length?: number; log?: (s: string) => void; signal?: AbortSignal; intervalMs?: number } = {}): Promise<string> {
+  const { request } = await call<{ request: { id: string; expiresAt: number } }>(a, "POST", "/v1/code-requests", { label, ...(hint ? { hint } : {}), ...(length ? { length } : {}), ttlSeconds: timeoutSeconds });
   log(`Waiting for you to enter the ${label} code in Servant on your phone…`);
   const path = `/v1/code-requests/${encodeURIComponent(request.id)}`;
   try {

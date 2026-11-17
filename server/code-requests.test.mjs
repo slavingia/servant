@@ -63,3 +63,13 @@ test('limits and validation', () => {
   s.forget(pat.id);
   assert.deepEqual(s.list(pat), []);
 });
+
+test('a request can say how long its code is, so the phone sends it without a tap', () => {
+  const { s } = store();
+  const made = s.create(pat, runner, { label: 'Login.gov sign-in', length: 6 });
+  assert.equal(made.length, 6);
+  assert.equal(s.get(made.id, pat).length, 6, 'the phone sees it');
+  assert.equal(s.create(pat, runner, { label: 'No length' }).length, undefined, 'it stays optional');
+  assert.equal(s.create(pat, runner, { label: 'Null length', length: null }).length, undefined);
+  for (const bad of [3, 13, 6.5, 'six', -6]) assert.throws(() => s.create(jo, runner, { label: 'x', length: bad }), { status: 400 }, String(bad));
+});

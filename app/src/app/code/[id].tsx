@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Button } from "../../components/Button";
+import { cleanCode, shouldAutoSend } from "../../lib/code-autosend";
 import { api, ServerError, type CodeRequest } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { createThemedStyles, space, typography, useTheme } from "../../lib/theme";
 
 // An automation signed in as you (server: code-requests.mjs) reached a "enter the code we sent you" step. You type the
 // code here; that automation picks it up once. The code is never shown back, kept on this phone or put in a push.
+// A complete code sends itself, so a code iOS fills in from Messages needs no tap (lib/code-autosend.ts).
 export default function EnterCode() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const { account } = useSession();
@@ -20,6 +22,7 @@ export default function EnterCode() {
   const [done, setDone] = useState<"sent" | "cancelled" | null>(null);
   const [minutes, setMinutes] = useState(0);
   const inFlight = useRef(false);
+  const lastSent = useRef<string | null>(null);
 
   useEffect(() => {
     if (!account || !id) return;
@@ -29,13 +32,14 @@ export default function EnterCode() {
     return () => { live = false; };
   }, [account, id]);
 
-  const cleaned = code.replace(/[\s-]/g, "");
+  const cleaned = cleanCode(code);
   const ready = /^[A-Za-z0-9]{4,12}$/.test(cleaned);
-  const act = async (send: boolean) => {
-    if (!account || !request || inFlight.current || (send && !ready)) return;
+  const act = async (send: boolean, value = cleaned) => {
+    if (!account || !request || inFlight.current || (send && !/^[A-Za-z0-9]{4,12}$/.test(value))) return;
     inFlight.current = true; setBusy(true); setError(null);
+    if (send) lastSent.current = value;
     try {
-      if (send) await api.answerCodeRequest(account, request.id, cleaned);
+      if (send) await api.answerCodeRequest(account, request.id, value);
       else await api.cancelCodeRequest(account, request.id);
       setCode(""); setDone(send ? "sent" : "cancelled");
     } catch (e) {
@@ -68,7 +72,10 @@ export default function EnterCode() {
             accessibilityLabelledBy="codeRequestLabel"
             accessibilityLabel="Code"
             value={code}
-            onChangeText={t => { setCode(t); setError(null); }}
+            onChangeText={t => {
+              setCode(t); setError(null);
+              if (request?.status === "pending" && shouldAutoSend(t, request.length, lastSent.current)) void act(true, cleanCode(t));
+            }}
             autoFocus
             autoCapitalize="none"
             autoCorrect={false}
@@ -84,6 +91,7 @@ export default function EnterCode() {
           />
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           <Button label="Send code" onPress={() => void act(true)} busy={busy} disabled={!ready} style={styles.action} />
+          <Text style={styles.note}>{request.length ? `Sends by itself once all ${request.length} characters are in.` : "A six-digit code sends by itself once it's complete."}</Text>
           <View style={styles.row}>
             <Button label="Cancel request" kind="secondary" onPress={() => void act(false)} disabled={busy} style={styles.half} />
           </View>

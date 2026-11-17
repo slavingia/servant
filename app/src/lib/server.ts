@@ -433,7 +433,7 @@ export async function listen(account: Account, onEvent: (e: LiveEvent) => void, 
 
 const json = <T,>(r: SecureResponse) => r.json() as Promise<T>;
 // A one-time code an automation signed in as you is waiting for (server: code-requests.mjs). Never holds the code.
-export type CodeRequest = { id: string; label: string; hint?: string; device: string; status: "pending" | "answered" | "claimed" | "cancelled" | "expired"; createdAt: number; expiresAt: number };
+export type CodeRequest = { id: string; label: string; hint?: string; length?: number; device: string; status: "pending" | "answered" | "claimed" | "cancelled" | "expired"; createdAt: number; expiresAt: number };
 
 // A build's notes, posted in #whats-new. Testers discuss it in the post's thread.
 export type Release = { build: string; conversationId: string; messageId: string; text: string; createdAt: number };
