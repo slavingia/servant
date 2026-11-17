@@ -1076,7 +1076,9 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   // "Hold to queue" is about the Send button, so it sits against it.
   composerHintEnd: { textAlign: "right" },
   editingLabel: { ...typography.captionStrong, color: colors.muted, paddingTop: space.xs, paddingHorizontal: space.sm },
-  input: { ...typography.body, minHeight: 44, maxHeight: 144, paddingHorizontal: space.sm, paddingTop: space.sm, paddingBottom: space.xs, color: colors.ink, backgroundColor: colors.background },
+  // In a browser the box grows with what is in it (up to maxHeight), so a message put there for you (App preview's
+  // asks, a forwarded quote) shows whole lines instead of one and a half.
+  input: { ...typography.body, minHeight: 44, maxHeight: 144, paddingHorizontal: space.sm, paddingTop: space.sm, paddingBottom: space.xs, color: colors.ink, backgroundColor: colors.background, ...(Platform.OS === "web" ? { fieldSizing: "content" } : {}) } as object,
   // The colored copy behind the box, and the box made see-through over it (caret stays visible).
   inputMirror: { position: "absolute", top: 0, left: 0, right: 0, color: colors.ink, backgroundColor: colors.background, overflow: "hidden" },
   // The composer's border already shows focus; the browser's own ring would draw a line inside it.

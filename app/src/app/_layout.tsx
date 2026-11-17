@@ -147,6 +147,7 @@ function SessionNavigation() {
         <Stack.Screen name="channel-info" options={{ title: "Details", ...childScreen }} />
         <Stack.Screen name="files" options={{ title: "Files", ...childScreen }} />
         <Stack.Screen name="project" options={{ title: "Project", ...childScreen }} />
+        <Stack.Screen name="app-preview" options={{ title: "App preview", ...childScreen }} />
         <Stack.Screen name="chat/[id]" options={{ title: "", ...childScreen }} />
         {/* Where a share from another app lands (share.tsx); the share waits natively through sign-in. */}
         <Stack.Screen name="share" options={{ title: "Send to agent", ...childScreen }} />

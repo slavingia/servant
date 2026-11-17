@@ -5,6 +5,7 @@ import { randomUUID } from "expo-crypto";
 import { router } from "expo-router";
 import { accountId, api, type Account, type Chat } from "./server";
 import { keepChat } from "./chat-cache";
+import { setDraft } from "./drafts";
 
 type Making = { options: { projectId?: string | null; mode?: "vibe" }; promise: Promise<Chat> | null };
 const making = new Map<string, Making>();
@@ -23,8 +24,11 @@ function run(account: Account, id: string, entry: Making): Promise<Chat> {
 }
 
 /** Starts a new chat and opens it straight away. */
-export function openNewChat(account: Account, options: { projectId?: string | null; mode?: "vibe" } = {}, extra: Record<string, string> = {}): string {
+export function openNewChat(account: Account, options: { projectId?: string | null; mode?: "vibe" } = {}, extra: Record<string, string> = {}, draft = ""): string {
   const id = newChatId();
+  // A message written for them (App preview's asks) waits in the box, ready to read, change and send.
+  // Same key the chat's message box reads (components/Messaging.tsx Composer).
+  if (draft) setDraft(`account:${accountId(account)}:${account.user.id}:chat:${id}`, draft);
   const entry: Making = { options, promise: null };
   making.set(key(account, id), entry);
   const at = Date.now();

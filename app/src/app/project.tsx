@@ -11,6 +11,7 @@ import { useSession } from "../lib/session";
 import { shortTime as when } from "../lib/time-label";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
 import { ServeLoader } from "../components/ServeLoader";
+import { Button } from "../components/Button";
 import { openNewChat } from "../lib/new-chat";
 
 // Releases first when the project has any, otherwise Chats. ?tab= opens one directly.
@@ -25,7 +26,7 @@ export default function ProjectScreen() {
   const { account, setAccount } = useSession();
   const { id, tab: wanted } = useLocalSearchParams<{ id: string; tab?: string }>();
   // What's loaded is tagged with its project id, so moving to another project (the sidebar) starts clean.
-  const [page, setPage] = useState<{ id: string; project: Project; chats: Chat[]; teamChats: Chat[] } | null>(null);
+  const [page, setPage] = useState<{ id: string; project: Project; chats: Chat[]; teamChats: Chat[]; hasPreview: boolean } | null>(null);
   const [picked, setPicked] = useState<{ id: string; tab: Tab } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const project = page && page.id === id ? page.project : null;
@@ -35,7 +36,7 @@ export default function ProjectScreen() {
     try {
       const [detail, all] = await Promise.all([api.project(account, String(id)), api.orgChats(account, setAccount)]);
       const p = detail.project;
-      setPage({ id: String(id), project: p, chats: all.mine.filter(c => c.projectId === p.id), teamChats: detail.sharedChats });
+      setPage({ id: String(id), project: p, chats: all.mine.filter(c => c.projectId === p.id), teamChats: detail.sharedChats, hasPreview: !!detail.appPreview });
       rememberProject(p, account);
       setError(null);
     } catch (e) { setError(e instanceof ServerError ? e.message : "Couldn't load this project"); }
@@ -52,7 +53,7 @@ export default function ProjectScreen() {
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : <ServeLoader style={{ marginTop: space.xxl }} />}
   </View>;
 
-  const { chats, teamChats } = page!;
+  const { chats, teamChats, hasPreview } = page!;
   const update = (p: Project) => { setPage(current => current && { ...current, project: p }); rememberProject(p, account); };
   const shown: Tab = picked?.id === id ? picked.tab : isTab(wanted) ? wanted : project.releases.length ? "releases" : "chats";
   const labels: Record<Tab, string> = { releases: "Releases", chats: `Chats${chats.length ? ` · ${chats.length}` : ""}`, about: "About" };
@@ -70,6 +71,8 @@ export default function ProjectScreen() {
           </Pressable>)}
         </View>
         {error ? <Text accessibilityRole="alert" style={styles.inlineError}>{error}</Text> : null}
+        {hasPreview ? <Button testID="open-app-preview" label="Open app preview" kind="secondary" compact style={styles.previewButton}
+          onPress={() => router.push({ pathname: "/app-preview", params: { id: project.id } })} /> : null}
       </View>
       {shown === "releases" ? <ProjectReleases account={account} project={project} onChange={update} />
         : shown === "about" ? <ProjectAbout key={project.id} account={account} project={project} onChange={update} />
@@ -119,6 +122,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   error: { ...typography.caption, color: colors.red, marginHorizontal: space.side, marginVertical: space.sm },
   inlineError: { ...typography.caption, color: colors.red, marginTop: space.xs },
+  previewButton: { marginTop: space.sm, alignSelf: "center", width: "100%", maxWidth: 400 },
   // The same segmented control as Files.
   header: { paddingHorizontal: space.side, paddingTop: space.sm, paddingBottom: space.xs },
   tabs: { flexDirection: "row", backgroundColor: colors.surface, borderRadius: radius.pill, padding: 3, width: "100%", maxWidth: 400, alignSelf: "center" },

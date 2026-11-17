@@ -16,6 +16,7 @@
 
 import { joinPage } from "./join-page.mjs";
 import { newFolder, removePrototype, savePrototypePage, servePrototype } from "./prototypes.mjs";
+import { previewInfo, serveAppPreview } from "./app-preview.mjs";
 import { privacyPage } from "./privacy-page.mjs";
 import { landingPage, supportPage } from "./public-page.mjs";
 import { termsPage } from "./terms-page.mjs";
@@ -84,6 +85,8 @@ import { createDocumentStore, DOCUMENT_CHUNK, DOCUMENT_CHUNK_BODY } from "./docu
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.SERVANT_DATA_DIR || path.join(HERE, "data");
 const PROTOTYPES_DIR = path.join(DATA_DIR, "prototypes");
+// Each project's app exported for the web, served at /a/<project id>/ (app-preview.mjs, docs/app-preview.md).
+const APP_PREVIEWS_DIR = path.join(DATA_DIR, "app-previews");
 const CONFIG_FILE = path.join(DATA_DIR, "config.json");
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -1122,11 +1125,13 @@ async function handle(req, res, cfg) {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" });
     return res.end(joinPage(cfg.downloads, cfg.webUrl, cfg.footer, cfg.theme));
   }
-  if (url.pathname === "/robots.txt") { res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" }); res.end("User-agent: *\nDisallow: /p/\nDisallow: /review/\n"); return undefined; }
+  if (url.pathname === "/robots.txt") { res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" }); res.end("User-agent: *\nDisallow: /p/\nDisallow: /a/\nDisallow: /review/\n"); return undefined; }
   // A prototype shared with a business owner (prototype-reviews.mjs): the page at /review/<link> and its calls.
   if (url.pathname.startsWith("/review/") && (await handleReview(req, res, url, cfg))) return undefined;
   // Prototypes built in Prototyping chats (prototypes.mjs): public by unguessable folder name, sandboxed.
   if (url.pathname.startsWith("/p/") && servePrototype(req, res, url, { dir: PROTOTYPES_DIR, kitDir: expandPath(vibeProject()?.path), ip: clientIp(req) })) return undefined;
+  // A project's app, running in the browser for App preview (app-preview.mjs): public by project id, sandboxed, sample data only.
+  if (url.pathname.startsWith("/a/") && serveAppPreview(req, res, url, { dir: APP_PREVIEWS_DIR, ip: clientIp(req) })) return undefined;
   // Public app-store pages remain readable without an account or JavaScript.
   const publicPages = { "/": landingPage, "/support": supportPage, "/privacy": privacyPage, "/terms": termsPage };
   const pagePath = url.pathname === "/" ? "/" : url.pathname.replace(/\/$/, "");
@@ -1678,7 +1683,10 @@ async function handle(req, res, cfg) {
         // Teammates' chats appear only when their author shared them with the project.
         const sharedChats = allChats().filter(c => c.projectId === pid && c.userId !== user.id && !c.deletedAt && c.projectShared)
           .sort((a, b) => b.updatedAt - a.updatedAt).map(c => chatView(c, users()[user.id] || user, users()));
-        return send(res, 200, { ...wrap(true, project), sharedChats });
+        // The project's app in the browser (docs/app-preview.md), when one has been exported for it.
+        const preview = previewInfo(APP_PREVIEWS_DIR, pid);
+        const appPreview = preview ? { ...preview, url: `${publicOrigin(cfg) || ""}${preview.path}` } : null;
+        return send(res, 200, { ...wrap(true, project), sharedChats, appPreview });
       }
       // The repo's README from GitHub (cached; stale copy while GitHub is unreachable). Anyone who can see the project.
       if (method === "GET" && parts.length === 4 && parts[3] === "readme") {
