@@ -337,7 +337,8 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
       db.exec("ALTER TABLE messages ADD COLUMN activity TEXT");
     }
     // #agent-feed posts used to be plain (unread-counting) messages; they are silent activity lines now.
-    db.prepare("UPDATE messages SET activity = 'feed' WHERE user_id = ? AND activity IS NULL AND conversation_id IN (SELECT id FROM conversations WHERE kind = 'channel' AND name = ?)").run(AGENT_ID, FEED_CHANNEL);
+    // (The very first digest went out under the owner's name; it reads "Sent\n- …".)
+    db.prepare("UPDATE messages SET activity = 'feed' WHERE (user_id = ? OR text LIKE 'Sent' || char(10) || '- %') AND activity IS NULL AND thread_root IS NULL AND conversation_id IN (SELECT id FROM conversations WHERE kind = 'channel' AND name = ?)").run(AGENT_ID, FEED_CHANNEL);
     if (!db.prepare('PRAGMA table_info(messages)').all().some(value => value.name === 'suggestions')) {
       db.exec('ALTER TABLE messages ADD COLUMN suggestions TEXT');
     }
