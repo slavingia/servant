@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { createMessaging, FEED_CHANNEL } from './messaging.mjs';
 
 const people = { ann: { id: 'ann', name: 'Ann Lee', role: 'owner' }, bo: { id: 'bo', name: 'Bo Kim', role: 'member' } };
@@ -20,7 +23,10 @@ test('the agent posts its activity in one public #agent-feed everyone can read, 
     const rows = m.db.prepare("SELECT * FROM messages WHERE conversation_id = ? AND user_id = 'agent' ORDER BY seq").all(conv.id);
     assert.deepEqual(rows.map(r => r.text), ['Shipped: abc1234 Fix the header', 'Ran: analytics']);
     assert.ok(rows.every(r => r.user_id === 'agent'), 'posted by the agent');
-    assert.ok(!pushed.some(e => e.messageId === first.messageId || e.messageId === again.messageId), 'no push for feed posts');
+    assert.equal(pushed.length, 0, 'no push for feed posts');
+    assert.ok(rows.every(r => r.activity === 'feed'), 'silent activity lines');
+    const unread = m.db.prepare("SELECT COUNT(*) AS n FROM messages x JOIN members b ON b.conversation_id = x.conversation_id WHERE x.conversation_id = ? AND x.seq > b.last_read_seq AND x.user_id != b.user_id AND x.activity IS NULL").get(conv.id).n;
+    assert.equal(unread, 0, 'adds nothing to anyone\'s unread count');
     assert.throws(() => m.feedFromAgent('   '), /Write the message/);
   } finally { m.close(); }
 });
@@ -50,4 +56,17 @@ test('the Feed screen gets one item per line the agent posted, newest first, wit
 test('no #agent-feed yet means an empty feed', () => {
   const m = createMessaging({ file: ':memory:', users: () => people, agentName: () => 'Agent' });
   try { assert.deepEqual(m.feedItems().items, []); } finally { m.close(); }
+});
+
+test('feed posts made before they went silent stop counting as unread', () => {
+  const file = path.join(os.tmpdir(), `agent-feed-${process.pid}.db`);
+  let m = createMessaging({ file, users: () => people, agentName: () => 'Agent' });
+  try {
+    const { conversationId } = m.feedFromAgent('new');
+    m.db.prepare("UPDATE messages SET activity = NULL WHERE conversation_id = ? AND user_id = 'agent'").run(conversationId);
+  } finally { m.close(); }
+  m = createMessaging({ file, users: () => people, agentName: () => 'Agent' });
+  try {
+    assert.deepEqual(m.db.prepare("SELECT activity FROM messages WHERE user_id = 'agent'").all().map(r => r.activity), ['feed']);
+  } finally { m.close(); for (const x of ['', '-wal', '-shm']) fs.rmSync(file + x, { force: true }); }
 });
