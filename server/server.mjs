@@ -1732,7 +1732,8 @@ async function handle(req, res, cfg) {
       const body = await readAuthorizedBody(req);
       const made = guard(() => codeRequests.create(user, device, body));
       if (!made) return;
-      try { push?.enqueue({ kind: "code", eventId: made.id, to: user.id, requestId: made.id }); } catch (error) { console.error("[servant] code request alert", error.message); }
+      // The alert names the device and what the code is for; the worker that sends it cannot see this process's memory.
+      try { push?.enqueue({ kind: "code", eventId: made.id, to: user.id, requestId: made.id, device: made.device, label: made.label, expiresAt: made.expiresAt }); } catch (error) { console.error("[servant] code request alert", error.message); }
       return send(res, 201, { request: made });
     }
     if (method === "GET" && parts.length === 3) return guard(() => send(res, 200, { request: codeRequests.get(parts[2], user) }));
@@ -2670,10 +2671,13 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
       if (event.kind === "case") return normalizeFeatures((fixedCfg || loadConfig()).features).secureInbox && !inDeepWork(user) ? inbox().notificationFor(user, event.caseId, event.sequence) : null;
       // An entitlement request, decision or refusal: only for the people it names.
       if (event.kind === "entitlement") return Array.isArray(event.to) && event.to.includes(user.id) ? { kind: "agent", title: event.title, body: event.body } : null;
-      // A code request: only its own person, only while it still waits, and never the code itself (there is none yet).
+      // A code request: only its own person, never after it expires, and never the code itself (there is none yet). The
+      // separate worker process that sends alerts cannot see the requests held in the API's memory, so the alert is built
+      // from the event; the process that made the request also drops it once the request is answered or cancelled.
       if (event.kind === "code") {
-        const request = event.to === user.id && codeRequests.pending(event.requestId, user.id);
-        return request ? { kind: "agent", codeRequestId: request.id, title: "Code needed", body: `${request.device} is waiting for your ${request.label} code` } : null;
+        if (event.to !== user.id || !(event.expiresAt > now()) || typeof event.label !== "string" || !event.label) return null;
+        if (codeRequests.known(event.requestId) && !codeRequests.pending(event.requestId, user.id)) return null;
+        return { kind: "agent", codeRequestId: event.requestId, title: "Code needed", body: `${event.device || "Automation"} is waiting for your ${event.label} code` };
       }
       const chat = readState().chats[event.chatId];
       if (event.userId !== user.id || !chat || chat.deletedAt || chat.userId !== user.id) return null;
