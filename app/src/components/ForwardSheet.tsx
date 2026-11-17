@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { api, ServerError, type Conversation } from "../lib/server";
@@ -8,6 +8,7 @@ import { useFeatures } from "../lib/features";
 import { Button, IconButton } from "./Button";
 import { AppIcon } from "./AppIcon";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
+import { ServeLoader } from "./ServeLoader";
 
 export type ForwardTarget = { chatId: string; messageId: string; author: string; text: string; files: number };
 
@@ -78,7 +79,7 @@ export function ForwardSheet({ target, onClose }: { target: ForwardTarget; onClo
           keyExtractor={c => c.id}
           keyboardShouldPersistTaps="handled"
           style={styles.list}
-          ListEmptyComponent={list === null ? <ActivityIndicator style={{ marginVertical: space.lg }} color={colors.blue} />
+          ListEmptyComponent={list === null ? <ServeLoader style={{ marginVertical: space.lg }} />
             : <Text style={styles.empty}>{query ? "No matches" : features.channels && features.directMessages ? "No conversations" : features.channels ? "No channels" : "No chats"}</Text>}
           renderItem={({ item }) => {
             const on = picked === item.id;

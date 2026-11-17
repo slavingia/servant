@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Button } from "../components/Button";
 import { deviceLinkFromParams, deviceLinkMatchesAccount } from "../lib/device-link";
 import { approveDeviceLink, denyDeviceLink, previewDeviceLink, type DeviceLinkPreview } from "../lib/device-link-api";
 import { useSession } from "../lib/session";
 import type { Account } from "../lib/server";
-import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
+import { createThemedStyles, radius, space, typography } from "../lib/theme";
+import { ServeLoader } from "../components/ServeLoader";
 
 export default function LinkDevice() {
   const { id, key } = useLocalSearchParams<{ id?: string; key?: string }>();
@@ -15,7 +16,6 @@ export default function LinkDevice() {
 }
 
 function LinkDeviceRequest({ id, serverKey, account }: { id?: string; serverKey?: string; account: Account | null }) {
-  const { colors } = useTheme();
   const styles = useStyles();
   const [preview, setPreview] = useState<DeviceLinkPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -92,7 +92,7 @@ function LinkDeviceRequest({ id, serverKey, account }: { id?: string; serverKey?
         <Text accessibilityRole="alert" style={styles.error}>{error}</Text>
         <Button label="Try again" onPress={() => { setError(null); setPreview(null); setAttempt(value => value + 1); }} style={styles.action} />
         <Button label="Scan a new code" kind="secondary" onPress={() => router.replace({ pathname: "/scan", params: { mode: "computer" } })} style={styles.secondary} />
-      </> : <ActivityIndicator accessibilityLabel="Checking computer sign-in" color={colors.blue} size="large" style={styles.action} />}
+      </> : <ServeLoader accessibilityLabel="Checking computer sign-in" size="large" style={styles.action} />}
     </ScrollView>
   );
 }

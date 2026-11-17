@@ -1,10 +1,11 @@
 import { useCallback, useState } from "react";
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { api, ServerError, type Loop } from "../lib/server";
 import { useSession } from "../lib/session";
 import { groupLoops, loopDetail } from "../lib/loops-format";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
+import { ServeLoader } from "../components/ServeLoader";
 
 // What the agent does on its own, on a schedule: releases, checks, reports. Grouped by how often.
 export default function LoopsScreen() {
@@ -29,7 +30,7 @@ export default function LoopsScreen() {
     refreshControl={<RefreshControl tintColor={colors.blue} refreshing={refreshing} onRefresh={async () => { setRefreshing(true); try { await load(); } finally { setRefreshing(false); } }} />}>
     <Text style={styles.intro}>What the agent does on its own, on a schedule.</Text>
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-    {!loops && !error ? <ActivityIndicator color={colors.blue} style={styles.spinner} /> : null}
+    {!loops && !error ? <ServeLoader style={styles.spinner} /> : null}
     {loops && !available ? <Text style={styles.empty}>Loops aren't available right now. Pull down to try again.</Text> : null}
     {loops && available && loops.length === 0 ? <Text style={styles.empty}>Nothing runs on a schedule yet.</Text> : null}
     {loops ? groupLoops(loops).map(group => <View key={group.key}>

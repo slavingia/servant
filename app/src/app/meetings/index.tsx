@@ -15,6 +15,7 @@ import { useSession } from "../../lib/session";
 import { landingHref, useFeatures } from "../../lib/features";
 import { shortTime } from "../../lib/time-label";
 import { radius, space, typography, useTheme, createThemedStyles } from "../../lib/theme";
+import { ServeLoader } from "../../components/ServeLoader";
 
 // Meetings: calls made in Servant and meetings recorded from here, in one list. Start a call in a
 // channel or DM, or record a meeting that happens somewhere else (in the room, or on Zoom, Meet or
@@ -84,7 +85,7 @@ export default function Meetings() {
       refreshControl={<RefreshControl refreshing={refreshing} tintColor={colors.blue} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
       ListHeaderComponent={header}
       ListEmptyComponent={list === null
-        ? (error ? <View style={styles.empty}><Text accessibilityRole="alert" style={styles.emptyBody}>{error}</Text><Button label="Try again" kind="secondary" onPress={() => void load()} /></View> : <ActivityIndicator style={{ marginTop: space.xl }} color={colors.blue} />)
+        ? (error ? <View style={styles.empty}><Text accessibilityRole="alert" style={styles.emptyBody}>{error}</Text><Button label="Try again" kind="secondary" onPress={() => void load()} /></View> : <ServeLoader style={{ marginTop: space.xl }} />)
         : <View style={styles.empty}>
             <Text accessibilityRole="header" style={styles.emptyTitle}>No meetings yet</Text>
           </View>}

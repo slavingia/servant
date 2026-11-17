@@ -1,4 +1,4 @@
-type InboxItem = { unread?: number; archived?: boolean };
+type InboxItem = { unread?: number; archived?: boolean; muted?: boolean };
 
 // Use the established inbox endpoints so badge repair also works with servers
 // that predate notification-card reconciliation. Failed/incomplete loads must
@@ -11,7 +11,7 @@ export async function loadIconBadge(
   for (const [index, inbox] of inboxes.entries()) {
     if (!Array.isArray(inbox)) throw new Error('Incomplete unread snapshot');
     for (const item of inbox) {
-      if (item.archived) continue;
+      if (item.archived || item.muted) continue;
       // Older servers omit private-agent unread counts. The total covers only
       // reported counts; zero does not prove their notifications have been read.
       const count = index === 1 && item.unread === undefined ? 0 : item.unread;

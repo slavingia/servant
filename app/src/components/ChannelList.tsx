@@ -1,6 +1,6 @@
 import { Radio } from "./Radio";
 import { memo, useCallback, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect, useIsFocused, useScrollToTop } from "expo-router";
 import { useWhileHidden } from "../lib/hidden-screen";
 import { AppIcon } from "./AppIcon";
@@ -24,6 +24,7 @@ import { useSession } from "../lib/session";
 import { openingConversation } from "../lib/conversation-cache";
 import { landingHref, useFeatures } from "../lib/features";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
+import { ServeLoader } from "./ServeLoader";
 
 type HomeRow =
   | { kind: "channel" | "dm"; id: string; conversation: Conversation }
@@ -248,7 +249,7 @@ const ChannelRows = memo(function ChannelRows({ archived, conversations, error, 
             <Text accessibilityRole="header" style={styles.discoveryTitle}>Browse public channels</Text>
             <Button compact kind="link" label="Create new" onPress={() => router.push("/new-channel")} />
           </View>;
-          return discovery.loading ? <ActivityIndicator accessibilityLabel="Loading channels to join" style={styles.loading} color={colors.blue} /> : discovery.error ?
+          return discovery.loading ? <ServeLoader accessibilityLabel="Loading channels to join" style={styles.loading} /> : discovery.error ?
             <View style={styles.discoveryStatus}><Text accessibilityRole="alert" style={styles.errorText}>Couldn't load channels.</Text><Button compact label="Try again" kind="link" onPress={discovery.retry} /></View> : discovery.hasMore ?
               <Button compact label="Load more channels" kind="link" onPress={() => void discovery.more()} /> : !others.length ?
               <Text style={styles.sectionNote}>No more channels</Text> : null;

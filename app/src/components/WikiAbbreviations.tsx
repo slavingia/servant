@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
+import { FlatList, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { Button } from "./Button";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -7,6 +7,7 @@ import { LexiconEditor } from "./LexiconEditor";
 import { lexiconApi, type LexiconEntry } from "../lib/lexicon-api";
 import type { Account } from "../lib/server";
 import { createThemedStyles, space, typography, useTheme } from "../lib/theme";
+import { ServeLoader } from "./ServeLoader";
 
 // The wiki's Abbreviations page: the shared abbreviations that are underlined in messages, with their meaning on hover. It is a page of the wiki
 // to find and to read, but it stays a list of pairs (lexicon-api.ts), because each one has to be matched while typing.
@@ -92,7 +93,7 @@ export function WikiAbbreviations({ account, header }: { account: Account; heade
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         {filtered.length ? <View style={styles.heading}><Text style={[styles.label, styles.abbreviation]}>Abbreviation</Text><Text style={[styles.label, styles.replacement]}>Meaning</Text></View> : null}
       </>}
-      ListEmptyComponent={!entries && refreshing ? <ActivityIndicator accessibilityLabel="Loading shortcuts" color={colors.blue} style={styles.empty} /> : !error ? <Text style={styles.empty}>{query.trim() ? "No matches" : "No shortcuts"}</Text> : undefined}
+      ListEmptyComponent={!entries && refreshing ? <ServeLoader accessibilityLabel="Loading shortcuts" style={styles.empty} /> : !error ? <Text style={styles.empty}>{query.trim() ? "No matches" : "No shortcuts"}</Text> : undefined}
       renderItem={({ item: entry }) => <View testID={`lexicon-entry-${entry.id}`} style={styles.entry}>
         <View style={styles.columns}>
           <Text selectable style={[styles.body, styles.abbreviation]}>{entry.abbreviation}</Text>

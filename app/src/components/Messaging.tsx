@@ -276,6 +276,9 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
     ...(mine && onEdit ? [{ text: "Edit", onPress: onEdit }] : []),
     ...(mine && onDelete ? [{ text: "Delete", onPress: onDelete }] : []),
   ];
+  // Like Slack on a phone: a tap on a message opens its thread; touch and hold still opens the actions.
+  // On a computer a click stays free for selecting text; the thread is in the menu and under the message.
+  const tapOpensThread = Platform.OS !== "web" && available && onOpenThread ? onOpenThread : undefined;
   const actions = () => {
     if (!available || (!post.text && !onReact && !options.length)) return;
     Keyboard.dismiss();
@@ -308,10 +311,10 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
   const label = `${post.user.name}, ${when(post.createdAt)}${deviceLabel ? (post.sourceDevice?.kind === "agent" ? ", posted by an agent" : `, sent from ${deviceLabel}`) : ""}. ${post.deleted ? "Message deleted" : working ? "Working on it…" : post.text}${post.replyCount ? `. ${post.replyCount} ${post.replyCount === 1 ? "reply" : "replies"}` : ""}`;
   return (
     <>
-    <Pressable onLongPress={actions} delayLongPress={400} accessible={false} {...context.bind(contextItems)} style={[styles.post, compact && styles.postCompact, (menu || context.open) && { backgroundColor: colors.surface }]}>
+    <Pressable testID={`message-${post.id}`} onPress={tapOpensThread} onLongPress={actions} delayLongPress={400} accessible={false} {...context.bind(contextItems)} style={({ pressed }) => [styles.post, compact && styles.postCompact, (menu || context.open || (pressed && tapOpensThread)) && { backgroundColor: colors.surface }]}>
       <View style={styles.gutter}>{compact ? null : <Avatar name={post.user.name} agent={post.user.agent} userId={post.user.id} tapToMessage />}</View>
       <View style={styles.postContent}>
-        <View accessible accessibilityLabel={label} accessibilityHint={available ? "Touch and hold to copy, select text, react or open message actions" : undefined} accessibilityActions={available ? [{ name: "activate", label: "Copy, react or open message actions" }] : undefined} onAccessibilityAction={actions}>
+        <View accessible accessibilityLabel={label} accessibilityHint={available ? (tapOpensThread ? "Opens the thread. Touch and hold to copy, select text, react or open message actions" : "Touch and hold to copy, select text, react or open message actions") : undefined} accessibilityActions={available ? [{ name: "activate", label: tapOpensThread ? "Open thread" : "Copy, react or open message actions" }, ...(tapOpensThread ? [{ name: "longpress", label: "Copy, react or open message actions" }] : [])] : undefined} onAccessibilityAction={e => (tapOpensThread && e.nativeEvent.actionName === "activate" ? tapOpensThread() : actions())}>
         {!compact || deviceLabel ? (
           <View style={styles.meta}>
             {!compact ? <Text style={styles.author}>{post.user.name}</Text> : null}
@@ -880,13 +883,13 @@ export function ConversationRow({ c, onPress, onLongPress, longPressHint, access
   const me = useSession().account?.user.id;
   const preview = conversationPreview(c, me);
   const groupPeople = (c.members ?? []).filter(p => !p.agent && p.id !== me);
-  const bold = c.unread > 0 && !c.archived;
+  const bold = c.unread > 0 && !c.archived && !c.muted;
   const title = c.kind === "channel" ? `#${c.title}` : c.title;
   return (
     <View style={[styles.rowContainer, compact && styles.compactRowContainer]}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${title}${c.private && c.kind === "channel" ? ", private" : ""}${bold ? `, ${c.unread} unread` : ""}${compact ? "" : `. ${preview}`}`}
+        accessibilityLabel={`${title}${c.private && c.kind === "channel" ? ", private" : ""}${c.muted ? ", muted" : ""}${bold ? `, ${c.unread} unread` : ""}${compact ? "" : `. ${preview}`}`}
         onPress={onPress}
         onLongPress={onLongPress}
         accessibilityHint={longPressHint ?? (onLongPress ? "Swipe left or long press to archive or delete" : undefined)}
@@ -897,7 +900,8 @@ export function ConversationRow({ c, onPress, onLongPress, longPressHint, access
         {c.kind === "dm" ? (groupPeople.length > 1 ? <GroupAvatar people={groupPeople} size={compact ? 26 : 40} /> : <Avatar name={c.title} agent={c.agentDm} userId={dmPeer(c, me)} size={compact ? 26 : 40} />) : <View style={[styles.channelGlyph, compact && styles.compactChannelGlyph]}><AppIcon name={c.private ? "lock" : "hash"} size={compact ? 19 : 22} color={bold ? colors.ink : colors.muted} /></View>}
         <View style={styles.rowCopy}>
           <View style={styles.rowTop}>
-            <Text style={[styles.rowTitle, bold && styles.bold]}>{c.title}</Text>
+            <Text style={[styles.rowTitle, bold && styles.bold, c.muted && { color: colors.muted }]}>{c.title}</Text>
+            {c.muted ? <AppIcon name="bellOff" size={15} color={colors.muted} /> : null}
             {!compact ? <Text style={styles.time}>{when(c.updatedAt)}</Text> : null}
             {compact && bold ? <View style={styles.badge}><Text style={styles.badgeText}>{c.unread > 99 ? "99+" : c.unread}</Text></View> : null}
           </View>
@@ -918,8 +922,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   dateSeparator: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.side, paddingVertical: space.sm, marginVertical: space.xxs },
   dateLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.line },
   dateLabel: { ...typography.captionStrong, color: colors.ink, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, borderRadius: radius.pill, paddingHorizontal: space.sm, paddingVertical: space.xxs },
-  // The same row as the day's, in the unread badges' color: a rule across, ending in a filled "New".
-  unreadSeparator: { flexDirection: "row", alignItems: "center", gap: space.xs, paddingHorizontal: space.side, paddingVertical: space.xs },
+  // The same row as the day's, in the unread badges' color: a rule across that runs right into a filled "New".
+  unreadSeparator: { flexDirection: "row", alignItems: "center", paddingHorizontal: space.side, paddingVertical: space.xs },
   unreadRule: { flex: 1, height: 1, backgroundColor: colors.primary },
   unreadLabel: { ...typography.captionStrong, color: colors.onPrimary, backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: space.sm, paddingVertical: space.xxs, overflow: "hidden" },
   reactions: { flexDirection: "row", flexWrap: "wrap", gap: space.xxs, marginTop: 0 },

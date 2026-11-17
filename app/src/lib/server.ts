@@ -79,6 +79,8 @@ export type Leaderboard = { period: LeaderboardPeriod; since: number; topics?: T
 
 // ----- loops: the agent's recurring automations -----
 export type LoopGroup = "hourly" | "daily" | "weekly" | "monthly" | "other";
+export type FeedKind = "sent" | "shipped" | "ran" | "note";
+export type FeedItem = { id: string; kind: FeedKind; text: string; time: string | null; url: string | null; at: number };
 export type Loop = { id: string; name: string; cadence: string; group: LoopGroup; on: boolean; lastRunAt: number | null; lastOk: boolean | null; nextRunAt: number | null };
 
 // ----- channels, direct messages, threads -----
@@ -203,6 +205,8 @@ export type Conversation = {
   private: boolean;
   createdBy: string;
   archived: boolean;
+  /** You muted it (like Slack): it stays in your list, greyed, adds nothing to your badges, and only @mentions of you and your threads alert you. */
+  muted?: boolean;
   /** Where this person dragged the channel; null until they sort by hand. */
   position?: number | null;
   memberCount: number;
@@ -510,6 +514,7 @@ export const api = {
   chats: (a: Account, m?: (a: Account) => void) => request(a, "/v1/chats", {}, m).then((r) => r.json()).then((d) => d.chats as Chat[]),
   // Your chats plus other people's shared ones (all of them, for the owner).
   orgChats: (a: Account, m?: (a: Account) => void) => request(a, "/v1/chats?scope=org", {}, m).then((r) => r.json()).then((d) => ({ mine: d.chats as Chat[], others: (d.orgChats ?? []) as Chat[] })),
+  feed: (a: Account) => request(a, "/v1/feed").then((r) => r.json()) as Promise<{ items: FeedItem[]; conversationId?: string }>,
   loops: (a: Account) => request(a, "/v1/loops").then((r) => r.json()) as Promise<{ loops: Loop[]; available: boolean }>,
   leaderboard: (a: Account, period: LeaderboardPeriod) => request(a, `/v1/leaderboard?period=${period}`).then((r) => r.json()) as Promise<Leaderboard>,
   // The author has seen every finished reply in this agent conversation.
@@ -605,6 +610,7 @@ export const api = {
     request(a, `/v1/conversations/${id}`, { method: "PATCH", body: JSON.stringify(body) }).then(json<{ conversation: Conversation }>),
   setChannelOrder: (a: Account, ids: string[]) => request(a, "/v1/conversations/order", { method: "POST", body: JSON.stringify({ ids }) }),
   archiveChannel: (a: Account, id: string) => request(a, `/v1/conversations/${id}/archive`, { method: "POST", body: "{}" }),
+  muteConversation: (a: Account, id: string, muted: boolean) => request(a, `/v1/conversations/${id}/${muted ? "mute" : "unmute"}`, { method: "POST", body: "{}" }),
   restoreChannel: (a: Account, id: string) => request(a, `/v1/conversations/${id}/restore`, { method: "POST", body: "{}" }),
   deleteChannel: (a: Account, id: string) => request(a, `/v1/conversations/${id}`, { method: "DELETE" }),
   join: (a: Account, id: string) => request(a, `/v1/conversations/${id}/join`, { method: "POST", body: "{}" }),

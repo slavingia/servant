@@ -58,7 +58,8 @@ export function useDictation(onText: (spoken: string) => void): Dictation {
     return () => { subscription.remove(); session.current = null; current.setActive(false); };
   }, [focused]);
   const toggle = useCallback(() => {
-    if (state.listening) void session.current?.finish();
+    // The same short grace as Send: iOS may never end a continuous run, and the words heard so far belong in the box.
+    if (state.listening) void session.current?.finish(1200);
     else void session.current?.start(deviceLanguage());
   }, [state.listening]);
   const finish = useCallback((graceMs?: number) => session.current?.finish(graceMs) ?? Promise.resolve(false), []);

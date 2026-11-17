@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, TextInput, View } from "react-native";
+import { StyleSheet, Text, TextInput, View } from "react-native";
 import { Button } from "./Button";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { LexiconEditor } from "./LexiconEditor";
@@ -7,6 +7,7 @@ import { glossaryApi } from "../lib/glossary-api";
 import type { GlossaryEntry } from "../lib/abbreviations";
 import type { Account, Project } from "../lib/server";
 import { space, typography, createThemedStyles, useTheme } from "../lib/theme";
+import { ServeLoader } from "./ServeLoader";
 
 export function ProjectGlossary({ account, project }: { account: Account; project: Project }) {
   return <ProjectShortcuts key={`${account.serverUrl}:${account.user.id}:${account.token}:${project.id}`} account={account} project={project} />;
@@ -51,7 +52,7 @@ function ProjectShortcuts({ account, project }: { account: Account; project: Pro
       {canWrite ? <View testID="glossary-add"><Button label="Add shortcut" kind="link" compact onPress={() => setEditing("new")} /></View> : null}
     </View>
     {error ? <><Text accessibilityRole="alert" style={styles.error}>{error}</Text><Button label="Try again" kind="link" onPress={() => setRevision(value => value + 1)} /></> : null}
-    {entries === null && !error ? <ActivityIndicator accessibilityLabel="Loading shortcuts" color={colors.blue} /> : null}
+    {entries === null && !error ? <ServeLoader accessibilityLabel="Loading shortcuts" /> : null}
     {entries?.length ? <TextInput accessibilityLabel="Search project shortcuts" placeholder="Search shortcuts" value={query} onChangeText={setQuery} placeholderTextColor={colors.muted} autoCapitalize="none" style={styles.input} /> : null}
     {entries && !shown.length ? <Text style={styles.caption}>{entries.length ? "No matches" : "No shortcuts"}</Text> : null}
     {shown.map(entry => <View key={entry.id} testID={`glossary-entry-${entry.id}`} style={styles.row}>
