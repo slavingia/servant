@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { AccessibilityInfo, Animated, Easing, Platform, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
-import Svg, { ClipPath, Circle, Defs, Ellipse, Path, RadialGradient, Stop } from "react-native-svg";
+import Svg, { ClipPath, Circle, Defs, Ellipse, G, Path, RadialGradient, Stop } from "react-native-svg";
 import { BOX, SERVE_LOOP_MS, serveKeyframes } from "../lib/serve-loop";
 import { SERVANT_BALL } from "../lib/theme-colors";
 
@@ -115,6 +115,10 @@ export function ServeLoader({ size = "small", accessibilityLabel = "Loading", st
                 <ClipPath id={`c${id}`}><Circle cx={50} cy={50} r={50} /></ClipPath>
               </Defs>
               <Circle cx={50} cy={50} r={50} fill={`url(#b${id})`} />
+              {/* The seam's groove: a wider dark green line, nudged away from the light, peeking out below the white */}
+              <G clipPath={`url(#c${id})`}>
+                <Path d={SEAM} transform="translate(1.5 2)" stroke={SERVANT_BALL.seamShadow} strokeOpacity={0.45} strokeWidth={11} strokeLinecap="round" fill="none" />
+              </G>
               <Path d={SEAM} stroke={SERVANT_BALL.seam} strokeWidth={8} strokeLinecap="round" fill="none" clipPath={`url(#c${id})`} />
             </Svg>
           </Animated.View>
