@@ -6,6 +6,12 @@
 import { expectedLength } from "./code-autosend.ts";
 import type { CodeRequest } from "./server.ts";
 
+/** The code link's own screen. While it is open it answers the waiting request itself, so the open app does not
+ * bring up the Enter code screen over it (components/CodeRequestOpener.tsx). */
+export function isCodeLinkScreen(pathname: string): boolean {
+  return /^\/code\/?$/.test(pathname);
+}
+
 /** How long the screen waits for an automation to ask, for a text that arrives before the request. */
 export const LINK_WAIT_MS = 60_000;
 /** How often it looks while it waits. */

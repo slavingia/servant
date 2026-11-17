@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { codeFromLink, codeFromParams, codeLinkPath, describeCode, fitsRequest, planLink } from "./code-fill-link.ts";
+import { codeFromLink, codeFromParams, codeLinkPath, describeCode, fitsRequest, isCodeLinkScreen, planLink } from "./code-fill-link.ts";
 import type { CodeRequest } from "./server.ts";
 
 const request = (id: string, extra: Partial<CodeRequest> = {}): CodeRequest => ({
@@ -89,4 +89,14 @@ test("the link's screen is only for a signed-in person", () => {
 test("links are rewritten before the router sees them", () => {
   const intent = fs.readFileSync(path.join(import.meta.dirname, "../app/+native-intent.tsx"), "utf8");
   assert.match(intent, /codeLinkPath\(path\)/);
+});
+
+test("an open app does not bring up the Enter code screen over the link's screen", () => {
+  assert.equal(isCodeLinkScreen("/code"), true);
+  assert.equal(isCodeLinkScreen("/code/"), true);
+  assert.equal(isCodeLinkScreen("/code/code_abcdefghijkl"), false);
+  assert.equal(isCodeLinkScreen("/codes"), false);
+  assert.equal(isCodeLinkScreen("/"), false);
+  const opener = fs.readFileSync(path.join(import.meta.dirname, "../components/CodeRequestOpener.tsx"), "utf8");
+  assert.match(opener, /isCodeLinkScreen\(path\.current\)/, "the opener stands aside while the link answers");
 });
