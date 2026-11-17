@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from "react-native";
 import { uploadRecording, RecordingError } from "../lib/recordings";
 import { useRecordingEngine, type RecordingResult } from "../lib/recording-engine";
-import { clockText } from "../lib/meetings";
+import { clockText } from "../lib/recording-labels";
 import { uploadPost, type Account } from "../lib/server";
 import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 import { Button } from "./Button";
@@ -11,11 +11,11 @@ import { Toggle } from "./Toggle";
 type Phase = "ready" | "starting" | "recording" | "uploading" | "failed";
 
 /**
- * Record a meeting that happens off the app: in the room, or on Zoom, Meet or Teams on this computer.
+ * Record a voice memo, a conversation in the room, or audio from this computer.
  * Tap Start, talk, tap Stop. The audio goes up in chunks and the notes are written on the server.
  * A recording is never lost: if the upload fails it stays on this device until Try again works.
  */
-export function MeetingRecorder({ account, onMove, onSaved, onClose }: { account: Account; onMove?: (a: Account) => void; onSaved: () => void; onClose: () => void }) {
+export function VoiceRecorder({ account, onMove, onSaved, onClose }: { account: Account; onMove?: (a: Account) => void; onSaved: () => void; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const engine = useRecordingEngine();
@@ -33,7 +33,7 @@ export function MeetingRecorder({ account, onMove, onSaved, onClose }: { account
     working.current = true; setError(null); setNote(null); setPhase("starting");
     try {
       const got = await engine.start({ systemAudio });
-      setNote(got.note ?? (got.systemAudio ? "Recording the microphone and this computer's meeting audio" : engine.systemAudioOffered ? "Recording the microphone only" : null));
+      setNote(got.note ?? (got.systemAudio ? "Recording the microphone and this computer's audio" : engine.systemAudioOffered ? "Recording the microphone only" : null));
       setPhase("recording");
     } catch (e) { setError(e instanceof Error ? e.message : "Couldn't start recording"); setPhase("ready"); }
     finally { working.current = false; }
@@ -72,14 +72,14 @@ export function MeetingRecorder({ account, onMove, onSaved, onClose }: { account
 
   if (!engine.supported) {
     return <View style={styles.card}>
-      <Text accessibilityRole="header" style={styles.title}>Record a meeting</Text>
+      <Text accessibilityRole="header" style={styles.title}>Record a voice memo</Text>
       <Text style={styles.hint}>{Platform.OS === "web" ? "Recording unavailable. Use Chrome, Edge, Safari or the mobile app." : "Recording unavailable on this device."}</Text>
       <Button label="Close" kind="secondary" onPress={onClose} />
     </View>;
   }
 
   if (phase === "recording") {
-    return <View style={styles.card} testID="meeting-recorder">
+    return <View style={styles.card} testID="voice-recorder">
       <View style={styles.liveRow}>
         <View style={styles.dot} />
         <Text accessibilityLiveRegion="polite" accessibilityLabel={`Recording, ${clockText(engine.elapsedMs)}`} style={styles.timer}>{clockText(engine.elapsedMs)}</Text>
@@ -92,14 +92,14 @@ export function MeetingRecorder({ account, onMove, onSaved, onClose }: { account
   }
 
   if (phase === "uploading") {
-    return <View style={styles.card} testID="meeting-recorder">
+    return <View style={styles.card} testID="voice-recorder">
       <View style={styles.liveRow}><ActivityIndicator color={colors.blue} /><Text accessibilityLiveRegion="polite" style={styles.body}>Sending the recording… {Math.round(progress * 100)}%</Text></View>
       <Text style={styles.hint}>Keep the app open until it's sent.</Text>
     </View>;
   }
 
   if (phase === "failed") {
-    return <View style={styles.card} testID="meeting-recorder">
+    return <View style={styles.card} testID="voice-recorder">
       <Text accessibilityRole="header" style={styles.title}>Recording saved on this device</Text>
       <Text accessibilityRole="alert" style={styles.error}>{error}</Text>
       <View style={styles.actions}>
@@ -109,17 +109,17 @@ export function MeetingRecorder({ account, onMove, onSaved, onClose }: { account
     </View>;
   }
 
-  return <View style={styles.card} testID="meeting-recorder">
-    <Text accessibilityRole="header" style={styles.title}>Record a meeting</Text>
+  return <View style={styles.card} testID="voice-recorder">
+    <Text accessibilityRole="header" style={styles.title}>Record a voice memo</Text>
     {engine.systemAudioOffered ? <View style={styles.option}>
       <View style={styles.grow}>
-        <Text style={styles.body}>Include meeting audio from this computer</Text>
+        <Text style={styles.body}>Include audio from this computer</Text>
         <Text style={styles.hint}>{Platform.OS === "web" ? "Select Share audio when choosing a tab or window. Otherwise, only the microphone is recorded." : ""}</Text>
       </View>
-      <Toggle label="Include meeting audio from this computer" value={systemAudio} onValueChange={setSystemAudio} />
+      <Toggle label="Include audio from this computer" value={systemAudio} onValueChange={setSystemAudio} />
     </View> : null}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-    <Text style={styles.consent}>Tell everyone you're recording.</Text>
+    <Text style={styles.consent}>Tell anyone else you're recording.</Text>
     <View style={styles.actions}>
       <Button label="Start recording" busy={phase === "starting"} onPress={() => void start()} style={styles.grow} />
       <Button label="Cancel" kind="secondary" disabled={phase === "starting"} onPress={onClose} />

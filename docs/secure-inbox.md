@@ -4,7 +4,7 @@ The secure inbox accepts public live conversations and gives signed-in team memb
 
 ## Enable and share
 
-The `secureInbox` feature is on by default, independently of channels, direct messages and meetings. The explicit configuration is:
+The `secureInbox` feature is on by default, independently of channels and direct messages. The explicit configuration is:
 
 ```json
 {

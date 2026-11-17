@@ -14,7 +14,6 @@ export const SLASH_COMMANDS: Omit<SlashCommand, "args">[] = [
   { name: "rename", hint: "new-name", description: "Rename this channel", where: "channel" },
   { name: "leave", hint: "", description: "Leave this channel", where: "channel" },
   { name: "mute", hint: "", description: "Mute or unmute this for you. Only @mentions of you notify", where: "talk" },
-  { name: "call", hint: "", description: "Start a call here (or join the one running)", where: "talk", needs: "meetings" },
   { name: "agent", hint: "question", description: "Ask the agent about this conversation", where: "talk" },
   { name: "dm", hint: "@person message", description: "Send someone a direct message", where: "talk", needs: "directMessages" },
   { name: "files", hint: "", description: "Everything shared here", where: "talk" },

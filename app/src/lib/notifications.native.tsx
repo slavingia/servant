@@ -4,8 +4,7 @@ import { router, useGlobalSearchParams, usePathname, useRootNavigationState } fr
 import * as Notifications from 'expo-notifications';
 import { AndroidImportance, IosAuthorizationStatus } from 'expo-notifications';
 import { useSession } from './session';
-import { accountId, request, ServerError, type Account } from './server';
-import { systemCalls, validMeetingId } from './servant-call';
+import { accountId, ServerError } from './server';
 import { normalizeFeatures } from './features.ts';
 import { notificationApi, defaultNotifications, type NotificationSettings, type NotificationPreferences } from './notifications-api';
 import { notificationAccountRoute } from './notification-accounts';
@@ -15,12 +14,6 @@ import { useIconBadge } from './use-icon-badge';
 
 const Ctx = createContext<NotificationState | null>(null);
 Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: false }) });
-
-async function registerCalls(a: Account) {
-  if (systemCalls.androidRings) { await notificationApi.registerCalls(a, { android: true }).catch(() => {}); return; }
-  const token = systemCalls.voipToken();
-  if (Platform.OS === 'ios' && token) await notificationApi.registerCalls(a, { token, environment: 'production' }).catch(() => {});
-}
 
 // This provider stays mounted while the account-specific navigation tree resets.
 // Registrations, notification taps and the badge always cover all saved servers.
@@ -61,7 +54,6 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         if (version !== syncVersion.current) return [];
         return Promise.allSettled(saved.map(async a => {
           const result = await notificationApi.register(a, token, Platform.OS, saved.length > 1);
-          if (allowed) await registerCalls(a);
           if (version === syncVersion.current && latest.current.accounts.some(current => accountId(current) === accountId(a) && current.token === a.token)) {
             setSettings(current => ({ ...current, [accountId(a)]: result }));
           }
@@ -107,8 +99,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const tokenSub = Notifications.addPushTokenListener(() => { void sync(false); });
     const stateSub = AppState.addEventListener('change', state => { if (state === 'active') void sync(false); });
-    const voipSub = systemCalls.onToken(() => { void sync(false); });
-    return () => { tokenSub.remove(); stateSub.remove(); voipSub?.remove(); };
+    return () => { tokenSub.remove(); stateSub.remove(); };
   }, [sync]);
 
   useEffect(() => {
@@ -117,10 +108,8 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       const target = notificationAccountRoute(data, registrations);
       const selected = !!target && !!account && target.accountId === accountId(account);
       const visible = selected && AppState.currentState === 'active' && conversation && (data.conversationId === conversation || data.chatId === conversation || data.caseId === conversation);
-      // Only the active server has an in-app call screen. Other servers still alert.
-      const ringing = selected && AppState.currentState === 'active' && typeof data.meetingId === 'string';
       const prefs = target ? settings[target.accountId]?.preferences : null;
-      const show = !!target && !visible && !ringing && !!prefs && prefs.mode !== 'none' && prefs.pausedUntil <= Date.now();
+      const show = !!target && !visible && !!prefs && prefs.mode !== 'none' && prefs.pausedUntil <= Date.now();
       // A per-server push count must never replace the all-server foreground total.
       return { shouldShowBanner: show, shouldShowList: show, shouldPlaySound: show, shouldSetBadge: show && accounts.length === 1 && AppState.currentState !== 'active' };
     } });
@@ -167,29 +156,6 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     }, 0);
     return () => clearTimeout(timer);
   }, [account, navigation?.key, pending]);
-
-  // Older native call modules return only a meeting id. Resolve it against the
-  // saved servers rather than opening that id in whichever server was active.
-  useEffect(() => {
-    if (!accounts.length || !navigation?.key) return;
-    let disposed = false;
-    const join = async (id: string | null) => {
-      if (!validMeetingId(id)) return;
-      const matches = await Promise.all(latest.current.accounts.map(async a => {
-        if (!normalizeFeatures(a.features).meetings) return null;
-        try {
-          const response = await request(a, `/v1/meetings/${id}`, { signal: AbortSignal.timeout(10000) });
-          const data = await response.json();
-          return data?.meeting?.id === id ? a : null;
-        } catch { return null; }
-      }));
-      const found = matches.filter((a): a is Account => !!a);
-      if (!disposed && found.length === 1) void openTarget({ accountId: accountId(found[0]), route: { pathname: '/meeting/[id]', params: { id } } });
-    };
-    void join(systemCalls.takeAnswered());
-    const sub = systemCalls.onAnswer(id => { void join(id); });
-    return () => { disposed = true; sub?.remove(); };
-  }, [accounts.length, navigation?.key, openTarget]);
 
   useEffect(() => {
     if (!registrations.length || !navigation?.key) return;

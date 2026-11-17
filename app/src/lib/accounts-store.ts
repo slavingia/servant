@@ -4,7 +4,7 @@ export type Account = {
   serverKey?: string;
   discovery?: string;
   serverName: string;
-  features?: { channels: boolean; directMessages: boolean; meetings: boolean; secureInbox: boolean };
+  features?: { channels: boolean; directMessages: boolean; secureInbox: boolean };
   theme?: { primaryColor: string };
   recordsKept?: boolean;
   deepWork?: boolean;

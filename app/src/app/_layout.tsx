@@ -8,7 +8,6 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { SessionProvider, useSession } from "../lib/session";
 import { NotificationsProvider } from "../lib/notifications";
 import { LiveProvider } from "../lib/live";
-import { IncomingCall } from "../components/IncomingCall";
 import { PhotoProvider } from "../lib/photos";
 import { AppChrome } from "../components/AppChrome";
 import { Button } from "../components/Button";
@@ -139,7 +138,6 @@ function SessionNavigation() {
         <Stack.Screen name="reverify" options={{ title: "Confirm it's you", headerBackVisible: false, headerLeft: () => null, gestureEnabled: false }} />
         <Stack.Screen name="c/[id]" options={{ title: "", ...sidebarScreen }} />
         <Stack.Screen name="thread" options={{ title: "Thread", ...childScreen }} />
-        <Stack.Screen name="meeting/[id]" options={{ headerShown: false, presentation: "fullScreenModal", gestureEnabled: false }} />
         <Stack.Screen name="new-channel" options={{ title: "New channel", ...sidebarScreen }} />
         <Stack.Screen name="new-message" options={{ title: "New message", ...sidebarScreen }} />
         <Stack.Screen name="inbox" options={{ title: "Cases", ...sidebarScreen }} />
@@ -167,11 +165,10 @@ function SessionNavigation() {
         <Stack.Screen name="entitlements" options={{ title: "Entitlements", ...childScreen }} />
         <Stack.Screen name="leaderboard" options={{ title: "Agent usage", ...childScreen }} />
         <Stack.Screen name="invite" options={{ title: "Invite someone", ...childScreen }} />
-        <Stack.Screen name="meetings/index" options={{ title: "Meetings", ...sidebarScreen }} />
-        <Stack.Screen name="meetings/[id]" options={{ title: "Meeting", ...childScreen }} />
+        <Stack.Screen name="recordings/index" options={{ title: "Recordings", ...sidebarScreen }} />
+        <Stack.Screen name="recordings/[id]" options={{ title: "Recording", ...childScreen }} />
       </Stack.Protected>
     </Stack>
-    {paired ? <IncomingCall /> : null}
     {paired ? <SessionExpiryGate /> : null}
     {paired ? <ShareGate /> : null}
     </AppChrome>

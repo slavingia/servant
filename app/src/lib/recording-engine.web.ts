@@ -1,4 +1,4 @@
-// Record a meeting in the browser and the Mac app with MediaRecorder (see web-recorder.ts).
+// Record a voice memo in the browser and the Mac app with MediaRecorder (see web-recorder.ts).
 // Same engine shape as recording-engine.ts, which phones use.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RecordingEngine, RecordingResult } from "./recording-engine";

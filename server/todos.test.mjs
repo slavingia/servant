@@ -235,7 +235,7 @@ test('the done tag is read from a reply and removed from what people see', () =>
   assert.match(agentBrief({ todo: { text: 'x' } }), /^x\n\nThis is a to-do\. Start on it/);
 });
 
-test('next steps from a recording become to-dos once, with the owner matched; deleting the meeting deletes them', () => {
+test('next steps from a recording become to-dos once, with the owner matched; deleting the recording deletes them', () => {
   const { todos } = setup();
   const made = todos.fromRecording(pat, 'rec1', 'Launch sync', [{ text: 'Draft the post', owner: 'Jo' }, { text: 'Book the room', owner: '' }]);
   assert.equal(made.length, 2);
@@ -252,24 +252,24 @@ test('next steps from a recording become to-dos once, with the owner matched; de
 test('recording import receipts survive task deletion and restart without resurrecting removed work', () => {
   const { todos, file } = setup({ recordsPreservation: () => true });
   const steps = [{ text: 'First follow-up' }, { text: 'Second follow-up' }];
-  const tasks = todos.fromRecording(pat, 'rec_once', 'Example meeting', steps);
+  const tasks = todos.fromRecording(pat, 'rec_once', 'Example memo', steps);
   todos.remove(pat, tasks[0].id);
-  assert.deepEqual(todos.fromRecording(pat, 'rec_once', 'Example meeting', steps), []);
+  assert.deepEqual(todos.fromRecording(pat, 'rec_once', 'Example memo', steps), []);
   assert.deepEqual(todos.forSource(pat, 'recording', 'rec_once').map(todo => todo.id), [tasks[1].id], 'partial removal stays removed');
   todos.remove(pat, tasks[1].id);
-  assert.deepEqual(todos.fromRecording(pat, 'rec_once', 'Example meeting', steps), []);
+  assert.deepEqual(todos.fromRecording(pat, 'rec_once', 'Example memo', steps), []);
   assert.deepEqual(todos.forSource(pat, 'recording', 'rec_once'), []);
   assert.deepEqual(todos.db.prepare('SELECT text FROM records_archive ORDER BY rowid').all().map(row => row.text), steps.map(step => step.text));
   todos.close();
   const reopened = createTodos({ file, users: () => people, project: () => null, channel: () => null, announce: () => {} });
   try {
-    assert.deepEqual(reopened.fromRecording(pat, 'rec_once', 'Example meeting', steps), []);
+    assert.deepEqual(reopened.fromRecording(pat, 'rec_once', 'Example memo', steps), []);
     assert.deepEqual(reopened.forSource(pat, 'recording', 'rec_once'), []);
     reopened.db.exec("CREATE TRIGGER fail_recording_task BEFORE INSERT ON todos WHEN NEW.text = 'Second follow-up' BEGIN SELECT RAISE(ABORT, 'failed import'); END");
-    assert.throws(() => reopened.fromRecording(pat, 'rec_retry', 'Example meeting', steps), /failed import/);
+    assert.throws(() => reopened.fromRecording(pat, 'rec_retry', 'Example memo', steps), /failed import/);
     assert.deepEqual(reopened.forSource(pat, 'recording', 'rec_retry'), []);
     reopened.db.exec('DROP TRIGGER fail_recording_task');
-    assert.equal(reopened.fromRecording(pat, 'rec_retry', 'Example meeting', steps).length, 2, 'a failed import rolls back its receipt and can be retried');
+    assert.equal(reopened.fromRecording(pat, 'rec_retry', 'Example memo', steps).length, 2, 'a failed import rolls back its receipt and can be retried');
   } finally { reopened.close(); }
 });
 
@@ -391,7 +391,7 @@ test('agent completions are explicit and replaying the same turn never re-comple
 
 test('work history survives removal and source deletion while content and permission changes stay live', () => {
   let allowed = true;
-  const flags = { channels: true, meetings: true };
+  const flags = { channels: true };
   const { todos } = setup({ project: (_user, _pid, rid) => allowed ? { projectName: 'Example app', releaseName: rid ? 'Release' : '', canWrite: true } : null, features: () => flags });
   const [todo] = todos.fromRecording(pat, 'rec_example', 'Planning', [{ text: 'First wording', owner: 'Jo' }]);
   todos.update(pat, todo.id, { projectId: 'example-app', channelId: 'c1', status: 'done' });
@@ -407,9 +407,7 @@ test('work history survives removal and source deletion while content and permis
   flags.channels = false;
   assert.equal(todos.workLog(pat)[0].source.channelName, null);
   assert.equal(todos.workLog(pat)[0].source.channelId, null);
-  flags.meetings = false;
-  assert.equal(todos.workLog(pat)[0].source, null);
-  flags.meetings = true;
+  assert.ok(todos.workLog(pat)[0].source, 'voice memo follow-ups no longer depend on a meetings flag');
   todos.removeSource('recording', 'rec_example', pat.id);
   const removed = todos.workLog(pat)[0];
   assert.equal(removed.id, first.id);
@@ -423,8 +421,8 @@ test('work history survives removal and source deletion while content and permis
   assert.ok(todos.workLog(pat).every(entry => entry.source === null));
 });
 
-test('todo routes hide meeting-derived tasks and mask disabled or inaccessible source references', async () => {
-  const flags = { channels: true, meetings: true };
+test('todo routes hide legacy call tasks and mask disabled or inaccessible source references', async () => {
+  const flags = { channels: true };
   let projectVisible = true;
   const { todos, posts } = setup({ features: () => flags,
     project: () => projectVisible ? { projectName: 'Example app', releaseName: 'Example release', canWrite: true } : null });
@@ -438,7 +436,6 @@ test('todo routes hide meeting-derived tasks and mask disabled or inaccessible s
       send: (_res, status, body) => { result = { status, body }; }, fail: () => assert.fail('unexpected route'), readBody: async () => ({}) });
     return result;
   };
-  flags.meetings = false;
   flags.channels = false;
   projectVisible = false;
   const listed = await get('/v1/todos');
@@ -447,19 +444,19 @@ test('todo routes hide meeting-derived tasks and mask disabled or inaccessible s
   assert.equal(item.channelId, null); assert.equal(item.channelName, null);
   assert.equal(item.projectId, null); assert.equal(item.projectName, null);
   assert.equal(item.releaseId, null); assert.equal(item.releaseName, null);
-  for (const task of [recording, call]) {
+  assert.equal((await get(`/v1/todos/${recording.id}`)).body.todo.source.title, 'Private planning title');
+  for (const task of [call]) {
     await assert.rejects(get(`/v1/todos/${task.id}`), error => error.status === 404);
     await assert.rejects(get(`/v1/todos/${task.id}`, owner), error => error.status === 404);
     await assert.rejects(todos.sendToAgent(pat, null, task.id), error => error.status === 404);
     assert.throws(() => todos.update(pat, task.id, { text: 'Cannot change hidden work' }), error => error.status === 404);
   }
-  assert.deepEqual(todos.forSource(pat, 'recording', 'rec_hidden'), []);
-  assert.equal(todos.workLog(pat)[0].source, null);
+  assert.equal(todos.forSource(pat, 'recording', 'rec_hidden').length, 1);
+  assert.ok(todos.workLog(pat)[0].source);
   posts.length = 0;
   todos.update(pat, manual.id, { status: 'done' });
   assert.deepEqual(posts, [], 'disabled channels do not receive task content');
   assert.throws(() => todos.create(pat, { text: 'No disabled channel', channelId: 'c1' }), error => error.status === 403);
-  flags.meetings = true;
   flags.channels = true;
   projectVisible = true;
   assert.equal((await get(`/v1/todos/${recording.id}`)).body.todo.source.title, 'Private planning title');
@@ -574,7 +571,7 @@ test('history insertion and bulk/source changes are atomic, with announcements o
 
 test('legacy standalone tasks migrate once with completion provenance and the source database remains untouched', () => {
   const legacy = setup();
-  const todo = legacy.todos.create(pat, { text: 'Legacy completed task', assigneeId: jo.id }, { source: { kind: 'recording', id: 'rec_legacy', title: 'Legacy meeting' } });
+  const todo = legacy.todos.create(pat, { text: 'Legacy completed task', assigneeId: jo.id }, { source: { kind: 'recording', id: 'rec_legacy', title: 'Legacy memo' } });
   // Reproduce the old store before completion history and its current link existed.
   legacy.todos.db.prepare("UPDATE todos SET status = 'done', done_at = 987654321, done_by = 'agent' WHERE id = ?").run(todo.id);
   const unknown = legacy.todos.create(pat, { text: 'Legacy actor unknown' });
@@ -591,7 +588,7 @@ test('legacy standalone tasks migrate once with completion provenance and the so
     assert.deepEqual(history.find(entry => entry.todoId === todo.id).completedBy, { kind: 'agent' });
     assert.deepEqual(history.find(entry => entry.todoId === unknown.id).completedBy, { kind: 'unknown' });
     adopted.remove(pat, todo.id);
-    assert.deepEqual(adopted.fromRecording(pat, 'rec_legacy', 'Legacy meeting', [{ text: 'Legacy completed task' }]), [], 'existing source tasks get import receipts during migration');
+    assert.deepEqual(adopted.fromRecording(pat, 'rec_legacy', 'Legacy memo', [{ text: 'Legacy completed task' }]), [], 'existing source tasks get import receipts during migration');
     adopted.close();
     adopted = setup({ db: target, legacyFile: legacy.file }).todos;
     assert.equal(adopted.list(pat, { status: 'done' }).length, 2, 'the import marker prevents resurrection');

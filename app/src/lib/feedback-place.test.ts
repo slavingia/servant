@@ -7,7 +7,7 @@ import path from "node:path";
 import { DESTINATIONS, placeIsOpen } from "./destinations.ts";
 
 const read = (file: string) => fs.readFileSync(path.join(import.meta.dirname, "..", file), "utf8");
-const features = { channels: true, directMessages: true, meetings: true };
+const features = { channels: true, directMessages: true };
 
 test("Feedback is one destination, open on either of its two screens", () => {
   const places = DESTINATIONS.filter(place => /survey|feedback/i.test(`${place.id} ${place.label}`));

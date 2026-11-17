@@ -18,7 +18,7 @@ How it travels: the browser subscribes with its own push service (Google for Chr
 - **Nothing to configure.** No Apple or Google credentials are involved; `push.json` is not needed for browsers. The server must be able to reach those hosts.
 - **Lifecycle.** Alerts wait up to an hour at the push service for a browser that is closed, and a newer alert for the same conversation replaces one still waiting. A subscription the push service reports gone (404 or 410) is removed. Signing out removes the registration, and the browser stops listening for that server. With several servers signed in, each has its own subscription (a service worker registration under `/push/<server>/`), because a subscription belongs to one server's key.
 - **Quiet while reading.** The page reports the conversation on screen while its window is in front, as the phone app does, so that conversation does not alert, and alerts already showing for it are taken down.
-- **Not included.** Calls show as an ordinary alert and do not ring. There is no unread badge on the browser's icon. The web app is not installable, so there is no push on an iPhone's Home Screen.
+- **Not included.** There is no unread badge on the browser's icon. The web app is not installable, so there is no push on an iPhone's Home Screen.
 
 ## Server configuration
 
@@ -35,7 +35,7 @@ Store a private JSON file at `~/.config/servant/push.json`, or set `SERVANT_PUSH
 }
 ```
 
-Use directory mode 0700 and file mode 0600. Never commit credentials. The FCM service account needs `cloudmessaging.messages.create` on the Firebase project. `apnsTopic` is the iOS app's bundle id, which APNs uses as the topic (calls use `<apnsTopic>.voip`). Without it the server uses the `SERVANT_BUNDLE_ID` environment variable, then `com.example.servant`; set it to the bundle id you build the app with. The APNs key is restricted to production notifications for that bundle id; release provisioning must include the production `aps-environment` entitlement. The release script uses the `Servant Push App Store` provisioning profile.
+Use directory mode 0700 and file mode 0600. Never commit credentials. The FCM service account needs `cloudmessaging.messages.create` on the Firebase project. `apnsTopic` is the iOS app's bundle id, which APNs uses as the topic. Without it the server uses the `SERVANT_BUNDLE_ID` environment variable, then `com.example.servant`; set it to the bundle id you build the app with. The APNs key is restricted to production notifications for that bundle id; release provisioning must include the production `aps-environment` entitlement. The release script uses the `Servant Push App Store` provisioning profile.
 
 Device tokens live in private server state. Jobs are persisted in `server/data/push.db` for up to one hour and re-check membership, preferences, archive status, device revocation, and message visibility before sending. Transient delivery failures retry with backoff; invalid tokens are removed without deleting a newly rotated token. Signing out removes the device registration. Ordinary channel jobs store message references. Legacy private-agent jobs may still contain reply text in this private on-Mac database; queue storage is not encrypted at rest. Agent replies are also stored as plain text in the job queue (previously only some legacy jobs were).
 

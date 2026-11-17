@@ -37,10 +37,6 @@ test("a Button that deletes, removes, leaves, stops or signs out is the destruct
 // Where a destructive word is deliberately not on the shared Button, and why.
 const ELSEWHERE: Record<string, string> = {
   "components/SwipeChannelRow.tsx": "the action a swipe reveals is a filled panel behind the row",
-  "components/ActiveCallBar.tsx": "the call bar is one colored strip with Return and Leave",
-  "components/GuestInvite.tsx": "the call screen's dark canvas has its own controls",
-  "components/CallControls.tsx": "the call screen's dark canvas has its own controls",
-  "app/meeting/[id].tsx": "the call screen's dark canvas has its own controls",
   "app/(tabs)/you.tsx": "Remove photo is a row in the photo menu",
 };
 

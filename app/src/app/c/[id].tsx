@@ -27,8 +27,6 @@ import { asDeleted, showChange, undoChange, withReaction } from "../../lib/post-
 import { isDesktop } from "../../lib/desktop";
 import { lastEditableMessage } from "../../lib/edit-last-message";
 import { TypingLine, useTyping, useTypingPing } from "../../lib/typing";
-import { useActiveCall } from "../../lib/active-call";
-import { callErrorText, callsSupported } from "../../lib/meeting-call";
 import { PiiDeclined, withPiiConfirm } from "../../lib/pii-warning";
 import { usePiiConfirm } from "../../components/PiiConfirm";
 import { api, ServerError, type Account, type Conversation, type Person, type Upload, type Post, type LiveEvent } from "../../lib/server";
@@ -91,7 +89,6 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
   const [kept] = useState(() => keptConversation(account, id));
   const [conv, setConv] = useState<Conversation | null>(() => kept?.conversation ?? peek(id) ?? null);
   const [joined, setJoined] = useState(kept?.joined ?? true);
-  const [calling, setCalling] = useState(false);
   const [posts, setPosts] = useState<Post[] | null>(kept?.posts ?? null);
   // Messages shown the moment Send is pressed, under the ones the server has (lib/outbox.ts).
   const [outbox] = useState(createOutbox);
@@ -243,7 +240,6 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
   const receipts = useMemo(() => conv && conv.id === id && conv.kind === "dm"
     ? latestMessageReceipts(posts ?? [], account.user.id, conv.members)
     : undefined, [posts, account.user.id, conv, id]);
-  const activeCall = useActiveCall();
   const members = conv?.kind === "dm" ? conv.members : undefined;
   const peers = useMemo(() => members?.filter(person => person.id !== account.user.id && !person.agent) ?? [], [members, account.user.id]);
   const wide = useWideLayout();
@@ -290,7 +286,6 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
         }
         case "leave": await api.leave(account, id); router.replace("/"); return true;
         case "mute": { const next = !conv?.muted; await api.muteConversation(account, id, next); setConv(c => c ? { ...c, muted: next } : c); setError(null); return true; }
-        case "call": void startCall(); return true;
         case "archive": await (conv?.archived ? api.restoreChannel(account, id) : api.archiveChannel(account, id)); setError(null); router.replace("/"); return true;
         case "new": router.push("/new-message"); return true;
         case "browse": router.push("/browse"); return true;
@@ -465,21 +460,6 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
   const sideDetails = wide && detailsOpen && (conv ? isChannel : id.startsWith("ch_"));
   const openDetails = () => wide ? setDetailsOpen(!detailsOpen) : router.push({ pathname: "/channel-info", params: { id } });
   const openFiles = () => router.push({ pathname: "/files", params: { kind: "conversation", id, title } });
-  const canCall = !!conv && joined && features.meetings && callsSupported();
-  const callLabel = activeCall?.state.conversationId === id ? "Return to call" : "Call";
-  // One tap starts the meeting (or joins the one already running) and opens the call.
-  const startCall = async () => {
-    if (!account || calling) return;
-    // Already on this conversation's call: go back to it.
-    if (activeCall?.state.conversationId === id) { router.push({ pathname: "/meeting/[id]", params: { id: activeCall.id } }); return; }
-    setCalling(true);
-    try {
-      const meeting = await api.startMeeting(account, id);
-      router.push({ pathname: "/meeting/[id]", params: { id: meeting.id } });
-    } catch (e) { setError(callErrorText(e, "start")); }
-    finally { setCalling(false); }
-  };
-  const onCall = useStableCallback(() => { void startCall(); });
   const onFiles = useStableCallback(openFiles);
   const onDetails = useStableCallback(openDetails);
   const loadedConversation = !!conv;
@@ -492,15 +472,12 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
       // Keep channel management quiet beside the conversation title.
       unstable_headerRightItems:
         loadedConversation && Platform.OS === "ios"
-          ? () => [...(canCall ? [{ ...headerButton, label: callLabel, onPress: onCall }] : []), { ...headerButton, label: "Files", onPress: onFiles }, ...(isChannel ? [{ ...headerButton, label: "Details", onPress: onDetails }] : [])]
+          ? () => [{ ...headerButton, label: "Files", onPress: onFiles }, ...(isChannel ? [{ ...headerButton, label: "Details", onPress: onDetails }] : [])]
           : undefined,
       headerRight:
         loadedConversation && Platform.OS !== "ios"
           ? () => (
               <View style={styles.headerActions}>
-                {canCall ? <Pressable testID="start-call" accessibilityRole="button" accessibilityLabel={callLabel === "Call" ? "Start a call" : callLabel} disabled={calling} onPress={onCall} style={styles.headerAction}>
-                  <Text style={styles.headerLink}>{callLabel}</Text>
-                </Pressable> : null}
                 <Pressable testID="open-files" accessibilityRole="button" onPress={onFiles} style={styles.headerAction}>
                   <Text style={styles.headerLink}>Files</Text>
                 </Pressable>
@@ -511,7 +488,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
             )
           : undefined,
     };
-  }, [title, loadedConversation, canCall, callLabel, isChannel, calling, colors.blue, styles, onCall, onFiles, onDetails]);
+  }, [title, loadedConversation, isChannel, colors.blue, styles, onFiles, onDetails]);
 
   return (
     <MediaGalleryProvider key={`${id}:${unavailable}`} scope={{ kind: "conversation", id }} items={media}>

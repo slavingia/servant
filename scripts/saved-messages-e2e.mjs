@@ -297,17 +297,17 @@ try {
 
   const recording = await api('POST', '/v1/recordings', { size: 1, durationMs: 60000, ext: 'webm' }, owner.token);
   await api('POST', `/v1/recordings/${recording.id}/chunk`, { offset: 0, data: Buffer.from('x').toString('base64') }, owner.token);
-  const recordingTitle = 'Example planning meeting';
+  const recordingTitle = 'Example planning memo';
   const finishedRecording = await api('POST', `/v1/recordings/${recording.id}/finish`, { title: recordingTitle }, owner.token);
-  assert.equal(finishedRecording.meeting.status, 'failed', 'synthetic short audio exercises a notes failure');
-  const recordingEntry = await waitForEntry(entry => entry.meetingId === recording.id);
-  assert.deepEqual([recordingEntry.startedAt, recordingEntry.endedAt, recordingEntry.durationMs], [null, null, 60000]);
+  assert.equal(finishedRecording.recording.status, 'failed', 'synthetic short audio exercises a notes failure');
+  const recordingEntry = await waitForEntry(entry => entry.recordingId === recording.id);
+  assert.deepEqual([recordingEntry.kind, recordingEntry.durationMs], ['recording', 60000]);
   await mixedRow(recordingEntry).getByText(recordingTitle, { exact: true }).waitFor();
   assert.match(await mixedRow(recordingEntry).innerText(), /Added .*Recording: 1 min/);
-  await page.getByText('3 completions · 1 meeting · 1 by Agent', { exact: true }).waitFor();
+  await page.getByText('3 completions · 1 voice memo · 1 by Agent', { exact: true }).waitFor();
   const mixedReport = await copyReport();
-  for (const text of [recordingTitle, agentTodo.text, manualTodo.text, 'Completed by Agent', '1 recorded meeting', '1 completion by Agent']) assert.ok(mixedReport.includes(text), `mixed report includes ${text}`);
-  assert.match(mixedReport, /3 completion events; 3 distinct tasks; 0 attended meetings; 1 recorded meeting/);
+  for (const text of [recordingTitle, agentTodo.text, manualTodo.text, 'Completed by Agent', '1 voice memo', '1 completion by Agent']) assert.ok(mixedReport.includes(text), `mixed report includes ${text}`);
+  assert.match(mixedReport, /3 completion events; 3 distinct tasks; 1 voice memo/);
   await page.screenshot({ path: path.join(artifacts, 'work-log-desktop.png'), animations: 'disabled' });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: 'Saved', exact: true }).waitFor({ state: 'hidden' });
@@ -427,7 +427,7 @@ try {
   await otherPage.getByText('Nothing to follow up', { exact: true }).waitFor();
   assert.equal((await savedItems(member)).length, 0, 'saved messages are private to their owner');
   assert.deepEqual((await savedState(member)).history, [], 'work notes and completion history are private to their owner');
-  assert.deepEqual(await workLog(member), [], 'automatic meeting and to-do events remain private to their owner');
+  assert.deepEqual(await workLog(member), [], 'automatic recording and to-do events remain private to their owner');
   await otherPage.context().close();
 
   const edited = 'Send the revised example notes after the review';
@@ -497,7 +497,7 @@ try {
   await page.screenshot({ path: path.join(artifacts, 'saved-worklog-phone.png'), animations: 'disabled' });
   await page.getByRole('tab', { name: /In progress/ }).click();
 
-  // Removing a source cannot remove the automatic meeting event or expose its
+  // Removing a source cannot remove the automatic recording event or expose its
   // former title after a fresh process reads the durable work log.
   await api('DELETE', `/v1/recordings/${recording.id}`, undefined, owner.token);
   assert.deepEqual((await workLog(owner)).find(entry => entry.id === recordingEntry.id), { ...recordingEntry, source: null });

@@ -179,7 +179,6 @@ test("every destructive path the records audit found is guarded by the preservat
   const media = read("./chat-media.mjs");
   check(media, 'db.prepare("DELETE FROM chat_messages WHERE id=?").run(row.id);', "keepDropped(", "mirror drop");
   assert.match(read("./recordings.mjs"), /recordsPreservation\) \{ st\.hide\.run/, "personal recording delete hides instead");
-  assert.match(read("./meetings.mjs"), /keepRecordings === false && !cfg\(\)\.recordsPreservation/, "meeting audio delete is gated");
   assert.match(read("./projects.mjs"), /if \(keep\(\)\) return void quarantine/, "project file removal is gated");
   assert.match(read("./documents.mjs"), /if \(keep\(\) && fs\.existsSync\(from\)\)/, "chat documents are set aside");
   assert.match(read("./prototypes.mjs"), /if \(keep && fs\.existsSync\(from\)\)/, "prototypes are set aside");

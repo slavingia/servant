@@ -7,7 +7,6 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { DatabaseSync } from "node:sqlite";
 import { setTimeout as delay } from "node:timers/promises";
 import { testFetch } from "./encrypted-test-client.mjs";
 import { TERMS_VERSION, TERMS_ITEMS } from "./terms.mjs";
@@ -137,25 +136,23 @@ test("a final-looking Agent reply followed by a failed run does not complete its
   assert.equal((await api("GET", `/v1/todos/${made.id}`, owner)).body.todo.status, "open");
 });
 
-test("an uploaded recording joins the work log automatically, survives removal, and follows feature visibility", async () => {
+test("an uploaded recording joins the work log automatically and survives removal", async () => {
   const created = await api("POST", "/v1/recordings", member, { size: 1, durationMs: 60000, ext: "webm" });
   assert.equal(created.status, 200, JSON.stringify(created.body));
   const id = created.body.id;
   await api("POST", `/v1/recordings/${id}/chunk`, member, { offset: 0, data: Buffer.from("x").toString("base64") });
-  const finished = await api("POST", `/v1/recordings/${id}/finish`, member, { title: "Example planning meeting" });
+  const finished = await api("POST", `/v1/recordings/${id}/finish`, member, { title: "Example planning memo" });
   assert.equal(finished.status, 200, JSON.stringify(finished.body));
-  const event = (await log(member)).find(entry => entry.meetingId === id);
-  assert.equal(event.meetingKind, "recording");
-  assert.equal(event.source.title, "Example planning meeting");
-  assert.equal(event.startedAt, null);
-  assert.equal(event.endedAt, null);
+  const event = (await log(member)).find(entry => entry.recordingId === id);
+  assert.equal(event.kind, "recording");
+  assert.equal(event.source.title, "Example planning memo");
   assert.equal(event.durationMs, 60000);
-  assert.equal((await log(owner)).some(entry => entry.meetingId === id), false);
+  assert.equal((await log(owner)).some(entry => entry.recordingId === id), false);
   config.features = { meetings: false }; saveConfig();
-  assert.equal((await log(member)).some(entry => entry.meetingId === id), false);
+  assert.ok((await log(member)).some(entry => entry.recordingId === id), "an old meetings flag no longer hides voice memos");
   delete config.features; saveConfig();
   await api("DELETE", `/v1/recordings/${id}`, member);
-  assert.deepEqual((await log(member)).find(entry => entry.meetingId === id), { ...event, source: null });
+  assert.deepEqual((await log(member)).find(entry => entry.recordingId === id), { ...event, source: null });
 });
 
 test("mixed history is ordered and hides current channel sources when the channel feature is off", async () => {
@@ -163,24 +160,12 @@ test("mixed history is ordered and hides current channel sources when the channe
   const message = (await api("POST", `/v1/conversations/${channel.id}/messages`, owner, { text: "Review the example delivery" })).body.message;
   await api("POST", `/v1/saved-messages/${message.id}`, member, {});
   await api("PATCH", `/v1/saved-messages/${message.id}`, member, { completed: true, note: "Review finished" });
-  // Attendance collection is exercised with actual peers in meetings.test.mjs.
-  const db = new DatabaseSync(path.join(dir, "meetings", "meetings.db"));
-  const endedAt = Date.now();
-  try {
-    db.prepare("INSERT INTO meetings(id,conversation_id,started_by,started_at,ended_at,status,title) VALUES(?,?,?,?,?,'done',?)")
-      .run("meet_example", channel.id, owner.user.id, endedAt - 60000, endedAt, "Example review call");
-    db.prepare("INSERT INTO meeting_work_log(meeting_id,user_id,started_at,ended_at,duration_ms) VALUES(?,?,?,?,?)")
-      .run("meet_example", member.user.id, endedAt - 60000, endedAt, 60000);
-  } finally { db.close(); }
   const entries = await log(member);
   assert.ok(entries.some(entry => entry.kind === "saved" && entry.completion.note === "Review finished"));
-  assert.equal(entries.find(entry => entry.meetingId === "meet_example").source.title, "Example review call");
   assert.deepEqual(entries.map(entry => entry.at), entries.map(entry => entry.at).sort((a, b) => b - a));
-  assert.equal((await log(owner)).some(entry => entry.meetingId === "meet_example"), false, "hosting alone is not attendance");
   config.features = { channels: false }; saveConfig();
   try {
     const hidden = await log(member);
-    assert.equal(hidden.find(entry => entry.meetingId === "meet_example").source, null);
     assert.equal(hidden.find(entry => entry.kind === "saved" && entry.completion.messageId === message.id).completion.message, null);
   } finally { delete config.features; saveConfig(); }
 });

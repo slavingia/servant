@@ -6,13 +6,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { createStateStore } from './state-store.mjs';
 import { testFetch } from './encrypted-test-client.mjs';
-import { createMessaging, AGENT_ID } from './messaging.mjs';
+import { createMessaging } from './messaging.mjs';
 import { deepWorkFields, inDeepWork, setDeepWork } from './deep-work.mjs';
 import { preferences, wantsNotification } from './push.mjs';
 
 // Deep work (deep-work.mjs, docs/features.md "Deep work"): a person's own quiet mode, kept on the person so every
-// device agrees. Off for everyone until they switch it on; nothing rings or buzzes for them while it is
-// on; calls they missed are listed once when they switch it off; the instance's own flags still win.
+// device agrees. Off for everyone until they switch it on; nothing buzzes for them while it is
+// on; the instance's own flags still win.
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'servant-deep-work-'));
 process.env.SERVANT_DATA_DIR = directory;
 // The owner has two devices: the switch is per person, so both must agree.
@@ -70,7 +70,6 @@ async function refused(route, status, options) {
 const me = (who = 'owner') => api('/v1/me', { who });
 const people = (who = 'member') => api('/v1/people', { who }).then(r => Object.fromEntries(r.people.map(p => [p.id, p])));
 const switchDeepWork = (on, who = 'owner') => api('/v1/people/me', { who, method: 'PATCH', body: { deepWork: on } });
-const startCall = (conversationId, who) => api('/v1/meetings', { who, method: 'POST', body: { conversationId } }).then(r => r.meeting);
 
 test('pure helpers: off unless deepWorkSince is a time; switching on again keeps the start; off removes the field', () => {
   for (const user of [undefined, null, {}, { deepWorkSince: 0 }, { deepWorkSince: -5 }, { deepWorkSince: 'yes' }, { deepWorkSince: true }]) assert.equal(inDeepWork(user), false);
@@ -97,14 +96,14 @@ test('off until switched on; /v1/me, the people list, conversation members and p
   const joined = await (await testFetch(directory, `${base}/v1/pair`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: createInvite({ name: 'Newcomer', role: 'member' }), device: 'Phone', terms: { version: TERMS_VERSION, items: TERMS_ITEMS } }) })).json();
   assert.equal(joined.deepWork, false);
 
-  assert.deepEqual(await switchDeepWork(true), { user: { id: 'owner', name: 'Owner Focus', role: 'owner' }, deepWork: true, missed: [] });
+  assert.deepEqual(await switchDeepWork(true), { user: { id: 'owner', name: 'Owner Focus', role: 'owner' }, deepWork: true });
   assert.equal((await me()).deepWork, true);
   assert.equal((await me('ownerLaptop')).deepWork, true, 'the other device of the same person sees it too');
   assert.equal((await me('member')).deepWork, false, 'nobody else is affected');
   const seen = await people();
   assert.equal(seen.owner.deepWork, true, 'everyone else sees the status');
   assert.ok(!('deepWork' in seen.member));
-  // The DM header: the person someone is about to message or call carries the flag in the members list.
+  // The DM header: the person someone is about to message carries the flag in the members list.
   const dm = (await api('/v1/conversations', { who: 'member', method: 'POST', body: { kind: 'dm', userIds: ['owner'] } })).conversation;
   const peer = (await api(`/v1/conversations/${dm.id}`, { who: 'member' })).conversation.members.find(m => m.id === 'owner');
   assert.equal(peer.deepWork, true);
@@ -112,7 +111,7 @@ test('off until switched on; /v1/me, the people list, conversation members and p
   const presence = await api('/v1/presence', { method: 'POST', body: { sessionId: 'deep-work-session-1', active: true } });
   assert.equal(presence.deepWork, true);
 
-  assert.deepEqual(await switchDeepWork(false), { user: { id: 'owner', name: 'Owner Focus', role: 'owner' }, deepWork: false, missed: [] });
+  assert.deepEqual(await switchDeepWork(false), { user: { id: 'owner', name: 'Owner Focus', role: 'owner' }, deepWork: false });
   assert.equal((await me()).deepWork, false);
   assert.equal((await me('ownerLaptop')).deepWork, false);
   assert.ok(!('deepWork' in (await people()).owner));
@@ -146,7 +145,7 @@ test('only the person themself can flip their switch', async () => {
   assert.equal((await me('owner')).deepWork, false);
 });
 
-test('nothing rings or buzzes for someone in deep work: no channel message, mention, DM, call or invite (messaging module)', () => {
+test('nothing buzzes for someone in deep work: no channel message, mention or DM (messaging module)', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'servant-deep-work-msg-'));
   const users = { a: { id: 'a', name: 'Ann', role: 'owner' }, b: { id: 'b', name: 'Ben', role: 'member' }, c: { id: 'c', name: 'Cy', role: 'member' } };
   const messaging = createMessaging({ file: path.join(dir, 'messages.db'), users: () => users, agentName: () => 'Agent', askAgent: async () => 'ok' });
@@ -156,17 +155,12 @@ test('nothing rings or buzzes for someone in deep work: no channel message, ment
     const inRoom = messaging.post(room, 'a', 'Ping in the room');
     const mention = messaging.post(room, 'a', '@Ben can you look?');
     const inDm = messaging.post(direct, 'a', 'Ping in the DM');
-    // A call card is what rings: the push pipeline hands notificationFor the event with its `call`.
-    const call = { id: 'meet_focus', by: 'a' };
-    const ring = messaging.post(room, AGENT_ID, 'Ann started a meeting', null, { call });
-    const ringEvent = { kind: 'message', messageId: String(ring.seq), call };
-    const alerts = who => [inRoom, mention, inDm].map(m => messaging.notificationFor(m.seq, who)).concat(messaging.notificationFor(ring.seq, who, ringEvent));
+    const alerts = who => [inRoom, mention, inDm].map(m => messaging.notificationFor(m.seq, who));
 
-    assert.ok(alerts(users.b).every(Boolean), 'before: channel, mention, DM and call all alert Ben');
-    assert.equal(messaging.notificationFor(ring.seq, users.b, ringEvent).title, 'Ann is calling');
+    assert.ok(alerts(users.b).every(Boolean), 'before: channel, mention and DM all alert Ben');
 
     setDeepWork(users.b, true);
-    assert.deepEqual(alerts(users.b), [null, null, null, null], 'in deep work: nothing alerts Ben');
+    assert.deepEqual(alerts(users.b), [null, null, null], 'in deep work: nothing alerts Ben');
     assert.ok(messaging.notificationFor(inRoom.seq, users.c), 'Cy, not in deep work, still gets the same message');
     // The agent's own pushes take a separate lane (server.mjs resolve) that never looks at the switch.
     assert.ok(wantsNotification({ kind: 'agent', chatId: 'cht_1', title: 'Agent', body: 'Done' }, preferences(users.b)));
@@ -181,38 +175,14 @@ test('nothing rings or buzzes for someone in deep work: no channel message, ment
   }
 });
 
-test('while in deep work messages still arrive as unread; the calls that did not ring are listed once, on switching off', async () => {
-  const general = (await api('/v1/conversations')).conversations.find(c => c.name === 'general');
+test('while in deep work messages still arrive as unread', async () => {
   const dm = (await api('/v1/conversations', { who: 'member', method: 'POST', body: { kind: 'dm', userIds: ['owner'] } })).conversation;
-  const room = (await api('/v1/conversations', { method: 'POST', body: { name: 'focus-room', memberIds: ['member'] } })).conversation;
-  // A call from before the switch went on is not "missed while in deep work".
-  const before = await startCall(general.id, 'member');
-
   await switchDeepWork(true);
   await api(`/v1/conversations/${dm.id}/messages`, { who: 'member', method: 'POST', body: { text: 'Quick one when you surface' } });
   const mine = (await api('/v1/conversations')).conversations.find(c => c.id === dm.id);
   assert.equal(mine.unread, 1, 'the message arrived and counts as unread');
-  const missedCall = await startCall(dm.id, 'member');
-  const ownCall = await startCall(room.id, 'owner');
-  assert.notEqual(missedCall.id, before.id);
-
   const off = await switchDeepWork(false);
-  assert.equal(off.deepWork, false);
-  assert.deepEqual(off.missed.map(m => m.id), [missedCall.id], 'only the call someone else started for them while it was on');
-  const [missed] = off.missed;
-  assert.equal(missed.conversationId, dm.id);
-  assert.equal(missed.place, '', 'a direct call has no place; a channel call carries #name');
-  assert.deepEqual(missed.by, { id: 'member', name: 'Member Focus' });
-  assert.ok(missed.startedAt >= missedCall.startedAt - 1 && missed.live === true);
-  assert.deepEqual((await switchDeepWork(false)).missed, [], 'shown once: asking again lists nothing');
-  assert.deepEqual((await switchDeepWork(true)).missed, [], 'switching on never lists anything');
-
-  // A meeting started in a channel while it was on is an invite that did not ring: listed with its place.
-  await api(`/v1/meetings/${ownCall.id}/end`, { method: 'POST', body: {} });
-  const invite = await startCall(room.id, 'member');
-  const second = await switchDeepWork(false);
-  assert.deepEqual(second.missed.map(m => [m.id, m.place]), [[invite.id, '#focus-room']]);
-  for (const id of [before.id, missedCall.id, invite.id]) await api(`/v1/meetings/${id}/end`, { who: 'member', method: 'POST', body: {} });
+  assert.deepEqual(off, { user: { id: 'owner', name: 'Owner Focus', role: 'owner' }, deepWork: false });
 });
 
 test("an instance's own flags stay the operator's override: deep work never turns a feature back on", async () => {

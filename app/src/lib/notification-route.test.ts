@@ -13,17 +13,9 @@ test('notification taps route to conversations, threads and agent chats only for
   assert.equal(notificationRoute(base, 'u', 'other'), null);
   assert.equal(notificationRoute({ ...base, conversationId: 'https://example.com' }, 'u', 'd'), null);
 });
-test('a call notification opens the call', () => {
-  const base = { userId: 'u', deviceId: 'd', conversationId: 'ch_test', meetingId: 'meet_abc-1' };
-  assert.deepEqual(notificationRoute(base, 'u', 'd'), { pathname: '/meeting/[id]', params: { id: 'meet_abc-1' } });
-  assert.deepEqual(notificationRoute({ ...base, meetingId: 'x/../y' }, 'u', 'd'), { pathname: '/c/[id]', params: { id: 'ch_test' } });
-  assert.equal(notificationRoute(base, 'other', 'd'), null);
-});
-test('a server that turned a feature off: no tap opens its call, channel or DM', () => {
-  const off = { channels: false, directMessages: false, meetings: false, secureInbox: false };
-  const call = { userId: 'u', deviceId: 'd', conversationId: 'ch_test', meetingId: 'meet_abc-1' };
-  assert.deepEqual(notificationRoute(call, 'u', 'd', { ...off, channels: true }), { pathname: '/c/[id]', params: { id: 'ch_test' } }, 'without meetings the tap lands in the conversation');
-  assert.equal(notificationRoute(call, 'u', 'd', off), null);
+test('a server that turned a feature off: no tap opens its channel or DM', () => {
+  const off = { channels: false, directMessages: false, secureInbox: false };
+  assert.equal(notificationRoute({ userId: 'u', deviceId: 'd', conversationId: 'ch_test' }, 'u', 'd', off), null);
   assert.equal(notificationRoute({ userId: 'u', deviceId: 'd', conversationId: 'dm_test', threadRoot: '4' }, 'u', 'd', { ...off, channels: true }), null);
   assert.deepEqual(notificationRoute({ userId: 'u', deviceId: 'd', conversationId: 'dm_test' }, 'u', 'd', { ...off, directMessages: true }), { pathname: '/c/[id]', params: { id: 'dm_test' } });
   assert.deepEqual(notificationRoute({ userId: 'u', deviceId: 'd', chatId: 'cht_test' }, 'u', 'd', off), { pathname: '/chat/[id]', params: { id: 'cht_test' } }, 'agent chats always open');
@@ -36,7 +28,7 @@ test('a case notification opens the case, and nothing on a server that turned Ca
   assert.equal(notificationRoute(base, 'u', 'other'), null);
   assert.equal(notificationRoute({ ...base, caseId: 'https://example.gov' }, 'u', 'd'), null);
   assert.equal(notificationRoute({ ...base, caseId: 'inbox_../x' }, 'u', 'd'), null);
-  assert.equal(notificationRoute(base, 'u', 'd', { channels: true, directMessages: true, meetings: true, secureInbox: false }), null);
+  assert.equal(notificationRoute(base, 'u', 'd', { channels: true, directMessages: true, secureInbox: false }), null);
 });
 
 // An entitlement request, decision or refused host: the alert opens the Entitlements screen.
