@@ -2,7 +2,7 @@ import { preloadScreens } from "../lib/preload-screens";
 import { GestureRoot } from "../components/GestureRoot";
 import { Platform, Text, View } from "react-native";
 import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider as NavigationThemeProvider, usePathname } from "expo-router";
-import { useEffect, useMemo } from "react";
+import { useEffect, useLayoutEffect, useMemo } from "react";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { SessionProvider, useSession } from "../lib/session";
@@ -24,6 +24,7 @@ import { LaunchScreen } from "../components/LaunchScreen";
 import { useApplyUpdates } from "../lib/ota";
 import { useAppFonts } from "../lib/use-app-fonts";
 import { useFirstScreens } from "../lib/use-first-screens";
+import { removeLaunchPage } from "../lib/launch-page";
 
 export default function RootLayout() {
   useApplyUpdates();
@@ -42,6 +43,8 @@ export default function RootLayout() {
 function SessionNavigation() {
   const { ready, account, loadError, retryLoad } = useSession();
   const { colors, scheme } = useTheme();
+  // The page's own drawing of the app's shape stays until this, the app's first frame (lib/launch-page.ts).
+  useLayoutEffect(removeLaunchPage, []);
   const pathname = usePathname();
   const wide = useWideLayout();
   // Sidebar destinations replace each other, so they have nothing to go back to.

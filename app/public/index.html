@@ -26,7 +26,10 @@
     <!--
       What shows before the app's script has loaded: the signed-in app's shape, the same one the app draws
       while it starts (src/components/LaunchScreen.tsx), so the page never opens blank or on a logo. It sits
-      inside #root, so the app's first frame replaces it. Styles only: the Mac app allows no inline script.
+      over the page, after #root, until the app has drawn its first frame and takes it away
+      (src/lib/launch-page.ts): the app's script empties #root the moment it starts, a third of a second
+      before it has anything of its own to draw. If the app never draws, the shape goes after twelve seconds
+      so that whatever the page has to say can be read. Styles only: the Mac app allows no inline script.
       The colors are launch-skeleton.json's and the brand color, and the phone's bars are that file's too
       (src/lib/launch-skeleton.test.ts checks both).
     -->
@@ -35,9 +38,10 @@
       @media (prefers-color-scheme: dark) {
         html { background: #12161C; color-scheme: dark; --page: #12161C; --bar: #303945; }
       }
-      #launch { position: fixed; inset: 0; overflow: hidden; background: var(--page); }
+      #launch { position: fixed; z-index: 1; inset: 0; overflow: hidden; background: var(--page); animation: launch-gone 1ms 12s forwards; }
+      @keyframes launch-gone { to { visibility: hidden; } }
       /* With scripts turned off the shapes would never be replaced, so the reason shows over them. */
-      noscript { position: fixed; z-index: 1; inset: 0 0 auto; padding: 16px; background: var(--page); font: 15px/22px system-ui, sans-serif; }
+      noscript { position: fixed; z-index: 2; inset: 0 0 auto; padding: 16px; background: var(--page); font: 15px/22px system-ui, sans-serif; }
       #launch * { box-sizing: border-box; }
       #launch i, #launch b { display: block; flex: none; border-radius: 6px; background: var(--bar); }
       #launch i { position: absolute; }
@@ -99,82 +103,82 @@
     <!-- Use static rendering with Expo Router to support running without JavaScript. -->
     <noscript> You need to enable JavaScript to run this app. </noscript>
     <!-- The root element for your Expo app. -->
-    <div id="root">
-      <div id="launch" aria-hidden="true">
-        <div class="phone">
-          <div class="body">
-            <i style="left:16px;top:20px;width:64px;height:20px"></i>
-            <i style="left:32px;top:84px;width:20px;height:14px"></i>
-            <i style="left:91px;top:84px;width:52px;height:14px"></i>
-            <i style="left:16px;top:150px;width:72px;height:14px"></i>
-            <i style="left:19px;top:191px;width:20px;height:20px"></i>
-            <i style="left:54px;top:195px;width:96px;height:12px"></i>
-            <i style="left:19px;top:235px;width:20px;height:20px"></i>
-            <i style="left:54px;top:239px;width:132px;height:12px"></i>
-            <i style="left:16px;top:294px;width:80px;height:14px"></i>
-            <i style="left:19px;top:335px;width:20px;height:20px"></i>
-            <i style="left:54px;top:339px;width:108px;height:12px"></i>
-            <i style="left:19px;top:379px;width:20px;height:20px"></i>
-            <i style="left:54px;top:383px;width:148px;height:12px"></i>
-            <i style="left:19px;top:423px;width:20px;height:20px"></i>
-            <i style="left:54px;top:427px;width:84px;height:12px"></i>
-            <i style="left:19px;top:467px;width:20px;height:20px"></i>
-            <i style="left:54px;top:471px;width:124px;height:12px"></i>
-            <i style="left:16px;top:526px;width:56px;height:14px"></i>
-            <i style="left:19px;top:567px;width:20px;height:20px"></i>
-            <i style="left:54px;top:571px;width:116px;height:12px"></i>
-            <i style="left:19px;top:611px;width:20px;height:20px"></i>
-            <i style="left:54px;top:615px;width:92px;height:12px"></i>
-            <i style="left:19px;top:655px;width:20px;height:20px"></i>
-            <i style="left:54px;top:659px;width:140px;height:12px"></i>
-            <i class="rule"></i>
-          </div>
-          <div class="tabs">
-            <div class="tab"><i></i><i></i></div>
-            <div class="tab"><i></i><i></i></div>
-            <div class="tab"><i></i><i></i></div>
-            <div class="tab"><i></i><i></i></div>
-            <div class="tab"><i></i><i></i></div>
-          </div>
+    <div id="root"></div>
+    <!-- The app's shape, over the page until the app's first frame (see the styles above). -->
+    <div id="launch" aria-hidden="true">
+      <div class="phone">
+        <div class="body">
+          <i style="left:16px;top:20px;width:64px;height:20px"></i>
+          <i style="left:32px;top:84px;width:20px;height:14px"></i>
+          <i style="left:91px;top:84px;width:52px;height:14px"></i>
+          <i style="left:16px;top:150px;width:72px;height:14px"></i>
+          <i style="left:19px;top:191px;width:20px;height:20px"></i>
+          <i style="left:54px;top:195px;width:96px;height:12px"></i>
+          <i style="left:19px;top:235px;width:20px;height:20px"></i>
+          <i style="left:54px;top:239px;width:132px;height:12px"></i>
+          <i style="left:16px;top:294px;width:80px;height:14px"></i>
+          <i style="left:19px;top:335px;width:20px;height:20px"></i>
+          <i style="left:54px;top:339px;width:108px;height:12px"></i>
+          <i style="left:19px;top:379px;width:20px;height:20px"></i>
+          <i style="left:54px;top:383px;width:148px;height:12px"></i>
+          <i style="left:19px;top:423px;width:20px;height:20px"></i>
+          <i style="left:54px;top:427px;width:84px;height:12px"></i>
+          <i style="left:19px;top:467px;width:20px;height:20px"></i>
+          <i style="left:54px;top:471px;width:124px;height:12px"></i>
+          <i style="left:16px;top:526px;width:56px;height:14px"></i>
+          <i style="left:19px;top:567px;width:20px;height:20px"></i>
+          <i style="left:54px;top:571px;width:116px;height:12px"></i>
+          <i style="left:19px;top:611px;width:20px;height:20px"></i>
+          <i style="left:54px;top:615px;width:92px;height:12px"></i>
+          <i style="left:19px;top:655px;width:20px;height:20px"></i>
+          <i style="left:54px;top:659px;width:140px;height:12px"></i>
+          <i class="rule"></i>
         </div>
-        <div class="wide">
-          <div class="side">
-            <div class="top"></div>
-            <div class="workspace"><b></b><b></b></div>
-            <b class="search"></b>
-            <div class="places">
-              <div class="r"><b class="g"></b><b style="width:64px"></b></div>
-              <div class="r"><b class="g"></b><b style="width:102px"></b></div>
-              <div class="r"><b class="g"></b><b style="width:140px"></b></div>
-              <div class="r"><b class="g"></b><b style="width:94px"></b></div>
-              <div class="r"><b class="g"></b><b style="width:132px"></b></div>
-              <div class="r"><b class="g"></b><b style="width:86px"></b></div>
-              <div class="r"><b class="g"></b><b style="width:124px"></b></div>
-              <div class="r"><b class="g"></b><b style="width:78px"></b></div>
-              <div class="r"><b class="g"></b><b style="width:116px"></b></div>
-              <b class="section"></b>
-              <div class="r"><b class="g"></b><b style="width:94px"></b></div>
-              <b class="section"></b>
-              <div class="r"><b class="g"></b><b style="width:86px"></b></div>
-              <div class="r"><b class="g"></b><b style="width:124px"></b></div>
-              <div class="r"><b class="g"></b><b style="width:78px"></b></div>
-            </div>
-            <div class="you"><b class="pic"></b><div class="lines"><b></b><b></b></div></div>
+        <div class="tabs">
+          <div class="tab"><i></i><i></i></div>
+          <div class="tab"><i></i><i></i></div>
+          <div class="tab"><i></i><i></i></div>
+          <div class="tab"><i></i><i></i></div>
+          <div class="tab"><i></i><i></i></div>
+        </div>
+      </div>
+      <div class="wide">
+        <div class="side">
+          <div class="top"></div>
+          <div class="workspace"><b></b><b></b></div>
+          <b class="search"></b>
+          <div class="places">
+            <div class="r"><b class="g"></b><b style="width:64px"></b></div>
+            <div class="r"><b class="g"></b><b style="width:102px"></b></div>
+            <div class="r"><b class="g"></b><b style="width:140px"></b></div>
+            <div class="r"><b class="g"></b><b style="width:94px"></b></div>
+            <div class="r"><b class="g"></b><b style="width:132px"></b></div>
+            <div class="r"><b class="g"></b><b style="width:86px"></b></div>
+            <div class="r"><b class="g"></b><b style="width:124px"></b></div>
+            <div class="r"><b class="g"></b><b style="width:78px"></b></div>
+            <div class="r"><b class="g"></b><b style="width:116px"></b></div>
+            <b class="section"></b>
+            <div class="r"><b class="g"></b><b style="width:94px"></b></div>
+            <b class="section"></b>
+            <div class="r"><b class="g"></b><b style="width:86px"></b></div>
+            <div class="r"><b class="g"></b><b style="width:124px"></b></div>
+            <div class="r"><b class="g"></b><b style="width:78px"></b></div>
           </div>
-          <div class="pane">
-            <div class="column">
-              <div class="title"><b></b></div>
-              <div class="actions">
-                <div class="action"><b class="icon"></b><div class="name"><b></b></div></div>
-                <div class="action"><b class="icon"></b><div class="name"><b></b></div></div>
-                <div class="action"><b class="icon"></b><div class="name"><b></b></div></div>
-              </div>
-              <div class="recent"><b></b></div>
-              <div class="card">
-                <div class="row"><b class="pic"></b><div class="lines"><b style="width:96px"></b><b class="short" style="width:62%"></b></div></div>
-                <div class="row"><b class="pic"></b><div class="lines"><b style="width:140px"></b><b class="short" style="width:45%"></b></div></div>
-                <div class="row"><b class="pic"></b><div class="lines"><b style="width:112px"></b><b class="short" style="width:58%"></b></div></div>
-              </div>
+          <div class="you"><b class="pic"></b><div class="lines"><b></b><b></b></div></div>
+        </div>
+        <div class="pane">
+          <div class="column">
+            <div class="title"><b></b></div>
+            <div class="actions">
+              <div class="action"><b class="icon"></b><div class="name"><b></b></div></div>
+              <div class="action"><b class="icon"></b><div class="name"><b></b></div></div>
+              <div class="action"><b class="icon"></b><div class="name"><b></b></div></div>
+            </div>
+            <div class="recent"><b></b></div>
+            <div class="card">
+              <div class="row"><b class="pic"></b><div class="lines"><b style="width:96px"></b><b class="short" style="width:62%"></b></div></div>
+              <div class="row"><b class="pic"></b><div class="lines"><b style="width:140px"></b><b class="short" style="width:45%"></b></div></div>
+              <div class="row"><b class="pic"></b><div class="lines"><b style="width:112px"></b><b class="short" style="width:58%"></b></div></div>
             </div>
           </div>
         </div>
