@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { applicationId } from "expo-application";
 import { AppState, Linking, Platform } from 'react-native';
 import { router, useGlobalSearchParams, usePathname, useRootNavigationState } from 'expo-router';
 import * as Notifications from 'expo-notifications';
@@ -53,7 +54,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       const work = registrationsQueue.current.catch(() => {}).then(async () => {
         if (version !== syncVersion.current) return [];
         return Promise.allSettled(saved.map(async a => {
-          const result = await notificationApi.register(a, token, Platform.OS, saved.length > 1);
+          const result = await notificationApi.register(a, token, Platform.OS, saved.length > 1, applicationId);
           if (version === syncVersion.current && latest.current.accounts.some(current => accountId(current) === accountId(a) && current.token === a.token)) {
             setSettings(current => ({ ...current, [accountId(a)]: result }));
           }

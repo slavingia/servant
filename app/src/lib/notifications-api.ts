@@ -6,7 +6,8 @@ export type NotificationSettings = { preferences: NotificationPreferences; regis
 export const defaultNotifications: NotificationPreferences = { mode: 'mentions', previews: true, contentPreviews: true, pausedUntil: 0 };
 export const notificationApi = {
   settings: (a: Account, signal: AbortSignal = AbortSignal.timeout(15000)) => request(a, '/v1/notifications', { signal }).then(r => r.json() as Promise<NotificationSettings>),
-  register: (a: Account, token: string | null, platform?: string, aggregateBadge = false) => request(a, '/v1/notifications', { signal: AbortSignal.timeout(15000), method: 'PUT', body: JSON.stringify({ token, platform, environment: 'production', aggregateBadge }) }).then(r => r.json() as Promise<NotificationSettings>),
+  /** `app`: this build's bundle id or package, so a server that holds push credentials for more than one app uses the right ones. */
+  register: (a: Account, token: string | null, platform?: string, aggregateBadge = false, app?: string | null) => request(a, '/v1/notifications', { signal: AbortSignal.timeout(15000), method: 'PUT', body: JSON.stringify({ token, platform, environment: 'production', aggregateBadge, ...(app ? { app } : {}) }) }).then(r => r.json() as Promise<NotificationSettings>),
   /** A browser: its push subscription, so the server can alert it while Servant is closed. */
   registerBrowser: (a: Account, registration: WebPushRegistration) => request(a, '/v1/notifications', { signal: AbortSignal.timeout(15000), method: 'PUT', body: JSON.stringify(registration) }).then(r => r.json() as Promise<NotificationSettings>),
   update: (a: Account, prefs: Partial<NotificationPreferences>) => request(a, '/v1/notifications', { signal: AbortSignal.timeout(15000), method: 'PATCH', body: JSON.stringify(prefs) }).then(r => r.json() as Promise<NotificationSettings>),

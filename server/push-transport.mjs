@@ -48,11 +48,26 @@ export function apnsTopic(c, env = process.env) {
   const id = (typeof c?.apnsTopic === 'string' && c.apnsTopic.trim()) || (env.SERVANT_BUNDLE_ID || '').trim() || 'com.example.servant';
   return id;
 }
+/**
+ * The credentials for the app a device runs. push.json's top-level fields are the server's own app. `"apps"` adds
+ * others by bundle id or package: `"apps": { "com.example.other": { "apnsKeyId", "apnsTeamId", "apnsKeyPath" } }`
+ * (and/or `fcmKeyPath`, `fcmProjectId`). A device that names an app listed there is sent to with that app's
+ * credentials and, on iOS, that app's id as the topic. Returns null for an iPhone app this server has no
+ * credentials for: sending with another app's would be refused by Apple and the device's token thrown away.
+ */
+export function pushCredentials(c, device, env = process.env) {
+  const app = typeof device?.app === 'string' ? device.app : '';
+  const other = app && c?.apps && typeof c.apps === 'object' && Object.hasOwn(c.apps, app) && c.apps[app] && typeof c.apps[app] === 'object' ? c.apps[app] : null;
+  if (other) return { ...other, apnsTopic: (typeof other.apnsTopic === 'string' && other.apnsTopic.trim()) || app };
+  if (app && device.platform === 'ios' && app !== apnsTopic(c, env)) return null;
+  return c;
+}
 // `webPush()` gives this server's browser-push signing identity and the contact address that goes with it.
 export function createPushTransport(config, fetcher = fetch, webPush = () => null) {
-  let google = null;
-  let apple = null;
+  // One sign-in per key: a server with several apps keeps each app's separately.
+  const googles = new Map(), apples = new Map();
   async function googleToken(c) {
+    const google = googles.get(c.fcmKeyPath);
     if (google && google.until > Date.now() + 60000) return google.token;
     const key = JSON.parse(fs.readFileSync(c.fcmKeyPath, 'utf8'));
     const iat = Math.floor(Date.now() / 1000);
@@ -61,15 +76,16 @@ export function createPushTransport(config, fetcher = fetch, webPush = () => nul
     const r = await fetcher('https://oauth2.googleapis.com/token', { method: 'POST', body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }), signal: AbortSignal.timeout(15000) });
     const data = await r.json();
     if (!r.ok || !data.access_token) throw new Error('FCM_AUTH_FAILED');
-    google = { token: data.access_token, until: Date.now() + (data.expires_in || 3600) * 1000 };
-    return google.token;
+    googles.set(c.fcmKeyPath, { token: data.access_token, until: Date.now() + (data.expires_in || 3600) * 1000 });
+    return data.access_token;
   }
   function appleToken(c) {
+    const cached = `${c.apnsTeamId}:${c.apnsKeyId}:${c.apnsKeyPath}`, apple = apples.get(cached);
     if (apple && apple.until > Date.now()) return apple.token;
     const input = `${b64({ alg: 'ES256', kid: c.apnsKeyId })}.${b64({ iss: c.apnsTeamId, iat: Math.floor(Date.now() / 1000) })}`;
     const sig = crypto.sign('sha256', Buffer.from(input), { key: fs.readFileSync(c.apnsKeyPath), dsaEncoding: 'ieee-p1363' }).toString('base64url');
-    apple = { token: input + '.' + sig, until: Date.now() + 45 * 60000 };
-    return apple.token;
+    apples.set(cached, { token: input + '.' + sig, until: Date.now() + 45 * 60000 });
+    return input + '.' + sig;
   }
   return async (device, notification) => {
     if (device.platform === 'web') {
@@ -80,7 +96,10 @@ export function createPushTransport(config, fetcher = fetch, webPush = () => nul
       const topic = crypto.createHash('sha256').update(message.tag).digest('base64url').slice(0, 32);
       return sendWebPush(device, message, { identity: sender.identity, subject: sender.subject, topic, fetcher });
     }
-    const c = config();
+    const c = pushCredentials(config(), device);
+    // An app this server holds no credentials for: nothing is sent and the registration is kept, so alerts start
+    // the moment its credentials are added to push.json.
+    if (!c) return { ok: false, invalid: false, retry: false, code: 'APP_NOT_CONFIGURED' };
     if (device.platform === 'android') {
       if (!c?.fcmKeyPath || !c?.fcmProjectId) throw new Error('FCM_NOT_CONFIGURED');
       const r = await fetcher(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(c.fcmProjectId)}/messages:send`, {
@@ -90,7 +109,7 @@ export function createPushTransport(config, fetcher = fetch, webPush = () => nul
       const result = await r.json();
       if (r.ok) return { ok: true };
       const code = result.error?.details?.find(d => d['@type']?.endsWith('FcmError'))?.errorCode || result.error?.status || String(r.status);
-      if (r.status === 401) google = null;
+      if (r.status === 401) googles.delete(c.fcmKeyPath);
       return { ok: false, invalid: code === 'UNREGISTERED', retry: r.status === 429 || r.status >= 500 || r.status === 401, code };
     }
     if (!c?.apnsKeyPath || !c?.apnsKeyId || !c?.apnsTeamId) throw new Error('APNS_NOT_CONFIGURED');
