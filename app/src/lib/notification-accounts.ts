@@ -12,6 +12,16 @@ export function notificationAccountRoute(data: Record<string, unknown>, registra
   return matches.length === 1 ? matches[0] : null;
 }
 
+/**
+ * Which saved account an alert is for, whether or not this build knows where a tap on it should go. A server can
+ * send a kind of alert an older build has no screen for (or one that opens no screen at all); it is still this
+ * person's alert and still gets shown. Null when it matches no account, or more than one.
+ */
+export function notificationAccount(data: Record<string, unknown>, registrations: readonly RegisteredNotificationAccount[]): { accountId: string } | null {
+  const matches = registrations.filter(a => typeof data.userId === 'string' && data.userId === a.userId && typeof data.deviceId === 'string' && data.deviceId === a.deviceId);
+  return matches.length === 1 ? { accountId: matches[0]!.id } : null;
+}
+
 // An incomplete snapshot must not clear unread items on an unreachable server.
 export async function loadAccountsBadge<T>(accounts: readonly T[], load: (account: T) => Promise<number>): Promise<number> {
   const counts = await Promise.all(accounts.map(load));

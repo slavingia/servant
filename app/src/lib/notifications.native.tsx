@@ -8,7 +8,7 @@ import { useSession } from './session';
 import { accountId, ServerError } from './server';
 import { normalizeFeatures } from './features.ts';
 import { notificationApi, defaultNotifications, type NotificationSettings, type NotificationPreferences } from './notifications-api';
-import { notificationAccountRoute } from './notification-accounts';
+import { notificationAccount, notificationAccountRoute } from './notification-accounts';
 import type { NotificationRoute } from './notification-route';
 import type { NotificationState } from './notifications';
 import { useIconBadge } from './use-icon-badge';
@@ -106,7 +106,8 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     Notifications.setNotificationHandler({ handleNotification: async n => {
       const data = n.request.content.data ?? {};
-      const target = notificationAccountRoute(data, registrations);
+      // Whose alert it is, whether or not this build has a screen for it: an alert of a newer kind is still shown.
+      const target = notificationAccount(data, registrations);
       const selected = !!target && !!account && target.accountId === accountId(account);
       const visible = selected && AppState.currentState === 'active' && conversation && (data.conversationId === conversation || data.chatId === conversation || data.caseId === conversation);
       const prefs = target ? settings[target.accountId]?.preferences : null;
