@@ -63,9 +63,9 @@ import { createUsageStore, limitMessage, agentTierOf, AGENT_TIERS, RESEARCHER_TI
 import { tierCosts } from "./usage-cost.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { createEgressProxy, createEgressStore, egressSettings } from "./egress.mjs";
-import { createEntitlements } from "./entitlements.mjs";
+import { capabilitySettings, createEntitlements, NATIVE } from "./entitlements.mjs";
 import { createCodeRequests } from "./code-requests.mjs";
-import { supportsDurableRuns, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
+import { supportsDurableRuns, supportsEntitlementChecks, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
 import { createReadmeCache } from "./project-readme.mjs";
 import { createGlossaryStore } from "./glossary.mjs";
 import { createLexiconStore } from "./lexicon.mjs";
@@ -176,6 +176,8 @@ export function loadConfig() {
     agentAccess: cfg.agentAccess === "limited" ? "limited" : "full",
     // The agent's way out to the network (docs/agent-egress.md). Off unless mode is "ask".
     agentEgress: egressSettings(cfg.agentEgress),
+    // Built-in entitlements checked before the agent reads or changes files or GitHub (docs/entitlements.md). Off unless mode is "ask".
+    agentCapabilities: capabilitySettings(cfg.agentCapabilities),
     // Where new people start: 0 = no agent until an owner sets a tier (1 tester, 2 business owner, 3 software engineer, 4 researcher, 5 product manager).
     defaultAgentTier: [0, 1, 2, 3, 4, 5].includes(cfg.defaultAgentTier) ? cfg.defaultAgentTier : 0,
     // Email code sign-in (docs/email-sign-in.md). Off unless enabled.
@@ -296,7 +298,7 @@ export function mutateStateForTest(fn) {
 }
 
 /** Tests only: where the agent's network gate listens, and a token that makes traffic count as one person's. */
-export const egressForTest = () => ({ port: egressProxy?.port, mint: (userId, chatId) => egressStore().tokenFor(userId, chatId), working: userId => egressStore().working(userId) });
+export const egressForTest = () => ({ port: egressProxy?.port, use: (body, config) => agentUse(body, config), mint: (userId, chatId) => egressStore().tokenFor(userId, chatId), working: userId => egressStore().working(userId) });
 export function createInvite({ name, role = "member", userId }) {
   return mutateState(state => {
     if (!["owner", "member"].includes(role)) throw new Error("role must be owner or member");
@@ -901,7 +903,58 @@ const egressStore = () => egressDb ??= createEgressStore(path.join(DATA_DIR, "eg
 const egressOn = cfg => egressSettings(cfg?.agentEgress).mode === "ask";
 // With the gate on, each turn tells the bridge whose it is: a token the sandboxed commands of that chat present to the
 // gate (hermes_egress.py). `scope` is the chat or thread; its token never changes for the same person.
-const egressHeaders = (cfg, userId, scope) => egressOn(cfg) && userId ? { "X-Servant-Egress-Token": egressStore().tokenFor(userId, scope) } : {};
+const capabilitiesOn = cfg => capabilitySettings(cfg?.agentCapabilities).mode === "ask";
+// The same token also lets the bridge ask, before a tool call, whether this person may read or change files or GitHub
+// (agentUse below). `X-Servant-Door` is where to ask: the local listener the network gate uses.
+const doorPort = cfg => egressProxy?.port || egressSettings(cfg?.agentEgress).port;
+const egressHeaders = (cfg, userId, scope) => (egressOn(cfg) || capabilitiesOn(cfg)) && userId
+  ? { "X-Servant-Egress-Token": egressStore().tokenFor(userId, scope), ...(capabilitiesOn(cfg) ? { "X-Servant-Door": String(doorPort(cfg)) } : {}) } : {};
+const sleepMs = ms => new Promise(resolve => setTimeout(resolve, ms));
+// A full agent that can't ask before acting must not be handed a turn while the checks are on.
+async function requireEntitlementChecks(cfg, up, user) {
+  if (!capabilitiesOn(cfg) || user?.role === "owner") return;
+  if (!(await supportsEntitlementChecks(up))) throw requestError(502, "agent_error", "The agent on this server can't check entitlements before acting, so it can't work for you yet. Ask an owner to update the agent's bridge");
+}
+/**
+ * The bridge asks, just before a tool call: may this person's agent do this? `needs` are built-in entitlements, the
+ * weightiest first. Each is allowed when the person holds it or an "allow once" is waiting; otherwise their manager
+ * is asked (once per request) and this waits a while for the answer. Owners are the ones who answer, so their own
+ * agent is not held back. Answers { verdict: "allow" | "deny" | "wait", message } for the agent to read.
+ */
+async function agentUse(body, config = loadConfig) {
+  const who = egressStore().whose(body?.token);
+  const state = readState();
+  const person = who && state.users[who.userId];
+  if (!person || isRemoved(person)) return { status: 403, answer: { verdict: "deny", message: "Servant doesn't know whose turn this is, so it can't be allowed." } };
+  const needs = (Array.isArray(body.needs) ? body.needs : []).filter(c => NATIVE.some(n => n.capability === c)).slice(0, NATIVE.length);
+  if (!capabilitiesOn(config()) || person.role === "owner" || !needs.length) return { status: 200, answer: { verdict: "allow" } };
+  const store = entitlementStore();
+  const until = Date.now() + capabilitySettings(config().agentCapabilities).waitSeconds * 1000;
+  for (const capability of needs) {
+    for (;;) {
+      const result = store.use(person.id, capability, typeof body.detail === "string" ? body.detail : "");
+      const name = result.entitlement.name;
+      if (result.verdict === "allow") break;
+      const manager = managerOf(readState(), person);
+      if (result.verdict === "deny") return { status: 200, answer: { verdict: "deny", capability, message: `Servant blocked this: ${person.name} asked for ${name} and was declined. Tell them so, and don't look for another way to do it. They can ask again in Servant under Entitlements.` } };
+      if (result.fresh) tellAbout([manager?.id], "Entitlement request", `${person.name}'s agent needs ${name}`);
+      if (Date.now() >= until || !capabilitiesOn(config())) return { status: 200, answer: { verdict: "wait", capability, message: `Servant is holding this: ${manager?.name || "An owner"} has been asked to allow ${name} for ${person.name} and hasn't answered yet. Tell ${person.name} you are waiting for that, and try again once it is allowed. Don't look for another way to do it.` } };
+      await sleepMs(Math.min(1000, Math.max(50, until - Date.now())));
+    }
+  }
+  return { status: 200, answer: { verdict: "allow" } };
+}
+// Requests the bridge makes to the local listener itself. Only POST /use; the token in the body says whose turn it is.
+async function agentDoor(req, res, config) {
+  const reply = (status, value) => { res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify(value)); };
+  if (req.method !== "POST" || req.url !== "/use") return reply(404, { verdict: "deny", message: "Servant has no such check." });
+  const chunks = []; let size = 0;
+  for await (const chunk of req) { size += chunk.length; if (size > 16384) return reply(413, { verdict: "deny", message: "That check was too large." }); chunks.push(chunk); }
+  let body;
+  try { body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"); } catch { return reply(400, { verdict: "deny", message: "That check could not be read." }); }
+  const { status, answer } = await agentUse(body, config);
+  return reply(status, answer);
+}
 // The agent working for someone outside an agent chat (a reply to @agent, a wiki page): counted while it lasts, so
 // the gate can judge traffic that carries no token.
 async function whileWorkingFor(cfg, userId, fn) {
@@ -922,6 +975,7 @@ function entitlementView(entitlement, viewer, users) {
   const person = userId => ({ id: userId, name: users[userId]?.name || (userId === "server" ? "Servant" : "Former member") });
   const people = store.grants(entitlement.id).filter(g => g.userId !== viewer.id && store.decides(viewer.id, g.userId));
   return { id: entitlement.id, name: entitlement.name, description: entitlement.description, hosts: entitlement.hosts, confirmation: entitlement.confirmation,
+    ...(entitlement.native ? { native: true, capability: entitlement.capability } : {}),
     mine: store.grant(entitlement.id, viewer.id), people: people.map(g => ({ ...g, name: person(g.userId).name, ...(g.decidedBy ? { decidedByName: person(g.decidedBy).name } : {}) })) };
 }
 // The agent was refused a host: tell whoever can do something about it, once (egress.mjs repeats at most daily).
@@ -1766,6 +1820,8 @@ async function handle(req, res, cfg) {
         manager: brief(managerOf(state, user)) || null, reports: everyone.filter(u => managerOf(state, u)?.id === user.id).map(brief),
         // Owners see the whole chart: each person and who decides for them.
         ...(user.role === "owner" ? { org: everyone.map(u => ({ ...brief(u), role: u.role, manager: brief(managerOf(state, u)) || null })) } : {}),
+        // Whether built-in entitlements are checked before the agent reads or changes files or GitHub.
+        capabilities: { mode: capabilitySettings(cfg.agentCapabilities).mode },
         egress: { mode: egressSettings(cfg.agentEgress).mode, ...(user.role === "owner" ? { always: egressSettings(cfg.agentEgress).always, refused: egressStore().recent(50).map(a => ({ ...a, name: users[a.userId]?.name || "Former member" })) } : {}) } });
     }
     if (method === "POST" && parts.length === 2) {
@@ -1801,7 +1857,7 @@ async function handle(req, res, cfg) {
       const decided = guard(() => store.decide(parts[2], parts[4], { decision: body.decision, by: user.id, reason: body.reason }));
       if (!decided) return;
       const { entitlement, grant } = decided;
-      if (parts[4] !== user.id) tellAbout([parts[4]], "Entitlements", grant.status === "granted" ? `You now have ${entitlement.name}` : grant.status === "denied" ? `Your request for ${entitlement.name} was declined` : `${entitlement.name} was taken back`);
+      if (parts[4] !== user.id) tellAbout([parts[4]], "Entitlements", grant.status === "granted" ? `You now have ${entitlement.name}` : grant.status === "once" ? `${entitlement.name} was allowed once` : grant.status === "denied" ? `Your request for ${entitlement.name} was declined` : `${entitlement.name} was taken back`);
       return send(res, 200, { entitlement: entitlementView(entitlement, user, users) });
     }
     return fail(res, 404, "not_found", "No such route");
@@ -2453,6 +2509,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
   if (!up) throw requestError(502, "agent_error", "The agent is unavailable");
   const full = agentRole(turn.role, cfg) === "owner";
   if (!full) await verifyUpstream(agentRole(turn.role, cfg), up);
+  else await requireEntitlementChecks(cfg, up, user);
   if (!turn.run_id && usageStore().overLimit(user)) throw requestError(429, "usage_limit", limitText(user));
   const durable = !!turn.run_id || await supportsDurableRuns(up);
   // Legacy owner agents can read the exact saved input instead of receiving
@@ -2626,6 +2683,7 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
       if (!up) return "The agent isn't set up on this server yet";
       if (lane === "researcher") await verifyResearcherUpstream(up);
       else if (!fullAgentAccess(cfg)) await verifyMemberUpstream(up);
+      else await requireEntitlementChecks(cfg, up, asker);
       let create = fresh;
       if (!fresh) {
         // Threads started on the other agent (before an access change) have
@@ -2732,6 +2790,7 @@ async function askWikiAgent(messages, user, cfg) {
   let usage = null;
   try {
     await verifyUpstream(agentLane(user, cfg), up);
+    if (agentLane(user, cfg) === "owner") await requireEntitlementChecks(cfg, up, user);
     const made = await hermes(up, "POST", "/api/sessions", { id: sessionId, title: `Servant · wiki · ${user.name}`.slice(0, 66) + ` · ${sessionId.slice(-12)}` });
     if (!made.ok) throw requestError(502, "agent_failed", `The agent returned ${made.status}. Your page is unchanged; try again in a moment`);
     const content = await whileWorkingFor(cfg, user.id, () => streamTurn(up, sessionId, request, `servant:wiki:${user.id}`, () => {}, () => false, () => {}, reported => { usage = reported; }, instructions, egressHeaders(cfg, user.id, sessionId)));
@@ -2809,13 +2868,14 @@ export function startServer(fixedCfg) {
     }, 250);
   }
   secureTransport ??= createSecureTransport(DATA_DIR);
-  // The agent's sandbox has one way out: this proxy on localhost (egress.mjs). It only listens when the gate is on at
-  // start; what is allowed is read for every connection.
-  if (egressSettings(cfg.agentEgress).mode === "ask" && !egressProxy) {
+  // The agent's sandbox has one way out: this proxy on localhost (egress.mjs). The same listener answers the bridge's
+  // "may this person's agent do this?" (agentUse). It only listens when the gate or those checks are on at start; what
+  // is allowed is read for every connection. With only the checks on, it proxies nothing.
+  if ((egressSettings(cfg.agentEgress).mode === "ask" || capabilitySettings(cfg.agentCapabilities).mode === "ask") && !egressProxy) {
     egressProxy = createEgressProxy({ store: egressStore(), settings: () => egressSettings((fixedCfg || loadConfig()).agentEgress), allowed: (userId, host) => entitlementStore().allows(userId, host),
-      active: () => [...(agentTurns?.workingFor() || []), ...egressStore().workingFor()], known: userId => { const u = readState().users[userId]; return !!u && !isRemoved(u); }, blocked: egressBlocked, hint: egressHint,
+      active: () => [...(agentTurns?.workingFor() || []), ...egressStore().workingFor()], known: userId => { const u = readState().users[userId]; return !!u && !isRemoved(u); }, blocked: egressBlocked, hint: egressHint, local: (req, res) => agentDoor(req, res, () => fixedCfg || loadConfig()),
       ...(globalThis.__servantEgressTest || {}) });
-    egressProxy.listen(egressSettings(cfg.agentEgress).port).then(port => { egressProxy.port = port; console.log(`[servant] agent network gate on 127.0.0.1:${port}`); },
+    egressProxy.listen(egressSettings(cfg.agentEgress).port).then(port => { egressProxy.port = port; console.log(`[servant] agent ${egressSettings(cfg.agentEgress).mode === "ask" ? "network gate" : "entitlement checks"} on 127.0.0.1:${port}`); },
       error => console.error(`[servant] agent network gate could not start on port ${egressSettings(cfg.agentEgress).port}: ${error.message}. Sandboxed agents will have no network until it does`));
   }
   inboxConfig = () => fixedCfg || loadConfig();

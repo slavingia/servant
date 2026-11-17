@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // The Entitlements screen in the real Expo web UI against a temporary server: an owner makes one, a person asks and
 // confirms, their manager can't grant what they don't hold, the owner grants the manager, the manager grants the
-// person, and the owner takes it back. Saves captures to docs/shots/entitlements.
+// person, and the owner takes it back. Then a built-in entitlement: the agent's first try asks the manager, who
+// allows it once and then always. Saves captures to docs/shots/entitlements.
 // Run after npm ci --prefix app and npm ci --prefix desktop, then: cd desktop && npx playwright install chromium.
 //   node scripts/entitlements-e2e.mjs
 // SERVANT_E2E_BROWSER=chrome uses installed Chrome. SERVANT_ENT_E2E_APP=<another checkout's app directory> with
@@ -17,6 +18,7 @@ import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import { serverIdentity } from '../server/secure-transport.mjs';
+import { createEgressStore } from '../server/egress.mjs';
 import { testFetch } from '../server/encrypted-test-client.mjs';
 import { TERMS_VERSION, TERMS_ITEMS } from '../server/terms.mjs';
 import { ACCOUNTS_KEY, accountId, accountStorageKey } from '../app/src/lib/accounts-store.ts';
@@ -57,7 +59,10 @@ const pageErrors = [];
 try {
   const port = await freePort();
   const apiUrl = `http://127.0.0.1:${port}`;
-  fs.writeFileSync(path.join(data, 'config.json'), JSON.stringify({ name: 'Example team', publicUrl: apiUrl, discovery: 'off', discoveryUrl: '', upstreams: {} }));
+  const door = await freePort();
+  // Built-in entitlements are checked; the network gate stays off. The agent's bridge asks at this local port.
+  fs.writeFileSync(path.join(data, 'config.json'), JSON.stringify({ name: 'Example team', publicUrl: apiUrl, discovery: 'off', discoveryUrl: '', upstreams: {},
+    agentCapabilities: { mode: 'ask', waitSeconds: 0 }, agentEgress: { port: door } }));
   const env = {
     ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(SERVANT_|HERMES_|API_SERVER_KEY$)/.test(key))),
     SERVANT_DATA_DIR: data, SERVANT_PORT: String(port), SERVANT_HOST: '127.0.0.1', SERVANT_PUBLIC_URL: apiUrl, SERVANT_DISCOVERY_URL: '',
@@ -130,7 +135,12 @@ try {
     const owner = await newPage(ana, desktop);
     await owner.getByTestId('gate-state').waitFor();
     assert.match(await text(owner, 'gate-state'), /^The network gate is off, so nothing is blocked yet\./);
-    await owner.getByText('None yet. Make one for each system your team\'s agents should reach.', { exact: true }).waitFor();
+    assert.match(await text(owner, 'checks-state'), /^Built-in entitlements are checked/);
+    await owner.getByTestId('none-of-your-own').waitFor();
+    for (const [key, name] of [['fs-read', 'Filesystem read'], ['fs-write', 'Filesystem write'], ['github-read', 'GitHub read'], ['github-write', 'GitHub write']]) {
+      assert.match(await text(owner, `entitlement-native-${key}`), new RegExp(`^${name} · Built in`));
+    }
+    assert.equal(await owner.getByTestId('retire-native-github-write').count(), 0, "a built-in entitlement can't be retired");
     await shot(owner, 'owner-empty-desktop.png');
     await owner.getByTestId('new-entitlement').click();
     await owner.getByTestId('draft-save').click();
@@ -141,9 +151,9 @@ try {
     await shot(owner, 'owner-new-desktop.png');
     await owner.getByTestId('draft-save').click();
     await owner.getByText('Opens api.example.gov, *.data.example.gov', { exact: true }).waitFor();
-    const { entitlements } = await api('GET', '/v1/entitlements', undefined, ana.token);
-    const id = entitlements[0].id;
-    assert.deepEqual(entitlements[0].hosts, ['api.example.gov', '*.data.example.gov'], 'a pasted address is saved as its host');
+    const made = (await api('GET', '/v1/entitlements', undefined, ana.token)).entitlements.find(e => e.name === 'Tax data API');
+    const id = made.id;
+    assert.deepEqual(made.hosts, ['api.example.gov', '*.data.example.gov'], 'a pasted address is saved as its host');
 
     // Pat asks: the confirmation has to be ticked.
     const person = await newPage(pat, phone);
@@ -199,8 +209,43 @@ try {
     await person.getByTestId(`standing-${id}`).waitFor();
     assert.equal(await text(person, `standing-${id}`), 'Taken back');
     assert.equal(await text(person, `ask-${id}`), 'Ask again');
-    const after = (await api('GET', '/v1/entitlements', undefined, ana.token)).entitlements[0].people;
+    const after = (await api('GET', '/v1/entitlements', undefined, ana.token)).entitlements.find(e => e.id === id).people;
     assert.deepEqual(after.map(p => [p.name, p.status]).sort(), [['Jo Park', 'granted'], ['Pat Tester', 'revoked']]);
+
+    // A built-in entitlement. What the agent's bridge does before a tool call: ask the server's local listener, with
+    // the turn's token. Pat's agent is about to push.
+    const tokens = createEgressStore(path.join(data, 'egress.db'));
+    const patToken = tokens.tokenFor(pat.user.id, 'chat_e2e');
+    tokens.close();
+    const tries = async (needs, detail) => (await fetch(`http://127.0.0.1:${door}/use`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: patToken, needs, detail }) })).json();
+    const github = 'native-github-write';
+    assert.equal((await tries(['github-write'], 'Run: git push origin main')).verdict, 'wait', "the agent is told to wait for Pat's manager");
+    // Jo is Pat's manager and doesn't hold GitHub write, so it falls to the owner.
+    await owner.reload();
+    await owner.getByTestId(`request-${github}-${pat.user.id}`).waitFor();
+    await owner.getByText("Pat Tester's agent needs GitHub write", { exact: true }).waitFor();
+    assert.equal(await text(owner, `detail-${github}-${pat.user.id}`), 'Run: git push origin main');
+    await shot(owner, 'built-in-request-desktop.png');
+    await owner.getByTestId(`once-${github}-${pat.user.id}`).click();
+    await owner.getByTestId(`request-${github}-${pat.user.id}`).waitFor({ state: 'detached' });
+    assert.equal((await tries(['github-write'], 'Run: git push origin main')).verdict, 'allow', 'allowed once: this push goes ahead');
+    assert.equal((await tries(['github-write'], 'Run: gh pr merge 12')).verdict, 'wait', 'the next one asks again');
+    const manager2 = await newPage(ana, phone);
+    await manager2.getByTestId(`request-${github}-${pat.user.id}`).waitFor();
+    assert.equal(await text(manager2, `detail-${github}-${pat.user.id}`), 'Run: gh pr merge 12');
+    await manager2.getByTestId(`request-${github}-${pat.user.id}`).scrollIntoViewIfNeeded();
+    await shot(manager2, 'built-in-request-phone.png');
+    await manager2.getByTestId(`grant-${github}-${pat.user.id}`).click();
+    await manager2.getByText('Pat Tester has this', { exact: true }).waitFor();
+    for (const detail of ['Run: gh pr merge 12', 'Run: git push']) assert.equal((await tries(['github-write'], detail)).verdict, 'allow', 'allowed always');
+    assert.equal((await tries(['github-read'], 'Run: gh pr list')).verdict, 'allow', 'write covers read');
+    await person.reload();
+    await person.getByTestId(`standing-${github}`).waitFor();
+    assert.equal(await text(person, `standing-${github}`), 'You have this');
+    await person.getByTestId(`standing-${github}`).scrollIntoViewIfNeeded();
+    await shot(person, 'built-in-granted-phone.png');
+    const record = (await api('GET', `/v1/entitlements/${github}/history`, undefined, ana.token)).history.filter(h => h.userId === pat.user.id).reverse();
+    assert.deepEqual(record.map(h => h.action), ['requested', 'once', 'used', 'requested', 'granted'], 'every step is on the record');
     assert.deepEqual(pageErrors, [], 'no page errors');
     console.log(`entitlements-e2e: OK, captures saved in ${path.relative(repository, shots)}`);
   }

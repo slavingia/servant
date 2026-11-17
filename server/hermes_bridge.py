@@ -27,6 +27,11 @@ try:
     import hermes_egress
 except ImportError:
     hermes_egress = None
+try:
+    # Also beside this file: asks Servant before a tool call reads or changes files or GitHub (docs/entitlements.md).
+    import hermes_guard
+except ImportError:
+    hermes_guard = None
 
 logger = logging.getLogger("servant.bridge")
 
@@ -378,6 +383,8 @@ class ServantAPIServerAdapter(APIServerAdapter):
         data.setdefault("features", {})["servant_durable_media_runs"] = True
         data["features"]["servant_exact_approvals"] = True
         data["features"]["servant_steer"] = not self.restricted_member
+        # This bridge can ask Servant before a tool call reads or changes files or GitHub (hermes_guard.py).
+        data["features"]["servant_entitlement_checks"] = bool(not self.restricted_member and hermes_guard is not None and hermes_guard.install())
         data["features"]["servant_member_isolation"] = self.restricted_member and not self.researcher
         data["servant"] = {"bridgeVersion": 1}
         if self.researcher:
@@ -419,20 +426,36 @@ class ServantAPIServerAdapter(APIServerAdapter):
             _run_context.reset(token)
 
     def _servant_bind_egress(self, request, session_id):
-        # With the network gate on, Servant says whose turn this is; that session's commands then carry the token
-        # to the gate (hermes_egress.py). Restricted agents have no terminal, so there is nothing to name.
-        if hermes_egress is None or self.restricted_member or not isinstance(session_id, str):
+        # Servant says whose turn this is. With the network gate on, that session's commands carry the token to the
+        # gate (hermes_egress.py); with built-in entitlements checked, tool calls ask Servant first (hermes_guard.py).
+        # Restricted agents have no terminal and no file tools, so there is nothing to name or to ask about.
+        if self.restricted_member or not isinstance(session_id, str):
             return
-        token = request.headers.get(hermes_egress.HEADER)
+        token = request.headers.get("X-Servant-Egress-Token")
         if not token:
             return
+        door = request.headers.get("X-Servant-Door")
+        if door:
+            # Without the check in place the agent would act unasked, so a turn that should be checked is refused instead.
+            bound = False
+            try:
+                bound = hermes_guard is not None and hermes_guard.bind([session_id, request.headers.get("X-Hermes-Session-Key")], token, door)
+            except Exception:
+                logger.exception("Servant entitlement checks: could not set up this turn")
+            if not bound:
+                raise web.HTTPServiceUnavailable(text=json.dumps({"error": {"code": "entitlement_checks_unavailable", "message": "This agent can't check entitlements before acting, so the turn was not started"}}), content_type="application/json")
+        if hermes_egress is None:
+            return
         try:
-            if not hermes_egress.bind(session_id, token):
+            if not hermes_egress.bind(session_id, token) and not door:
                 logger.warning("Servant network gate: this turn's commands are not named (no gate, or an unsupported Hermes); they are judged for everyone working")
         except Exception:
             logger.exception("Servant network gate: could not name this turn's commands")
 
     async def _handle_session_chat_stream(self, request):
+        auth_error = self._check_auth(request)
+        if auth_error is not None:
+            return auth_error
         self._servant_bind_egress(request, request.match_info.get("session_id"))
         return await super()._handle_session_chat_stream(request)
 

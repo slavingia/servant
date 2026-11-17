@@ -17,17 +17,18 @@ process.env.SERVANT_DATA_DIR = directory;
 process.env.SERVANT_PUSH_CONFIG = path.join(directory, "push.json");
 fs.writeFileSync(process.env.SERVANT_PUSH_CONFIG, "{}");
 const config = { host: "127.0.0.1", port: 0, name: "Example team", agentName: "Agent", publicUrl: "", discoveryUrl: "", adminKey: "", upstreams: {},
-  agentEgress: { mode: "ask", port: 0, always: ["models.example.gov"] } };
+  agentEgress: { mode: "ask", port: 0, always: ["models.example.gov"] }, agentCapabilities: { mode: "ask", waitSeconds: 0 } };
 // A stand-in for the agent: it records what each turn was sent with and holds the reply until the test lets go.
 const turns = [];
-let release = () => {};
+let release = () => {}, checksSupported = true;
 const agent = http.createServer(async (req, res) => {
   for await (const _ of req) { /* drain */ }
   const json = (status, value) => res.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify(value));
-  if (req.url === "/v1/capabilities") return json(404, {});
+  // An agent whose bridge asks before a tool call (and has no durable runs, so turns stream).
+  if (req.url === "/v1/capabilities") return json(200, { features: { servant_entitlement_checks: checksSupported } });
   if (req.method === "POST" && req.url === "/api/sessions") return json(201, { session: { id: "made" } });
   if (req.method === "POST" && req.url.endsWith("/chat/stream")) {
-    turns.push({ url: req.url, token: req.headers["x-servant-egress-token"] });
+    turns.push({ url: req.url, token: req.headers["x-servant-egress-token"], door: req.headers["x-servant-door"] });
     res.writeHead(200, { "Content-Type": "text/event-stream" });
     res.write(": started\n\n");
     release = () => res.end('event: assistant.completed\ndata: {"content":"Done"}\n\n');
@@ -133,9 +134,9 @@ test("ask, confirm, be granted: the agent reaches a host only for the person who
   const seen = (await api("pat", "GET", "entitlements")).body;
   assert.equal(seen.canCreate, false);
   assert.deepEqual(seen.egress, { mode: "ask" });
-  assert.equal(seen.entitlements[0].confirmation, "I hold the Tax data role myself.");
-  assert.equal(seen.entitlements[0].mine, null);
-  assert.deepEqual(seen.entitlements[0].people, []);
+  assert.equal(seen.entitlements.find(e => e.id === id).confirmation, "I hold the Tax data role myself.");
+  assert.equal(seen.entitlements.find(e => e.id === id).mine, null);
+  assert.deepEqual(seen.entitlements.find(e => e.id === id).people, []);
 
   assert.equal((await api("pat", "POST", `entitlements/${id}/request`, { note: "no confirmation" })).body.error.code, "confirmation_required");
   const asked = await api("pat", "POST", `entitlements/${id}/request`, { confirmed: true, note: "Example-app team" });
@@ -150,8 +151,8 @@ test("ask, confirm, be granted: the agent reaches a host only for the person who
   assert.equal((await api("pat", "POST", `entitlements/${id}/people/${people.pat.id}`, { decision: "grant" })).status, 403);
   const joView = (await api("jo", "GET", "entitlements")).body;
   assert.equal(joView.waiting, 1);
-  assert.deepEqual(joView.entitlements[0].people.map(p => [p.name, p.status, p.note]), [["Pat Tester", "requested", "Example-app team"]]);
-  assert.deepEqual((await api("sam", "GET", "entitlements")).body.entitlements[0].people, [], "Sam sees nobody else's request");
+  assert.deepEqual(joView.entitlements.find(e => e.id === id).people.map(p => [p.name, p.status, p.note]), [["Pat Tester", "requested", "Example-app team"]]);
+  assert.deepEqual((await api("sam", "GET", "entitlements")).body.entitlements.find(e => e.id === id).people, [], "Sam sees nobody else's request");
   assert.equal((await api("jo", "POST", `entitlements/${id}/people/${people.pat.id}`, { decision: "grant" })).body.error.code, "not_held");
   // Jo asks; Jo's manager is the owner, who grants; now Jo can grant Pat.
   await api("jo", "POST", `entitlements/${id}/request`, { confirmed: true });
@@ -213,6 +214,7 @@ test("a turn tells the agent whose it is, and while it runs unnamed traffic coun
   assert.equal(turns.length, 1, "the agent received the turn");
   assert.match(turns[0].token, /^[A-Za-z0-9._-]{20,600}$/);
   assert.equal(turns[0].token, mod.egressForTest().mint(people.sam.id, chat.id), "the token is Sam's, for this chat");
+  assert.equal(turns[0].door, String(mod.egressForTest().port), "and where to ask before a tool call");
   await pushed(0); pushes.length = 0;
   // A command that presents the token is Sam's.
   assert.equal((await connectThrough("named.example.org:443", turns[0].token)).status, 403);
@@ -234,6 +236,90 @@ test("a turn tells the agent whose it is, and while it runs unnamed traffic coun
   done();
   assert.match((await connectThrough("idle.example.org:443", "")).text, /no agent turn is running/);
   await pushed(1); pushes.length = 0;
+});
+
+// What the bridge does before a tool call: POST /use to the local listener, with the turn's token.
+async function use(who, needs, detail) {
+  const response = await fetch(`http://127.0.0.1:${mod.egressForTest().port}/use`, { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: who === null ? "made.up.token" : mod.egressForTest().mint(people[who].id, "chat_use"), needs, detail }) });
+  return { status: response.status, ...(await response.json()) };
+}
+
+test("built-in entitlements: the first use asks the manager, who allows once or always, and it is recorded", async () => {
+  await pushed(0); pushes.length = 0;
+  const builtIn = (await api("owner", "GET", "entitlements")).body;
+  assert.deepEqual(builtIn.capabilities, { mode: "ask" });
+  assert.deepEqual(builtIn.entitlements.filter(e => e.native).map(e => [e.name, e.capability]), [["Filesystem read", "fs-read"], ["Filesystem write", "fs-write"], ["GitHub read", "github-read"], ["GitHub write", "github-write"]]);
+  await api("owner", "PUT", `people/${people.pat.id}/manager`, { managerId: people.owner.id });
+  await pushed(1); pushes.length = 0;
+
+  // Nobody's turn, or the owner's own: nothing to ask.
+  assert.deepEqual(await use(null, ["fs-write"], "Write x"), { status: 403, verdict: "deny", message: "Servant doesn't know whose turn this is, so it can't be allowed." });
+  assert.equal((await use("owner", ["github-write", "fs-write"], "Run: git push")).verdict, "allow", "an owner's own agent is not held back");
+  assert.equal((await use("pat", [], "Use todo")).verdict, "allow");
+  assert.equal((await use("pat", ["sudo"], "x")).verdict, "allow", "only the four built-in ones are checked");
+
+  // Pat's agent is about to push. Pat's manager is told once; the agent is told to wait and pass that on.
+  const held = await use("pat", ["github-write", "fs-write"], "Run: git commit -am fix && git push");
+  assert.equal(held.verdict, "wait");
+  assert.equal(held.capability, "github-write", "the weightiest is asked about first");
+  assert.match(held.message, /^Servant is holding this: Ana Ruiz has been asked to allow GitHub write for Pat Tester/);
+  assert.equal((await use("pat", ["github-write"], "Run: git push")).verdict, "wait");
+  assert.deepEqual(await pushed(1), [{ to: "push-owner", title: "Entitlement request", body: "Pat Tester's agent needs GitHub write" }], "told once, without what the agent was doing");
+  const waiting = (await api("owner", "GET", "entitlements")).body.entitlements.find(e => e.capability === "github-write").people;
+  assert.deepEqual(waiting.map(p => [p.name, p.status, p.via, p.detail]), [["Pat Tester", "requested", "use", "Run: git push"]], "the manager sees the latest thing it tried");
+  assert.equal((await api("pat", "GET", "entitlements")).body.entitlements.find(e => e.capability === "github-write").mine.status, "requested");
+
+  // Allow once: that push goes ahead (and can reach GitHub), then the next one asks again.
+  assert.equal((await api("owner", "POST", `entitlements/native-github-write/people/${people.pat.id}`, { decision: "once" })).status, 200);
+  assert.deepEqual(await pushed(1), [{ to: "push-pat", title: "Entitlements", body: "GitHub write was allowed once" }]);
+  const once = await use("pat", ["github-write", "fs-write"], "Run: git commit -am fix && git push");
+  assert.deepEqual([once.verdict, once.capability], ["wait", "fs-write"], "GitHub was allowed; files are a separate question");
+  assert.equal((await connectThrough("github.com:443", mod.egressForTest().mint(people.pat.id, "chat_use"))).status, 200, "the push can reach GitHub");
+  assert.deepEqual(await pushed(1), [{ to: "push-owner", title: "Entitlement request", body: "Pat Tester's agent needs Filesystem write" }]);
+  assert.equal((await use("pat", ["github-write"], "Run: git push")).verdict, "wait", "once was used up");
+  assert.deepEqual(await pushed(1), [{ to: "push-owner", title: "Entitlement request", body: "Pat Tester's agent needs GitHub write" }]);
+
+  // Allow always, answered while the agent is still waiting: the held call goes through without asking again.
+  config.agentCapabilities.waitSeconds = 10;
+  const pending = use("pat", ["github-write"], "Run: git push");
+  await new Promise(r => setTimeout(r, 150));
+  assert.equal((await api("owner", "POST", `entitlements/native-github-write/people/${people.pat.id}`, { decision: "grant" })).status, 200);
+  assert.equal((await pending).verdict, "allow");
+  config.agentCapabilities.waitSeconds = 0;
+  for (let i = 0; i < 2; i++) assert.equal((await use("pat", ["github-write"], "Run: git push")).verdict, "allow");
+  assert.equal((await use("pat", ["github-read"], "Run: gh pr list")).verdict, "allow", "write covers read");
+  await pushed(1); pushes.length = 0;
+
+  // Declined: refused from then on without asking again, with words for the agent to pass on.
+  assert.equal((await api("owner", "POST", `entitlements/native-fs-write/people/${people.pat.id}`, { decision: "deny" })).status, 200);
+  const refused = await use("pat", ["fs-write"], "Write notes.md");
+  assert.equal(refused.verdict, "deny");
+  assert.match(refused.message, /Pat Tester asked for Filesystem write and was declined/);
+  await pushed(1); pushes.length = 0;
+  assert.equal((await use("pat", ["fs-write"], "Write notes.md")).verdict, "deny");
+  assert.deepEqual(await pushed(0), [], "a no is not asked about again");
+
+  // Every step is on the record, with what the agent was about to do.
+  const history = (await api("owner", "GET", "entitlements/native-github-write/history")).body.history.filter(h => h.userId === people.pat.id).reverse();
+  assert.deepEqual(history.map(h => [h.action, h.byName]), [["requested", "Pat Tester"], ["once", "Ana Ruiz"], ["used", "Pat Tester"], ["requested", "Pat Tester"], ["granted", "Ana Ruiz"]]);
+  assert.deepEqual(history[0].detail, { via: "use", detail: "Run: git commit -am fix && git push" });
+  assert.equal((await api("owner", "DELETE", "entitlements/native-github-write")).status, 400, "a built-in entitlement can't be retired");
+  assert.equal((await api("owner", "POST", `entitlements/native-github-write/people/${people.pat.id}`, { decision: "revoke" })).status, 200);
+  await pushed(1); pushes.length = 0;
+
+  // An agent whose bridge can't ask is not handed a turn while the checks are on. With them off, nothing is asked.
+  checksSupported = false;
+  const chat = (await api("pat", "POST", "chats", {})).body.chat;
+  const before = turns.length;
+  const sent = await testFetch(directory, `${base}/v1/chats/${chat.id}/messages`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${people.pat.token}` }, body: JSON.stringify({ text: "Push it", requestId: "request_unchecked" }) });
+  await sent.body?.cancel();
+  await new Promise(r => setTimeout(r, 400));
+  assert.equal(turns.length, before, "the turn never reached the agent");
+  checksSupported = true;
+  config.agentCapabilities.mode = "off";
+  assert.equal((await use("pat", ["github-write", "fs-write"], "Run: git push")).verdict, "allow");
+  config.agentCapabilities.mode = "ask";
 });
 
 test("someone who joins from an owner's team link reports to that owner", async () => {
