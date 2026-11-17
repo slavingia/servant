@@ -1994,7 +1994,10 @@ async function handle(req, res, cfg) {
     if (!creationUp) return fail(res, 503, "agent_unavailable", "The agent isn't set up on this server yet");
     const lane = agentLane(creator, cfg);
     if (lane !== "owner") await verifyUpstream(lane, creationUp);
-    const chatId = id("cht");
+    // The phone may name the chat itself, so it can open it before this answers (app/src/lib/new-chat.ts).
+    if (body.id !== undefined && (typeof body.id !== "string" || !/^cht_[A-Za-z0-9_-]{8,40}$/.test(body.id))) return fail(res, 400, "bad_request", "That chat id isn't valid");
+    if (body.id && readState().chats[body.id]) return fail(res, 409, "conflict", "That chat already exists");
+    const chatId = body.id || id("cht");
     // Vibe coders always build prototypes. Anyone else may start the chat in a project
     // they're in, or ask for vibe coding (a prototype with a preview link) from the list.
     const tier = agentTierOf(readState().users[creator.id]);
@@ -2029,6 +2032,7 @@ async function handle(req, res, cfg) {
     try {
       mutateAuthenticated(req, (state, current) => {
         if (current.user.role !== creator.role || current.user.id !== creator.id) throw requestError(403, "forbidden", "Your access changed. Start a new chat");
+        if (state.chats[chatId]) throw requestError(409, "conflict", "That chat already exists");
         state.chats[chatId] = chat;
       });
     } catch (error) {

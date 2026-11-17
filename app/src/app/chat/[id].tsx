@@ -36,6 +36,7 @@ import { sendSlashFeedback } from "../../lib/slash-feedback";
 import { PiiDeclined, withPiiConfirm } from "../../lib/pii-warning";
 import { usePiiConfirm } from "../../components/PiiConfirm";
 import { chatLoad, chatTurns, forgetChat, keepChat, keptChat, peekChatLoad, takeChatLoad } from "../../lib/chat-cache";
+import { chatBeingMade, chatMade } from "../../lib/new-chat";
 import { api, sendMessage, ServerError, uploadPost, type Account, type Chat, type Project, type Message, type PrototypeChanges, type Upload } from "../../lib/server";
 import { useSession } from "../../lib/session";
 import { anyTalk, useFeatures } from "../../lib/features";
@@ -322,7 +323,7 @@ function OptionsSheet({ id, title, shared, projectId, projectShared, onProject, 
   if (!account) return null;
   const move = async (next: string | null) => {
     setSaving(true); setError(null);
-    try { await api.moveChat(account, id, next); onProject(next); if (next !== projectId) onProjectShared(false); setChoosing(false); }
+    try { await chatMade(account, id); await api.moveChat(account, id, next); onProject(next); if (next !== projectId) onProjectShared(false); setChoosing(false); }
     catch (e) { setError(e instanceof ServerError ? e.message : "Couldn't move the chat"); }
     finally { setSaving(false); }
   };
@@ -330,13 +331,13 @@ function OptionsSheet({ id, title, shared, projectId, projectShared, onProject, 
   const teamProject = !!current && current.people.some(p => p.id && p.id !== account.user.id);
   const shareWithProject = async (next: boolean) => {
     onProjectShared(next); setSaving(true); setError(null);
-    try { onProjectShared((await api.shareChatWithProject(account, id, next)).projectShared === true); }
+    try { await chatMade(account, id); onProjectShared((await api.shareChatWithProject(account, id, next)).projectShared === true); }
     catch (e) { onProjectShared(!next); setError(e instanceof ServerError ? e.message : "Couldn't change sharing"); }
     finally { setSaving(false); }
   };
   const change = async (next: boolean) => {
     onChange(next); setSaving(true); setError(null);
-    try { onChange((await api.setChatShared(account, id, next)).shared !== false); }
+    try { await chatMade(account, id); onChange((await api.setChatShared(account, id, next)).shared !== false); }
     catch (e) { onChange(!next); setError(e instanceof ServerError ? e.message : "Couldn't change sharing"); }
     finally { setSaving(false); }
   };
@@ -464,7 +465,8 @@ function ChatConversation({ account }: { account: Account }) {
     if (!account || !id) return;
     let live = true;
     // Asked for together with the messages when the chat was opened; on its own after that.
-    (peekChatLoad(account, id)?.info ?? api.chat(account, id)).then(c => {
+    // A chat opened before the server made it (lib/new-chat.ts) asks once it exists.
+    chatMade(account, id).then(() => peekChatLoad(account, id)?.info ?? api.chat(account, id)).then(c => {
       if (!live) return;
       lastInfo.current = c;
       if (c.title && c.title !== "New chat") setHeading(h => h === "New chat" ? c.title : h);
@@ -508,7 +510,7 @@ function ChatConversation({ account }: { account: Account }) {
     currentLoad.current = request;
     // The first load takes the requests started when the chat's row was pressed; a retry asks again.
     const first = takeChatLoad(account, id);
-    return Promise.all([first?.messages ?? api.messages(account, id), first?.turns ?? chatTurns(account, id)]).then(([history, turns]) => {
+    return chatMade(account, id).then(() => Promise.all([first?.messages ?? api.messages(account, id), first?.turns ?? chatTurns(account, id)])).then(([history, turns]) => {
       if (request === currentLoad.current) {
         hasShown.current = true;
         lastTurns.current = turns;
@@ -547,7 +549,7 @@ function ChatConversation({ account }: { account: Account }) {
     // answering, when the history may still be catching up).
     const refresh = async (foreground = false, turnsOnly = false) => {
       foregroundRefresh ||= foreground;
-      if (!account || !id || AppState.currentState !== 'active') return;
+      if (!account || !id || AppState.currentState !== 'active' || chatBeingMade(account, id)) return;
       if (refreshing) { again = true; return; }
       refreshing = true;
       try {
@@ -629,7 +631,7 @@ function ChatConversation({ account }: { account: Account }) {
   // the account object was replaced (a rename, a deep-work change from another device), deleting a chat you were still in.
   const accountRef = useRef(account);
   useEffect(() => { accountRef.current = account; }, [account]);
-  useEffect(() => () => { const a = accountRef.current; if (discardable.current && a) { forgetChat(a, String(id)); void api.deleteChat(a, String(id)).catch(() => {}); } }, [id]);
+  useEffect(() => () => { const a = accountRef.current; if (discardable.current && a) { forgetChat(a, String(id)); void chatMade(a, String(id)).then(() => api.deleteChat(a, String(id))).catch(() => {}); } }, [id]);
   const loaded = messages !== null && !loadError;
   useEffect(() => { if (id && loaded && account) setItem(lastChatKey(account.user.id), String(id)).catch(() => {}); }, [id, loaded, account]);
   // Keep what the server has confirmed for the next visit: never a message still on its way or a reply being written.
@@ -645,6 +647,8 @@ function ChatConversation({ account }: { account: Account }) {
   // Documents go up in chunks before the message that names them. Finished
   // uploads are remembered, so retrying the same draft doesn't resend them.
   const uploadDocuments = async (attachments: Upload[], signal?: AbortSignal) => {
+    // Sending in a chat that's still being made waits for it (and retries a start that failed).
+    await chatMade(account, String(id));
     const out: Upload[] = [];
     for (const file of attachments) {
       if (!file.document) { out.push(file); continue; }
@@ -980,6 +984,7 @@ function ChatConversation({ account }: { account: Account }) {
     // The next chat from the Agent tab starts about this choice.
     const remember = () => setItem(choiceKey(account.user.id), next ?? "").catch(() => {});
     try {
+      await chatMade(account, String(id));
       if (needsNewChat(about, next)) {
         const chat = await api.newChat(account, newChatOptions(next));
         void api.deleteChat(account, String(id)).catch(() => {});

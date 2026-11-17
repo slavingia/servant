@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, AppState, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { AppState, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect, useScrollToTop } from "expo-router";
 import { shortTime as when } from "../../lib/time-label";
 import { AppIcon } from "../../components/AppIcon";
@@ -23,6 +23,7 @@ import { useNow } from "../../lib/use-now";
 import { LiveStatus } from "../../components/LiveStatus";
 import { ReplyBar } from "../../components/ReplyBar";
 import { ServeLoader } from "../../components/ServeLoader";
+import { openNewChat } from "../../lib/new-chat";
 
 // The line under the title, like the last message in a DM list.
 function lastLine(chat: Chat, author: string, agent = "") {
@@ -54,7 +55,6 @@ export default function Chats() {
   const [shared, setShared] = useState<Chat[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [starting, setStarting] = useState(false);
   // The projects you're in (docs/projects.md); vibeCoder means every chat builds a prototype.
   const projects = useProjects();
   // A new chat starts about the last choice; the chat offers the change right above its message box.
@@ -160,19 +160,11 @@ export default function Chats() {
   };
 
   // One tap: a chat about the remembered choice (business owners always build prototypes).
-  const start = async () => {
-    if (starting) return;
+  const start = () => {
     const project = projects && !projects.vibeCoder && offered(projects, choice) ? canonical(projects, choice) : null;
-    setStarting(true);
     setError(null);
-    try {
-      const chat = await api.newChat(account, newChatOptions(project));
-      openChat(chat, { compose: "1" });
-    } catch (e) {
-      setError(e instanceof ServerError ? e.message : "Couldn't start a chat");
-    } finally {
-      setStarting(false);
-    }
+    // Opens at once; the server makes the chat behind it (lib/new-chat.ts).
+    openNewChat(account, newChatOptions(project));
   };
 
   return (
@@ -198,8 +190,8 @@ export default function Chats() {
           <View>
             <View style={styles.header}>
               <Text accessibilityRole="header" style={styles.title}>Agent</Text>
-              <Pressable accessibilityRole="button" accessibilityLabel="New chat" accessibilityState={{ disabled: starting, busy: starting }} disabled={starting} onPress={() => void start()} style={styles.compose}>
-                {starting ? <ActivityIndicator color={colors.blue} /> : <AppIcon name="compose" size={22} color={colors.ink} />}
+              <Pressable accessibilityRole="button" accessibilityLabel="New chat" onPress={() => void start()} style={styles.compose}>
+                <AppIcon name="compose" size={22} color={colors.ink} />
               </Pressable>
             </View>
             {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
@@ -234,7 +226,7 @@ export default function Chats() {
           ) : (
             <View style={styles.empty}>
               <Text accessibilityRole="header" style={styles.emptyTitle}>No conversations yet</Text>
-              <Button label={projects?.vibeCoder ? "Start prototyping" : "New chat"} onPress={() => void start()} busy={starting} style={styles.emptyAction} />
+              <Button label={projects?.vibeCoder ? "Start prototyping" : "New chat"} onPress={() => void start()} style={styles.emptyAction} />
             </View>
           )
         }

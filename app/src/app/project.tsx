@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { ActivityIndicator, AppState, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { AppState, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { router, Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { AppIcon } from "../components/AppIcon";
 import { Avatar } from "../components/Messaging";
@@ -11,6 +11,7 @@ import { useSession } from "../lib/session";
 import { shortTime as when } from "../lib/time-label";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
 import { ServeLoader } from "../components/ServeLoader";
+import { openNewChat } from "../lib/new-chat";
 
 // Releases first when the project has any, otherwise Chats. ?tab= opens one directly.
 const TABS = ["releases", "chats", "about"] as const;
@@ -27,7 +28,6 @@ export default function ProjectScreen() {
   const [page, setPage] = useState<{ id: string; project: Project; chats: Chat[]; teamChats: Chat[] } | null>(null);
   const [picked, setPicked] = useState<{ id: string; tab: Tab } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [starting, setStarting] = useState(false);
   const project = page && page.id === id ? page.project : null;
 
   const load = useCallback(async () => {
@@ -56,14 +56,9 @@ export default function ProjectScreen() {
   const update = (p: Project) => { setPage(current => current && { ...current, project: p }); rememberProject(p, account); };
   const shown: Tab = picked?.id === id ? picked.tab : isTab(wanted) ? wanted : project.releases.length ? "releases" : "chats";
   const labels: Record<Tab, string> = { releases: "Releases", chats: `Chats${chats.length ? ` · ${chats.length}` : ""}`, about: "About" };
-  const startChat = async () => {
-    if (starting) return;
-    setStarting(true); setError(null);
-    try {
-      const chat = await api.newChat(account, { projectId: project.id });
-      router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, compose: "1" } });
-    } catch (e) { setError(e instanceof ServerError ? e.message : "Couldn't start a chat"); }
-    finally { setStarting(false); }
+  const startChat = () => {
+    setError(null);
+    openNewChat(account, { projectId: project.id });
   };
   return (
     <View style={styles.root}>
@@ -78,23 +73,22 @@ export default function ProjectScreen() {
       </View>
       {shown === "releases" ? <ProjectReleases account={account} project={project} onChange={update} />
         : shown === "about" ? <ProjectAbout key={project.id} account={account} project={project} onChange={update} />
-        : <ProjectChats chats={chats} teamChats={teamChats} starting={starting} onNew={() => void startChat()} />}
+        : <ProjectChats chats={chats} teamChats={teamChats} onNew={startChat} />}
     </View>
   );
 }
 
 // Your agent chats in this project, then the ones teammates shared with it.
-function ProjectChats({ chats, teamChats, starting, onNew }: { chats: Chat[]; teamChats: Chat[]; starting: boolean; onNew: () => void }) {
+function ProjectChats({ chats, teamChats, onNew }: { chats: Chat[]; teamChats: Chat[]; onNew: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const title = (c: Chat) => c.title.replace(/`/g, "");
   return (
     <FlatList data={chats} keyExtractor={c => c.id} contentContainerStyle={{ paddingBottom: space.xxl }}
       ListHeaderComponent={<View>
-        <Pressable accessibilityRole="button" accessibilityLabel="New chat in this project" accessibilityState={{ busy: starting }} disabled={starting} onPress={onNew} style={({ pressed }) => [styles.newChat, pressed && { backgroundColor: colors.surface }]}>
+        <Pressable accessibilityRole="button" accessibilityLabel="New chat in this project" onPress={onNew} style={({ pressed }) => [styles.newChat, pressed && { backgroundColor: colors.surface }]}>
           <View style={styles.chatIcon}><AppIcon name="compose" size={18} color={colors.blueDark} /></View>
           <Text style={styles.link}>New chat</Text>
-          {starting ? <ActivityIndicator color={colors.blue} /> : null}
         </Pressable>
         {chats.length === 0 ? <Text style={styles.empty}>No chats yet</Text> : null}
       </View>}
