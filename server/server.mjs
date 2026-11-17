@@ -2594,7 +2594,7 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
       // A visitor wrote to the secure inbox: the team hears as it would for a direct message, and not at all in deep work.
       if (event.kind === "case") return normalizeFeatures((fixedCfg || loadConfig()).features).secureInbox && !inDeepWork(user) ? inbox().notificationFor(user, event.caseId, event.sequence) : null;
       // An entitlement request, decision or refusal: only for the people it names.
-      if (event.kind === "entitlement") return Array.isArray(event.to) && event.to.includes(user.id) ? { kind: "agent", title: event.title, body: event.body } : null;
+      if (event.kind === "entitlement") return Array.isArray(event.to) && event.to.includes(user.id) ? { kind: "agent", title: event.title, body: event.body, page: "entitlements" } : null;
       const chat = readState().chats[event.chatId];
       if (event.userId !== user.id || !chat || chat.deletedAt || chat.userId !== user.id) return null;
       return { kind: "agent", chatId: chat.id, title: "Agent · " + chat.title, body: event.text };

@@ -369,6 +369,21 @@ test('multi-server clients retain their aggregate badge when another server push
   } finally { push.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+// An entitlement request, decision or refused host opens the Entitlements screen; nothing else about it leaves the server.
+test('an entitlement alert routes to the Entitlements page and passes only that to the provider', () => {
+  const alert = { kind: 'agent', title: 'Entitlement request', body: 'Pat Tester asked for Tax data API', page: 'entitlements' };
+  assert.ok(wantsNotification(alert, defaults));
+  const n = notificationPayload(alert, user, 'd_1');
+  assert.deepEqual(n.data, { userId: user.id, deviceId: 'd_1', page: 'entitlements' });
+  const apns = apnsPayload({ ...n, data: { ...n.data, note: 'I work on the example app', page: 'entitlements' } });
+  assert.deepEqual(apns.body, { userId: user.id, deviceId: 'd_1', page: 'entitlements' }, "the request's note never reaches the provider");
+  assert.deepEqual(JSON.parse(fcmMessage('t'.repeat(30), n).message.data.body), { userId: user.id, deviceId: 'd_1', page: 'entitlements' });
+  assert.deepEqual(apnsPayload({ ...n, data: { ...n.data, page: 'https://example.gov/x' } }).body, { userId: user.id, deviceId: 'd_1' }, 'a page is a plain word, never an address');
+  const quiet = notificationPayload(alert, { ...user, notifications: { contentPreviews: false } }, 'd_1');
+  assert.equal(quiet.title, 'Servant'); assert.equal(quiet.body, 'You have a new message');
+  assert.deepEqual(quiet.data, n.data, 'with previews off the tap still opens Entitlements');
+});
+
 // A visitor's message to the secure inbox alerts like a direct message and routes by the case's own id.
 test('a case alert reads like a direct message, routes by case id and passes only that id to the provider', () => {
   const alert = { kind: 'dm', caseId: 'inbox_abc-123', title: 'Ana Ruiz · CASE-000001', body: 'Is my example account open?' };
