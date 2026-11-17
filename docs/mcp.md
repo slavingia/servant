@@ -52,6 +52,7 @@ Any MCP client (stdio):
 | `new_agent_chat` | Start one; `shared: true` lets everyone follow it |
 | `ask_agent` | Send a message in an agent chat and wait for the reply |
 | `read_agent_chat` | The messages in an agent chat |
+| `request_code` | Ask your phone for a one-time sign-in code and wait for it ([code-requests.md](code-requests.md)) |
 
 There is also one resource, `servant://conversations`.
 

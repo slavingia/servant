@@ -153,6 +153,7 @@ function SessionNavigation() {
         <Stack.Screen name="lexicon" options={{ title: "Wiki", ...sidebarScreen }} />
         <Stack.Screen name="notifications" options={{ title: "Notifications", ...childScreen }} />
         <Stack.Screen name="feed" options={{ title: "Agent feed", ...childScreen }} />
+        <Stack.Screen name="code/[id]" options={{ title: "Enter code", ...childScreen }} />
         <Stack.Screen name="loops" options={{ title: "Loops", ...childScreen }} />
         <Stack.Screen name="entitlements" options={{ title: "Entitlements", ...childScreen }} />
         <Stack.Screen name="leaderboard" options={{ title: "Agent usage", ...childScreen }} />

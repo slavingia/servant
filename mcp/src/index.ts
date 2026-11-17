@@ -4,12 +4,13 @@
 //
 //   node src/index.ts link "<invite or workspace link>"   sign in once (approve on your phone)
 //   node src/index.ts                                     run the MCP server on stdio
+//   node src/index.ts code "<what it is for>" [hint]      ask your phone for a one-time code; prints only the code
 //   node src/index.ts jira-export [file.csv] [project]    write your to-dos as a file Jira's CSV importer reads
 //   node src/index.ts jira-keys <jira export.csv>         record which Jira issue each to-do became
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { call, link, loadAccount, parseWorkspace, streamAgent, accountFile, type Account } from "./client.ts";
+import { call, link, loadAccount, parseWorkspace, streamAgent, accountFile, requestCode, type Account } from "./client.ts";
 import { jiraExport, jiraKeys } from "./jira.ts";
 
 const [cmd, arg, name] = process.argv.slice(2);
@@ -19,6 +20,13 @@ if (cmd === "link") {
   catch (e: any) { console.error(e?.code === "expired_device_link" ? "The sign-in code expired before it was approved. Run link again" : e?.message || String(e)); process.exit(1); }
 }
 
+// Ask your phone for a one-time code (docs/code-requests.md). Prints only the code, so a script can read it:
+//   CODE=$(node src/index.ts code "Login.gov sign-in" "Texted to the number ending 0000")
+if (cmd === "code") {
+  if (!arg) { console.error('Usage: servant-mcp code "<what it is for>" [hint]'); process.exit(2); }
+  try { process.stdout.write((await requestCode(account(), arg, name, { log: console.error })) + "\n"); process.exit(0); }
+  catch (e: any) { console.error(e?.message || String(e)); process.exit(1); }
+}
 function account(): Account {
   const a = loadAccount();
   if (!a) throw new Error(`Not signed in. Run: servant-mcp link "<invite or workspace link>" (saves ${accountFile()})`);
@@ -46,6 +54,10 @@ const server = new McpServer({ name: "servant", version: "0.1.0" });
 // Who you are and who's here.
 // Ids come from an LLM, so keep them to the characters real ids use ("..", slashes and the like would reshape the URL).
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,80}$/, "not a valid id");
+tool("request_code", "Ask the signed-in person's phone for a one-time code (a text or email sign-in code) and wait until they type it in Servant. Returns the code once. Use it only for a sign-in this person started.",
+  { label: z.string().min(1).max(60).describe('What the code is for, e.g. "Login.gov sign-in"'), hint: z.string().max(120).optional().describe("Where the code was sent, without full phone numbers or emails"),
+    timeout_seconds: z.number().int().min(60).max(900).optional() },
+  async ({ label, hint, timeout_seconds }) => ({ code: await requestCode(account(), label, hint, { timeoutSeconds: timeout_seconds }) }));
 tool("whoami", "The signed-in person and server.", {}, async () => { const a = account(); return { user: a.user, server: a.serverName, address: a.server }; });
 tool("list_people", "Everyone on the server: id, name, role.", {}, async () => (await api("GET", "/v1/people")).people);
 tool("set_unlimited_tokens", "Owner only: lift (true) or restore (false) someone's daily agent token limit. Pass their user id from list_people.",

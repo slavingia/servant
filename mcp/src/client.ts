@@ -120,3 +120,26 @@ export async function streamAgent(a: Account, chatId: string, text: string): Pro
   }
   return { text: reply.trim(), status };
 }
+
+/**
+ * Ask your own phone for a one-time code and wait for it (docs/code-requests.md). Your phone gets a push; you type the
+ * code in Servant; this returns it. Gives up when the request expires, is cancelled, or `signal` aborts.
+ */
+export async function requestCode(a: Account, label: string, hint?: string, { timeoutSeconds = 600, log = (_: string) => {}, signal, intervalMs = 2000 }:
+  { timeoutSeconds?: number; log?: (s: string) => void; signal?: AbortSignal; intervalMs?: number } = {}): Promise<string> {
+  const { request } = await call<{ request: { id: string; expiresAt: number } }>(a, "POST", "/v1/code-requests", { label, ...(hint ? { hint } : {}), ttlSeconds: timeoutSeconds });
+  log(`Waiting for you to enter the ${label} code in Servant on your phone…`);
+  const path = `/v1/code-requests/${encodeURIComponent(request.id)}`;
+  try {
+    for (;;) {
+      if (signal?.aborted) throw new ServantError("Cancelled");
+      const out = await call<{ status: string; code?: string }>(a, "POST", `${path}/claim`, {});
+      if (out.status === "answered" && out.code) return out.code;
+      if (out.status !== "pending") throw new ServantError(out.status === "expired" ? "The code request expired before a code was entered" : `The code request was ${out.status}`);
+      await new Promise(r => setTimeout(r, intervalMs));
+    }
+  } catch (error) {
+    if (signal?.aborted) await call(a, "POST", `${path}/cancel`, {}).catch(() => {});
+    throw error;
+  }
+}
