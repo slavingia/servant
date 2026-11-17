@@ -2959,8 +2959,11 @@ export function startServer(fixedCfg) {
     egressProxy = createEgressProxy({ store: egressStore(), settings: () => egressSettings((fixedCfg || loadConfig()).agentEgress), allowed: (userId, host) => entitlementStore().allows(userId, host),
       active: () => [...(agentTurns?.workingFor() || []), ...egressStore().workingFor()], known: userId => { const u = readState().users[userId]; return !!u && !isRemoved(u); }, blocked: egressBlocked, hint: egressHint, local: (req, res) => agentDoor(req, res, () => fixedCfg || loadConfig()),
       ...(globalThis.__servantEgressTest || {}) });
-    egressProxy.listen(egressSettings(cfg.agentEgress).port).then(port => { egressProxy.port = port; console.log(`[servant] agent ${egressSettings(cfg.agentEgress).mode === "ask" ? "network gate" : "entitlement checks"} on 127.0.0.1:${port}`); },
-      error => console.error(`[servant] agent network gate could not start on port ${egressSettings(cfg.agentEgress).port}: ${error.message}. Sandboxed agents will have no network until it does`));
+    // A new release starts while the old one still holds the port, so this keeps trying until the port is free.
+    const what = egressSettings(cfg.agentEgress).mode === "ask" ? "network gate" : "entitlement checks";
+    const wanted = egressSettings(cfg.agentEgress).port, proxy = egressProxy;
+    proxy.listenWhenFree(wanted, { onWait: error => console.error(`[servant] agent ${what}: port ${wanted} is busy (${error.message}); trying again until it is free. Until then agents are refused`) })
+      .then(port => { proxy.port = port; console.log(`[servant] agent ${what} on 127.0.0.1:${port}`); });
   }
   inboxConfig = () => fixedCfg || loadConfig();
   // Checked every few seconds; a short configured delay (a test or a demonstration) is checked as often as it asks.
