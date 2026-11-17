@@ -73,8 +73,9 @@ test('pressing a suggestion does not take focus from the message box, and a plac
   const fs = await import('node:fs'); const path = await import('node:path');
   const source = fs.readFileSync(path.join(import.meta.dirname, '../components/Messaging.tsx'), 'utf8');
   assert.match(source, /const KEEP_COMPOSER_FOCUS = \(Platform\.OS === "web" \? \{ onMouseDown: \(event: \{ preventDefault\(\): void \}\) => event\.preventDefault\(\) \} : \{\}\)/);
-  assert.match(source, /accessibilityLabel="Mention suggestions" \{\.\.\.KEEP_COMPOSER_FOCUS\}>/);
-  assert.match(source, /accessibilityLabel="Commands" \{\.\.\.KEEP_COMPOSER_FOCUS\}>/);
+  // People and commands are one list now (lib/suggestion-list.ts); it keeps the box's focus whichever it shows.
+  assert.match(source, /accessibilityLabel=\{list\.kind === "command" \? "Commands" : "Mention suggestions"\} \{\.\.\.KEEP_COMPOSER_FOCUS\}>/);
+  assert.equal(source.match(/\{\.\.\.KEEP_COMPOSER_FOCUS\}/g)?.length, 1);
   assert.match(source, /const timer = setTimeout\(\(\) => setInsertedSelection\(undefined\), 80\);/, 'the caret is handed over once, not held');
   assert.match(source, /setInsertedSelection\(caret\);\n    input\.current\?\.focus\(\);/);
 });

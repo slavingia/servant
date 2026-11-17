@@ -1,4 +1,4 @@
-import { memo, useLayoutEffect, useEffect, useRef, useState, type ComponentRef, type ReactNode } from "react";
+import { memo, useId, useLayoutEffect, useEffect, useRef, useState, type ComponentRef, type ReactNode } from "react";
 import { MeetingCard } from "./MeetingCard";
 import { useProjectGlossary } from "../lib/use-project-glossary";
 import { findUnknownAbbreviations } from "../lib/abbreviations";
@@ -13,6 +13,7 @@ import { useDictation } from "../lib/dictation";
 import { insertDictation } from "../lib/dictation-text";
 import { activeMention, agentMentionNames, AGENT_HANDLES, insertMention, mentionMatches, mentionText } from "../lib/mentions";
 import { parseSlash, queuedMessage, slashMatches } from "../lib/slash-commands";
+import { SUGGESTIONS_MAX_HEIGHT, SUGGESTION_ROW_HEIGHT, activeOption, suggestionKey, suggestionsHeight } from "../lib/suggestion-list";
 import { backInBox } from "../lib/send-queue";
 import { newSendTouch, pressed, touchDown, touchHeld, touchUp } from "../lib/send-press";
 import type { MessageReceipt } from "../lib/message-status";
@@ -626,7 +627,30 @@ export function Composer({
   // @names of people here (and @agent) show in blue as you type: a colored copy of the text sits
   // exactly under a see-through input (inputs can't color part of their text on the web).
   const mentionNames = new Set([...members.map(p => mentionText(p.name).toLowerCase()), ...(mentionAgent ? agentMentionNames() : [])]);
-  const slash = commands && !busy && !onCancel ? slashMatches(text, commands.channel, commands.agent === true, features) : null;
+  const slash = commands && focused && !busy && !onCancel ? slashMatches(text, commands.channel, commands.agent === true, features) : null;
+  // The people or commands on offer are one list, drawn over the conversation just above this box, so the
+  // conversation does not move when it opens or closes (lib/suggestion-list.ts). Escape closes it until the
+  // text changes; the arrow keys move within the options it shows now.
+  const listId = useId();
+  const [closedFor, setClosedFor] = useState<string | null>(null);
+  // Closed for the text as it stood. Once the text is anything else the list is free to open again, also when
+  // the same text is typed a second time.
+  if (closedFor !== null && closedFor !== text) setClosedFor(null);
+  const [moved, setMoved] = useState<{ options: string; index: number } | null>(null);
+  const [listHeight, setListHeight] = useState(SUGGESTIONS_MAX_HEIGHT);
+  const options = slash?.length ? `/${slash.map(c => c.name).join(" ")}` : match ? `@${suggestions.map(p => p.id).join(" ")}` : null;
+  const movedTo = moved?.options === options ? moved.index : null;
+  const list = options === null || closedFor === text ? null : slash?.length
+    ? { kind: "command" as const, count: slash.length, active: activeOption("command", slash.length, movedTo) }
+    : { kind: "mention" as const, count: suggestions.length, active: activeOption("mention", suggestions.length, movedTo) };
+  // An option is shown as the one a key will pick only where a key can pick it: with a keyboard and a pointer.
+  const active = list && enterSends ? list.active : -1;
+  const activeId = active >= 0 ? `${listId}-${active}` : undefined;
+  // The arrow keys can move past what is in view: bring the option they are on into it.
+  useEffect(() => {
+    if (Platform.OS !== "web" || !activeId || typeof document === "undefined") return;
+    (document.getElementById(activeId) as { scrollIntoView?: (how: { block: "nearest" }) => void } | null)?.scrollIntoView?.({ block: "nearest" });
+  }, [activeId]);
   const latest = useRef({ text, selection });
   useLayoutEffect(() => { latest.current = { text, selection }; });
   // A caret placed by picking a mention or a command is handed to the box once, then let go, so the box is the
@@ -654,6 +678,10 @@ export function Composer({
     latest.current = { text: next, selection: caret };
     setSelection(caret); setInsertedSelection(caret);
     input.current?.focus();
+  };
+  const pickOption = (index: number) => {
+    if (list?.kind === "command") { const command = slash?.[index]; if (command) chooseCommand(command.name); }
+    else { const person = suggestions[index]; if (person) choose(person); }
   };
   const dictation = useDictation((spoken) => {
     const { text: current, selection: at } = latest.current;
@@ -757,39 +785,47 @@ export function Composer({
     else if (act === "stop") onStop?.();
   };
   return (
-    <View style={[styles.composerWrap, wide && styles.composerWrapWide, { paddingBottom: wide ? space.md : keyboard ? space.xs : Math.max(insets.bottom, space.xs) }]}>
+    <View style={[styles.composerWrap, wide && styles.composerWrapWide, { paddingBottom: wide ? space.md : keyboard ? space.xs : Math.max(insets.bottom, space.xs) }]}
+      // How far down the screen this box starts is the room the list has over it.
+      onLayout={event => setListHeight(suggestionsHeight(event.nativeEvent.layout.y))}>
       {fileError || dictation.error ? <Text accessibilityRole="alert" style={styles.composerError}>{fileError || dictation.error}</Text> : null}
-      {slash?.length ? (
-        <ScrollView keyboardShouldPersistTaps="always" style={styles.suggestions} accessibilityLabel="Commands" {...KEEP_COMPOSER_FOCUS}>
-          {slash.map(c => (
-            <Pressable key={c.name} testID={`command-${c.name}`} accessibilityRole="button" accessibilityLabel={`/${c.name}: ${c.description}`} onPress={() => chooseCommand(c.name)}
-              style={({ pressed }) => [styles.suggestion, pressed && { backgroundColor: colors.surface }]}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.suggestionName}>/{c.name}{c.hint ? <Text style={styles.suggestionHandle}> {c.hint}</Text> : null}</Text>
-                <Text style={styles.suggestionHandle}>{c.description}</Text>
-              </View>
-            </Pressable>
-          ))}
-        </ScrollView>
-      ) : null}
-      {match ? (
-        <ScrollView keyboardShouldPersistTaps="always" style={styles.suggestions} accessibilityLabel="Mention suggestions" {...KEEP_COMPOSER_FOCUS}>
-          {suggestions.length ? suggestions.map(person => person.agent ? (
-            // The agent has its own row: tinted, labelled "Agent", and it says every name that reaches it.
-            <Pressable key={person.id} testID="mention-agent" accessibilityRole="button" accessibilityLabel={`Ask the agent. Mention it as ${AGENT_HANDLES.map(handle => `@${handle}`).join(", ")}`} onPress={() => choose(person)} style={({ pressed }) => [styles.suggestion, styles.agentSuggestion, pressed && { opacity: 0.8 }]}>
-              <View style={styles.agentAvatar}><AppIcon name="sparkles" size={17} color={colors.onPrimary} /></View>
-              <View style={{ flex: 1, marginLeft: space.sm }}>
-                <Text style={styles.suggestionName}>Agent</Text>
-              </View>
-              <Text style={styles.agentSuggestionTag}>@{AGENT_HANDLES[0]}</Text>
-            </Pressable>
-          ) : (
-            <Pressable key={person.id} testID={`mention-${person.id}`} accessibilityRole="button" accessibilityLabel={`Mention ${person.name}`} onPress={() => choose(person)} style={({ pressed }) => [styles.suggestion, pressed && { backgroundColor: colors.surface }]}>
-              <Avatar name={person.name} userId={person.id} size={30} />
-              <View style={{ flex: 1, marginLeft: space.sm }}><Text style={styles.suggestionName}>{person.name}</Text><Text style={styles.suggestionHandle}>{mentionText(person.name)}</Text></View>
-            </Pressable>
-          )) : <Text style={styles.noSuggestions}>No matches</Text>}
-        </ScrollView>
+      {list ? (
+        // Over the conversation, its bottom edge on this box's top edge. Nothing in the page makes room for it.
+        <View style={[styles.suggestionsAnchor, wide && styles.suggestionsAnchorWide]}>
+          <View style={styles.suggestionsCard}>
+            <ScrollView nativeID={listId} keyboardShouldPersistTaps="always" style={[styles.suggestions, { maxHeight: listHeight }]} accessibilityRole={Platform.OS === "web" ? "listbox" : undefined}
+              accessibilityLabel={list.kind === "command" ? "Commands" : "Mention suggestions"} {...KEEP_COMPOSER_FOCUS}>
+              {list.kind === "command" ? slash?.map((c, i) => (
+                <Pressable key={c.name} nativeID={`${listId}-${i}`} testID={`command-${c.name}`} accessibilityRole={Platform.OS === "web" ? "option" : "button"} accessibilityLabel={`/${c.name}: ${c.description}`}
+                  accessibilityState={{ selected: i === active }} aria-selected={i === active} onPress={() => chooseCommand(c.name)}
+                  style={state => [styles.suggestion, (state as { hovered?: boolean }).hovered && styles.suggestionHovered, i === active && styles.suggestionActive, state.pressed && { backgroundColor: colors.surface }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.suggestionName}>/{c.name}{c.hint ? <Text style={styles.suggestionHandle}> {c.hint}</Text> : null}</Text>
+                    <Text style={styles.suggestionHandle}>{c.description}</Text>
+                  </View>
+                </Pressable>
+              )) : suggestions.length ? suggestions.map((person, i) => person.agent ? (
+                // The agent has its own row: tinted, labelled "Agent", and it says every name that reaches it.
+                <Pressable key={person.id} nativeID={`${listId}-${i}`} testID="mention-agent" accessibilityRole={Platform.OS === "web" ? "option" : "button"} accessibilityLabel={`Ask the agent. Mention it as ${AGENT_HANDLES.map(handle => `@${handle}`).join(", ")}`}
+                  accessibilityState={{ selected: i === active }} aria-selected={i === active} onPress={() => choose(person)}
+                  style={state => [styles.suggestion, styles.agentSuggestion, (state as { hovered?: boolean }).hovered && styles.suggestionHovered, i === active && styles.suggestionActive, state.pressed && { opacity: 0.8 }]}>
+                  <View style={styles.agentAvatar}><AppIcon name="sparkles" size={17} color={colors.onPrimary} /></View>
+                  <View style={{ flex: 1, marginLeft: space.sm }}>
+                    <Text style={styles.suggestionName}>Agent</Text>
+                  </View>
+                  <Text style={styles.agentSuggestionTag}>@{AGENT_HANDLES[0]}</Text>
+                </Pressable>
+              ) : (
+                <Pressable key={person.id} nativeID={`${listId}-${i}`} testID={`mention-${person.id}`} accessibilityRole={Platform.OS === "web" ? "option" : "button"} accessibilityLabel={`Mention ${person.name}`}
+                  accessibilityState={{ selected: i === active }} aria-selected={i === active} onPress={() => choose(person)}
+                  style={state => [styles.suggestion, (state as { hovered?: boolean }).hovered && styles.suggestionHovered, i === active && styles.suggestionActive, state.pressed && { backgroundColor: colors.surface }]}>
+                  <Avatar name={person.name} userId={person.id} size={30} />
+                  <View style={{ flex: 1, marginLeft: space.sm }}><Text style={styles.suggestionName}>{person.name}</Text><Text style={styles.suggestionHandle}>{mentionText(person.name)}</Text></View>
+                </Pressable>
+              )) : <Text style={styles.noSuggestions}>No matches</Text>}
+            </ScrollView>
+          </View>
+        </View>
       ) : null}
       <View style={[styles.composer, wide && styles.composerWide, focused && (wide ? styles.composerWideFocused : styles.composerFocused)]}>
         {onCancel ? <Text style={styles.editingLabel}>Editing message</Text> : null}
@@ -803,6 +839,7 @@ export function Composer({
           autoFocus={autoFocus}
           testID="composer-input"
           accessibilityLabel={placeholder}
+          {...(Platform.OS === "web" && list ? { "aria-autocomplete": "list" as const, "aria-controls": listId, "aria-activedescendant": activeId } : {})}
           value={text}
           onChangeText={(t) => {
             // Browsers don't reliably fire `select` while typing, so read the
@@ -835,6 +872,15 @@ export function Composer({
           selectionColor={Platform.OS === "web" ? undefined : colors.blue}
           onKeyPress={Platform.OS === "web" ? (event) => {
             const key = event.nativeEvent as unknown as KeyboardEvent;
+            // While the list is open the arrow keys move in it, Tab and Enter pick from it and Escape closes it.
+            const listAction = list ? suggestionKey(key, list, enterSends) : null;
+            if (list && listAction) {
+              event.preventDefault();
+              if (listAction.do === "close") setClosedFor(latest.current.text);
+              else if (listAction.do === "move") setMoved({ options: options!, index: listAction.to });
+              else pickOption(listAction.index);
+              return;
+            }
             // Escape leaves an edit unsaved, like Slack.
             if (onCancel && key.key === "Escape" && !key.isComposing && !busy && !sending.current) {
               event.preventDefault();
@@ -849,11 +895,10 @@ export function Composer({
               onEditLast();
               return;
             }
-            // Return sends (or picks the top mention); Shift+Return adds a line.
+            // Return sends (with the list open it picked from it, above); Shift+Return adds a line.
             if (!enterSends || key.key !== "Enter" || key.shiftKey || key.isComposing) return;
             event.preventDefault();
-            if (suggestions[0]) choose(suggestions[0]);
-            else void send();
+            void send();
           } : undefined}
           blurOnSubmit={false}
         />
@@ -999,8 +1044,16 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   attachmentButton: { minHeight: 44, minWidth: 44, justifyContent: "center", alignItems: "center", borderRadius: radius.sm },
   attachmentButtonSelected: { backgroundColor: colors.surface },
   attachmentText: { ...typography.captionStrong, color: colors.ink },
-  suggestions: { maxHeight: 190, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
-  suggestion: { flexDirection: "row", alignItems: "center", minHeight: 56, paddingHorizontal: space.side, paddingVertical: space.xs },
+  // The list of people or commands: over the conversation, lined up with the box, on the same raised surface as a menu.
+  suggestionsAnchor: { position: "absolute", left: space.sm, right: space.sm, bottom: "100%", zIndex: 1 },
+  suggestionsAnchorWide: { left: space.side + space.xxs, right: space.side + space.xxs, maxWidth: 480 },
+  suggestionsCard: { backgroundColor: colors.background, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.borderStrong, boxShadow: `0 10px 28px -6px ${colors.scrim}` },
+  // Scrolling to its end does not carry on into the conversation under it.
+  suggestions: { borderRadius: radius.md, ...(Platform.OS === "web" ? { overscrollBehavior: "contain" } as object : {}) },
+  // Every row keeps room at its left edge for the bar that marks the option a key will pick, so marking one moves nothing.
+  suggestion: { flexDirection: "row", alignItems: "center", minHeight: SUGGESTION_ROW_HEIGHT, paddingHorizontal: space.side, paddingVertical: space.xs, borderLeftWidth: 3, borderLeftColor: "transparent" },
+  suggestionHovered: { backgroundColor: colors.surface },
+  suggestionActive: { backgroundColor: colors.subtle, borderLeftColor: colors.primary },
   agentSuggestion: { backgroundColor: colors.blueSoft, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   agentSuggestionTag: { ...typography.captionStrong, color: colors.blueDark, backgroundColor: colors.background, paddingHorizontal: space.xs, paddingVertical: space.xxs, borderRadius: radius.sm, overflow: "hidden" },
   suggestionName: { ...typography.bodyStrong, color: colors.ink },

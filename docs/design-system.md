@@ -264,9 +264,15 @@ apart.
   swipe, long press, assistive actions, or the web overflow button. Revealed
   controls follow the trigger in keyboard order.
 - `Composer`: a bordered message box with a multiline field above a small
-  toolbar. The plus control opens Photos & videos/Files choices, mention suggestions
-  appear while typing `@`, and the send icon reflects disabled and sending
-  states. Attachment previews remain inside the box. Agent chats accept photos and videos
+  toolbar. The plus control opens Photos & videos/Files choices, and the send
+  icon reflects disabled and sending states. People to mention (typing `@`) and
+  commands (typing `/`) are one list drawn over the conversation, just above
+  the box, on the same raised surface as a menu: opening and closing it moves
+  no message. It is at most 216 points tall, less when there is less room over
+  the box, and scrolls. With a keyboard, Up and Down move through it, Tab and
+  Enter pick, and Escape closes it until the text changes; in a command list
+  Enter sends what was typed until an arrow key has chosen a command
+  (`lib/suggestion-list.ts`). Attachment previews remain inside the box. Agent chats accept photos and videos
   through the same composer; channel and direct messages also accept files.
   Editing adds a clear label and Cancel action.
 - `Attachments` and `MediaGalleryProvider`: images from people and the agent
