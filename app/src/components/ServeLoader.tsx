@@ -126,7 +126,7 @@ export function ServeLoader({ size = "small", accessibilityLabel = "Loading", st
               <Circle cx={50} cy={50} r={50} fill={`url(#b${id})`} />
               {/* The seam's groove: a wider dark green line, nudged away from the light, peeking out below the white */}
               <G clipPath={`url(#c${id})`}>
-                <Path d={SEAM} transform="translate(1.5 2)" stroke={SERVANT_BALL.seamShadow} strokeOpacity={0.45} strokeWidth={11} strokeLinecap="round" fill="none" />
+                <Path d={SEAM} transform="translate(1.2 1.6)" stroke={SERVANT_BALL.seamShadow} strokeOpacity={0.5} strokeWidth={8} strokeLinecap="round" fill="none" />
               </G>
               <Path d={SEAM} stroke={SERVANT_BALL.seam} strokeWidth={8} strokeLinecap="round" fill="none" clipPath={`url(#c${id})`} />
             </Svg>

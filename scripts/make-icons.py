@@ -3,7 +3,8 @@
 
     python3 scripts/make-icons.py            # reads and writes app/assets/
 
-The source is app/assets/icon.png: a tennis ball on a navy field whose seam is a white S.
+The source is app/assets/icon.png: a tennis ball on a navy field whose seam is a white S. icon.png is itself drawn
+from the layered app/assets/icon.svg by scripts/render-icon.mjs: edit the SVG, render, then run this.
 Everything else is cut from it, so the files cannot drift apart:
 
   android-icon-foreground.png  the ball and its shadow on a clear canvas, at two thirds of the icon's scale
