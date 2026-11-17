@@ -18,8 +18,6 @@ What Servant does once it is running, in the words of the people who built it. T
 
 Three models need no `usdPerMillion`, because their published prices are built in: `claude-sonnet-5-5` ($2 in, $10 out), `claude-opus-5-5` ($4, $20) and `claude-fable-5-2` ($8, $40). These are list prices with no discount; give your own `usdPerMillion` if you pay something else. Any other model named without a price uses the usage report's figures above. The owner has no daily limit, so the owner's own agent is never priced in the sheet. The split between tokens in and out is this server's own over the last 30 days, or one in ten out until there is enough use to go by. These two fields only price an estimate: they change neither a limit nor the model an agent runs, and it is not a bill.
 
-**Agent usage by topic**: below the people list, tokens are grouped by the product-feedback theme each request was about and set against how many survey comments and bug reports mention the same theme. Each reply is labelled once from its request (keyword match, labels only, no text stored); work that matches no theme counts as other. The themes shipped in `server/survey-themes.mjs` come from an example dataset. Owners regenerate them from their own survey export with `node server/build-survey-themes.mjs <survey-feedback-data.json>` (only theme names, counts and match patterns are kept, no comment text), and label older rows with `node server/backfill-usage-topics.mjs`.
-
 Agent chats start private, like ChatGPT: only you and the owner (admin) can read a new one. Open **•••** at the top of any chat and turn on **Share with** your server to let everyone read it and give feedback; turn it off to make it private again. Shared chats are read-only to everyone but their author: only the author can send, steer, stop, approve actions, change sharing or delete. Chats that quote a DM or private channel can never be shared. Shared chats appear on the Agent tab under **Shared by others** (**Everyone's conversations** for the owner). The owner can always read every chat.
 
 Private agent requests and incremental replies are journaled on the Mac. The independent worker owns the turn, so locking the phone, leaving a conversation or restarting the API does not cancel it. Reopening the conversation catches up from saved history. Request IDs prevent retries of the same draft from starting duplicate work.
@@ -154,19 +152,6 @@ Computer, or Browser. The server records the authenticated session's category at
 send time and excludes it from member responses. Older messages with no known
 source stay unlabeled. This does not give the owner access to anyone else's
 private conversations.
-
-## Surveys and private feedback
-
-Researchers and administrators create and edit surveys, share a response link,
-and view private results. Each form has a five-face rating and optional comment.
-Respondents verify their email before submitting; the team can use that address
-to reply. Rampart Edge removes detected personal information from comments
-locally before storage; nonempty comments require the installed model.
-The **Responses** tab of **Feedback** lets researchers and administrators review
-responses, add internal notes and open
-an email reply. Business owners can view surveys, results and feedback with
-read-only access. Responses and contact addresses stay private; there is no
-public feedback board or voting. See [survey setup and privacy](surveys.md).
 
 ## Encryption through the tunnel
 

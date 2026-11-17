@@ -151,7 +151,6 @@ function SessionNavigation() {
         {/* Where a share from another app lands (share.tsx); the share waits natively through sign-in. */}
         <Stack.Screen name="share" options={{ title: "Send to agent", ...childScreen }} />
         <Stack.Screen name="feedback" options={{ title: "Send feedback", ...childScreen }} />
-        <Stack.Screen name="surveys" options={{ title: "Feedback", ...sidebarScreen }} />
         <Stack.Screen name="queue" options={{ title: "Feedback", ...sidebarScreen }} />
         <Stack.Screen name="saved" options={{ title: "Saved", ...sidebarScreen }} />
         <Stack.Screen name="todos" options={{ title: "To-dos", ...sidebarScreen }} />
@@ -159,9 +158,7 @@ function SessionNavigation() {
         {/* Where Text shortcuts used to be; it redirects to the wiki's Abbreviations page. */}
         <Stack.Screen name="lexicon" options={{ title: "Wiki", ...sidebarScreen }} />
         <Stack.Screen name="notifications" options={{ title: "Notifications", ...childScreen }} />
-        <Stack.Screen name="feed" options={{ title: "Agent feed", ...childScreen }} />
         <Stack.Screen name="code/[id]" options={{ title: "Enter code", ...childScreen }} />
-        <Stack.Screen name="loops" options={{ title: "Loops", ...childScreen }} />
         <Stack.Screen name="entitlements" options={{ title: "Entitlements", ...childScreen }} />
         <Stack.Screen name="leaderboard" options={{ title: "Agent usage", ...childScreen }} />
         <Stack.Screen name="invite" options={{ title: "Invite someone", ...childScreen }} />

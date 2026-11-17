@@ -54,19 +54,12 @@ test("quick actions that lead to a feature the server turned off are not offered
 // Search lists four quick actions before anything is typed (Omnibar.tsx). Each new destination arrived at the top
 // of the list and pushed Ask the agent and People out of those four.
 test("the quick actions offered before typing are the everyday ones; newer destinations are still found by name", () => {
-  for (const surveys of [false, true]) assert.deepEqual(omnibarShortcuts("", false, undefined, surveys).slice(0, 4).map(item => item.id), ["new-message", "new-channel", "agent", "members"]);
+  assert.deepEqual(omnibarShortcuts("", false).slice(0, 4).map(item => item.id), ["new-message", "new-channel", "agent", "members"]);
   assert.equal(omnibarShortcuts("saved", false)[0]?.id, "saved");
-  // Surveys and the feedback queue are one place now; either name finds it.
-  for (const words of ["survey", "feedback queue", "feedback", "responses"]) assert.equal(omnibarShortcuts(words, false, undefined, true)[0]?.id, "feedback", words);
 });
 
-test("survey shortcuts require explicit server view permission for every role", () => {
-  for (const owner of [true, false]) {
-    for (const words of ["surveys", "feedback queue", "feedback"]) {
-      assert.equal(omnibarShortcuts(words, owner).some(item => item.id === "feedback"), false, words);
-      assert.equal(omnibarShortcuts(words, owner, undefined, true).some(item => item.id === "feedback"), true, words);
-    }
-  }
+test("removed team destinations are not offered", () => {
+  for (const words of ["surveys", "feedback queue", "agent feed", "loops"]) assert.ok(!omnibarShortcuts(words, true).some(item => ["feedback", "feed", "loops"].includes(item.id)), words);
 });
 
 test("filters are told from words, so only messages are listed and the excerpt follows the words", async () => {

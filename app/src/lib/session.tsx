@@ -10,12 +10,10 @@ import { ALL_FEATURES, FeaturesContext, landingHref, normalizeFeatures, withDeep
 import { deepWorkFromServer } from "./deep-work.ts";
 import { reconcileAccountProfile, type ServerProfile } from "./session-profile.ts";
 import { ThemeProvider } from "./theme";
-import { NO_SURVEY_ACCESS, surveyPermissionsFromServer, type SurveyPermissions } from "./survey-permissions.ts";
 import { noteSessionInfo, resetSessionExpiry, selectSessionAccount } from "./session-expiry";
 
 type Session = {
   ready: boolean;
-  surveyPermissions: SurveyPermissions;
   loadError: string | null;
   retryLoad: () => void;
   accounts: Account[];
@@ -35,7 +33,6 @@ const draftScope = (a: Account) => `${accountId(a)}:${a.user.id}`;
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
-  const [surveyAccess, setSurveyAccess] = useState<{ identity: string; permissions: SurveyPermissions } | null>(null);
   const [saved, setSaved] = useState<Accounts>({ accounts: [], activeId: null });
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
@@ -101,8 +98,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         const selected = savedRef.current.accounts.find(a => accountId(a) === savedRef.current.activeId);
         if (!current || run !== revision || !selected || `${accountId(selected)}:${selected.token}` !== identity || selected.user.id !== source.user.id) return;
         noteSessionInfo(me.session, identity);
-        const permissions = surveyPermissionsFromServer(me.surveyPermissions);
-        setSurveyAccess(previous => previous?.identity === identity && previous.permissions.canView === permissions.canView && previous.permissions.canManage === permissions.canManage ? previous : { identity, permissions });
         return patchAccount(source, latest => reconcileAccountProfile(latest, me, !!deepWorkBusy.current.get(identity)));
       }).catch(() => { /* Offline: keep saved settings and retry on foreground or browser reconnection. */ });
     };
@@ -160,8 +155,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [account, identity, patchAccount]);
 
   const deepWork = !!account?.deepWork;
-  const surveyPermissions = surveyAccess?.identity === identity ? surveyAccess.permissions : NO_SURVEY_ACCESS;
-  const value = useMemo(() => ({ surveyPermissions, ready, loadError, retryLoad, accounts: saved.accounts, account, supportsMultipleServers, setAccount, updateAccount, switchAccount, signOut, deepWork, setDeepWork, learnDeepWork }), [surveyPermissions, ready, loadError, retryLoad, saved.accounts, account, setAccount, updateAccount, switchAccount, signOut, deepWork, setDeepWork, learnDeepWork]);
+  const value = useMemo(() => ({ ready, loadError, retryLoad, accounts: saved.accounts, account, supportsMultipleServers, setAccount, updateAccount, switchAccount, signOut, deepWork, setDeepWork, learnDeepWork }), [ready, loadError, retryLoad, saved.accounts, account, setAccount, updateAccount, switchAccount, signOut, deepWork, setDeepWork, learnDeepWork]);
   const features = useMemo(() => withDeepWork(account?.features ? normalizeFeatures(account.features) : ALL_FEATURES, deepWork), [account, deepWork]);
   return <Ctx.Provider value={value}><FeaturesContext.Provider value={features}><ThemeProvider primaryColor={account?.theme?.primaryColor}>{children}</ThemeProvider></FeaturesContext.Provider></Ctx.Provider>;
 }

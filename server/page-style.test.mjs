@@ -9,7 +9,6 @@ import { joinPage } from "./join-page.mjs";
 import { landingPage, supportPage } from "./public-page.mjs";
 import { privacyPage } from "./privacy-page.mjs";
 import { termsPage } from "./terms-page.mjs";
-import { surveyPage } from "./survey-page.mjs";
 
 const pages = {
   landing: theme => landingPage({ theme }),
@@ -17,7 +16,6 @@ const pages = {
   privacy: theme => privacyPage({ theme }),
   terms: theme => termsPage({ theme }),
   join: theme => joinPage({}, "https://servant.com", "", theme),
-  survey: theme => surveyPage(theme),
 };
 const styleOf = html => html.match(/<style>([\s\S]*?)<\/style>/)[1].trimStart();
 

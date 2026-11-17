@@ -1,4 +1,3 @@
-import { shapeFeed } from "./feed.mjs";
 import { agentTierOf, TIER_TOKEN_LIMITS } from "./usage.mjs";
 import { ftsQuery, parseSearch, SEARCH_SCHEMA } from "./search.mjs";
 import { firstLink } from "./link-preview.mjs";
@@ -52,7 +51,6 @@ const MAX_TEXT = 8000;
 // Every build's notes go here, one post per build, so testers can see what
 // changed and talk about it in that post's thread.
 export const RELEASES_CHANNEL = "whats-new";
-export const FEED_CHANNEL = "agent-feed";
 const PAGE = 50;
 const PRESENCE_LEASE_MS = 60000;
 
@@ -337,9 +335,6 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     if (!db.prepare("PRAGMA table_info(messages)").all().some(column => column.name === "activity")) {
       db.exec("ALTER TABLE messages ADD COLUMN activity TEXT");
     }
-    // #agent-feed posts used to be plain (unread-counting) messages; they are silent activity lines now.
-    // (The very first digest went out under the owner's name; it reads "Sent\n- …".)
-    db.prepare("UPDATE messages SET activity = 'feed' WHERE (user_id = ? OR text LIKE 'Sent' || char(10) || '- %') AND activity IS NULL AND thread_root IS NULL AND conversation_id IN (SELECT id FROM conversations WHERE kind = 'channel' AND name = ?)").run(AGENT_ID, FEED_CHANNEL);
     if (!db.prepare('PRAGMA table_info(messages)').all().some(value => value.name === 'suggestions')) {
       db.exec('ALTER TABLE messages ADD COLUMN suggestions TEXT');
     }
@@ -866,35 +861,6 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
       publish(conv.id, "conversation.updated", { id: conv.id });
       return { conversationId: conv.id, messageId: String(m.seq) };
     });
-  }
-
-  /** The agent's activity log for the whole team: one public #agent-feed, posted by the agent. Silent: each post is an
-   *  activity line, so it never pushes, never shows a desktop notification and adds nothing to unread counts or badges. */
-  function feedFromAgent(text, { attachments = [] } = {}) {
-    text = String(text || "").trim().slice(0, MAX_TEXT);
-    if (!text && !attachments.length) throw httpError(400, "empty", "Write the message first");
-    return transaction(() => {
-      const conv = ensureFeedChannel();
-      const seq = Number(st.insertActivity.run(conv.id, AGENT_ID, text, now(), "feed").lastInsertRowid);
-      for (const a of attachments) storeAttachment(seq, a);
-      publish(conv.id, "message.created", msgView(st.msg.get(seq)));
-      publish(conv.id, "conversation.updated", { id: conv.id });
-      return { conversationId: conv.id, messageId: String(seq) };
-    });
-  }
-  function ensureFeedChannel() {
-    const conv = ensureChannel(FEED_CHANNEL, "What the agent did lately. Updated automatically, never notifies");
-    for (const uid of Object.keys(users())) if (!st.member.get(conv.id, uid)) addChannelMember(conv, uid);
-    return conv;
-  }
-
-  /** What the agent did lately, as items for the Feed screen (everyone on the server can see it). */
-  function feedItems({ days = 14 } = {}) {
-    const conv = st.convByName.get(FEED_CHANNEL);
-    if (!conv) return { items: [] };
-    const rows = db.prepare("SELECT seq, text, created_at FROM messages WHERE conversation_id = ? AND user_id = ? AND deleted_at IS NULL AND thread_root IS NULL AND created_at > ? ORDER BY seq DESC LIMIT 500")
-      .all(conv.id, AGENT_ID, now() - days * 86400_000);
-    return { items: shapeFeed(rows), conversationId: conv.id };
   }
 
   function joinDefaults(...args) { return transaction(() => joinDefaultsInTransaction(...args)); }
@@ -2075,7 +2041,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
   function personChanged(userId) { publish('', 'person.updated', { userId }, Object.keys(users())); }
   // Their deep work switch moved: everyone's "Deep work" label and the person's other devices update at once.
   const presenceChanged = userId => publishPresence(userId);
-  return { workLog, channelFor, postActivity, personChanged, presenceChanged, handle, forwardSource, forwardInto, notificationFor, joinDefaults, joinEveryone, welcomeFromAgent, notifyFromAgent, feedFromAgent, feedItems, ensureAgentDms, congratulateLimit, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, keep, keepAll, close: () => { closeEvents(); db.close(); }, db };
+  return { workLog, channelFor, postActivity, personChanged, presenceChanged, handle, forwardSource, forwardInto, notificationFor, joinDefaults, joinEveryone, welcomeFromAgent, notifyFromAgent, ensureAgentDms, congratulateLimit, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, keep, keepAll, close: () => { closeEvents(); db.close(); }, db };
 }
 
 function httpError(status, code, message) {

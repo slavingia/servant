@@ -106,7 +106,6 @@ The feature guide, [docs/features.md](docs/features.md), covers each of these:
 - [Saved messages](docs/features.md#saved-messages)
 - [Attachments](docs/features.md#attachments)
 - [Roles](docs/features.md#roles)
-- [Surveys and private feedback](docs/features.md#surveys-and-private-feedback)
 - [Encryption through the tunnel](docs/features.md#encryption-through-the-tunnel)
 - [When someone leaves the team](docs/features.md#when-someone-leaves-the-team)
 - [Sessions that end](docs/features.md#sessions-that-end)

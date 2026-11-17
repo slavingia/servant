@@ -54,8 +54,6 @@ export const lightColors = {
   groupedCard: "#FFFFFF",
   // What dims the page behind a dialog, a sheet, a menu and search.
   scrim: "rgba(17,46,81,0.42)",
-  // The second series in a chart, beside blue: 3 to 1 or more against the track it sits on.
-  series: "#C2571A",
 };
 
 export type ThemeColors = typeof lightColors;
@@ -106,7 +104,6 @@ export const darkColors: ThemeColors = {
   groupedCard: "#1B222C",
   // Navy would lighten a dark page; black dims it, so the dialog's surface reads as the nearer one.
   scrim: "rgba(0,0,0,0.6)",
-  series: "#E07B39",
 };
 
 export const lightAvatarTones = [

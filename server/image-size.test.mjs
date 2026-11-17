@@ -239,9 +239,8 @@ test("a picture the agent posts, or one posted for it, is measured the same way"
     const picture = validateUploads([upload("chart.png", png(1200, 900))]);
     m.post(c, "pat", "Posted in code", null, { attachments: picture });
     m.notifyFromAgent("pat", "A chart for you", { attachments: picture });
-    m.feedFromAgent("Shipped the chart", { attachments: picture });
     const rows = m.db.prepare("SELECT width, height FROM attachments").all();
-    assert.equal(rows.length, 3);
+    assert.equal(rows.length, 2);
     for (const row of rows) assert.deepEqual({ ...row }, { width: 1200, height: 900 });
     const shown = (await route("pat", "GET", `/v1/conversations/${c.id}/messages`)).data.messages.find(post => post.text === "Posted in code");
     assert.deepEqual(shape(shown.attachments[0]), { width: 1200, height: 900 });
