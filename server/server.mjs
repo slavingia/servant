@@ -74,6 +74,7 @@ import { createWikiStore, WIKI_LIMITS } from "./wiki.mjs";
 import { draftWikiPage } from "./wiki-draft.mjs";
 import { MAX_ITEMS, MAX_PARTS, MAX_PEOPLE, MAX_PROJECTS, MAX_RELEASES, VIBE_PROJECT, accessOf, configureProjects, accessibleProjects, cleanDate, cleanDescription, cleanLevel, cleanLogin, cleanName, cleanNotes, cleanPath, cleanReleaseName, cleanRepo, cleanRules, cleanReviewers, cleanStage, cleanStages, cleanTitle, ownsCell, cleanUrl, cleanWorkflow, createProjectFiles, createProjectStore, expandPath, migrateFolders, needsMigration, newItem, newPart, newProject, newRelease, patchCell, cleanPartTitle, releaseReady, setItemDone, projectInstructions, projectPeople, projectSharedWith, projectView, removeAccess, setAccess, validProjectId, vibeFolder, vibePreview } from "./projects.mjs";
 import { validTermsAcceptance } from "./terms.mjs";
+import { autoTitle, cleanChatTitle } from "./chat-title.mjs";
 import { cleanGuessRequest, guessAbbreviations, learnAbbreviations, LEARN_SOURCE } from "./lexicon-guess.mjs";
 import { verifyMemberUpstream, verifyResearcherUpstream } from "./member-policy.mjs";
 import { composeForward } from "./forward.mjs";
@@ -704,7 +705,7 @@ function chatLastMessage(latestTurn, mirrored) {
   return null;
 }
 function chatView(chat, viewer, users = {}) {
-  const view = { id: chat.id, title: chat.title, createdAt: chat.createdAt, updatedAt: chat.updatedAt, shared: chatShared(chat),
+  const view = { id: chat.id, title: chat.title, ...(chat.titledBy ? { titledBy: chat.titledBy } : {}), createdAt: chat.createdAt, updatedAt: chat.updatedAt, shared: chatShared(chat),
     // The full agent takes any file (ZIPs, PDFs, prototypes); others take media.
     ...(agentRole(chat.role, loadConfig()) === "owner" ? { files: true } : {}),
     // folderId/folderShared repeat projectId/projectShared for app builds from before projects.
@@ -2112,7 +2113,10 @@ async function handle(req, res, cfg) {
     const nextProject = Object.hasOwn(body, "projectId") ? body.projectId : body.folderId;
     const hasProjectShared = Object.hasOwn(body, "projectShared") || Object.hasOwn(body, "folderShared");
     const nextShared = Object.hasOwn(body, "projectShared") ? body.projectShared : body.folderShared;
-    if (typeof body.shared !== "boolean" && !hasProject && !hasProjectShared) return fail(res, 400, "bad_request", "shared must be true or false");
+    const hasTitle = Object.hasOwn(body, "title");
+    const nextTitle = hasTitle ? cleanChatTitle(body.title) : "";
+    if (hasTitle && (typeof body.title !== "string" || !nextTitle)) return fail(res, 400, "bad_request", "Give the chat a name");
+    if (typeof body.shared !== "boolean" && !hasProject && !hasProjectShared && !hasTitle) return fail(res, 400, "bad_request", "shared must be true or false");
     if (typeof body.shared !== "boolean" && body.shared !== undefined) return fail(res, 400, "bad_request", "shared must be true or false");
     if (hasProjectShared && typeof nextShared !== "boolean") return fail(res, 400, "bad_request", "projectShared must be true or false");
     if (hasProject && nextProject !== null && !validProjectId(nextProject)) return fail(res, 400, "bad_request", "projectId must be a project or null");
@@ -2121,6 +2125,8 @@ async function handle(req, res, cfg) {
     mutateAuthenticated(req, (state, current) => {
       updated = requireChat(state, current.user.id, chat.id);
       if (typeof body.shared === "boolean") updated.shared = body.shared;
+      // Named by hand: the agent never renames it after this.
+      if (hasTitle) { updated.title = nextTitle; updated.titledBy = "user"; }
       if (hasProject) {
         if (nextProject === null) { delete updated.projectId; delete updated.projectShared; }
         else if (projectFor(current.user, nextProject, state.users)) {
@@ -2364,7 +2370,7 @@ async function handle(req, res, cfg) {
       if (privateForward && (chatShared(active) || active.projectShared || active.members?.length)) throw requestError(409, "forward_private", "Messages from private conversations go into a private chat");
       const queued = agentTurns.enqueue({ chat: active, user: current.user, device: current.device, text, attachments, requestId: body.requestId });
       if (privateForward) active.privateForward = true;
-      if (active.title === "New chat") active.title = (ownText || (body.forward != null ? `About: ${text.split("\n")[1]?.replace(/^> /, "") || "a message"}` : "") || text || attachments[0].name).replace(/\s+/g, " ").slice(0, 60);
+      if (active.title === "New chat" && active.titledBy !== "user") active.title = (ownText || (body.forward != null ? `About: ${text.split("\n")[1]?.replace(/^> /, "") || "a message"}` : "") || text || attachments[0].name).replace(/\s+/g, " ").slice(0, 60);
       active.startedAt ??= now();
       active.updatedAt = now();
       delete active.archivedAt;
@@ -2525,6 +2531,8 @@ async function executePrivateTurn(turn, hooks, cfg) {
   mutateState(state => { const current = state.chats[turn.chat_id]; if (current && !current.deletedAt) current.updatedAt = now(); });
   const completedChat = readState().chats[turn.chat_id];
   if (result.status === "completed" && todoFinished && completedChat?.userId === turn.user_id && !completedChat.deletedAt) todosStore?.agentDone(turn.chat_id, turn.id);
+  // After a while the agent names the chat in a few words (chat-title.mjs). It runs on its own; the reply never waits for it.
+  if (result.status === "completed" && completedChat && !completedChat.deletedAt) void nameChat(turn.chat_id);
   return { status: result.status, unreadSteers: result.unreadSteers, notification: assistantMessage && (assistantMessage.text || assistantMessage.attachments.length) ? {
     kind: "agent", eventId: turn.id, chatId: turn.chat_id, userId: turn.user_id,
     text: assistantMessage.text || (assistantMessage.attachments.some(a => a.mime.startsWith("video/")) ? "Sent a video" : "Sent an image"),
@@ -2721,6 +2729,21 @@ async function askWikiAgent(messages, user, cfg) {
 }
 
 // One no-tools question to the restricted member agent. Null when it isn't set up.
+// The title the agent gives a chat. A name someone typed meanwhile wins: write checks again before saving.
+const nameChat = chatId => autoTitle(chatId, {
+  read: id => ({ chat: readState().chats[id], messages: chatMediaStore().history(id) }),
+  ask: globalThis.__servantTitleAsk || askMemberAgent(),
+  write: (id, title, due) => {
+    let saved = false;
+    mutateState(state => {
+      const chat = state.chats[id];
+      if (!chat || chat.deletedAt || chat.titledBy === "user" || (chat.autoTitledAt || 0) >= due) return;
+      chat.title = title; chat.titledBy = "agent"; chat.autoTitledAt = due; saved = true;
+    });
+    return saved;
+  },
+});
+
 const askMemberAgent = () => {
   const up = upstreamFor({ role: "member" }, loadConfig());
   if (!up) return null;

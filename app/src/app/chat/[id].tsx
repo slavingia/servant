@@ -2,7 +2,7 @@ import { Radio } from "../../components/Radio";
 import { FlashList } from "@shopify/flash-list";
 import { RECYCLING_CONVERSATION_LIST, listOrder } from "../../lib/conversation-list";
 import { createElement, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, AppState, FlatList, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, AppState, FlatList, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { randomUUID } from "expo-crypto";
@@ -312,7 +312,7 @@ function ReplyText({ text, failed }: { text: string; failed?: boolean }) {
 }
 
 // Header "•••": chat options. Your own chat is private until you choose to share it with the server; Files lives here too.
-function OptionsSheet({ id, title, shared, projectId, projectShared, onProject, onProjectShared, onChange, onClose, members, onInvite, onUninvite }: { members: ChatMember[] | null; onInvite: () => void; onUninvite: (userId: string) => void; id: string; title: string; shared: boolean | null; projectId: string | null; projectShared: boolean; onProject: (projectId: string | null) => void; onProjectShared: (shared: boolean) => void; onChange: (shared: boolean) => void; onClose: () => void }) {
+function OptionsSheet({ id, title, onRename, shared, projectId, projectShared, onProject, onProjectShared, onChange, onClose, members, onInvite, onUninvite }: { onRename?: (title: string) => void; members: ChatMember[] | null; onInvite: () => void; onUninvite: (userId: string) => void; id: string; title: string; shared: boolean | null; projectId: string | null; projectShared: boolean; onProject: (projectId: string | null) => void; onProjectShared: (shared: boolean) => void; onChange: (shared: boolean) => void; onClose: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const { account } = useSession();
@@ -320,12 +320,21 @@ function OptionsSheet({ id, title, shared, projectId, projectShared, onProject, 
   const [error, setError] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [choosing, setChoosing] = useState(false);
+  const [naming, setNaming] = useState<string | null>(null);
   useEffect(() => { if (account) api.projects(account).then(r => setProjects(r.projects)).catch(() => setProjects([])); }, [account]);
   if (!account) return null;
   const move = async (next: string | null) => {
     setSaving(true); setError(null);
     try { await chatMade(account, id); await api.moveChat(account, id, next); onProject(next); if (next !== projectId) onProjectShared(false); setChoosing(false); }
     catch (e) { setError(e instanceof ServerError ? e.message : "Couldn't move the chat"); }
+    finally { setSaving(false); }
+  };
+  const rename = async () => {
+    const next = (naming ?? "").replace(/\s+/g, " ").trim();
+    if (!next || next === title) { setNaming(null); return; }
+    setSaving(true); setError(null);
+    try { await chatMade(account, id); onRename?.((await api.renameChat(account, id, next)).title); setNaming(null); }
+    catch (e) { setError(e instanceof ServerError ? e.message : "Couldn't rename the chat"); }
     finally { setSaving(false); }
   };
   const current = projects?.find(f => f.id === projectId);
@@ -346,7 +355,15 @@ function OptionsSheet({ id, title, shared, projectId, projectShared, onProject, 
     <Pressable accessibilityLabel="Close" style={styles.menuOverlay} onPress={onClose}>
       <Pressable testID="chat-options" accessibilityViewIsModal style={styles.menuCard} onPress={() => {}}>
         {/* The whole title: a header has room for the start of it only. */}
-        <Text testID="chat-options-title" selectable accessibilityRole="header" style={styles.optionsTitle}>{title}</Text>
+        {naming === null ? <Text testID="chat-options-title" selectable accessibilityRole="header" style={styles.optionsTitle}>{title}</Text>
+          : <TextInput testID="chat-name-input" accessibilityLabel="Chat name" value={naming} onChangeText={setNaming} autoFocus selectTextOnFocus maxLength={80}
+            returnKeyType="done" onSubmitEditing={() => void rename()} editable={!saving} placeholder="Name this chat" placeholderTextColor={colors.muted} style={styles.nameInput} />}
+        {onRename ? naming === null
+          ? <Pressable testID="rename-chat" accessibilityRole="button" disabled={saving} onPress={() => setNaming(title === "New chat" ? "" : title)} style={styles.menuAction}><Text style={styles.menuActionText}>Rename</Text></Pressable>
+          : <View style={styles.nameActions}>
+            <Button label="Cancel" kind="secondary" compact disabled={saving} onPress={() => setNaming(null)} />
+            <Button label="Save" compact disabled={saving || !naming.trim()} onPress={() => void rename()} />
+          </View> : null}
         {shared !== null ? <View style={styles.shareRow}>
           <View style={styles.turnCopy}>
             <Text style={styles.turnLabel}>Share with {account.serverName}</Text>
@@ -418,7 +435,9 @@ function ChatConversation({ account }: { account: Account }) {
   const [sendError, setSendError] = useState<string | null>(null);
   const { ask: askPii, dialog: piiDialog } = usePiiConfirm();
   const [chatUsage, setChatUsage] = useState<Chat["usage"] | null>(kept?.info?.usage ?? null);
-  const refreshUsage = useCallback(() => { if (account && id) api.chat(account, String(id)).then(c => setChatUsage(c.usage ?? null)).catch(() => {}); }, [account, id]);
+  const renamed = useCallback((title: string) => { setHeading(title); if (lastInfo.current) lastInfo.current = { ...lastInfo.current, title, titledBy: "user" }; }, []);
+  // After a reply: the tokens it used, and the chat's name (the agent names it after a few messages, server/chat-title.mjs).
+  const refreshUsage = useCallback(() => { if (account && id) api.chat(account, String(id)).then(c => { setChatUsage(c.usage ?? null); if (c.titledBy && c.title) setHeading(c.title); }).catch(() => {}); }, [account, id]);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const uploaded = useRef(new Map<string, string>());
   const [turn, setTurn] = useState<AgentTurn | null>(null);
@@ -470,7 +489,7 @@ function ChatConversation({ account }: { account: Account }) {
     chatMade(account, id).then(() => peekChatLoad(account, id)?.info ?? api.chat(account, id)).then(c => {
       if (!live) return;
       lastInfo.current = c;
-      if (c.title && c.title !== "New chat") setHeading(h => h === "New chat" ? c.title : h);
+      if (c.title && c.title !== "New chat") setHeading(h => h === "New chat" || c.titledBy ? c.title : h);
       setChatUsage(c.usage ?? null);
       setShared(c.shared !== false);
       setProjectId(c.projectId ?? null);
@@ -734,6 +753,11 @@ function ChatConversation({ account }: { account: Account }) {
     try {
       switch (cmd.name) {
         case "archive": await api.archiveChat(account, String(id)); router.replace("/agent"); return true;
+        case "rename": {
+          const name = cmd.args.replace(/\s+/g, " ").trim();
+          if (!name) { setCommandNote("Type a name after /rename"); return true; }
+          await chatMade(account, String(id)); renamed((await api.renameChat(account, String(id), name)).title); setCommandNote(null); return true;
+        }
         case "stop":
           if (!turn?.canStop) { setCommandNote("The agent isn't replying right now"); return true; }
           await stop(); return true;
@@ -1010,7 +1034,7 @@ function ChatConversation({ account }: { account: Account }) {
     <View style={styles.root}>
       <Stack.Screen options={{ title: heading, headerTitle: titleButton(showTitle, setShowTitle, headerLinks.length), ...filesHeader(String(id), heading, colors.blue, headerLinks, false) }} />
       {showTitle ? <FullTitle title={heading} onClose={() => setShowTitle(false)} /> : null}
-      {sharing ? <OptionsSheet id={String(id)} title={heading} shared={shared} projectId={projectId} projectShared={projectShared} onProject={setProjectId} onProjectShared={setProjectShared} onChange={setShared} onClose={() => setSharing(false)}
+      {sharing ? <OptionsSheet id={String(id)} title={heading} onRename={readOnly ? undefined : renamed} shared={shared} projectId={projectId} projectShared={projectShared} onProject={setProjectId} onProjectShared={setProjectShared} onChange={setShared} onClose={() => setSharing(false)}
         members={readOnly ? null : members} onInvite={() => { setSharing(false); setInviteError(null); setInviting(true); }} onUninvite={userId => { void uninvite(userId); }} /> : null}
       {inviting ? <PeopleSheet title={fresh ? "Invite to this chat" : "Add people"} exclude={members.map(m => m.id)} withHistory={!fresh} busy={inviteBusy} error={inviteError}
         onDone={(userIds, history) => { void invite(userIds, history); }} onClose={() => setInviting(false)} /> : null}
@@ -1210,7 +1234,7 @@ function ForwardBlock({ card, files = 0, lines }: { card: ForwardCard; files?: n
   </View>;
 }
 
-const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
+const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   actionsRow: { flex: 1, flexDirection: "row", gap: 10 },
   more: { position: "absolute", right: space.xs, top: 0, minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center", borderRadius: radius.sm },
@@ -1244,6 +1268,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   readOnlyList: { paddingTop: space.xl },
   fullTitle: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.side, paddingVertical: space.sm, backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   optionsTitle: { ...typography.bodyStrong, color: colors.ink, paddingBottom: space.sm },
+  nameInput: { ...controls.input, marginBottom: space.sm },
+  nameActions: { flexDirection: "row", justifyContent: "flex-end", gap: space.sm, paddingBottom: space.sm },
   fullTitleText: { ...typography.bodyStrong, flex: 1, color: colors.ink },
   sharedBanner: { paddingHorizontal: space.side, paddingVertical: space.xs, backgroundColor: colors.blueSoft },
   previewInline: { alignSelf: "flex-start", marginTop: space.xs },

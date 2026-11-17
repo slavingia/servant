@@ -686,6 +686,39 @@ test("agent chats: swipe to archive, restore, and a new message un-archives; onl
   assert.equal((await api("GET", "/v1/chats", { token })).json.chats.some((c) => c.id === chat.id), false);
 });
 
+test("agent chats: rename by hand, and the agent names it after a while unless you did", async () => {
+  const token = await pair("member", "Titled Tia");
+  const other = await pair("member", "Titled Tom");
+  const asked = [];
+  globalThis.__servantTitleAsk = async (system, text) => { asked.push(text); return `Title: "Quarterly refund backlog ${asked.length}."`; };
+  try {
+    const chat = (await api("POST", "/v1/chats", { token, body: {} })).json.chat;
+    const say = async text => { assert.equal((await api("POST", `/v1/chats/${chat.id}/messages`, { token, body: { text } })).status, 200); };
+    const titleNow = async () => (await api("GET", "/v1/chats", { token })).json.chats.find(c => c.id === chat.id);
+    await say("how many refunds are waiting");
+    assert.equal((await titleNow()).title, "how many refunds are waiting", "starts as the first message");
+    assert.equal(asked.length, 0, "one exchange is too soon to name it");
+    await say("and last quarter?");
+    await waitFor(async () => (await titleNow()).title === "Quarterly refund backlog 1");
+    assert.equal((await titleNow()).titledBy, "agent");
+    assert.match(asked[0], /Person: how many refunds are waiting/);
+    await say("thanks");
+    assert.equal(asked.length, 1, "named once until the next mark");
+
+    // Someone else can't rename it; the author can, and blank names are refused.
+    assert.equal((await api("PATCH", `/v1/chats/${chat.id}`, { token: other, body: { title: "Mine now" } })).status, 404);
+    assert.equal((await api("PATCH", `/v1/chats/${chat.id}`, { token, body: { title: "   " } })).status, 400);
+    const renamed = await api("PATCH", `/v1/chats/${chat.id}`, { token, body: { title: "  Refunds\n  for Q3  " } });
+    assert.equal(renamed.status, 200);
+    assert.equal(renamed.json.chat.title, "Refunds for Q3");
+    assert.equal(renamed.json.chat.titledBy, "user");
+    for (let i = 0; i < 6; i++) await say(`more ${i}`);
+    await new Promise(r => setTimeout(r, 100));
+    assert.equal((await titleNow()).title, "Refunds for Q3", "the agent never renames a chat named by hand");
+    assert.equal(asked.length, 1);
+  } finally { delete globalThis.__servantTitleAsk; }
+});
+
 test("agent chat list shows the last message under each title, like DMs", async () => {
   const token = await pair("member", "Lastline Lou");
   const other = await pair("member", "Lastline Max");

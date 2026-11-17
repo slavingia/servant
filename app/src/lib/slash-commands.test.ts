@@ -34,7 +34,7 @@ test("people resolve by @handle, full name or a unique first name", () => {
 test("every command says where it works, and the lists follow that", () => {
   for (const c of SLASH_COMMANDS) assert.ok(["channel", "talk", "agent", "any"].includes(c.where), c.name);
   const names = (isChannel: boolean, agent: boolean) => slashMatches("/", isChannel, agent)!.map(c => c.name).sort();
-  assert.deepEqual(names(false, true), ["archive", "browse", "feedback", "help", "new", "people", "queue", "stop"], "an agent chat: only what makes sense there");
+  assert.deepEqual(names(false, true), ["archive", "browse", "feedback", "help", "new", "people", "queue", "rename", "stop"], "an agent chat: only what makes sense there");
   assert.ok(!names(true, false).includes("queue") && !names(false, false).includes("queue"), "queue is for agent chats only");
   assert.ok(!names(true, false).includes("stop"), "stop is for agent chats only");
   assert.ok(!names(false, false).includes("invite") && names(true, false).includes("invite"));
@@ -55,7 +55,9 @@ test("the new commands parse in the right places and nowhere else", () => {
 
 test("/help lists exactly the commands that work in that kind of conversation", () => {
   const agentHelp = helpText(false, true).split("\n");
-  assert.equal(agentHelp.length, 8);
+  assert.equal(agentHelp.length, 9);
+  assert.ok(agentHelp.some(l => l.startsWith("/rename new name — Rename this chat")), "/rename in an agent chat names the chat");
+  assert.ok(helpText(true).split("\n").some(l => l.startsWith("/rename new-name — Rename this channel")));
   assert.ok(agentHelp.includes("/queue message — Send it after the current reply, not into it"));
   assert.ok(agentHelp.some(l => l.startsWith("/stop")) && !agentHelp.some(l => l.startsWith("/invite")));
   const channelHelp = helpText(true).split("\n");
@@ -112,4 +114,10 @@ test("/feedback works everywhere and sends only the words typed after it", async
   assert.match(helper, /api\.sendFeedback\(account, \{ text, requestId: [^,]+, context: feedbackContext\(screen\) \}\)/);
   assert.match(helper, /return \{ screen, platform: app\.platform, version: app\.version, build: app\.build, via: "slash" \};/);
   assert.doesNotMatch(helper, /conversation(Id)?:|attachments|posts|messages/);
+});
+
+test("/rename names a channel in a channel and the chat in an agent chat", () => {
+  assert.equal(parseSlash("/rename Refunds for Q3", false, true)?.description, "Rename this chat. The agent stops naming it for you");
+  assert.equal(parseSlash("/rename refund-desk", true)?.description, "Rename this channel");
+  assert.equal(parseSlash("/rename x", false), null, "not in a direct message");
 });
