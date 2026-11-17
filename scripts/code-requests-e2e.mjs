@@ -136,8 +136,11 @@ try {
       await page.screenshot({ path: path.join(artifacts, `after-${label}.png`), animations: 'disabled' });
       if (label === 'desktop') {
         assert.equal((await call(runner.token, 'POST', `code-requests/${id}/claim`)).body.status, 'pending');
-        await field.fill('554 100');
-        await page.getByRole('button', { name: 'Send code', exact: true }).click();
+        // A complete six-digit code sends itself: no tap on Send code (lib/code-autosend.ts).
+        await field.pressSequentially('554 10');
+        await delay(800);
+        assert.equal((await call(runner.token, 'POST', `code-requests/${id}/claim`)).body.status, 'pending', 'five digits wait');
+        await field.pressSequentially('0');
         await page.getByText('Code sent', { exact: true }).waitFor();
         await page.screenshot({ path: path.join(artifacts, 'after-desktop-sent.png'), animations: 'disabled' });
         assert.deepEqual((await call(runner.token, 'POST', `code-requests/${id}/claim`)).body, { status: 'answered', code: '554100' }, 'the runner gets the code once');
@@ -145,7 +148,7 @@ try {
       }
       await context.close();
     }
-    console.log('code requests e2e: OK — runner asked, web app showed the request, code entered, runner picked it up once');
+    console.log('code requests e2e: OK — runner asked, web app showed the request, the complete code sent itself, runner picked it up once');
     console.log(`Screenshots: ${artifacts}`);
   }
   assert.deepEqual(pageErrors, [], 'no uncaught browser errors');

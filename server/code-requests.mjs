@@ -28,7 +28,7 @@ export function createCodeRequests({ clock = Date.now } = {}) {
       if (r.expiresAt + 60_000 <= at) requests.delete(id);
     }
   }
-  const view = r => ({ id: r.id, label: r.label, hint: r.hint || undefined, device: r.device, status: r.status, createdAt: r.createdAt, expiresAt: r.expiresAt });
+  const view = r => ({ id: r.id, label: r.label, hint: r.hint || undefined, length: r.length || undefined, device: r.device, status: r.status, createdAt: r.createdAt, expiresAt: r.expiresAt });
   function find(id, user) {
     sweep();
     const r = typeof id === 'string' && ID.test(id) ? requests.get(id) : null;
@@ -47,11 +47,14 @@ export function createCodeRequests({ clock = Date.now } = {}) {
       if (!label) throw error(400, 'bad_request', 'Say what the code is for, like "Login.gov sign-in"');
       const pending = [...requests.values()].filter(r => r.userId === user.id && r.status === 'pending').length;
       if (pending >= CODE_REQUEST_LIMIT) throw error(429, 'rate_limited', `You already have ${CODE_REQUEST_LIMIT} code requests waiting. Answer or cancel one first`);
+      // How many characters the code has, when the automation knows: the phone sends it by itself once that many are in.
+      const length = body.length === undefined || body.length === null ? 0 : Number(body.length);
+      if (!(length === 0 || (Number.isInteger(length) && length >= 4 && length <= 12))) throw error(400, 'bad_request', 'length is the number of characters in the code, from 4 to 12');
       const seconds = Number(body.ttlSeconds);
       const ttl = Number.isFinite(seconds) && seconds > 0 ? Math.min(CODE_REQUEST_MAX_TTL_MS, Math.max(60_000, seconds * 1000)) : CODE_REQUEST_TTL_MS;
       const at = clock();
       const r = { id: `code_${crypto.randomBytes(9).toString('base64url')}`, userId: user.id, deviceId: device.id, device: clean(device.label, 80) || 'Automation',
-        label, hint: clean(body.hint, 120), status: 'pending', code: null, createdAt: at, expiresAt: at + ttl };
+        label, hint: clean(body.hint, 120), length, status: 'pending', code: null, createdAt: at, expiresAt: at + ttl };
       requests.set(r.id, r);
       return view(r);
     },
