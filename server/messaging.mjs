@@ -17,6 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { isMention } from "./push.mjs";
 import { validateUploads, mediaPage, rasterMime, MAX_UPLOAD_BODY, MAX_UPLOAD_TOTAL } from "./media.mjs";
+import { pictureSize, withPictureSize } from "./image-size.mjs";
 
 // The app sends a 512px square JPEG (well under this).
 const MAX_PHOTO_BYTES = 1024 * 1024;
@@ -179,7 +180,8 @@ CREATE TABLE IF NOT EXISTS reactions (
 CREATE TABLE IF NOT EXISTS attachments (
   id TEXT PRIMARY KEY,
   message_seq INTEGER NOT NULL REFERENCES messages(seq) ON DELETE CASCADE,
-  name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, data BLOB NOT NULL
+  name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, data BLOB NOT NULL,
+  width INTEGER, height INTEGER
 );
 CREATE INDEX IF NOT EXISTS attachments_message ON attachments(message_seq);
 CREATE TABLE IF NOT EXISTS releases (
@@ -349,6 +351,13 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     for (const column of ['source_device_kind', 'source_device_id']) {
       if (!db.prepare('PRAGMA table_info(messages)').all().some(value => value.name === column)) {
         db.exec(`ALTER TABLE messages ADD COLUMN ${column} TEXT`);
+      }
+    }
+    // A picture's width and height, read from its header when it is stored (image-size.mjs), so the app can keep
+    // its place at the right shape before the bytes arrive. Files stored before this have none.
+    for (const column of ['width', 'height']) {
+      if (!db.prepare('PRAGMA table_info(attachments)').all().some(value => value.name === column)) {
+        db.exec(`ALTER TABLE attachments ADD COLUMN ${column} INTEGER`);
       }
     }
     db.exec('COMMIT');
@@ -526,12 +535,12 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     addReaction: q("INSERT OR IGNORE INTO reactions VALUES (?, ?, ?)"),
     removeReaction: q("DELETE FROM reactions WHERE message_seq = ? AND user_id = ? AND emoji = ?"),
     deleteReactions: q("DELETE FROM reactions WHERE message_seq = ?"),
-    attachments: q("SELECT id, name, mime, size FROM attachments WHERE message_seq = ?"),
+    attachments: q("SELECT id, name, mime, size, width, height FROM attachments WHERE message_seq = ?"),
     preview: q("SELECT url, title, description, site FROM link_previews WHERE message_seq = ?"),
     setPreview: q("INSERT OR REPLACE INTO link_previews (message_seq, url, title, description, site) VALUES (?, ?, ?, ?, ?)"),
     dropPreview: q("DELETE FROM link_previews WHERE message_seq = ?"),
     attachment: q("SELECT * FROM attachments WHERE id = ?"),
-    insertAttachment: q("INSERT INTO attachments VALUES (?, ?, ?, ?, ?, ?)"),
+    insertAttachment: q("INSERT INTO attachments (id, message_seq, name, mime, size, data, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"),
     deleteAttachments: q("DELETE FROM attachments WHERE message_seq = ?"),
     conv: q("SELECT * FROM conversations WHERE id = ?"),
     convByName: q("SELECT * FROM conversations WHERE kind = 'channel' AND name = ?"),
@@ -722,6 +731,11 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     const photo = u && st.photoVersion.get(uid)?.updated_at;
     return u ? { id: u.id, name: u.name, lastSeenAt, online, ...deepWorkFields(u), ...(photo ? { photo: String(photo) } : {}) } : { id: uid, name: "Former member" };
   };
+  // Every file kept with a message is stored here, so a picture's size is read once, as it arrives.
+  function storeAttachment(seq, a) {
+    const size = pictureSize(a);
+    st.insertAttachment.run(newId("file"), seq, a.name, a.mime, a.data.length, a.data, size?.width ?? null, size?.height ?? null);
+  }
   const msgView = (m, includeReads = true, viewerId) => ({
     id: String(m.seq),
     ...(!m.activity && m.user_id !== AGENT_ID ? sourceDeviceFields(m.source_device_kind, users()[viewerId]) : {}),
@@ -737,7 +751,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     // the working placeholder until the reply finishes.
     text: m.deleted_at || m.pending ? "" : m.text,
     reactions: m.deleted_at ? [] : Object.entries(Object.groupBy(st.reactions.all(m.seq), r => r.emoji)).map(([emoji, rows]) => ({ emoji, userIds: rows.map(r => r.user_id) })),
-    attachments: m.deleted_at || m.pending ? [] : st.attachments.all(m.seq),
+    attachments: m.deleted_at || m.pending ? [] : st.attachments.all(m.seq).map(withPictureSize),
     // The linked page's own title and description, read once by the server when the message was posted.
     ...(!m.deleted_at && !m.pending && st.preview.get(m.seq) ? { preview: { ...st.preview.get(m.seq) } } : {}),
     deleted: !!m.deleted_at,
@@ -868,7 +882,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     return transaction(() => {
       const conv = ensureFeedChannel();
       const seq = Number(st.insertActivity.run(conv.id, AGENT_ID, text, now(), "feed").lastInsertRowid);
-      for (const a of attachments) st.insertAttachment.run(newId("file"), seq, a.name, a.mime, a.data.length, a.data);
+      for (const a of attachments) storeAttachment(seq, a);
       publish(conv.id, "message.created", msgView(st.msg.get(seq)));
       publish(conv.id, "conversation.updated", { id: conv.id });
       return { conversationId: conv.id, messageId: String(seq) };
@@ -1014,7 +1028,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     const r = st.insertMsg.run(conv.id, userId, threadRoot, text, now(), pending ? 1 : 0, sourceDeviceKind(humanDevice), humanDevice?.id || null, threadRoot && inChannel ? 1 : 0);
     const seq = Number(r.lastInsertRowid);
     if (conv.kind === "dm") unarchiveDm(conv.id);
-    for (const a of attachments) st.insertAttachment.run(newId("file"), seq, a.name, a.mime, a.data.length, a.data);
+    for (const a of attachments) storeAttachment(seq, a);
     if (threadRoot) st.bumpThread.run(now(), threadRoot);
     if (userId !== AGENT_ID) st.markRead.run(seq, conv.id, userId);
     const m = st.msg.get(seq);
@@ -1182,7 +1196,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     transaction(() => {
       const current = st.msg.get(reply.seq);
       if (current && !current.deleted_at && st.conv.get(conv.id)) {
-        for (const a of attachments) st.insertAttachment.run(newId("file"), reply.seq, a.name, a.mime, a.data.length, a.data);
+        for (const a of attachments) storeAttachment(reply.seq, a);
       }
       saveReply(true);
       if (st.conv.get(conv.id)) {
@@ -1786,10 +1800,10 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
       const sub = parts[3];
 
       if (sub === "media" && method === "GET" && parts.length === 4) {
-        const items = db.prepare(`SELECT a.id,a.name,a.mime,a.size,m.seq AS messageId,m.user_id,m.created_at AS createdAt,m.text
+        const items = db.prepare(`SELECT a.id,a.name,a.mime,a.size,a.width,a.height,m.seq AS messageId,m.user_id,m.created_at AS createdAt,m.text
           FROM attachments a JOIN messages m ON m.seq=a.message_seq
           WHERE m.conversation_id=? AND m.deleted_at IS NULL AND m.pending = 0 ORDER BY m.seq,a.rowid`).all(conv.id)
-          .map(({ user_id, messageId, ...item }) => ({ ...item, messageId: String(messageId), sender: person(user_id) }));
+          .map(({ user_id, messageId, ...item }) => ({ ...withPictureSize(item), messageId: String(messageId), sender: person(user_id) }));
         send(res, 200, mediaPage(items, url.searchParams));
         return true;
       }

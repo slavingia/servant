@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import crypto from "node:crypto";
 import { normalizeMediaContent, mediaCaption } from "./media.mjs";
+import { pictureSize, withPictureSize } from "./image-size.mjs";
 
 const uid = prefix => `${prefix}_${crypto.randomBytes(12).toString("base64url")}`;
 // Documents keep their bytes on disk; their stored path identifies them.
@@ -48,8 +49,12 @@ export function createChatMediaStore(file, { keepDropped = null } = {}) {
   if (!db.prepare("PRAGMA table_info(chat_attachments)").all().some(c => c.name === "file")) {
     db.exec("ALTER TABLE chat_attachments ADD COLUMN file TEXT");
   }
-  const files = db.prepare("SELECT id,name,mime,size FROM chat_attachments WHERE message_id=? ORDER BY rowid");
-  const view = row => ({ id: row.id, role: row.role, text: row.text, at: row.at, attachments: files.all(row.id) });
+  // A picture's width and height, read from its header when it is stored (image-size.mjs). Older rows have none.
+  for (const column of ["width", "height"]) {
+    if (!db.prepare("PRAGMA table_info(chat_attachments)").all().some(c => c.name === column)) db.exec(`ALTER TABLE chat_attachments ADD COLUMN ${column} INTEGER`);
+  }
+  const files = db.prepare("SELECT id,name,mime,size,width,height FROM chat_attachments WHERE message_id=? ORDER BY rowid");
+  const view = row => ({ id: row.id, role: row.role, text: row.text, at: row.at, attachments: files.all(row.id).map(withPictureSize) });
   function transaction(fn) {
     db.exec("BEGIN IMMEDIATE");
     try { const result = fn(); db.exec("COMMIT"); return result; }
@@ -59,8 +64,12 @@ export function createChatMediaStore(file, { keepDropped = null } = {}) {
     const id = stableId || uid("msg");
     db.prepare("INSERT INTO chat_messages(id,chat_id,upstream_id,role,text,at,signature,source_key) VALUES (?,?,?,?,?,?,?,?)")
       .run(id, chatId, upstreamId, role, text, at, signature(role, text, attachments), key);
-    for (const a of attachments) db.prepare("INSERT INTO chat_attachments(id,message_id,name,mime,size,data,file) VALUES (?,?,?,?,?,?,?)")
-      .run(uid("chatfile"), id, a.name, a.mime, a.file ? a.size : a.data.length, a.file ? Buffer.alloc(0) : a.data, a.file || null);
+    for (const a of attachments) {
+      // A document's bytes are on disk and it is never drawn as a picture: only what is stored here is measured.
+      const size = a.file ? null : pictureSize(a);
+      db.prepare("INSERT INTO chat_attachments(id,message_id,name,mime,size,data,file,width,height) VALUES (?,?,?,?,?,?,?,?,?)")
+        .run(uid("chatfile"), id, a.name, a.mime, a.file ? a.size : a.data.length, a.file ? Buffer.alloc(0) : a.data, a.file || null, size?.width ?? null, size?.height ?? null);
+    }
     return view(db.prepare("SELECT * FROM chat_messages WHERE id=?").get(id));
   }
   function accept(chatId, role, text, attachments = [], deliveryKey) {
@@ -144,9 +153,9 @@ export function createChatMediaStore(file, { keepDropped = null } = {}) {
     });
   }
   function media(chatId, sender, agentName = "Agent") {
-    return db.prepare(`SELECT a.id,a.name,a.mime,a.size,m.id AS messageId,m.role,m.at AS createdAt,m.text
+    return db.prepare(`SELECT a.id,a.name,a.mime,a.size,a.width,a.height,m.id AS messageId,m.role,m.at AS createdAt,m.text
       FROM chat_attachments a JOIN chat_messages m ON m.id=a.message_id
-      WHERE m.chat_id=? ORDER BY m.at,m.seq,a.rowid`).all(chatId).map(({ role, ...item }) => ({ ...item, sender: role === "assistant" ? { id: "agent", name: agentName, agent: true } : sender }));
+      WHERE m.chat_id=? ORDER BY m.at,m.seq,a.rowid`).all(chatId).map(({ role, ...item }) => ({ ...withPictureSize(item), sender: role === "assistant" ? { id: "agent", name: agentName, agent: true } : sender }));
   }
   return {
     accept, identify, identifyInput, beginSync, sync, media,
