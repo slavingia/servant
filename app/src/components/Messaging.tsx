@@ -119,16 +119,18 @@ export function dmPeer(c: Conversation, me: string | undefined) {
   return others.length === 1 ? others[0]!.id : undefined;
 }
 
-// Group conversations: two overlapping person avatars on one tile, so a group never reads as one person.
+// Group conversations: two overlapping person avatars, so a group never reads as one person. No tile behind them:
+// the row shows through. Only the front avatar has a ring, in the page color, so the overlap reads as a cutout.
 export function GroupAvatar({ people, size = 40 }: { people: { id: string; name: string }[]; size?: number }) {
   const { colors } = useTheme();
   const inner = Math.round(size * 0.6);
+  const ring = 1.5;
   const a = people[0] ?? { id: "", name: "?" };
   const b = people[1] ?? a;
   return (
-    <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: size, height: size, borderRadius: radius.sm, backgroundColor: colors.surface, overflow: "hidden" }}>
-      <View style={{ position: "absolute", left: 0, top: 0, borderRadius: inner / 2, borderWidth: 1.5, borderColor: colors.surface }}><Avatar name={b.name} userId={b.id || undefined} size={inner} /></View>
-      <View style={{ position: "absolute", right: 0, bottom: 0, borderRadius: inner / 2, borderWidth: 1.5, borderColor: colors.surface }}><Avatar name={a.name} userId={a.id || undefined} size={inner} /></View>
+    <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: size, height: size }}>
+      <View style={{ position: "absolute", left: 0, top: 0 }}><Avatar name={b.name} userId={b.id || undefined} size={inner} /></View>
+      <View style={{ position: "absolute", right: -ring, bottom: -ring, borderRadius: inner / 2 + ring, borderWidth: ring, borderColor: colors.background }}><Avatar name={a.name} userId={a.id || undefined} size={inner} /></View>
     </View>
   );
 }
