@@ -295,7 +295,7 @@ export function mutateStateForTest(fn) {
 }
 
 /** Tests only: where the agent's network gate listens, and a token that makes traffic count as one person's. */
-export const egressForTest = () => ({ port: egressProxy?.port, mint: (userId, chatId) => egressStore().mintToken(userId, chatId) });
+export const egressForTest = () => ({ port: egressProxy?.port, mint: (userId, chatId) => egressStore().tokenFor(userId, chatId), working: userId => egressStore().working(userId) });
 export function createInvite({ name, role = "member", userId }) {
   return mutateState(state => {
     if (!["owner", "member"].includes(role)) throw new Error("role must be owner or member");
@@ -515,8 +515,8 @@ function removePerson(state, targetId) {
   if (isRemoved(target)) return null;
   target.removedAt = now();
   for (const d of Object.values(state.devices)) if (d.userId === targetId && !d.revokedAt) revokeDevice(d);
-  // Everything they held is revoked and their agent's network tokens stop working.
-  entitlementStore().forget(targetId, "server"); egressStore().forget(targetId); codeRequests.forget(targetId);
+  // Everything they held is revoked and their code requests are dropped. Their agent's network tokens stop counting because they are no longer on the server.
+  entitlementStore().forget(targetId, "server"); codeRequests.forget(targetId);
   // Out of every project; projects they owned stay (admins can still edit them).
   projects().mutate(data => { for (const p of data.projects) removeAccess(p, targetId, state.users, data.people); });
   return target.name;
@@ -580,13 +580,13 @@ async function hermes(up, method, pathname, body, extraHeaders = {}, signal) {
 
 // Sends one turn to Hermes and calls onEvent(name, payload) for each SSE event.
 // Resolves with the final assistant text.
-async function streamTurn(up, sessionId, text, key, onEvent, isClosed = () => false, onAccepted = () => {}, onUsage = () => {}, instructions = "") {
+async function streamTurn(up, sessionId, text, key, onEvent, isClosed = () => false, onAccepted = () => {}, onUsage = () => {}, instructions = "", extraHeaders = {}) {
   const r = await hermes(
     up,
     "POST",
     `/api/sessions/${encodeURIComponent(sessionId)}/chat/stream`,
     { message: text, ...(instructions ? { system_message: instructions } : {}) },
-    { Accept: "text/event-stream", "X-Hermes-Session-Key": key },
+    { Accept: "text/event-stream", "X-Hermes-Session-Key": key, ...extraHeaders },
   );
   if (!r.ok || !r.body) throw Object.assign(new Error(`The agent didn't answer (${r.status})`), { status: 502, code: "agent_error" });
   await onAccepted();
@@ -896,6 +896,16 @@ function setManager(state, user, manager) {
   user.managerId = manager.id;
 }
 const egressStore = () => egressDb ??= createEgressStore(path.join(DATA_DIR, "egress.db"));
+const egressOn = cfg => egressSettings(cfg?.agentEgress).mode === "ask";
+// With the gate on, each turn tells the bridge whose it is: a token the sandboxed commands of that chat present to the
+// gate (hermes_egress.py). `scope` is the chat or thread; its token never changes for the same person.
+const egressHeaders = (cfg, userId, scope) => egressOn(cfg) && userId ? { "X-Servant-Egress-Token": egressStore().tokenFor(userId, scope) } : {};
+// The agent working for someone outside an agent chat (a reply to @agent, a wiki page): counted while it lasts, so
+// the gate can judge traffic that carries no token.
+async function whileWorkingFor(cfg, userId, fn) {
+  const done = egressOn(cfg) && userId ? egressStore().working(userId) : null;
+  try { return await fn(); } finally { done?.(); }
+}
 // One alert to named people about an entitlement: who asked, what was decided, or what the agent was refused.
 function tellAbout(to, title, body) {
   const people = [...new Set(to)].filter(Boolean);
@@ -2013,7 +2023,10 @@ async function handle(req, res, cfg) {
     if (!creationUp) return fail(res, 503, "agent_unavailable", "The agent isn't set up on this server yet");
     const lane = agentLane(creator, cfg);
     if (lane !== "owner") await verifyUpstream(lane, creationUp);
-    const chatId = id("cht");
+    // The phone may name the chat itself, so it can open it before this answers (app/src/lib/new-chat.ts).
+    if (body.id !== undefined && (typeof body.id !== "string" || !/^cht_[A-Za-z0-9_-]{8,40}$/.test(body.id))) return fail(res, 400, "bad_request", "That chat id isn't valid");
+    if (body.id && readState().chats[body.id]) return fail(res, 409, "conflict", "That chat already exists");
+    const chatId = body.id || id("cht");
     // Vibe coders always build prototypes. Anyone else may start the chat in a project
     // they're in, or ask for vibe coding (a prototype with a preview link) from the list.
     const tier = agentTierOf(readState().users[creator.id]);
@@ -2048,6 +2061,7 @@ async function handle(req, res, cfg) {
     try {
       mutateAuthenticated(req, (state, current) => {
         if (current.user.role !== creator.role || current.user.id !== creator.id) throw requestError(403, "forbidden", "Your access changed. Start a new chat");
+        if (state.chats[chatId]) throw requestError(409, "conflict", "That chat already exists");
         state.chats[chatId] = chat;
       });
     } catch (error) {
@@ -2490,7 +2504,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
       chatMediaStore().accept(turn.chat_id, "user", text, [], steerId);
       hooks.steered?.(steerId);
     };
-    result = await runDurableHermes({ up, sessionId: turn.session_id, input, sessionKey: sessionKey(user, turn.chat_id), instructions: chatContext(chat), runId: turn.run_id,
+    result = await runDurableHermes({ up, sessionId: turn.session_id, input, sessionKey: sessionKey(user, turn.chat_id), instructions: chatContext(chat), runId: turn.run_id, headers: full ? egressHeaders(cfg, turn.user_id, turn.chat_id) : {},
       onAccepted, onEvent, checkpoint: hooks.checkpoint, controls: hooks.controls, steered, canSteer });
     if (result.usage) recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", chatId: turn.chat_id, text: turn.text, usage: result.usage });
     // Run output is resolved by the bridge, while history contains its original
@@ -2504,7 +2518,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
     }
   } else {
     const answer = await streamTurn(up, turn.session_id, input, sessionKey(user, turn.chat_id), onEvent, () => false, onAccepted,
-      usage => recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", chatId: turn.chat_id, text: turn.text, usage }), chatContext(chat));
+      usage => recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", chatId: turn.chat_id, text: turn.text, usage }), chatContext(chat), full ? egressHeaders(cfg, turn.user_id, turn.chat_id) : {});
     if (!assistantMessage && answer) saveAssistant(answer);
     result = { status: "completed" };
   }
@@ -2604,9 +2618,10 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
         const made = await hermes(up, "POST", "/api/sessions", { id: sessionId, title: `Servant · ${sessionId.slice(8, 30)}` });
         if (!made.ok && made.status !== 409) throw new Error(`session ${made.status}`);
       }
-      const answer = await streamTurn(up, sessionId, hermesInput(text, attachments), key, (name, p) => {
+      // A thread's session is shared by whoever mentions the agent in it; each reply is the asker's.
+      const answer = await whileWorkingFor(cfg, userId, () => streamTurn(up, sessionId, hermesInput(text, attachments), key, (name, p) => {
         if (name === "assistant.delta") onDelta(p.delta || "");
-      }, () => false, () => {}, onUsage);
+      }, () => false, () => {}, onUsage, "", lane === "researcher" || !fullAgentAccess(cfg) ? {} : egressHeaders(cfg, userId, sessionId)));
       return normalizeMediaContent(answer);
     },
   });
@@ -2697,7 +2712,7 @@ async function askWikiAgent(messages, user, cfg) {
     await verifyUpstream(agentLane(user, cfg), up);
     const made = await hermes(up, "POST", "/api/sessions", { id: sessionId, title: `Servant · wiki · ${user.name}`.slice(0, 66) + ` · ${sessionId.slice(-12)}` });
     if (!made.ok) throw requestError(502, "agent_failed", `The agent returned ${made.status}. Your page is unchanged; try again in a moment`);
-    const content = await streamTurn(up, sessionId, request, `servant:wiki:${user.id}`, () => {}, () => false, () => {}, reported => { usage = reported; }, instructions);
+    const content = await whileWorkingFor(cfg, user.id, () => streamTurn(up, sessionId, request, `servant:wiki:${user.id}`, () => {}, () => false, () => {}, reported => { usage = reported; }, instructions, egressHeaders(cfg, user.id, sessionId)));
     return { content, usage };
   } catch (error) {
     if (error?.status && error?.code) throw error;
@@ -2761,7 +2776,7 @@ export function startServer(fixedCfg) {
   // start; what is allowed is read for every connection.
   if (egressSettings(cfg.agentEgress).mode === "ask" && !egressProxy) {
     egressProxy = createEgressProxy({ store: egressStore(), settings: () => egressSettings((fixedCfg || loadConfig()).agentEgress), allowed: (userId, host) => entitlementStore().allows(userId, host),
-      active: () => agentTurns?.workingFor() || [], known: userId => { const u = readState().users[userId]; return !!u && !isRemoved(u); }, blocked: egressBlocked, hint: egressHint,
+      active: () => [...(agentTurns?.workingFor() || []), ...egressStore().workingFor()], known: userId => { const u = readState().users[userId]; return !!u && !isRemoved(u); }, blocked: egressBlocked, hint: egressHint,
       ...(globalThis.__servantEgressTest || {}) });
     egressProxy.listen(egressSettings(cfg.agentEgress).port).then(port => { egressProxy.port = port; console.log(`[servant] agent network gate on 127.0.0.1:${port}`); },
       error => console.error(`[servant] agent network gate could not start on port ${egressSettings(cfg.agentEgress).port}: ${error.message}. Sandboxed agents will have no network until it does`));

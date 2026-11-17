@@ -151,6 +151,17 @@ const api = async (method, p, { token, body } = {}) => {
   return { status: res.status, json, text };
 };
 
+test("the phone may name a new chat so it can open it at once", async () => {
+  const token = await pair("member", "Quick Starter");
+  const named = await api("POST", "/v1/chats", { token, body: { id: "cht_phoneMade123" } });
+  assert.equal(named.status, 201);
+  assert.equal(named.json.chat.id, "cht_phoneMade123");
+  assert.equal((await api("GET", "/v1/chats/cht_phoneMade123/messages", { token })).status, 200);
+  assert.equal((await api("POST", "/v1/chats", { token, body: { id: "cht_phoneMade123" } })).status, 409);
+  assert.equal((await api("POST", "/v1/chats", { token, body: { id: "../etc" } })).status, 400);
+  assert.equal((await api("POST", "/v1/chats", { token, body: { id: 7 } })).status, 400);
+});
+
 test("plaintext API access is rejected, including pairing and message history", async () => {
   for (const [method, route] of [["POST", "/v1/pair"], ["GET", "/v1/chats"], ["POST", "/v1/events"]]) {
     const response = await fetch(base + route, { method });

@@ -155,6 +155,7 @@ function SessionNavigation() {
         <Stack.Screen name="feed" options={{ title: "Agent feed", ...childScreen }} />
         <Stack.Screen name="code/[id]" options={{ title: "Enter code", ...childScreen }} />
         <Stack.Screen name="loops" options={{ title: "Loops", ...childScreen }} />
+        <Stack.Screen name="entitlements" options={{ title: "Entitlements", ...childScreen }} />
         <Stack.Screen name="leaderboard" options={{ title: "Agent usage", ...childScreen }} />
         <Stack.Screen name="invite" options={{ title: "Invite someone", ...childScreen }} />
         <Stack.Screen name="meetings/index" options={{ title: "Meetings", ...sidebarScreen }} />

@@ -88,6 +88,11 @@ export type Loop = { id: string; name: string; cadence: string; group: LoopGroup
 export type Presence = { userId: string; online: boolean; lastSeenAt: number | null; deepWork?: boolean };
 // photo: version of their profile photo, when they have one.
 export type Person = { /** Who decides this person's entitlement requests; owners have none. */ managerId?: string; email?: string | null; emailVerified?: boolean; agentTier?: number; tokenLimit?: number; vibeCoder?: boolean; unlimitedTokens?: boolean; id: string; name: string; agent?: boolean; owner?: boolean; online?: boolean; lastSeenAt?: number | null; deepWork?: boolean; photo?: string | null };
+export type EntitlementStanding = { entitlementId: string; userId: string; status: "requested" | "granted" | "denied" | "revoked"; note: string; requestedAt: number; decidedBy?: string; decidedAt?: number; reason?: string; name?: string; decidedByName?: string };
+export type Entitlement = { id: string; name: string; description: string; hosts: string[]; confirmation: string; mine: EntitlementStanding | null; people: EntitlementStanding[] };
+export type EntitlementDraft = { name: string; description: string; hosts: string[]; confirmation: string };
+export type EntitlementsPage = { entitlements: Entitlement[]; canCreate: boolean; waiting: number; manager: { id: string; name: string } | null; reports: { id: string; name: string }[];
+  egress: { mode: "ask" | "off"; always?: string[]; refused?: { userId: string; name: string; host: string; attempts: number; lastAt: number }[] } };
 export type Attachment = { id: string; name: string; mime: string; size: number };
 // Documents skip base64: `document` points at the local file until it's
 // uploaded in chunks, then `upload` names the server copy.
@@ -553,11 +558,18 @@ export const api = {
   setStageCell: (a: Account, id: string, rid: string, iid: string, change: { stage: string; status?: StageStatus; owner?: string | null; note?: string }) => request(a, `/v1/projects/${encodeURIComponent(id)}/releases/${encodeURIComponent(rid)}/items/${encodeURIComponent(iid)}/stages`, { method: "PATCH", body: JSON.stringify(change) }).then(json<{ project: Project }>).then(d => d.project),
   shareChatWithProject: (a: Account, id: string, projectShared: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ projectShared }) }).then((r) => r.json()).then((d) => d.chat as Chat),
   moveChat: (a: Account, id: string, projectId: string | null) => request(a, `/v1/chats/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ projectId }) }).then((r) => r.json()).then((d) => d.chat as Chat),
-  newChat: (a: Account, options: { projectId?: string | null; mode?: "vibe" } = {}) => request(a, "/v1/chats", { method: "POST", body: JSON.stringify(options) }).then((r) => r.json()).then((d) => d.chat as Chat),
+  newChat: (a: Account, options: { projectId?: string | null; mode?: "vibe"; id?: string } = {}) => request(a, "/v1/chats", { method: "POST", body: JSON.stringify(options) }).then((r) => r.json()).then((d) => d.chat as Chat),
   /** Owner only: take someone who left the team off the server. Signs out all their devices. */
   removePerson: (a: Account, userId: string) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "DELETE" }).then(json<{ ok: true }>),
   /** Owner only: one person's daily agent limit (token-limit.ts): a step, their role's default (null), or none. */
   setDailyLimit: (a: Account, userId: string, change: { unlimitedTokens: boolean; tokenLimit?: number | null }) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify(change) }).then(json<{ person: Person }>),
+  // Entitlements (docs/entitlements.md): named access people ask for and their manager grants.
+  entitlements: (a: Account) => request(a, "/v1/entitlements").then(json<EntitlementsPage>),
+  createEntitlement: (a: Account, body: EntitlementDraft) => request(a, "/v1/entitlements", { method: "POST", body: JSON.stringify(body) }).then(json<{ entitlement: Entitlement }>),
+  updateEntitlement: (a: Account, id: string, body: Partial<EntitlementDraft>) => request(a, `/v1/entitlements/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }).then(json<{ entitlement: Entitlement }>),
+  retireEntitlement: (a: Account, id: string) => request(a, `/v1/entitlements/${encodeURIComponent(id)}`, { method: "DELETE" }).then(json<{ ok: true }>),
+  askForEntitlement: (a: Account, id: string, note: string) => request(a, `/v1/entitlements/${encodeURIComponent(id)}/request`, { method: "POST", body: JSON.stringify({ confirmed: true, note }) }).then(json<{ entitlement: Entitlement }>),
+  decideEntitlement: (a: Account, id: string, userId: string, decision: "grant" | "deny" | "revoke") => request(a, `/v1/entitlements/${encodeURIComponent(id)}/people/${encodeURIComponent(userId)}`, { method: "POST", body: JSON.stringify({ decision }) }).then(json<{ entitlement: Entitlement }>),
   // The org chart (docs/entitlements.md): an owner or the person's current manager hands them to another manager.
   setManager: (a: Account, userId: string, managerId: string) => request(a, `/v1/people/${encodeURIComponent(userId)}/manager`, { method: "PUT", body: JSON.stringify({ managerId }) }).then(json<{ person: { id: string; name: string; manager: { id: string; name: string } } }>),
   // "Invite your manager": a one-use link; whoever joins with it becomes your manager.

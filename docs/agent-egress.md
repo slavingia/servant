@@ -6,7 +6,7 @@ Off by default. When it is on, the agent runs in a sandbox whose only way out to
 
 1. A host on the server's `always` list goes through for anyone. This is for what the agent itself needs to run, such as the model provider.
 2. Otherwise the connection is judged for a person:
-   - if it carries a person's token, for that person;
+   - if it carries a person's token (terminal commands do, once the bridge is started through the wrapper below), for that person;
    - if it carries none, for everyone whose agent is working at that moment, and it goes through only when every one of them may reach the host. With nobody working, it is refused.
 3. A person may reach a host when they hold an entitlement that covers it.
 4. A refused connection gets `403` with a line the agent can read ("it needs the entitlement "Tax data API", which the person you are working for does not hold"), is written down, and the person (or the owners, when no entitlement covers the host) is told once.
@@ -35,6 +35,8 @@ HTTPS stays encrypted from the agent to the site: the proxy sees the host name a
    scripts/run-agent-sandboxed.sh /path/to/hermes/venv/bin/python scripts/run-hermes-servant.py --hermes-root /path/to/hermes
    ```
 
+   The bridge needs `server/hermes_egress.py` beside `server/hermes_bridge.py`. If you run the bridge from a copy of those files rather than from this repository, copy it too; without it the bridge still starts, and commands are judged for everyone working instead of for one person.
+
    On a Mac the wrapper uses `sandbox-exec`: the command and everything it starts can open outbound connections only to the gate's port (and local sockets between its own processes). It can still listen, read and write files and run commands. `SERVANT_SANDBOX_LOCAL_PORTS="9222 5432"` opens other localhost ports it needs. On Linux the wrapper uses `systemd-run` with `IPAddressDeny=any` and `IPAddressAllow=localhost`; for a unit, put those two lines and the proxy variables in its `[Service]` section. If no sandbox is available the wrapper refuses to start the agent rather than start it open.
 
 4. Make entitlements for the systems the team's agents should reach ([entitlements.md](entitlements.md)).
@@ -47,8 +49,8 @@ Say these out loud before relying on it.
 
 - **Hosts, not content.** Allowing a host allows everything on it that the agent's credentials can do, including sending data to it.
 - **Web and browser tools that go through a gateway** are seen as the gateway's host. If the gateway is on the `always` list, the agent can read any public page through it and the gate does not see which. Leave it off the list unless that is acceptable.
-- **Per-person tokens are not passed to the agent yet.** Until the bridge gives each person's commands their own token, traffic is judged for everyone whose agent is working at that moment. Two people working at once can only reach what both may reach; that is strict, never loose.
-- **Only agent chats count as "working".** A reply to `@agent` in a channel or direct message does not, so it reaches only the `always` list.
+- **Whose traffic it is.** Each turn tells the bridge whose it is, and that chat's terminal commands present a token to the gate, so they are judged for that person alone. Each chat with a token gets its own shell; in a thread several people share, the shell starts fresh when a different person asks. Traffic that carries no token (the agent's own process, tools that don't run in the terminal, and everything on a Hermes too old to support this) is judged for everyone whose agent is working at that moment: agent chats, replies to `@agent`, and wiki pages the agent is writing. Two people working at once can then only reach what both may reach; that is strict, never loose.
+- **The token is not a wall between people.** It keeps a command honest about whose it is. Commands still run as one user on one computer, and one that goes looking can read another's environment. For a real wall, run each person's agent under its own account or container.
 - **Tools that don't use a proxy** (some websocket and browser paths) have no network inside the sandbox.
 - **The Linux wrapper has not been run on a server yet**; the Mac one has.
 - The sandbox limits the network only. Files and commands on the server's computer are as open as they were; see [member-security.md](member-security.md).

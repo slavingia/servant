@@ -58,7 +58,8 @@ export function SkeletonRows({ label, count = 7, avatar = true, style }: { label
 const styles = StyleSheet.create({
   list: { paddingTop: space.xs },
   row: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingHorizontal: space.side, paddingVertical: space.sm, minHeight: 64 },
-  avatar: { width: 40, height: 40, borderRadius: radius.md },
+  // Circle, matching the people avatars that replace it, so the shape does not jump on load.
+  avatar: { width: 40, height: 40, borderRadius: radius.pill },
   lines: { flex: 1, gap: 8 },
   line: { height: 12, borderRadius: radius.pill },
   short: { height: 10 },

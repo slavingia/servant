@@ -28,8 +28,8 @@ test("a chat's screen is not held back by asking whose chat it is", () => {
 test("everything a chat needs is asked for at once, and the screen's first load takes those requests", () => {
   assert.match(cache, /const load = \{ info: api\.chat\(account, id\), messages: api\.messages\(account, id\), turns: readOnly \? Promise\.resolve\(\[\]\) : chatTurns\(account, id\) \};/);
   const conversation = screen.slice(screen.indexOf("function ChatConversation("));
-  assert.match(conversation, /const first = takeChatLoad\(account, id\);\n\s+return Promise\.all\(\[first\?\.messages \?\? api\.messages\(account, id\), first\?\.turns \?\? chatTurns\(account, id\)\]\)/);
-  assert.match(conversation, /\(peekChatLoad\(account, id\)\?\.info \?\? api\.chat\(account, id\)\)\.then\(/, "the chat's settings come from the same request");
+  assert.match(conversation, /const first = takeChatLoad\(account, id\);\n\s+return chatMade\(account, id\)\.then\(\(\) => Promise\.all\(\[first\?\.messages \?\? api\.messages\(account, id\), first\?\.turns \?\? chatTurns\(account, id\)\]\)/);
+  assert.match(conversation, /chatMade\(account, id\)\.then\(\(\) => peekChatLoad\(account, id\)\?\.info \?\? api\.chat\(account, id\)\)\.then\(/, "the chat's settings come from the same request");
   const shared = screen.slice(screen.indexOf("function SharedChatView()"), screen.indexOf("function ChatConversation("));
   assert.match(shared, /const first = takeChatLoad\(account, id\);/);
 });
@@ -55,7 +55,7 @@ test("a chat that was open before starts from what it showed, never from a reply
   // Only what the server has confirmed is kept.
   assert.match(conversation, /if \(messages === null \|\| loadError \|\| !hasShown\.current \|\| messages\.some\(row => row\.localId \|\| row\.pending\)\) return;/);
   // A chat deleted because it was never used is not kept either.
-  assert.match(conversation, /forgetChat\(a, String\(id\)\); void api\.deleteChat\(a, String\(id\)\)/);
+  assert.match(conversation, /forgetChat\(a, String\(id\)\); void chatMade\(a, String\(id\)\)\.then\(\(\) => api\.deleteChat\(a, String\(id\)\)\)/);
   // A refresh that fails leaves the kept messages up instead of the error page, and says why above the message box.
   assert.match(conversation, /if \(hasShown\.current\) \{ setSendError\(e instanceof ServerError \? e\.message : "Check your connection and try again\."\); return; \}\n\s+setMessages\(\[\]\);/);
 });
@@ -63,4 +63,17 @@ test("a chat that was open before starts from what it showed, never from a reply
 test("kept chats live in memory only", () => {
   assert.doesNotMatch(cache, /setItem|SecureStore|localStorage|AsyncStorage/);
   assert.match(cache, /createScreenCache<ChatSnapshot>\(30\)/);
+});
+
+test("a new chat opens at once: the phone names it, shows it empty and the server makes it behind", () => {
+  const made = read("lib/new-chat.ts");
+  assert.ok(made.indexOf("keepChat(account, id, { info, messages: [], turns: [] });") < made.indexOf("router.push("), "the empty chat is ready before the screen opens");
+  assert.match(made, /api\.newChat\(account, \{ \.\.\.entry\.options, id \}\)/);
+  for (const file of ["app/(tabs)/agent.tsx", "app/project.tsx", "components/Messaging.tsx"]) {
+    const src = read(file);
+    assert.match(src, /openNewChat\(account/, `${file} opens new chats at once`);
+    assert.doesNotMatch(src, /await api\.newChat\(/, `${file} doesn't wait for the server`);
+  }
+  const conversation = screen.slice(screen.indexOf("function ChatConversation("));
+  assert.match(conversation, /await chatMade\(account, String\(id\)\);\n\s+const out: Upload\[\] = \[\];/, "files and messages wait for the chat to exist");
 });

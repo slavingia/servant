@@ -227,6 +227,7 @@ export default function Members() {
         {sort === "org" && me && !owner ? <View style={styles.orgNote}>
           <Text testID="my-manager" style={styles.orgNoteText}>{myManager ? `You report to ${myManager.name}. They decide what your agent may reach.` : "Nobody is set as your manager yet."}</Text>
           <Button testID="invite-manager" label="Invite your manager" kind="link" onPress={() => setInviting(true)} style={styles.orgNoteAction} />
+          <Button testID="open-entitlements" label="Ask for an entitlement" kind="link" onPress={() => router.push("/entitlements")} style={styles.orgNoteAction} />
         </View> : null}
         {error && !managed ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
       </View>}

@@ -40,6 +40,7 @@ import { tweetIds } from "../lib/tweet-embed";
 import { conversationPreview } from "../lib/conversation-preview";
 import { parseForward } from "../lib/forward";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
+import { openNewChat } from "../lib/new-chat";
 
 export const when = (ms: number) => shortTime(ms);
 
@@ -58,8 +59,7 @@ export function Avatar({ name, agent, size = 34, userId, tapToMessage, onBrand }
     setOpening(true);
     try {
       if (agent) {
-        const chat = await api.newChat(account, {});
-        router.push({ pathname: "/chat/[id]", params: { id: chat.id, title: chat.title, compose: "1" } });
+        openNewChat(account);
       } else if (userId) {
         const conversation = await api.openDm(account, [userId]);
         router.push({ pathname: "/c/[id]", params: { id: conversation.id, title: name } });
@@ -355,7 +355,7 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
             </Pressable>;
           })}
         </View> : null}
-        {available && Platform.OS === "web" ? <Pressable accessibilityRole="button" accessibilityLabel={`Actions for ${post.user.name}'s message`} onPress={actions} style={styles.more}><Text style={styles.moreText}>•••</Text></Pressable> : null}
+        {available && Platform.OS === "web" ? <Pressable accessibilityRole="button" accessibilityLabel={`Actions for ${post.user.name}'s message`} onPress={actions} style={styles.more}><Text selectable={false} style={styles.moreText}>•••</Text></Pressable> : null}
         {onOpenThread && post.alsoInChannel && !post.deleted ? (
           <Pressable accessibilityRole="button" accessibilityLabel={`${replyContext(post)}. View thread`} onPress={onOpenThread} style={styles.replies}>
             <Text style={styles.repliesText}>View thread</Text>
