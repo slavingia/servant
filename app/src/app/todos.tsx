@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
-import { AppState, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { AppState, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { BallRefreshControl } from "../components/BallRefreshControl";
 import { Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { TodoList } from "../components/TodoList";
 import { todoFilterSummary } from "../lib/todo-list";
@@ -7,7 +8,7 @@ import { Button } from "../components/Button";
 import { useProjects } from "../lib/projects-store";
 import { accountId, api, ServerError, type Account, type TodoItem } from "../lib/server";
 import { useSession } from "../lib/session";
-import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
+import { radius, space, typography, createThemedStyles } from "../lib/theme";
 import { ServeLoader } from "../components/ServeLoader";
 
 // Every to-do you can see, as a board: To do, In progress and Done. Yours, the ones for you, and your projects'.
@@ -24,7 +25,6 @@ export default function Todos() {
 
 function TodoScreen({ account, params }: { account: Account; params: { id?: string; project?: string; release?: string } }) {
   const styles = useStyles();
-  const { colors } = useTheme();
   const projects = useProjects();
   const [scope, setScope] = useState<Scope>("all");
   const [project, setProject] = useState<string | undefined>(params.project);
@@ -116,7 +116,7 @@ function TodoScreen({ account, params }: { account: Account; params: { id?: stri
   const summary = [todoFilterSummary({ mine: scope === "mine", project: current?.name, release: current?.releases.find(r => r.id === release)?.name, done: false }),
     epic?.text].filter(Boolean).join(" · ");
   return (
-    <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} tintColor={colors.blue} />}>
+    <ScrollView style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" refreshControl={<BallRefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}>
       <Stack.Screen options={{ title: current ? `${current.name} to-dos` : "To-dos" }} />
       {selectedId ? <Button label="All to-dos" kind="link" disabled={writing} onPress={() => setSelectedId(undefined)} /> : null}
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}

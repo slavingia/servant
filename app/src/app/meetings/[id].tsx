@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { AppState, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { BallRefreshControl } from "../../components/BallRefreshControl";
 import { Redirect, router, Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -12,7 +13,7 @@ import { useSession } from "../../lib/session";
 import { deleteDescription } from "../../lib/records-notice";
 import { landingHref, useFeatures } from "../../lib/features";
 import { shortTime } from "../../lib/time-label";
-import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../../lib/theme";
+import { radius, space, typography, createThemedStyles, linkUnderline } from "../../lib/theme";
 import { ServeLoader } from "../../components/ServeLoader";
 
 // One shape for both kinds, so the screen below doesn't care where the meeting came from.
@@ -43,7 +44,6 @@ export default function MeetingDetail() {
 
 function MeetingDetailContent() {
   const styles = useStyles();
-  const { colors } = useTheme();
   const { account, setAccount } = useSession();
   const { id, kind: kindParam } = useLocalSearchParams<{ id: string; kind?: string }>();
   const kind: MeetingKind = kindParam === "recording" || (!kindParam && String(id).startsWith("rec_")) ? "recording" : "call";
@@ -137,7 +137,7 @@ function MeetingDetailContent() {
   const who = peopleText(meeting.people, account.user.id);
   const meta = [shortTime(meeting.startedAt), durationText(meeting.durationMs), who].filter(Boolean).join(" · ");
   const ready = meeting.status === "done";
-  return <ScrollView style={styles.root} contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={refreshing} tintColor={colors.blue} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}>
+  return <ScrollView style={styles.root} contentContainerStyle={styles.content} refreshControl={<BallRefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}>
     <Stack.Screen options={{ title: meeting.title }} />
     <Text accessibilityRole="header" style={styles.title}>{meeting.title}</Text>
     <Text style={styles.meta}>{meta}</Text>

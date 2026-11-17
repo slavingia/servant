@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, AppState, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, AppState, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { BallRefreshControl } from "../../components/BallRefreshControl";
 import { Redirect, router, useFocusEffect } from "expo-router";
 import { AppIcon } from "../../components/AppIcon";
 import { Button } from "../../components/Button";
@@ -82,7 +83,7 @@ export default function Meetings() {
       data={list ?? []}
       keyExtractor={m => `${m.kind}:${m.id}`}
       contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={refreshing} tintColor={colors.blue} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
+      refreshControl={<BallRefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
       ListHeaderComponent={header}
       ListEmptyComponent={list === null
         ? (error ? <View style={styles.empty}><Text accessibilityRole="alert" style={styles.emptyBody}>{error}</Text><Button label="Try again" kind="secondary" onPress={() => void load()} /></View> : <ServeLoader style={{ marginTop: space.xl }} />)

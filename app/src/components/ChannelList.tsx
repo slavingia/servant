@@ -1,6 +1,7 @@
 import { Radio } from "./Radio";
 import { memo, useCallback, useRef, useState } from "react";
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { BallRefreshControl } from "./BallRefreshControl";
 import { router, useFocusEffect, useIsFocused, useScrollToTop } from "expo-router";
 import { useWhileHidden } from "../lib/hidden-screen";
 import { AppIcon } from "./AppIcon";
@@ -154,7 +155,7 @@ const ChannelRows = memo(function ChannelRows({ archived, conversations, error, 
         onEndReached={() => { if (discovering && channelsOpen && !unreadOnly && !discovery.error) void discovery.more(); }}
         onEndReachedThreshold={0.4}
         onScrollBeginDrag={closeRow}
-        refreshControl={<RefreshControl refreshing={refreshing} tintColor={colors.blue} onRefresh={() => void reload()} />}
+        refreshControl={<BallRefreshControl refreshing={refreshing} onRefresh={() => void reload()} />}
         ListHeaderComponent={<View>
           {archived ? null : <PageTitle>Home</PageTitle>}
           {archived ? null : <EmailNudge />}

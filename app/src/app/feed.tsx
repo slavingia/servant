@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
-import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { BallRefreshControl } from "../components/BallRefreshControl";
 import { useFocusEffect } from "expo-router";
 import { api, ServerError, type FeedItem } from "../lib/server";
 import { useSession } from "../lib/session";
@@ -28,7 +29,7 @@ export default function FeedScreen() {
   const dot = (k: FeedRow["kind"]) => k === "shipped" ? colors.green : k === "sent" ? colors.blue : colors.muted;
 
   return <ScrollView style={styles.root} contentContainerStyle={styles.content}
-    refreshControl={<RefreshControl tintColor={colors.blue} refreshing={refreshing} onRefresh={async () => { setRefreshing(true); try { await load(); } finally { setRefreshing(false); } }} />}>
+    refreshControl={<BallRefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); try { await load(); } finally { setRefreshing(false); } }} />}>
     <Text style={styles.intro}>What the agent did lately.</Text>
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
     {!items && !error ? <ServeLoader style={styles.spinner} /> : null}

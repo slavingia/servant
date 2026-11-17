@@ -1,6 +1,7 @@
 import { Radio } from "../components/Radio";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AppState, FlatList, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { BallRefreshControl } from "../components/BallRefreshControl";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import * as Crypto from "expo-crypto";
@@ -192,7 +193,7 @@ function SavedTasks({ account }: { account: Account }) {
   return <View style={styles.screen}>
     <FlatList<ListRow> style={styles.list} contentContainerStyle={styles.content} data={rows}
       keyExtractor={row => row.kind === "history" ? `history:${row.item.id}` : row.item.messageId}
-      refreshing={refreshing && data !== null} onRefresh={() => { if (!changing.current) void load(true); }} keyboardShouldPersistTaps="handled"
+      refreshControl={<BallRefreshControl refreshing={refreshing && data !== null} onRefresh={() => { if (!changing.current) void load(true); }} />} keyboardShouldPersistTaps="handled"
       ListHeaderComponent={<>
         {/* The header says where this is. The sections are the section tabs of Project and Files. */}
         <View style={styles.tabBar}><View accessibilityRole="tablist" style={styles.tabs}>{([["open", "In progress", open.length], ["completed", "Completed", completed.length], ["history", "Work log", workLog.length]] as const).map(([value, label, count]) =>

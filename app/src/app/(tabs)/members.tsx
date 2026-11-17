@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, FlatList, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
+import { BallRefreshControl } from "../../components/BallRefreshControl";
 import * as Clipboard from "expo-clipboard";
 import { Redirect, router, useFocusEffect, useScrollToTop } from "expo-router";
 import { SkeletonRows } from "../../components/Skeleton";
@@ -204,7 +205,7 @@ export default function Members() {
       data={shown}
       keyExtractor={person => person.id}
       keyboardShouldPersistTaps="handled"
-      refreshControl={<RefreshControl tintColor={colors.blue} colors={[colors.blue]} progressBackgroundColor={colors.surface} refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />}
+      refreshControl={<BallRefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />}
       ListHeaderComponent={<View>
         {/* Same header as Messages and Agent: title on the left, one icon button on the right. The count sits beside the title to save a line. */}
         <View style={styles.header}>

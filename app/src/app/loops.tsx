@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { BallRefreshControl } from "../components/BallRefreshControl";
 import { useFocusEffect } from "expo-router";
 import { api, ServerError, type Loop } from "../lib/server";
 import { useSession } from "../lib/session";
@@ -27,7 +28,7 @@ export default function LoopsScreen() {
   if (!account) return null;
 
   return <ScrollView style={styles.root} contentContainerStyle={styles.content}
-    refreshControl={<RefreshControl tintColor={colors.blue} refreshing={refreshing} onRefresh={async () => { setRefreshing(true); try { await load(); } finally { setRefreshing(false); } }} />}>
+    refreshControl={<BallRefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); try { await load(); } finally { setRefreshing(false); } }} />}>
     <Text style={styles.intro}>What the agent does on its own, on a schedule.</Text>
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
     {!loops && !error ? <ServeLoader style={styles.spinner} /> : null}

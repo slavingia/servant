@@ -1,6 +1,7 @@
 import { memo, useCallback, useRef, useState } from "react";
 import { SkeletonRows } from "../../components/Skeleton";
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { BallRefreshControl } from "../../components/BallRefreshControl";
 import { Redirect, router, useFocusEffect, useIsFocused, useScrollToTop } from "expo-router";
 import { useWhileHidden } from "../../lib/hidden-screen";
 import { AppIcon } from "../../components/AppIcon";
@@ -60,10 +61,7 @@ const MessageRows = memo(function MessageRows({ conversations, error, unreachabl
         extraData={{ openId, busyId }}
         onScrollBeginDrag={closeRow}
         refreshControl={
-          <RefreshControl
-            tintColor={colors.blue}
-            colors={[colors.blue]}
-            progressBackgroundColor={colors.surface}
+          <BallRefreshControl
             refreshing={refreshing}
             onRefresh={() => void reload()}
           />

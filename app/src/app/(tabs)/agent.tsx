@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
-import { AppState, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { AppState, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { BallRefreshControl } from "../../components/BallRefreshControl";
 import { router, useFocusEffect, useScrollToTop } from "expo-router";
 import { shortTime as when } from "../../lib/time-label";
 import { AppIcon } from "../../components/AppIcon";
@@ -194,10 +195,7 @@ export default function Chats() {
         keyExtractor={(c) => c.id}
         extraData={{ openId, busyId, view, shared }}
         refreshControl={
-          <RefreshControl
-            tintColor={colors.blue}
-            colors={[colors.blue]}
-            progressBackgroundColor={colors.surface}
+          <BallRefreshControl
             refreshing={refreshing}
             onRefresh={async () => {
               setRefreshing(true);

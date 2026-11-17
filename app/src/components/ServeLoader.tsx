@@ -29,6 +29,10 @@ type Props = {
   accessibilityLabel?: string;
   style?: StyleProp<ViewStyle>;
   testID?: string;
+  /** Show at once, with no quarter-second wait: pull to refresh, where the person asked for it. */
+  immediate?: boolean;
+  /** Rest round and still on its shadow, as with reduced motion: the pull before the refresh starts. */
+  still?: boolean;
 };
 
 function useReduceMotion() {
@@ -42,18 +46,19 @@ function useReduceMotion() {
   return reduced;
 }
 
-export function ServeLoader({ size = "small", accessibilityLabel = "Loading", style, testID }: Props) {
+export function ServeLoader({ size = "small", accessibilityLabel = "Loading", style, testID, immediate = false, still = false }: Props) {
   const d = typeof size === "number" ? size : SIZES[size];
   const id = useId().replace(/[^a-zA-Z0-9]/g, "");
-  const reduced = useReduceMotion();
+  const reduced = useReduceMotion() || still;
   const [t] = useState(() => new Animated.Value(0));
   const keys = useMemo(() => serveKeyframes(), []);
   const [shown] = useState(() => new Animated.Value(0));
   useEffect(() => {
+    if (immediate) { shown.setValue(1); return; }
     const appear = Animated.timing(shown, { toValue: 1, duration: LOADER_FADE_MS, delay: LOADER_DELAY_MS, easing: Easing.linear, useNativeDriver: Platform.OS !== "web" });
     appear.start();
     return () => appear.stop();
-  }, [shown]);
+  }, [shown, immediate]);
 
   useEffect(() => {
     if (reduced) return;

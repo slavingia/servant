@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { FlatList, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
+import { FlatList, StyleSheet, Text, TextInput, View } from "react-native";
+import { BallRefreshControl } from "./BallRefreshControl";
 import { useFocusEffect } from "expo-router";
 import { Button } from "./Button";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -81,7 +82,7 @@ export function WikiAbbreviations({ account, header }: { account: Account; heade
 
   return <View style={styles.root}>
     <FlatList data={filtered} keyExtractor={entry => entry.id} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl tintColor={colors.blue} refreshing={refreshing} onRefresh={() => void load()} />}
+      refreshControl={<BallRefreshControl refreshing={refreshing} onRefresh={() => void load()} />}
       ListHeaderComponent={<>
         {header}
         <Text style={styles.intro}>In messages, these are underlined with dots. Hover over one, or tap it on a phone, to see what it means. Everyone on this server shares them.</Text>
