@@ -578,3 +578,27 @@ test('with records preservation on, the approval decision and what was attached 
     }
   }
 });
+
+// The server, not the worker, knows the agent is waiting on a manager: its line shows on the running reply.
+test('a line from outside the worker shows on the reply running in that chat, and nowhere else', async t => {
+  const file = fixture(t), started = deferred(), finish = deferred();
+  const worker = createAgentTurns({ file, execute: async (_t, { emit }) => { emit('sent', { message: { id: 'user' } }); started.resolve(); await finish.promise; emit('message', { id: 'answer', text: 'Done' }); return {}; } });
+  const api = createAgentTurns({ file });
+  try {
+    assert.equal(api.noteForChat('chat', 'Waiting for Ana Ruiz to allow GitHub write'), false, 'no reply is running yet');
+    const turn = api.enqueue(input());
+    void worker.processNext();
+    await started.promise;
+    assert.equal(api.noteForChat('other-chat', 'Waiting'), false);
+    assert.equal(api.noteForChat(null, 'Waiting'), false);
+    assert.equal(api.noteForChat('chat', 'Waiting for Ana Ruiz to allow GitHub write'), true);
+    const during = api.get(turn.id);
+    assert.equal(during.activity, 'Waiting for Ana Ruiz to allow GitHub write');
+    assert.equal(during.steps.at(-1).label, 'Waiting for Ana Ruiz to allow GitHub write');
+    assert.equal(api.noteForChat('chat', 'x'.repeat(200)), true);
+    assert.equal(api.get(turn.id).activity.length, 80, 'kept to a line');
+    finish.resolve();
+    await worker.whenIdle();
+    assert.equal(api.noteForChat('chat', 'Waiting'), false, 'a finished reply takes no more lines');
+  } finally { worker.close(); api.close(); }
+});

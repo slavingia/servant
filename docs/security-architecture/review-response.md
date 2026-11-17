@@ -159,13 +159,14 @@ Still open: the archive makes tampering detectable, not impossible, for someone 
 | Every entitlement request, decision, single use and revocation, with who and when | `entitlements.db`, `history` | No (refuses updates and deletes) |
 | Every checked agent action: whose agent, which chat, the action, what it needed, how it ended | `entitlements.db`, `actions` | No (refuses updates and deletes) |
 | Hosts an agent was refused, per person | `egress.db`, `attempts` | Counts are updated in place |
+| Hosts an agent reached, per person (or the agent itself), per day, with how many connections | `egress.db`, `reached` | Counts are updated in place |
 | Tokens used per person per turn (no prompt text) | `usage.db` | Appended |
 | Edits and deletes of content, when records preservation is on | `messages.db`, `records_archive` | No (hash-chained) |
 | Terms accepted, with version, time and device | server state | Appended |
 
 Owners read the first three in the app's Entitlements screen and over the API.
 
-Still open: connections the gate **allowed** are not logged, only refused ones. Tool calls that touch neither files nor GitHub are not logged. Nothing is shipped to an outside log collector; the logs live on the server's computer, where the server's user can reach the files.
+Still open: allowed connections are counted per person, host and day, not listed one by one. Tool calls that touch neither files nor GitHub are not logged. Nothing is shipped to an outside log collector; the logs live on the server's computer, where the server's user can reach the files.
 
 ## 8. Exposure to the internet through Cloudflare
 
@@ -183,7 +184,7 @@ A server keeps the defaults in the summary table until its owner changes them, s
 
 - Per-person model and GitHub credentials (today the agent uses the owner's for everyone).
 - Encryption at rest.
-- A log of allowed network connections, and shipping logs off the computer.
+- Shipping logs off the computer.
 - Path- or repository-level entitlements (today: all files, all of GitHub).
 - Detection of prompt injection.
 - Sign-in with a federal identity provider or certificate card.

@@ -31,7 +31,7 @@ They are **asked for by use**. Nobody fills in a form: the first time someone's 
 - **Allow always**: the person holds the entitlement from now on, until someone takes it back.
 - **Decline**: the agent is told no and passes that on. It is not asked about again until the person asks for it themselves in Entitlements.
 
-The agent waits a while for the answer (`waitSeconds`, 120 by default) and carries on by itself if it comes in time. If it doesn't, the agent tells the person it is waiting on their manager, and the request stays open; once it is answered, the person asks the agent to try again. Every step is in the entitlement's history: the request with what the agent was about to do, who allowed it and how, and when a single allowance was used.
+While it waits, the reply's progress line says so ("Waiting for Ana Ruiz to allow GitHub write"). The agent waits a while for the answer (`waitSeconds`, 120 by default) and carries on by itself if it comes in time. If it doesn't, the agent tells the person it is waiting on their manager, and the request stays open; once it is answered, the person asks the agent to try again. Every step is in the entitlement's history: the request with what the agent was about to do, who allowed it and how, and when a single allowance was used.
 
 The same rules apply as to any entitlement: a manager can only allow what they hold themselves, owners can allow anything, and an owner's own agent is not held back. The GitHub pair also opens GitHub's hosts through the network gate, and a single allowance keeps them open for ten minutes after it is used so the one action can finish. An owner can change those hosts.
 
@@ -63,7 +63,6 @@ It holds command lines and file paths, which can be sensitive in themselves; it 
 - This is a check on what the agent is about to do, made inside the agent. It is not a wall around the files: a program the agent was allowed to run can do more than its command line shows. Filesystem write is the entitlement that says "this person's agent may run arbitrary commands", and should be allowed with that in mind.
 - "Read" and "write" are for all of GitHub the server's credentials reach and all files the server's user can reach, not one repository or folder.
 - Only the full agent is checked. The restricted member and researcher agents have no file tools or shell to check.
-- While the agent waits for an answer, its progress line still says it is working.
 
 ## Managers
 

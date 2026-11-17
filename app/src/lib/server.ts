@@ -89,7 +89,7 @@ export type PrototypeComment = { id: string; page: string; anchor: string; text:
 export type PrototypeShare = { id: string; email: string; createdAt: number; verifiedAt?: number; lastSeenAt?: number; endedAt?: number; comments: PrototypeComment[] };
 export type EntitlementDraft = { name: string; description: string; hosts: string[]; confirmation: string };
 export type EntitlementsPage = { /** Whether built-in entitlements are checked before the agent acts. */ capabilities?: { mode: "ask" | "off" }; entitlements: Entitlement[]; canCreate: boolean; waiting: number; manager: { id: string; name: string } | null; reports: { id: string; name: string }[];
-  egress: { mode: "ask" | "off"; always?: string[]; refused?: { userId: string; name: string; host: string; attempts: number; lastAt: number }[] } };
+  egress: { mode: "ask" | "off"; always?: string[]; refused?: { userId: string; name: string; host: string; attempts: number; lastAt: number }[]; /** What agents did reach: per person (or the agent itself), host and day. */ reached?: { userId: string; name: string; host: string; day: string; connections: number; lastAt: number }[] } };
 // width, height: a picture's size in pixels as it is shown, read by the server when the file was stored. Absent
 // for a file from before the server kept sizes and for one that is not a picture (lib/picture-box.ts).
 export type Attachment = { id: string; name: string; mime: string; size: number; width?: number; height?: number };
