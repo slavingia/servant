@@ -967,14 +967,21 @@ function ChatConversation({ account }: { account: Account }) {
   const canForward = anyTalk(features);
   const activeTurn = turn && activeAgentTurn(turn) ? turn : null;
   const me = account.user;
+  // A reaction shows at once and is put back if the server says no.
+  const onReact = useStableCallback((messageId: string, emoji: string, active: boolean) => {
+    const apply = (reactions: Message["reactions"]) => setMessages(rows => rows?.map(r => r.id === messageId ? { ...r, reactions } : r) ?? rows);
+    const before = messages?.find(r => r.id === messageId)?.reactions;
+    apply(toggled(before, emoji, me.id, active));
+    api.reactChatMessage(account, String(id), messageId, emoji, active).then(apply).catch(() => apply(before));
+  });
   const renderItem = useCallback(({ item }: { item: Row }) => {
     const working = item.role !== "user" && item.pending;
     // The reply this phone just followed to its end has its turn at hand before the next look at the list.
     const work = item.role !== "user" && !working ? worked.get(item.id) ?? (turn?.messageId === item.id && workedFor(turn) ? turn : undefined) : undefined;
     return <ChatRow item={item} chatId={String(id)} me={me} role={me.role} canForward={canForward} work={work} settle={work?.id === watched}
       turn={working ? activeTurn : null} status={working && !item.agentWorking ? status : null} uploadProgress={item.uploads?.length && item.pending ? uploadProgress : null}
-      onForward={setForwarding} onUnqueue={onUnqueue} loadSteps={loadSteps} />;
-  }, [worked, turn, watched, activeTurn, status, uploadProgress, id, me, canForward, onUnqueue, loadSteps]);
+      onForward={setForwarding} onUnqueue={onUnqueue} loadSteps={loadSteps} onReact={readOnly ? undefined : onReact} />;
+  }, [worked, turn, watched, activeTurn, status, uploadProgress, id, me, canForward, onUnqueue, loadSteps, readOnly, onReact]);
   const chatEmpty = messages?.length === 0 && !firstRow && loadError ? (
     <View style={styles.empty}>
       <Text accessibilityRole="header" style={styles.emptyTitle}>Couldn't load this chat</Text>
@@ -1134,8 +1141,23 @@ type ChatRowProps = {
   /** Only for a message whose files are still going up. */
   uploadProgress: string | null;
   onForward: (target: ForwardTarget) => void; onUnqueue: (turn: AgentTurn) => void; loadSteps: (turnId: string) => Promise<AgentStep[]>;
+  /** Left out where the person can only read the chat. */
+  onReact?: (messageId: string, emoji: string, active: boolean) => void;
 };
-const ChatRow = memo(function ChatRow({ item, chatId, me, role, canForward, work, settle, turn, status, uploadProgress, onForward, onUnqueue, loadSteps }: ChatRowProps) {
+
+const REACTIONS = [
+  ["👍", "Like"], ["❤️", "Love"], ["😂", "Laugh"], ["😮", "Surprised"],
+  ["😢", "Sad"], ["🙏", "Thanks"], ["🎉", "Celebrate"], ["✅", "Done"],
+  ["👀", "Looking"], ["🔥", "Fire"], ["👏", "Applause"], ["💯", "Hundred"],
+];
+
+/** The reactions after one person adds or takes back one emoji, grouped the way the server groups them. */
+function toggled(reactions: Message["reactions"], emoji: string, userId: string, active: boolean): NonNullable<Message["reactions"]> {
+  const list = (reactions ?? []).map(r => r.emoji !== emoji ? r : { ...r, userIds: active ? [...new Set([...r.userIds, userId])] : r.userIds.filter(u => u !== userId) });
+  if (active && !list.some(r => r.emoji === emoji)) list.push({ emoji, userIds: [userId] });
+  return list.filter(r => r.userIds.length > 0);
+}
+const ChatRow = memo(function ChatRow({ item, chatId, me, role, canForward, work, settle, turn, status, uploadProgress, onForward, onUnqueue, loadSteps, onReact }: ChatRowProps) {
   const styles = useStyles();
   const mine = item.role === "user";
   const working = !mine && item.pending;
@@ -1145,7 +1167,9 @@ const ChatRow = memo(function ChatRow({ item, chatId, me, role, canForward, work
   // In a shared chat the owner may have posted: show them, not the chat's author.
   const person = mine ? messagePerson(item, me) : { id: undefined, name: "Agent" };
   const byOther = mine && person.id !== me.id;
-  return <MessageActions item={item} author={person.name} canForward={!queued && !item.pending && !item.failed && canForward} onForward={onForward} chatId={chatId}
+  // Only a stored message takes a reaction, not one still being written or sent.
+  const react = onReact && /^msg_/.test(item.id) && !item.pending && !item.failed && !queued ? (emoji: string, active: boolean) => onReact(item.id, emoji, active) : undefined;
+  return <MessageActions item={item} me={me.id} onReact={react} author={person.name} canForward={!queued && !item.pending && !item.failed && canForward} onForward={onForward} chatId={chatId}
     label={mine ? `${byOther ? `${person.name}'s` : "Your"} message${queued ? (queued.steerRequested ? ", being added to the current reply" : ", waiting for the current reply") : item.pending ? ", not yet received" : deviceLabel ? `, sent from ${deviceLabel}` : ""}` : "Agent response"} style={[styles.message, item.failed && styles.failed, item.pending && mine && styles.unconfirmed, queued && styles.queuedMessage]}>
     <Avatar name={person.name} agent={!mine} userId={person.id} size={34} />
     <View style={styles.messageCopy}>
@@ -1164,6 +1188,15 @@ const ChatRow = memo(function ChatRow({ item, chatId, me, role, canForward, work
         <Text accessibilityLiveRegion="polite" aria-live="polite" style={styles.queuedDetail}>{queued.steerRequested ? "Adding this to the current reply…" : "Sends after the current reply"}</Text>
         {!queued.steerRequested ? <IconButton icon="close" label="Remove waiting message" size={14} onPress={() => onUnqueue(queued)} style={styles.barIcon} /> : null}
       </View> : null}
+      {item.reactions?.length ? <View style={styles.reactions}>
+        {item.reactions.map(r => {
+          const selected = r.userIds.includes(me.id);
+          return <Pressable key={r.emoji} testID={`reaction-${r.emoji}`} accessibilityRole="button" accessibilityLabel={`${r.emoji}, ${r.userIds.length} ${r.userIds.length === 1 ? "reaction" : "reactions"}${selected ? ", including you. Remove reaction" : ". Add reaction"}`}
+            accessibilityState={{ selected, disabled: !react }} aria-pressed={selected} disabled={!react} onPress={() => react?.(r.emoji, !selected)} style={styles.reaction}>
+            <View style={[styles.reactionPill, selected && styles.selectedReaction]}><Text style={styles.reactionText}>{r.emoji} {r.userIds.length}</Text></View>
+          </Pressable>;
+        })}
+      </View> : null}
       {item.interrupted ? <Text style={styles.typing}>Cut off before it finished</Text> : null}
       {item.waitingForAgent ? <Text accessibilityLiveRegion="polite" style={styles.typing}>Sends when the agent is free</Text> : null}
     </View>
@@ -1171,14 +1204,16 @@ const ChatRow = memo(function ChatRow({ item, chatId, me, role, canForward, work
 });
 
 // Touch and hold a message (or ••• on the web) to copy it or forward it to a channel or DM.
-function MessageActions({ item, author, chatId, canForward, onForward, label, style, children }: { item: Row; author: string; chatId: string; canForward: boolean; onForward: (t: ForwardTarget) => void; label: string; style: object; children: ReactNode }) {
+function MessageActions({ item, me, onReact, author, chatId, canForward, onForward, label, style, children }: { item: Row; me?: string; onReact?: (emoji: string, active: boolean) => void; author: string; chatId: string; canForward: boolean; onForward: (t: ForwardTarget) => void; label: string; style: object; children: ReactNode }) {
   const styles = useStyles();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [selecting, setSelecting] = useState(false);
   const text = (item.role === "user" ? parseForward(item.text)?.rest ?? item.text : item.text) || "";
   const forwardable = canForward && /^msg_/.test(item.id) && (!!item.text || !!item.attachments?.length);
-  const available = forwardable || !!text;
+  const available = forwardable || !!text || !!onReact;
+  const reacted = (emoji: string) => !!me && !!item.reactions?.some(r => r.emoji === emoji && r.userIds.includes(me));
+  const choose = (emoji: string) => { setOpen(false); onReact?.(emoji, !reacted(emoji)); };
   const show = () => { if (available) { setCopied(null); setSelecting(false); setOpen(true); } };
   const forward = () => { setOpen(false); onForward({ chatId, messageId: item.id, author, text: text.replace(/\n?PREVIEW:\s*https?:\/\/\S+\s*$/, ""), files: item.attachments?.length ?? 0 }); };
   const copy = async () => {
@@ -1187,7 +1222,7 @@ function MessageActions({ item, author, chatId, canForward, onForward, label, st
   return <>
     <Pressable onLongPress={show} delayLongPress={400} accessible={false} style={style}>
       <View accessible accessibilityLabel={label} accessibilityHint={available ? "Touch and hold to copy or forward" : undefined}
-        accessibilityActions={available ? [{ name: "activate", label: "Copy or forward" }] : undefined} onAccessibilityAction={show} style={styles.actionsRow}>
+        accessibilityActions={available ? [{ name: "activate", label: onReact ? "React, copy or forward" : "Copy or forward" }] : undefined} onAccessibilityAction={show} style={styles.actionsRow}>
         {children}
       </View>
       {available && Platform.OS === "web" ? <Pressable testID={`message-actions-${item.id}`} accessibilityRole="button" accessibilityLabel={`Actions for ${author}'s message`} onPress={show} style={styles.more}><Text style={styles.moreText}>•••</Text></Pressable> : null}
@@ -1197,6 +1232,14 @@ function MessageActions({ item, author, chatId, canForward, onForward, label, st
         <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel="Dismiss message actions" onPress={() => setOpen(false)} />
         <View accessibilityViewIsModal style={styles.menuCard}>
           <Text style={styles.menuAuthor}>{author}</Text>
+          {onReact && !selecting ? <View style={styles.reactionMenu}>
+            {REACTIONS.map(([emoji, name]) => {
+              const selected = reacted(emoji);
+              return <Pressable key={emoji} testID={`message-react-${emoji}`} accessibilityRole="button" accessibilityLabel={selected ? `Remove ${name}` : `React with ${name}`} aria-pressed={selected} onPress={() => choose(emoji)} style={[styles.reactionChoice, selected && styles.selectedReaction]}>
+                <Text style={styles.reactionChoiceText}>{emoji}</Text>
+              </Pressable>;
+            })}
+          </View> : null}
           {selecting ? <ScrollView style={styles.selectScroll}>
             <SelectableText testID="message-selectable-text" style={styles.selectableText}>{text}</SelectableText>
           </ScrollView> : <>
@@ -1241,6 +1284,14 @@ const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create
   moreText: { ...typography.label, color: colors.muted },
   menuOverlay: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: space.side, backgroundColor: colors.scrim },
   menuCard: { width: "100%", maxWidth: 420, backgroundColor: colors.background, borderRadius: radius.lg, padding: space.side },
+  reactions: { flexDirection: "row", flexWrap: "wrap", gap: space.xxs, marginTop: space.xxs },
+  reaction: { minHeight: 44, minWidth: 44, justifyContent: "center" },
+  reactionPill: { minHeight: 28, minWidth: 42, paddingHorizontal: space.xs, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
+  selectedReaction: { backgroundColor: colors.blueSoft, borderColor: colors.blue },
+  reactionText: { ...typography.label, color: colors.ink },
+  reactionMenu: { flexDirection: "row", flexWrap: "wrap", gap: space.xxs, marginBottom: space.xs },
+  reactionChoice: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, borderWidth: 1, borderColor: "transparent" },
+  reactionChoiceText: { ...typography.title },
   menuAuthor: { ...typography.bodyStrong, color: colors.ink, marginBottom: space.xs },
   menuAction: { minHeight: 48, paddingVertical: space.sm, justifyContent: "center", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   menuActionText: { ...typography.body, color: colors.blue },

@@ -68,7 +68,8 @@ export type TodoPatch = { text?: string; status?: "open" | "done"; stage?: TodoS
 export type ProjectRelease = { id: string; name: string; date: string; items: ReleaseItem[]; ready?: boolean; shipped?: { at: number; by: string | null; byName: string } | null };
 // mode "vibe": a vibe-coding chat that builds a prototype with a preview link.
 export type Chat = { usage?: { input: number; output: number; total: number; turns: number }; projectId?: string; projectShared?: boolean; project?: { id: string; name: string }; mode?: "vibe"; previewUrl?: string; files?: boolean; id: string; title: string; titledBy?: "user" | "agent"; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; latestTurn?: AgentTurn | null; members?: ChatMember[] };
-export type Message = { id: string; role: "user" | "assistant"; text: string; at?: number | string | null; attachments?: Attachment[]; pending?: boolean; interrupted?: boolean; sourceDevice?: SourceDevice; postedBy?: { id: string; name: string } };
+export type Reaction = { emoji: string; userIds: string[] };
+export type Message = { id: string; role: "user" | "assistant"; text: string; reactions?: Reaction[]; at?: number | string | null; attachments?: Attachment[]; pending?: boolean; interrupted?: boolean; sourceDevice?: SourceDevice; postedBy?: { id: string; name: string } };
 
 // ----- token leaderboard -----
 export type LeaderboardPeriod = "day" | "week" | "month" | "all";
@@ -615,6 +616,9 @@ export const api = {
   browse: (a: Account) => request(a, "/v1/channels/browse").then(json<{ channels: BrowseChannel[] }>).then((d) => d.channels),
   createChannel: (a: Account, body: { name: string; topic?: string; private?: boolean; memberIds?: string[] }) =>
     request(a, "/v1/conversations", { method: "POST", body: JSON.stringify(body) }).then(json<{ conversation: Conversation }>).then((d) => d.conversation),
+  reactChatMessage: (a: Account, chatId: string, messageId: string, emoji: string, active: boolean) =>
+    request(a, `/v1/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}/reactions`, { method: "POST", body: JSON.stringify({ emoji, active }) })
+      .then(json<{ reactions: Reaction[] }>).then((d) => d.reactions),
   forwardChatMessage: (a: Account, chatId: string, messageId: string, body: { conversationId: string; text?: string }) =>
     request(a, `/v1/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}/forward`, { method: "POST", body: JSON.stringify(body) })
       .then(json<{ conversation: Conversation; message: Post }>),

@@ -40,6 +40,11 @@ export function createChatMediaStore(file, { keepDropped = null } = {}) {
       name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, data BLOB NOT NULL
     );
     CREATE INDEX IF NOT EXISTS chat_attachments_message ON chat_attachments(message_id);
+    CREATE TABLE IF NOT EXISTS chat_reactions (
+      message_id TEXT NOT NULL REFERENCES chat_messages(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL, emoji TEXT NOT NULL, at INTEGER NOT NULL,
+      PRIMARY KEY(message_id, user_id, emoji)
+    );
     CREATE TABLE IF NOT EXISTS chat_history_sync (
       chat_id TEXT PRIMARY KEY, generation INTEGER NOT NULL
     );`);
@@ -54,7 +59,25 @@ export function createChatMediaStore(file, { keepDropped = null } = {}) {
     if (!db.prepare("PRAGMA table_info(chat_attachments)").all().some(c => c.name === column)) db.exec(`ALTER TABLE chat_attachments ADD COLUMN ${column} INTEGER`);
   }
   const files = db.prepare("SELECT id,name,mime,size,width,height FROM chat_attachments WHERE message_id=? ORDER BY rowid");
-  const view = row => ({ id: row.id, role: row.role, text: row.text, at: row.at, attachments: files.all(row.id).map(withPictureSize) });
+  const reactionRows = db.prepare("SELECT emoji,user_id FROM chat_reactions WHERE message_id=? ORDER BY at,rowid");
+  // Grouped by emoji in the order each was first used, the same shape channel messages have.
+  const reactionsOf = id => {
+    const groups = new Map();
+    for (const r of reactionRows.all(id)) groups.set(r.emoji, [...(groups.get(r.emoji) || []), r.user_id]);
+    return [...groups].map(([emoji, userIds]) => ({ emoji, userIds }));
+  };
+  const view = row => {
+    const reactions = reactionsOf(row.id);
+    return { id: row.id, role: row.role, text: row.text, at: row.at, attachments: files.all(row.id).map(withPictureSize), ...(reactions.length ? { reactions } : {}) };
+  };
+  /** Adds or takes back one person's reaction to a stored message. Null when the chat has no such message. */
+  function react(chatId, messageId, userId, emoji, active) {
+    const row = db.prepare("SELECT id FROM chat_messages WHERE chat_id=? AND id=?").get(chatId, String(messageId || ""));
+    if (!row) return null;
+    if (active) db.prepare("INSERT OR IGNORE INTO chat_reactions(message_id,user_id,emoji,at) VALUES (?,?,?,?)").run(row.id, userId, emoji, Date.now());
+    else db.prepare("DELETE FROM chat_reactions WHERE message_id=? AND user_id=? AND emoji=?").run(row.id, userId, emoji);
+    return reactionsOf(row.id);
+  }
   function transaction(fn) {
     db.exec("BEGIN IMMEDIATE");
     try { const result = fn(); db.exec("COMMIT"); return result; }
@@ -158,7 +181,7 @@ export function createChatMediaStore(file, { keepDropped = null } = {}) {
       WHERE m.chat_id=? ORDER BY m.at,m.seq,a.rowid`).all(chatId).map(({ role, ...item }) => ({ ...withPictureSize(item), sender: role === "assistant" ? { id: "agent", name: agentName, agent: true } : sender }));
   }
   return {
-    accept, identify, identifyInput, beginSync, sync, media,
+    accept, identify, identifyInput, beginSync, sync, media, react,
     history: chatId => db.prepare("SELECT * FROM chat_messages WHERE chat_id=? ORDER BY at,seq").all(chatId).map(view),
     last: chatId => { const row = db.prepare("SELECT * FROM chat_messages WHERE chat_id=? ORDER BY at DESC,seq DESC LIMIT 1").get(chatId); return row ? view(row) : null; },
     // One message with its files, for forwarding into a channel or DM. Documents

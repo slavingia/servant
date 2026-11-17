@@ -767,6 +767,7 @@ let chatMedia;
 let agentTurns;
 let privateTimer;
 const privateStreams = new Set();
+const CHAT_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏", "🎉", "✅", "👀", "🔥", "👏", "💯"];
 const chatMediaStore = () => chatMedia ??= createChatMediaStore(path.join(DATA_DIR, "chat-media.db"), {
   // When Hermes stops returning a message, Servant used to delete its own copy. With records preservation on, archive it first.
   keepDropped: (chatId, rowId) => {
@@ -2078,7 +2079,7 @@ async function handle(req, res, cfg) {
   const viewer = currentState.users[user.id] || user;
   const visible = currentState.chats[parts[2]];
   const joining = !!visible && visible.userId !== user.id && mayTakePart(visible, viewer)
-    && ((parts[3] === "messages" && parts.length === 4 && method === "POST") || parts[3] === "uploads" || parts[3] === "turns");
+    && ((parts[3] === "messages" && parts.length === 4 && method === "POST") || (parts[3] === "messages" && parts[5] === "reactions" && parts.length === 6) || parts[3] === "uploads" || parts[3] === "turns");
   if (visible && visible.userId !== user.id && !joining && canReadChat(visible, viewer)) {
     // Someone else's shared chat (or any chat, for the owner): read only.
     // A shared chat's messages can be forwarded to a channel or DM for feedback.
@@ -2322,6 +2323,15 @@ async function handle(req, res, cfg) {
   if (method === "POST" && parts[3] === "uploads" && parts.length === 5) {
     const body = await readAuthorizedBody(req, DOCUMENT_CHUNK_BODY);
     return send(res, 200, documents().append({ chatId: chat.id, userId: user.id, id: parts[4], offset: body.offset, data: body.data }));
+  }
+
+  // A reaction on a message in the chat, the same twelve as in channels. Only stored messages, not a reply still being written.
+  if (method === "POST" && parts[3] === "messages" && parts[5] === "reactions" && parts.length === 6) {
+    const { emoji, active } = await readAuthorizedBody(req);
+    if (!CHAT_REACTIONS.includes(emoji) || typeof active !== "boolean") return fail(res, 400, "invalid_reaction", "Choose a supported reaction");
+    const reactions = chatMediaStore().react(chat.id, parts[4], user.id, emoji, active);
+    if (!reactions) return fail(res, 404, "not_found", "That message is gone");
+    return send(res, 200, { reactions });
   }
 
   if (method === "POST" && parts[3] === "messages" && parts[5] === "forward" && parts.length === 6) {
