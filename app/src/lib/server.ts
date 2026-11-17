@@ -91,6 +91,7 @@ export type Presence = { userId: string; online: boolean; lastSeenAt: number | n
 export type Person = { /** Who decides this person's entitlement requests; owners have none. */ managerId?: string; email?: string | null; emailVerified?: boolean; agentTier?: number; tokenLimit?: number; vibeCoder?: boolean; unlimitedTokens?: boolean; id: string; name: string; agent?: boolean; owner?: boolean; online?: boolean; lastSeenAt?: number | null; deepWork?: boolean; photo?: string | null };
 export type EntitlementStanding = { entitlementId: string; userId: string; status: "requested" | "granted" | "once" | "used" | "denied" | "revoked"; note: string; requestedAt: number; /** "use": the agent asked by trying; `detail` is what it was about to do. */ via?: "use"; detail?: string; decidedBy?: string; decidedAt?: number; reason?: string; name?: string; decidedByName?: string };
 export type Entitlement = { /** Built in: on every server, asked for by use. */ native?: boolean; capability?: string; id: string; name: string; description: string; hosts: string[]; confirmation: string; mine: EntitlementStanding | null; people: EntitlementStanding[] };
+export type AgentAction = { seq: number; userId: string; name: string; chatId?: string; needs: string[]; verdict: "allowed" | "allowed-once" | "allowed-owner" | "denied" | "waiting"; detail: string; at: number };
 export type EntitlementDraft = { name: string; description: string; hosts: string[]; confirmation: string };
 export type EntitlementsPage = { /** Whether built-in entitlements are checked before the agent acts. */ capabilities?: { mode: "ask" | "off" }; entitlements: Entitlement[]; canCreate: boolean; waiting: number; manager: { id: string; name: string } | null; reports: { id: string; name: string }[];
   egress: { mode: "ask" | "off"; always?: string[]; refused?: { userId: string; name: string; host: string; attempts: number; lastAt: number }[] } };
@@ -570,6 +571,8 @@ export const api = {
   setDailyLimit: (a: Account, userId: string, change: { unlimitedTokens: boolean; tokenLimit?: number | null }) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify(change) }).then(json<{ person: Person }>),
   // Entitlements (docs/entitlements.md): named access people ask for and their manager grants.
   entitlements: (a: Account) => request(a, "/v1/entitlements").then(json<EntitlementsPage>),
+  // Owners: what agents did or were stopped from doing, newest first.
+  agentActions: (a: Account, limit = 30) => request(a, `/v1/entitlements/actions?limit=${limit}`).then(json<{ actions: AgentAction[] }>),
   createEntitlement: (a: Account, body: EntitlementDraft) => request(a, "/v1/entitlements", { method: "POST", body: JSON.stringify(body) }).then(json<{ entitlement: Entitlement }>),
   updateEntitlement: (a: Account, id: string, body: Partial<EntitlementDraft>) => request(a, `/v1/entitlements/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }).then(json<{ entitlement: Entitlement }>),
   retireEntitlement: (a: Account, id: string) => request(a, `/v1/entitlements/${encodeURIComponent(id)}`, { method: "DELETE" }).then(json<{ ok: true }>),

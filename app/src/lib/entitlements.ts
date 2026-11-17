@@ -1,5 +1,5 @@
 // The Entitlements screen's words and rules (docs/entitlements.md). The server decides; this says what to show.
-import type { Entitlement, EntitlementStanding } from "./server.ts";
+import type { AgentAction, Entitlement, EntitlementStanding } from "./server.ts";
 
 /** One line about where you stand on an entitlement. */
 export function standingLine(mine: EntitlementStanding | null, managerName: string | null): string {
@@ -52,6 +52,11 @@ export function hostsLine(hosts: readonly string[]): string {
   if (!hosts.length) return "Opens no hosts yet";
   return `Opens ${hosts.join(", ")}`;
 }
+
+const VERDICT: Record<AgentAction["verdict"], string> = { allowed: "Allowed", "allowed-once": "Allowed once", "allowed-owner": "Allowed (owner)", denied: "Declined", waiting: "Waiting for an answer" };
+const NEED: Record<string, string> = { "fs-read": "Filesystem read", "fs-write": "Filesystem write", "github-read": "GitHub read", "github-write": "GitHub write" };
+/** One line of the agent action log: how it ended and what it needed, "Allowed once · GitHub write". */
+export const actionLine = (action: Pick<AgentAction, "verdict" | "needs">) => [VERDICT[action.verdict] ?? action.verdict, action.needs.map(n => NEED[n] ?? n).join(", ")].filter(Boolean).join(" · ");
 
 /** A refused host, for the owner's list: "Pat Tester · api.example.gov · 3 tries". */
 export const refusedLine = (r: { name: string; host: string; attempts: number }) => `${r.name} · ${r.host} · ${r.attempts} ${r.attempts === 1 ? "try" : "tries"}`;

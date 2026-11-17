@@ -246,6 +246,15 @@ try {
     await shot(person, 'built-in-granted-phone.png');
     const record = (await api('GET', `/v1/entitlements/${github}/history`, undefined, ana.token)).history.filter(h => h.userId === pat.user.id).reverse();
     assert.deepEqual(record.map(h => h.action), ['requested', 'once', 'used', 'requested', 'granted'], 'every step is on the record');
+    // The owner's page lists what the agent did and was stopped from doing.
+    await owner.reload();
+    await owner.getByText('Agent activity', { exact: true }).waitFor();
+    const lines = await owner.locator('[data-testid^="action-"]').allInnerTexts();
+    assert.match(lines[0], /^Pat Tester: Run: gh pr list\nAllowed · GitHub read · /, 'newest first');
+    assert.ok(lines.some(l => /^Pat Tester: Run: git push origin main\nAllowed once · GitHub write · /.test(l)), 'the single allowance is on the list');
+    assert.ok(lines.some(l => /^Pat Tester: Run: git push origin main\nWaiting for an answer · GitHub write · /.test(l)), 'so is the try that had to wait');
+    await owner.getByText('Agent activity', { exact: true }).scrollIntoViewIfNeeded();
+    await shot(owner, 'agent-activity-desktop.png');
     assert.deepEqual(pageErrors, [], 'no page errors');
     console.log(`entitlements-e2e: OK, captures saved in ${path.relative(repository, shots)}`);
   }

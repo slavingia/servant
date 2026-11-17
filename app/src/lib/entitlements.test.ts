@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { askLabel, canAsk, checksLine, holders, hostsLine, parseHosts, refusedLine, requestLine, standingLine, waitingOnYou } from "./entitlements.ts";
+import { actionLine, askLabel, canAsk, checksLine, holders, hostsLine, parseHosts, refusedLine, requestLine, standingLine, waitingOnYou } from "./entitlements.ts";
 import type { Entitlement, EntitlementStanding } from "./server.ts";
 
 const standing = (status: EntitlementStanding["status"], extra: Partial<EntitlementStanding> = {}): EntitlementStanding => ({ entitlementId: "ent_1", userId: "usr_pat", status, note: "", requestedAt: 1, ...extra });
@@ -57,4 +57,11 @@ test("a built-in entitlement is asked for by the agent trying; allowed once read
   assert.match(checksLine("ask"), /^Built-in entitlements are checked/);
   assert.match(checksLine("off"), /not checked yet/);
   assert.match(checksLine(undefined), /not checked yet/);
+});
+
+test("a line of the agent action log says how it ended and what it needed", () => {
+  assert.equal(actionLine({ verdict: "allowed-once", needs: ["github-write"] }), "Allowed once · GitHub write");
+  assert.equal(actionLine({ verdict: "waiting", needs: ["github-write", "fs-write"] }), "Waiting for an answer · GitHub write, Filesystem write");
+  assert.equal(actionLine({ verdict: "allowed-owner", needs: ["fs-read"] }), "Allowed (owner) · Filesystem read");
+  assert.equal(actionLine({ verdict: "denied", needs: [] }), "Declined");
 });

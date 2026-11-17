@@ -87,6 +87,11 @@ export function createEntitlements(file, { clock = Date.now, known = () => true,
     db.prepare("INSERT OR IGNORE INTO entitlements(id,name,description,hosts,confirmation,created_by,created_at,updated_at,capability) VALUES (?,?,?,?,?,?,?,?,?)")
       .run(n.id, n.name, n.description, JSON.stringify(n.hosts), "", "server", clock(), clock(), n.capability);
   }
+  // What agents did or were stopped from doing, one line per checked tool call. Never changed or deleted.
+  db.exec(`CREATE TABLE IF NOT EXISTS actions (seq INTEGER PRIMARY KEY, user_id TEXT NOT NULL, chat_id TEXT, needs TEXT NOT NULL, verdict TEXT NOT NULL, detail TEXT NOT NULL, at INTEGER NOT NULL);
+    CREATE INDEX IF NOT EXISTS actions_user ON actions(user_id, seq);
+    CREATE TRIGGER IF NOT EXISTS actions_no_update BEFORE UPDATE ON actions BEGIN SELECT RAISE(ABORT, 'the agent action log is append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS actions_no_delete BEFORE DELETE ON actions BEGIN SELECT RAISE(ABORT, 'the agent action log is append-only'); END;`);
   const tx = fn => { db.exec("BEGIN IMMEDIATE"); try { const out = fn(); db.exec("COMMIT"); return out; } catch (error) { db.exec("ROLLBACK"); throw error; } };
   const note = (entitlementId, userId, action, by, detail = {}) =>
     db.prepare("INSERT INTO history(entitlement_id,user_id,action,by,at,detail) VALUES (?,?,?,?,?,?)").run(entitlementId, userId ?? null, action, String(by), clock(), JSON.stringify(detail));
@@ -198,8 +203,10 @@ export function createEntitlements(file, { clock = Date.now, known = () => true,
      * "allow once" is waiting, which this uses up. "deny" after a refusal, until the person asks again themselves.
      * Otherwise "wait": a request is on file for their manager (`fresh` the first time, which is when to tell them).
      * `detail` is one line about what the agent was about to do, for the manager; it is kept with the request.
+     * With `consume: false` an "allow once" is reported but left in place, so an action that needs several
+     * entitlements doesn't spend one before it is known the others are allowed too.
      */
-    use(userId, capability, detail = "") {
+    use(userId, capability, detail = "", { consume = true } = {}) {
       const native = nativeFor(capability);
       if (!native) throw fault(400, "bad_request", "No such built-in entitlement");
       return tx(() => {
@@ -208,6 +215,7 @@ export function createEntitlements(file, { clock = Date.now, known = () => true,
         if (holds(native.id, userId)) return { verdict: "allow", entitlement };
         const existing = grantRow(native.id, userId);
         if (existing?.status === "once") {
+          if (!consume) return { verdict: "allow", entitlement, once: true };
           db.prepare("UPDATE grants SET status='used', used_at=? WHERE entitlement_id=? AND user_id=?").run(clock(), native.id, String(userId));
           note(native.id, userId, "used", userId, existing.detail ? { detail: existing.detail } : {});
           return { verdict: "allow", entitlement, once: true };
@@ -225,6 +233,19 @@ export function createEntitlements(file, { clock = Date.now, known = () => true,
         note(native.id, userId, "requested", userId, { via: "use", ...(clean ? { detail: clean } : {}) });
         return { verdict: "wait", entitlement, fresh: true };
       });
+    },
+    /**
+     * One line in the agent action log: whose agent, in which chat, what it was about to do, which built-in
+     * entitlements that needed, and what happened ("allowed", "allowed-once", "allowed-owner", "denied", "waiting").
+     */
+    logAction({ userId, chatId, needs = [], verdict, detail = "" }) {
+      db.prepare("INSERT INTO actions(user_id,chat_id,needs,verdict,detail,at) VALUES (?,?,?,?,?,?)").run(String(userId), chatId ? String(chatId) : null, JSON.stringify(needs), String(verdict), line(detail, 300), clock());
+    },
+    /** The log, newest first: everyone's, or one person's; `before` pages back from a line's number. */
+    actions({ userId, before, limit = 100 } = {}) {
+      const rows = db.prepare(`SELECT * FROM actions WHERE (? IS NULL OR user_id=?) AND (? IS NULL OR seq<?) ORDER BY seq DESC LIMIT ?`)
+        .all(userId ?? null, userId ?? null, before ?? null, before ?? null, Math.max(1, Math.min(500, Number(limit) || 100)));
+      return rows.map(r => ({ seq: r.seq, userId: r.user_id, ...(r.chat_id ? { chatId: r.chat_id } : {}), needs: JSON.parse(r.needs), verdict: r.verdict, detail: r.detail, at: r.at }));
     },
     /** Someone left the server: everything they held or were waiting on is revoked. */
     forget(userId, by) {

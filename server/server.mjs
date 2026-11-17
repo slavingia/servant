@@ -919,7 +919,8 @@ async function requireEntitlementChecks(cfg, up, user) {
  * The bridge asks, just before a tool call: may this person's agent do this? `needs` are built-in entitlements, the
  * weightiest first. Each is allowed when the person holds it or an "allow once" is waiting; otherwise their manager
  * is asked (once per request) and this waits a while for the answer. Owners are the ones who answer, so their own
- * agent is not held back. Answers { verdict: "allow" | "deny" | "wait", message } for the agent to read.
+ * agent is not held back. Every checked call is written to the agent action log first; one that can't be recorded is
+ * refused. Answers { verdict: "allow" | "deny" | "wait", message } for the agent to read.
  */
 async function agentUse(body, config = loadConfig) {
   const who = egressStore().whose(body?.token);
@@ -927,22 +928,42 @@ async function agentUse(body, config = loadConfig) {
   const person = who && state.users[who.userId];
   if (!person || isRemoved(person)) return { status: 403, answer: { verdict: "deny", message: "Servant doesn't know whose turn this is, so it can't be allowed." } };
   const needs = (Array.isArray(body.needs) ? body.needs : []).filter(c => NATIVE.some(n => n.capability === c)).slice(0, NATIVE.length);
-  if (!capabilitiesOn(config()) || person.role === "owner" || !needs.length) return { status: 200, answer: { verdict: "allow" } };
+  if (!capabilitiesOn(config()) || !needs.length) return { status: 200, answer: { verdict: "allow" } };
   const store = entitlementStore();
-  const until = Date.now() + capabilitySettings(config().agentCapabilities).waitSeconds * 1000;
-  for (const capability of needs) {
-    for (;;) {
-      const result = store.use(person.id, capability, typeof body.detail === "string" ? body.detail : "");
-      const name = result.entitlement.name;
-      if (result.verdict === "allow") break;
-      const manager = managerOf(readState(), person);
-      if (result.verdict === "deny") return { status: 200, answer: { verdict: "deny", capability, message: `Servant blocked this: ${person.name} asked for ${name} and was declined. Tell them so, and don't look for another way to do it. They can ask again in Servant under Entitlements.` } };
-      if (result.fresh) tellAbout([manager?.id], "Entitlement request", `${person.name}'s agent needs ${name}`);
-      if (Date.now() >= until || !capabilitiesOn(config())) return { status: 200, answer: { verdict: "wait", capability, message: `Servant is holding this: ${manager?.name || "An owner"} has been asked to allow ${name} for ${person.name} and hasn't answered yet. Tell ${person.name} you are waiting for that, and try again once it is allowed. Don't look for another way to do it.` } };
-      await sleepMs(Math.min(1000, Math.max(50, until - Date.now())));
+  const detail = typeof body.detail === "string" ? body.detail : "";
+  // Every checked tool call goes in the action log with how it ended, the owner's own included.
+  const logged = (verdict, answer) => {
+    try { store.logAction({ userId: person.id, chatId: who.chatId, needs, verdict, detail }); }
+    catch (error) {
+      // An action that can't be recorded doesn't happen.
+      console.error("[servant] agent action log", error.message);
+      return { status: 200, answer: { verdict: "deny", message: "Servant couldn't record this, so it wasn't done. Tell the person, and try again in a moment." } };
     }
+    return { status: 200, answer };
+  };
+  if (person.role === "owner") return logged("allowed-owner", { verdict: "allow" });
+  const until = Date.now() + capabilitySettings(config().agentCapabilities).waitSeconds * 1000;
+  for (;;) {
+    // Look at everything the action needs before spending anything: a single allowance for one entitlement is not
+    // used up while another is still waiting. Whatever is missing is asked for together.
+    const looked = needs.map(capability => ({ capability, ...store.use(person.id, capability, detail, { consume: false }) }));
+    const manager = managerOf(readState(), person);
+    const refused = looked.find(r => r.verdict === "deny");
+    if (refused) return logged("denied", { verdict: "deny", capability: refused.capability, message: `Servant blocked this: ${person.name} asked for ${refused.entitlement.name} and was declined. Tell them so, and don't look for another way to do it. They can ask again in Servant under Entitlements.` });
+    const missing = looked.filter(r => r.verdict === "wait");
+    for (const r of missing) if (r.fresh) tellAbout([manager?.id], "Entitlement request", `${person.name}'s agent needs ${r.entitlement.name}`);
+    if (!missing.length) {
+      const used = needs.map(capability => store.use(person.id, capability, detail));
+      // Something changed between looking and using (taken back in that instant): look again.
+      if (used.some(r => r.verdict !== "allow")) continue;
+      return logged(used.some(r => r.once) ? "allowed-once" : "allowed", { verdict: "allow" });
+    }
+    if (Date.now() >= until || !capabilitiesOn(config())) {
+      const names = missing.map(r => r.entitlement.name).join(" and ");
+      return logged("waiting", { verdict: "wait", capability: missing[0].capability, message: `Servant is holding this: ${manager?.name || "An owner"} has been asked to allow ${names} for ${person.name} and hasn't answered yet. Tell ${person.name} you are waiting for that, and try again once it is allowed. Don't look for another way to do it.` });
+    }
+    await sleepMs(Math.min(1000, Math.max(50, until - Date.now())));
   }
-  return { status: 200, answer: { verdict: "allow" } };
 }
 // Requests the bridge makes to the local listener itself. Only POST /use; the token in the body says whose turn it is.
 async function agentDoor(req, res, config) {
@@ -1829,6 +1850,13 @@ async function handle(req, res, cfg) {
       if (user.role !== "owner") return fail(res, 403, "forbidden", "Only an owner can make an entitlement");
       const made = guard(() => store.create(body, user.id));
       return made && send(res, 201, { entitlement: entitlementView(made, user, users) });
+    }
+    // Owners: what agents did or were stopped from doing, newest first (docs/entitlements.md, "The agent action log").
+    if (method === "GET" && parts.length === 3 && parts[2] === "actions") {
+      if (user.role !== "owner") return fail(res, 403, "forbidden", "Only an owner can see the agent action log");
+      const before = Number(url.searchParams.get("before")), of = url.searchParams.get("user");
+      const actions = store.actions({ userId: of || undefined, before: Number.isInteger(before) && before > 0 ? before : undefined, limit: Number(url.searchParams.get("limit")) || 100 });
+      return send(res, 200, { actions: actions.map(a => ({ ...a, name: users[a.userId]?.name || "Former member" })) });
     }
     if (method === "GET" && parts.length === 4 && parts[3] === "history") {
       const entitlement = store.get(parts[2]);
