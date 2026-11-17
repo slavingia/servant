@@ -11,6 +11,7 @@ import { useLiveActions } from "../lib/live";
 import { useSession } from "../lib/session";
 import { landingHref, useFeatures } from "../lib/features";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
+import { ServeLoader } from "../components/ServeLoader";
 
 export default function ChannelInfo() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -54,7 +55,7 @@ export function ChannelDetails({ id, panel = false, onClose }: { id: string; pan
   if (!account || !conv) return <View style={[styles.root, styles.loading]}>{error ? <>
     <Text accessibilityRole="alert" style={styles.loadError}>{error}</Text>
     <Button label="Try again" kind="secondary" busy={retrying} onPress={() => { setRetrying(true); void load().finally(() => setRetrying(false)); }} />
-  </> : <ActivityIndicator accessibilityLabel="Loading channel details" color={colors.blue} />}</View>;
+  </> : <ServeLoader accessibilityLabel="Loading channel details" />}</View>;
   const memberIds = new Set((conv.members ?? []).map((m) => m.id));
   const notIn = everyone.filter((p) => !memberIds.has(p.id));
 

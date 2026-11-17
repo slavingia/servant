@@ -14,6 +14,7 @@ import { AppIcon } from "./AppIcon";
 import { ZoomableImage } from "./ZoomableImage";
 import { GalleryVideo } from "./VideoMedia";
 import { GalleryContext, useMediaGallery } from "./MediaGalleryContext";
+import { ServeLoader } from "./ServeLoader";
 export { useMediaGallery } from "./MediaGalleryContext";
 
 export function MediaGalleryProvider({ scope, items, children }: { scope?: MediaScope; items: MediaItem[]; children: ReactNode }) {
@@ -303,7 +304,7 @@ function GalleryPage({ item, width, height, active, nearby, playingAllowed, auto
           </ScrollView>
           : <ZoomableImage key={`${item.id}:${fitCount}`} uri={content.uri} label={item.name} width={width} height={height} active={active} onZoomChange={onZoomChange} onError={() => setDecodeError(true)} />}
         {active && zoomMode ? <Pressable accessibilityRole="button" accessibilityLabel="Fit image and return to swipe browsing" onPress={() => { setFitCount((count) => count + 1); onZoomChange(false); }} style={styles.zoomButton}><Text style={styles.actionText}>Fit</Text></Pressable> : null}
-      </View> : <View style={styles.center}><ActivityIndicator size="large" color="#FFFFFF" /><Text style={styles.note}>Loading image…</Text></View>
+      </View> : <View style={styles.center}><ServeLoader size="large" /><Text style={styles.note}>Loading image…</Text></View>
       : <View style={styles.center}><View style={styles.fileSymbol}><AppIcon name="paperclip" color="#C5CFDB" size={42} /></View><Text numberOfLines={3} style={styles.emptyTitle}>{item.name}</Text><Text style={styles.note}>{item.mime} · {formatFileSize(item.size)}</Text><Pressable accessibilityRole="button" accessibilityState={{ disabled: busy, busy }} disabled={busy} onPress={onOpenFile} style={styles.fileAction}><Text style={styles.actionText}>{busy ? "Opening…" : "Open file"}</Text></Pressable></View>}
   </View>;
 }

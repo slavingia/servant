@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Platform, ScrollView, Share, StyleSheet, Text, View } from "react-native";
+import { Platform, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import QRCode from "react-native-qrcode-svg";
 import { Redirect } from "expo-router";
@@ -8,14 +8,14 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { api, ServerError } from "../lib/server";
 import { useSession } from "../lib/session";
 import { landingHref, useFeatures } from "../lib/features";
-import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
+import { radius, space, typography, createThemedStyles } from "../lib/theme";
+import { ServeLoader } from "../components/ServeLoader";
 
 type Link = { code: string; link: string; webLink?: string | null; expiresAt: number };
 
 // One join link for the whole team. Anyone with it can join until it expires.
 export default function Invite() {
   const styles = useStyles();
-  const { colors } = useTheme();
   const { account } = useSession();
   // Deep work hides People and its invite (features.ts withDeepWork).
   const features = useFeatures();
@@ -75,7 +75,7 @@ export default function Invite() {
   if (!invite) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator color={colors.blue} size="large" />
+        <ServeLoader size="large" />
       </View>
     );
   }

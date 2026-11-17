@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, AppState, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type StyleProp, type TextStyle } from "react-native";
+import { AppState, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type StyleProp, type TextStyle } from "react-native";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { randomUUID } from "expo-crypto";
 import { File } from "expo-file-system";
@@ -25,6 +25,7 @@ import { continueHint, defaultShareProject, progressLabel, sendShare, ShareSendE
 import { getItem, setItem } from "../lib/storage";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
 import { Toggle } from "../components/Toggle";
+import { ServeLoader } from "../components/ServeLoader";
 
 // "Send to agent": where a share from another app lands (expo-sharing, +native-intent.tsx). Shows
 // what was shared, lets the person pick a project (or continue their last chat) and add a message,
@@ -178,7 +179,7 @@ export default function ShareScreen() {
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" testID="share">
         {content === null ? (
           <View style={styles.centered}>
-            <ActivityIndicator color={colors.blue} />
+            <ServeLoader />
             <Text accessibilityLiveRegion="polite" style={styles.hint}>Getting what you shared…</Text>
           </View>
         ) : empty ? (

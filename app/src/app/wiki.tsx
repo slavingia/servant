@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { AppIcon } from "../components/AppIcon";
 import { Button, IconButton } from "../components/Button";
@@ -11,6 +11,7 @@ import { useSession } from "../lib/session";
 import { createThemedStyles, space, typography, useTheme } from "../lib/theme";
 import { ABBREVIATIONS_PAGE, ABBREVIATIONS_TITLE, UNTITLED, WIKI_MAX_DEPTH, wikiAncestors, wikiDepth, wikiLanding, wikiOpened, wikiRows, type WikiPageSummary, type WikiRow } from "../lib/wiki";
 import { wikiApi } from "../lib/wiki-api";
+import { ServeLoader } from "../components/ServeLoader";
 
 export default function WikiScreen() {
   const { account } = useSession();
@@ -22,7 +23,6 @@ export default function WikiScreen() {
 // the two, so the tree is the screen and a page opens over it.
 function Wiki({ account }: { account: Account }) {
   const styles = useStyles();
-  const { colors } = useTheme();
   const wide = useWideLayout();
   const params = useLocalSearchParams<{ page?: string }>();
   const [pages, setPages] = useState<WikiPageSummary[] | null>(null);
@@ -80,7 +80,7 @@ function Wiki({ account }: { account: Account }) {
       <Button testID="wiki-new-page" label="New page" compact busy={creating} onPress={() => void create(null)} />
     </View>
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-    {!pages && !error ? <ActivityIndicator accessibilityLabel="Loading the wiki" color={colors.blue} style={styles.loading} /> : null}
+    {!pages && !error ? <ServeLoader accessibilityLabel="Loading the wiki" style={styles.loading} /> : null}
     {rows.map(row => <TreeRow key={row.id} row={row} current={row.id === open} canAdd={!row.special && !!pages && wikiDepth(pages, row.id) < WIKI_MAX_DEPTH}
       onOpen={() => show(row.id)} onToggle={() => toggle(row.id)} onAdd={() => void create(row.id)} />)}
     {pages && !pages.length ? <Text style={styles.hint}>No pages yet. Choose New page to write the first one.</Text> : null}

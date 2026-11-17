@@ -1,11 +1,12 @@
 import { useCallback, useState } from "react";
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { Avatar } from "../components/Messaging";
 import { api, ServerError, type Leaderboard, type LeaderboardPeriod, type TopicRow } from "../lib/server";
 import { useSession } from "../lib/session";
 import { estimateCost, formatCost, formatTokens, sharePercent } from "../lib/token-format";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
+import { ServeLoader } from "../components/ServeLoader";
 
 const periods: { key: LeaderboardPeriod; label: string; caption: string }[] = [
   { key: "day", label: "Today", caption: "the last 24 hours" },
@@ -45,7 +46,7 @@ export default function LeaderboardScreen() {
 
 
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-    {!board ? <ActivityIndicator accessibilityLabel="Loading agent usage report" style={{ marginTop: space.xl }} color={colors.blue} /> : <>
+    {!board ? <ServeLoader accessibilityLabel="Loading agent usage report" style={{ marginTop: space.xl }} /> : <>
       <View accessible accessibilityLabel={`${formatTokens(board.totals.total)} tokens used on ${account.serverName} in ${current.caption}, across ${board.totals.turns} agent replies, about ${formatCost(estimateCost(board.totals.input, board.totals.output))} estimated`} style={styles.total}>
         <Text style={styles.totalLabel}>{account.serverName} · {current.caption}</Text>
         <Text style={styles.totalValue}>{formatTokens(board.totals.total)}</Text>

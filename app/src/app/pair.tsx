@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { nameFromEmail } from "../lib/name-from-email";
-import { ActivityIndicator, KeyboardAvoidingView, Pressable, Platform, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { KeyboardAvoidingView, Pressable, Platform, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Link, router, Stack, useLocalSearchParams } from "expo-router";
 import { suggestEmail } from "../lib/email-nudge";
 import { ApproveFromPhone } from "../components/ApproveFromPhone";
@@ -12,6 +12,7 @@ import { useSession } from "../lib/session";
 import { ALL_FEATURES, landingHref, normalizeFeatures, useFeatures } from "../lib/features";
 import { space, typography, useTheme, createThemedStyles } from "../lib/theme";
 import { CheckBox } from "../components/CheckBox";
+import { ServeLoader } from "../components/ServeLoader";
 
 type Problem = { code: string; message: string };
 // After "name taken": ask (which way to prove it's you), approve (code on screen), taken (another email owns the name).
@@ -297,7 +298,7 @@ export default function Pair() {
   return (
     <View style={styles.root}>
       {title}
-      <ActivityIndicator color={colors.blue} size="large" />
+      <ServeLoader size="large" />
       <Text style={[styles.body, { marginTop: 16 }]}>{existing ? "Signing in…" : "Joining…"}</Text>
     </View>
   );

@@ -2,7 +2,7 @@ import { FlashList } from "@shopify/flash-list";
 import { RECYCLING_CONVERSATION_LIST, isNewest, listOrder, olderNeighbour } from "../../lib/conversation-list";
 import { showsInConversation, threadOf } from "../../lib/also-in-channel";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { AppState, FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Redirect, router, Stack, useIsFocused, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ConversationKeyboardView } from "../../components/ConversationKeyboardView";
@@ -46,6 +46,7 @@ import { radius, space, typography, useTheme, createThemedStyles, linkUnderline 
 import { AppIcon } from "../../components/AppIcon";
 import { channelVisibility } from "../../lib/channel-visibility";
 import { groupActivity } from "../../lib/activity-groups";
+import { ServeLoader } from "../../components/ServeLoader";
 
 const errorText = (e: unknown, fallback: string) => (e instanceof ServerError ? e.message : fallback);
 
@@ -519,7 +520,7 @@ function OpenConversation({ account, id, compose }: { account: Account; id: stri
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         {note ? <Text accessibilityLiveRegion="polite" selectable style={styles.note} onPress={() => setNote(null)}>{note}</Text> : null}
         {posts === null ? (
-          <ActivityIndicator style={{ flex: 1 }} color={colors.blue} />
+          <ServeLoader style={{ flex: 1 }} />
         ) : RECYCLING_CONVERSATION_LIST ? (
           <FlashList
             {...readTracking}

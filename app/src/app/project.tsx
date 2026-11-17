@@ -10,6 +10,7 @@ import { api, ServerError, type Chat, type Project } from "../lib/server";
 import { useSession } from "../lib/session";
 import { shortTime as when } from "../lib/time-label";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
+import { ServeLoader } from "../components/ServeLoader";
 
 // Releases first when the project has any, otherwise Chats. ?tab= opens one directly.
 const TABS = ["releases", "chats", "about"] as const;
@@ -20,7 +21,6 @@ const isTab = (v: unknown): v is Tab => TABS.includes(v as Tab);
 // About (how the team works, notes, files, people).
 export default function ProjectScreen() {
   const styles = useStyles();
-  const { colors } = useTheme();
   const { account, setAccount } = useSession();
   const { id, tab: wanted } = useLocalSearchParams<{ id: string; tab?: string }>();
   // What's loaded is tagged with its project id, so moving to another project (the sidebar) starts clean.
@@ -49,7 +49,7 @@ export default function ProjectScreen() {
   if (!account) return null;
 
   if (!project) return <View style={styles.root}><Stack.Screen options={{ title: "Project" }} />
-    {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : <ActivityIndicator style={{ marginTop: space.xxl }} color={colors.blue} />}
+    {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : <ServeLoader style={{ marginTop: space.xxl }} />}
   </View>;
 
   const { chats, teamChats } = page!;

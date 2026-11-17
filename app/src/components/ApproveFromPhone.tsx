@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import QRCode from "react-native-qrcode-svg";
 import { Button } from "./Button";
@@ -7,13 +7,13 @@ import type { DesktopWorkspace } from "../lib/desktop";
 import { deviceLinkUrl } from "../lib/device-link";
 import type { Account } from "../lib/server";
 import { useDeviceLinkApproval } from "../lib/use-device-link";
-import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
+import { createThemedStyles, radius, space, typography } from "../lib/theme";
+import { ServeLoader } from "./ServeLoader";
 
 // The code card plus the three steps: scan or paste on the phone, match the
 // number, approve. Works for the Mac app and for a browser.
 export function ApproveFromPhone({ workspace, device, onSignedIn, children, side }: { workspace: DesktopWorkspace; device: string; onSignedIn: (account: Account) => void; children?: React.ReactNode; side?: boolean }) {
   const styles = useStyles();
-  const { colors } = useTheme();
   // On a wide window the code sits beside its steps, so the choices under them stay on screen.
   const wide = useWindowDimensions().width >= 820 && side;
   const [copied, setCopied] = useState(false);
@@ -36,7 +36,7 @@ export function ApproveFromPhone({ workspace, device, onSignedIn, children, side
           <Text accessibilityRole="alert" style={styles.error}>{error || "Code expired"}</Text>
           <Button label="Get a new code" onPress={retry} style={styles.retry} />
         </> : <View style={styles.loading}>
-          <ActivityIndicator size="large" color={colors.blue} />
+          <ServeLoader size="large" />
           <Text style={styles.lead}>{completing ? "Signing you in…" : "Getting your sign-in code…"}</Text>
         </View>}
       </View>

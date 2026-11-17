@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Avatar } from "./Messaging";
 import { Button, IconButton } from "./Button";
 import { CheckBox } from "./CheckBox";
@@ -7,7 +7,8 @@ import { Radio } from "./Radio";
 import { HISTORY_CHOICES, type ChatHistory } from "../lib/chat-members";
 import { api, ServerError, type Person } from "../lib/server";
 import { useSession } from "../lib/session";
-import { radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
+import { radius, space, typography, createThemedStyles } from "../lib/theme";
+import { ServeLoader } from "./ServeLoader";
 
 // Pick people to read an agent chat. Before anything is sent they see all of it; once the chat has
 // started, the person inviting chooses how much of what came before they see, as Teams asks.
@@ -16,7 +17,6 @@ export function PeopleSheet({ title, exclude, withHistory, busy = false, error, 
   onDone: (userIds: string[], history: ChatHistory) => void; onClose: () => void;
 }) {
   const styles = useStyles();
-  const { colors } = useTheme();
   const { account } = useSession();
   const [people, setPeople] = useState<Person[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -38,7 +38,7 @@ export function PeopleSheet({ title, exclude, withHistory, busy = false, error, 
         </View>
         <ScrollView style={styles.list}>
           {loadError ? <Text accessibilityRole="alert" style={styles.note}>{loadError}</Text>
-            : !people ? <ActivityIndicator style={{ margin: space.lg }} color={colors.blue} />
+            : !people ? <ServeLoader style={{ margin: space.lg }} />
             : !choices.length ? <Text style={styles.note}>Everyone here can already read this chat</Text>
             : choices.map(p => {
               const on = picked.includes(p.id);

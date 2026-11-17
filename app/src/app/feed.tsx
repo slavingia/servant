@@ -1,10 +1,11 @@
 import { useCallback, useState } from "react";
-import { ActivityIndicator, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { api, ServerError, type FeedItem } from "../lib/server";
 import { useSession } from "../lib/session";
 import { feedMeta, groupFeed, type FeedRow } from "../lib/feed-format";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
+import { ServeLoader } from "../components/ServeLoader";
 
 // What the agent did lately: messages it sent, things it shipped, scheduled checks. Grouped by day, like Loops.
 export default function FeedScreen() {
@@ -30,7 +31,7 @@ export default function FeedScreen() {
     refreshControl={<RefreshControl tintColor={colors.blue} refreshing={refreshing} onRefresh={async () => { setRefreshing(true); try { await load(); } finally { setRefreshing(false); } }} />}>
     <Text style={styles.intro}>What the agent did lately.</Text>
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-    {!items && !error ? <ActivityIndicator color={colors.blue} style={styles.spinner} /> : null}
+    {!items && !error ? <ServeLoader style={styles.spinner} /> : null}
     {items && items.length === 0 ? <Text style={styles.empty}>Nothing yet. What the agent does will show up here.</Text> : null}
     {items ? groupFeed(items, now).map(group => <View key={group.key}>
       <Text accessibilityRole="header" style={styles.section}>{group.title}</Text>
