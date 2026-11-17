@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ActivityIndicator, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef, useState, type ComponentRef } from "react";
+import { ActivityIndicator, Animated, Easing, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { File } from "expo-file-system";
@@ -8,6 +8,8 @@ import type { Attachment, LocalDocument, Upload } from "../lib/server";
 import type { SharedFile } from "../lib/share-payload";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
 import { formatFileSize, isPreviewImage, isPreviewVideo, jpegPhotoUpload, MAX_FILE_BYTES, MAX_UPLOAD_BYTES, MAX_VIDEO_BYTES, uploadImageUri, uploadMediaMime, validateAttachmentSelection } from "../lib/media";
+import { pictureBox, pictureSize, rememberSize, sameBox, sizeFor } from "../lib/picture-box";
+import { LOADER_DELAY_MS, LOADER_FADE_MS } from "../lib/serve-loop";
 import { MediaGalleryProvider, useAttachmentContent, useMediaGallery } from "./MediaGallery";
 import { DraftVideoPreview, VideoPreview } from "./VideoMedia";
 import { AppIcon } from "./AppIcon";
@@ -53,7 +55,7 @@ async function shrinkPhoto(uri: string, name: string | null | undefined, width?:
       const image = await (await context.renderAsync()).saveAsync({ format: SaveFormat.JPEG, compress, base64: true });
       const data = image.base64?.replace(/^data:[^,]*,/, "");
       if (!data) continue;
-      try { return jpegPhotoUpload(name, data, maxBytes); } catch { /* still too big: try the next step */ }
+      try { return { ...jpegPhotoUpload(name, data, maxBytes), ...pictureSize(image) }; } catch { /* still too big: try the next step */ }
     }
   } catch { /* fall through to the message below */ }
   throw new Error("Couldn't make this photo small enough to send. Try a smaller one.");
@@ -90,8 +92,10 @@ export async function pickAttachments(mediaLibrary: boolean, existing: readonly 
       }
       const supported = /^image\/(png|jpeg|gif|webp)$/i.test(asset.mimeType ?? "") || (!asset.mimeType && /\.(png|jpe?g|gif|webp)$/i.test(asset.fileName ?? asset.uri));
       const shrink = () => shrinkPhoto(asset.uri, asset.fileName, asset.width, asset.height, Math.min(MAX_FILE_BYTES, remaining));
+      // The photo library says how big each photo is; it goes up with the photo (lib/picture-box.ts).
+      const measured = pictureSize(asset);
       if (!supported && asset.base64) {
-        try { add(jpegPhotoUpload(asset.fileName, asset.base64, MAX_FILE_BYTES)); }
+        try { add({ ...jpegPhotoUpload(asset.fileName, asset.base64, MAX_FILE_BYTES), ...measured }); }
         catch (error) { if (!shrinkable(error)) throw error; add(await shrink()); }
         continue;
       }
@@ -101,10 +105,10 @@ export async function pickAttachments(mediaLibrary: boolean, existing: readonly 
       catch (error) { if (!shrinkable(error)) throw error; add(await shrink()); continue; }
       const mime = uploadMediaMime(content.data);
       if (!mime || !/^image\/(png|jpeg|gif|webp)$/.test(mime)) {
-        if (asset.base64) { add(jpegPhotoUpload(asset.fileName, asset.base64, MAX_FILE_BYTES)); continue; }
+        if (asset.base64) { add({ ...jpegPhotoUpload(asset.fileName, asset.base64, MAX_FILE_BYTES), ...measured }); continue; }
         throw new Error("Couldn't prepare this photo. Choose a JPEG or PNG image.");
       }
-      add({ name: asset.fileName || "photo.jpg", uri: asset.uri, mime, ...content });
+      add({ name: asset.fileName || "photo.jpg", uri: asset.uri, mime, ...content, ...measured });
     }
     return files;
   }
@@ -240,23 +244,58 @@ export function DraftAttachments({ files, onRemove, disabled }: { files: DraftAt
   </ScrollView>;
 }
 
+// The spinner is drawing only: the view around it says "Loading image" to a screen reader.
+const drawingOnly = Platform.OS === "web" ? { "aria-hidden": true } as const : { accessible: false, accessibilityElementsHidden: true, importantForAccessibility: "no-hide-descendants" } as const;
+
+// A picture's spinner waits a quarter of a second like the other loaders (lib/serve-loop.ts): a picture that
+// arrives in that time never shows one. It holds its place, and a screen reader hears "Loading image" at once.
+function PictureLoading() {
+  const { colors } = useTheme();
+  const [shown] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    const appear = Animated.timing(shown, { toValue: 1, duration: LOADER_FADE_MS, delay: LOADER_DELAY_MS, easing: Easing.linear, useNativeDriver: Platform.OS !== "web" });
+    appear.start();
+    return () => appear.stop();
+  }, [shown]);
+  return <View accessible accessibilityRole="progressbar" accessibilityLabel="Loading image" accessibilityState={{ busy: true }}>
+    <Animated.View style={{ opacity: shown }} {...drawingOnly}><ActivityIndicator color={colors.blue} /></Animated.View>
+  </View>;
+}
+
+// A browser's load event does not say how big the picture is, and by the time it is delivered it no longer
+// names the picture either. The picture does: react-native-web keeps an <img> of it inside the view.
+function browserPictureSize(view: unknown) {
+  const picture = (view as { querySelector?: (selector: string) => { naturalWidth?: number; naturalHeight?: number } | null } | null)?.querySelector?.("img");
+  return picture ? { width: picture.naturalWidth, height: picture.naturalHeight } : null;
+}
+
 function ImageAttachment({ file, tiled }: { file: Attachment; tiled: boolean }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const content = useAttachmentContent(file);
   const gallery = useMediaGallery();
-  const [aspect, setAspect] = useState(4 / 3);
+  // The box has the picture's own shape from the first frame, so nothing under it moves when the picture
+  // arrives (lib/picture-box.ts). The size comes with the message; for a picture from before the server kept
+  // sizes it is the one remembered from loading it, and until then the box is 4:3 as it always was.
+  const [size, setSize] = useState(() => sizeFor(file));
+  const picture = useRef<ComponentRef<typeof Image>>(null);
   const [decodeError, setDecodeError] = useState(false);
   const failed = !!content.error || decodeError;
   const retry = () => { setDecodeError(false); content.retry(); };
-  return <View style={tiled ? styles.tile : styles.singlePhoto}>
-    <Pressable accessibilityRole="button" accessibilityLabel={`Open image ${file.name} in conversation gallery`} accessibilityHint="View full screen and swipe through shared files" onPress={() => gallery?.open(file)} style={({ pressed }) => [styles.photo, { aspectRatio: tiled ? 1 : Math.min(2.2, Math.max(0.8, aspect)) }, pressed && styles.pressed]}>
-      {content.uri && !decodeError ? <Image source={{ uri: content.uri }} accessibilityLabel={file.name} resizeMode={tiled ? "cover" : "contain"} style={StyleSheet.absoluteFill} onLoad={event => {
-        // Web doesn't always report the decoded size.
-        const { width = 0, height = 0 } = event.nativeEvent.source ?? {};
-        if (width > 0 && height > 0) setAspect(width / height);
+  const box = tiled ? null : pictureBox(size);
+  return <View style={box ? [styles.singlePhoto, { maxWidth: box.maxWidth }] : styles.tile}>
+    <Pressable accessibilityRole="button" accessibilityLabel={`Open image ${file.name} in conversation gallery`} accessibilityHint="View full screen and swipe through shared files" onPress={() => gallery?.open(file)} style={({ pressed }) => [styles.photo, { aspectRatio: box ? box.aspectRatio : 1 }, pressed && styles.pressed]}>
+      {content.uri && !decodeError ? <Image ref={picture} source={{ uri: content.uri }} accessibilityLabel={file.name} resizeMode={tiled ? "cover" : "contain"} style={StyleSheet.absoluteFill} onLoad={event => {
+        // A phone says the decoded size in the event; in a browser the picture on the page says it.
+        const loaded = pictureSize(Platform.OS === "web" ? browserPictureSize(picture.current) : event.nativeEvent.source);
+        if (!loaded) return;
+        rememberSize(file.id, loaded);
+        // On a phone a box drawn without the size takes the picture's shape now, as it always did. In a
+        // browser the box on screen is left as it is: it never changed shape there, and the next time this
+        // picture is drawn its box starts right.
+        if (Platform.OS !== "web" && !sameBox(size, loaded)) setSize(loaded);
       }} onError={() => setDecodeError(true)} /> : <View style={styles.photoPlaceholder}>
-        {failed ? <><AppIcon name="paperclip" size={24} color={colors.muted} /><Text style={styles.placeholderText}>Preview unavailable</Text></> : <ActivityIndicator accessibilityLabel="Loading image" color={colors.blue} />}
+        {failed ? <><AppIcon name="paperclip" size={24} color={colors.muted} /><Text style={styles.placeholderText}>Preview unavailable</Text></> : <PictureLoading />}
       </View>}
       <View style={styles.openBadge}><AppIcon name="plus" color={colors.white} size={15} /></View>
     </Pressable>
@@ -302,7 +341,9 @@ export function PendingAttachments({ files, progress }: { files: Upload[]; progr
     <View style={styles.photos}>{files.map((file, index) => {
       const uri = uploadImageUri(file);
       const video = isPreviewVideo({ mime: uploadMediaMime(file.data) || "" });
-      return uri ? <View key={index} style={[files.length > 1 ? styles.tile : styles.singlePhoto, styles.photo, { aspectRatio: files.length > 1 ? 1 : 4 / 3 }]}><Image source={{ uri }} accessibilityLabel={file.name} resizeMode="cover" style={StyleSheet.absoluteFill} /><View style={styles.pendingBadge}><ActivityIndicator size="small" color={colors.white} /><Text style={styles.pendingText}>Sending</Text></View></View>
+      // One picture on its way has the shape it will have once the server's copy takes its place.
+      const box = files.length > 1 ? null : pictureBox(pictureSize(file));
+      return uri ? <View key={index} style={[box ? styles.singlePhoto : styles.tile, styles.photo, box ? box : styles.square]}><Image source={{ uri }} accessibilityLabel={file.name} resizeMode="cover" style={StyleSheet.absoluteFill} /><View style={styles.pendingBadge}><ActivityIndicator size="small" color={colors.white} /><Text style={styles.pendingText}>Sending</Text></View></View>
         : <View key={index} accessibilityLabel={video ? `Sending video ${file.name}` : `Sending file ${file.name}`} style={styles.pendingFile}>{video ? <Text style={styles.videoLabel}>▶ Video</Text> : <AppIcon name="paperclip" color={colors.muted} />}<Text numberOfLines={1} style={styles.filename}>{file.name}</Text>{file.document && progress ? <Text style={styles.fileMeta}>{progress}</Text> : null}<ActivityIndicator size="small" color={colors.blue} /></View>;
     })}</View>
   </View>;
@@ -320,6 +361,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   photos: { flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "flex-start" },
   singlePhoto: { width: "100%", maxWidth: 480 },
   tile: { width: "48%", flexGrow: 1, flexBasis: "48%", maxWidth: "50%" },
+  square: { aspectRatio: 1 },
   photo: { overflow: "hidden", borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, maxHeight: 380 },
   photoPlaceholder: { flex: 1, alignItems: "center", justifyContent: "center", gap: space.xs, padding: space.sm },
   placeholderText: { ...typography.caption, color: colors.muted, textAlign: "center" },

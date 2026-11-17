@@ -134,6 +134,8 @@ In channels, direct messages, and threads, use **Photos & videos** or **Files** 
 
 Attachments are stored with messages in the server database and require the same access as their conversation. Deleting a message removes its attachments. Private agent chats accept photos and videos, including messages without a caption. Channel mentions include recent image context. Tap an attachment to open the full-screen gallery and browse the conversation's images, videos, and files, including thread attachments. Video playback stops when leaving the item, closing the gallery, or backgrounding the app.
 
+The server reads each picture's width and height from the file's own header when it is stored (PNG, JPEG, GIF, WebP and HEIC; a photo saved on its side is measured the way it is shown) and sends them with the message. The app draws the picture's place at that shape before the picture arrives, so the conversation does not jump when it loads. A picture stored before the server kept sizes starts in a 4:3 place as before; the app remembers its size once it has loaded.
+
 Agent images and videos delivered as inline data URLs are saved for later viewing. The current Hermes API accepts image inputs but cannot inspect video inputs; videos remain in the conversation and Hermes receives an explicit attachment notice instead. Its current media resolver also only converts image paths to inline data. Older history entries that contain only a local `MEDIA:` path cannot be recovered through its history API; the server does not fetch arbitrary paths or external media URLs.
 
 The attachment picker and sharing modules require a new native app build for existing installations.

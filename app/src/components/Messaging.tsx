@@ -675,7 +675,7 @@ export function Composer({
     let typedQueue = false;
     const restore = () => typedQueue ? `/queue ${body}` : body;
     const scope = sendScope.current;
-    const uploads = files.map(({ name, data, document }) => document ? { name, data, document } : { name, data });
+    const uploads = files.map(({ name, data, document, width, height }) => document ? { name, data, document } : { name, data, ...(width && height ? { width, height } : {}) });
     // A plain new message on a screen that asked for it (`freeOnSend`): the box does not wait for the answer.
     let free = false;
     try {

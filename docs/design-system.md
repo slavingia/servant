@@ -271,7 +271,11 @@ apart.
   Editing adds a clear label and Cancel action.
 - `Attachments` and `MediaGalleryProvider`: images from people and the agent
   share prominent inline previews; video cards have a clear play action and file
-  details. Tapping media opens a full-screen gallery
+  details. One picture's place has the picture's own shape from the first frame
+  (`lib/picture-box.ts`, from the width and height the server sends): up to 480
+  points wide and 380 tall, narrower for a tall picture, and never narrower
+  than 2:5 or flatter than 4:1. Its spinner waits a quarter of a second, like
+  the other loaders, and is not drawn at all for a picture that is already here. Tapping media opens a full-screen gallery
   with horizontal paging, sender information, and a position indicator. The
   gallery includes earlier conversation media and thread attachments, with
   explicit loading and retry states. Video pages use native playback controls,

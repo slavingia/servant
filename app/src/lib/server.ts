@@ -93,11 +93,14 @@ export type Entitlement = { id: string; name: string; description: string; hosts
 export type EntitlementDraft = { name: string; description: string; hosts: string[]; confirmation: string };
 export type EntitlementsPage = { entitlements: Entitlement[]; canCreate: boolean; waiting: number; manager: { id: string; name: string } | null; reports: { id: string; name: string }[];
   egress: { mode: "ask" | "off"; always?: string[]; refused?: { userId: string; name: string; host: string; attempts: number; lastAt: number }[] } };
-export type Attachment = { id: string; name: string; mime: string; size: number };
+// width, height: a picture's size in pixels as it is shown, read by the server when the file was stored. Absent
+// for a file from before the server kept sizes and for one that is not a picture (lib/picture-box.ts).
+export type Attachment = { id: string; name: string; mime: string; size: number; width?: number; height?: number };
 // Documents skip base64: `document` points at the local file until it's
 // uploaded in chunks, then `upload` names the server copy.
 export type LocalDocument = { uri: string; size: number; blob?: Blob };
-export type Upload = { name: string; data: string; document?: LocalDocument; upload?: string };
+// width, height: a picture's size when the app already knows it (the photo library says, or the app shrank it).
+export type Upload = { name: string; data: string; document?: LocalDocument; upload?: string; width?: number; height?: number };
 export type Post = {
   sourceDevice?: SourceDevice;
   readBy?: { userId: string; readAt: number }[];
@@ -425,7 +428,7 @@ export async function sendMessage(
     secureFetch(base, account.serverKey, `/v1/chats/${chatId}/messages`, {
       method: "POST",
       headers: { Authorization: `Bearer ${account.token}`, "Content-Type": "application/json", Accept: "text/event-stream" },
-      body: JSON.stringify({ text, attachments: attachments.map(({ name, data, upload }) => upload ? { name, upload } : { name, data }), requestId, ...(forward ? { forward } : {}), ...piiFlags(confirmPii) }),
+      body: JSON.stringify({ text, attachments: attachments.map(({ name, data, upload, width, height }) => upload ? { name, upload } : { name, data, ...(width && height ? { width, height } : {}) }), requestId, ...(forward ? { forward } : {}), ...piiFlags(confirmPii) }),
       signal,
     });
   let res = await go(account.serverUrl).catch(() => null);

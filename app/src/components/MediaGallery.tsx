@@ -43,7 +43,7 @@ function ScopedGallery({ account, scope, items, children }: { account: Account; 
   useEffect(() => () => cache.dispose(), [cache]);
   const open = useCallback((file: Attachment) => { Keyboard.dismiss(); setOpened(file); }, []);
   const close = useCallback(() => setOpened(null), []);
-  const context = useMemo(() => ({ open, load: cache.load, invalidate: cache.invalidate }), [cache, open]);
+  const context = useMemo(() => ({ open, load: cache.load, peek: cache.peek, invalidate: cache.invalidate }), [cache, open]);
   return <GalleryContext.Provider value={context}>
     {children}
     {opened ? <Modal visible animationType="fade" presentationStyle="fullScreen" onRequestClose={close}>
@@ -58,14 +58,17 @@ export function useAttachmentContent(file: Attachment, enabled = true) {
   const { id, name, mime, size } = file;
   const gallery = useMediaGallery();
   const [attempt, setAttempt] = useState(0);
-  const [result, setResult] = useState<{ key: string; data?: string; error?: string } | null>(null);
+  // A file whose bytes are already here (it was on screen a moment ago, or the gallery opened it) is drawn in
+  // the first frame. Waiting for the answer, even one that is already known, showed a spinner for a frame.
+  const held = enabled ? gallery?.peek(id) : undefined;
+  const [result, setResult] = useState<{ key: string; data?: string; error?: string } | null>(() => held === undefined ? null : { key: `${id}:0`, data: held });
   const key = `${id}:${attempt}`;
   const current = result?.key === key ? result : null;
   const load = gallery?.load;
   useEffect(() => {
     if (!enabled || !load) return;
     let active = true;
-    load({ id, name, mime, size }).then(data => { if (active) setResult({ key, data }); }, () => { if (active) setResult({ key, error: "Couldn't load this attachment." }); });
+    load({ id, name, mime, size }).then(data => { if (active) setResult(shown => shown?.key === key && shown.data === data ? shown : { key, data }); }, () => { if (active) setResult({ key, error: "Couldn't load this attachment." }); });
     return () => { active = false; };
   }, [enabled, id, name, mime, size, key, load]);
   const retry = useCallback(() => { gallery?.invalidate(id); setAttempt(value => value + 1); }, [id, gallery]);
