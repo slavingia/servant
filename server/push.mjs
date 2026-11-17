@@ -47,7 +47,9 @@ export function notificationPayload(info, user, deviceId, { plain = false } = {}
     // push that has no count), leave the icon alone: a made-up 1 put a cleared badge back.
     badge: Number.isSafeInteger(info.badge) && info.badge > 0 ? info.badge : null,
     // A case from the secure inbox routes by its own id: it is neither a conversation nor an agent chat.
-    data: { userId: user.id, deviceId, ...(info.conversationId ? { conversationId: info.conversationId } : info.caseId ? { caseId: info.caseId } : info.codeRequestId ? { codeRequestId: info.codeRequestId } : { chatId: info.chatId }),
+    data: { userId: user.id, deviceId, ...(info.conversationId ? { conversationId: info.conversationId } : info.caseId ? { caseId: info.caseId } : info.codeRequestId ? { codeRequestId: info.codeRequestId } : info.chatId ? { chatId: info.chatId } : {}),
+      // A page of the app to open rather than a conversation (an entitlement request or decision opens Entitlements).
+      ...(info.page ? { page: info.page } : {}),
       ...(info.meetingId ? { meetingId: info.meetingId } : {}), ...(info.threadRoot ? { threadRoot: String(info.threadRoot) } : {}), ...(info.messageId ? { messageId: String(info.messageId) } : {}) },
   };
 }
