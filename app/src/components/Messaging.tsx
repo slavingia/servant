@@ -355,7 +355,7 @@ export const PostRow = memo(function PostRow({ post, me, receipt, compact, onOpe
             </Pressable>;
           })}
         </View> : null}
-        {available && Platform.OS === "web" ? <Pressable accessibilityRole="button" accessibilityLabel={`Actions for ${post.user.name}'s message`} onPress={actions} style={styles.more}><Text style={styles.moreText}>•••</Text></Pressable> : null}
+        {available && Platform.OS === "web" ? <Pressable accessibilityRole="button" accessibilityLabel={`Actions for ${post.user.name}'s message`} onPress={actions} style={styles.more}><Text selectable={false} style={styles.moreText}>•••</Text></Pressable> : null}
         {onOpenThread && post.alsoInChannel && !post.deleted ? (
           <Pressable accessibilityRole="button" accessibilityLabel={`${replyContext(post)}. View thread`} onPress={onOpenThread} style={styles.replies}>
             <Text style={styles.repliesText}>View thread</Text>

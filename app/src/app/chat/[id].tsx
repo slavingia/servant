@@ -1,4 +1,6 @@
 import { Radio } from "../../components/Radio";
+import { FlashList } from "@shopify/flash-list";
+import { RECYCLING_CONVERSATION_LIST, listOrder } from "../../lib/conversation-list";
 import { createElement, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, AppState, FlatList, Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { router, Stack, useLocalSearchParams } from "expo-router";
@@ -944,6 +946,13 @@ function ChatConversation({ account }: { account: Account }) {
       turn={working ? activeTurn : null} status={working && !item.agentWorking ? status : null} uploadProgress={item.uploads?.length && item.pending ? uploadProgress : null}
       onForward={setForwarding} onUnqueue={onUnqueue} loadSteps={loadSteps} />;
   }, [worked, turn, watched, activeTurn, status, uploadProgress, id, me, canForward, onUnqueue, loadSteps]);
+  const chatEmpty = messages?.length === 0 && !firstRow && loadError ? (
+    <View style={styles.empty}>
+      <Text accessibilityRole="header" style={styles.emptyTitle}>Couldn't load this chat</Text>
+      <Text accessibilityRole="alert" style={styles.emptyBody}>{loadError}</Text>
+      <Button label="Try again" kind="secondary" onPress={() => { setMessages(null); setLoadError(null); void load(); }} style={styles.retry} />
+    </View>
+  ) : undefined;
   // With nothing typed, the Send button stops the reply. It is the only Stop on the screen besides /stop.
   const stoppable = !!turn?.canStop && activeAgentTurn(turn) && turn.status !== "stopping" && !actionBusy;
   const about = vibe ? VIBE_CHOICE : projectId;
@@ -1006,6 +1015,21 @@ function ChatConversation({ account }: { account: Account }) {
         {messages === null ? (
           <SkeletonRows label="Loading messages" count={8} style={{ flex: 1 }} />
         ) : (
+          RECYCLING_CONVERSATION_LIST ? (
+            // In a browser and the Mac app the rows are in reading order on the page, so a drag selects the text
+            // between where it starts and where it ends, the way it does on any web page.
+            <FlashList
+              data={listOrder(data, true) as Row[]}
+              keyExtractor={rowKey}
+              initialScrollIndex={data.length ? data.length - 1 : undefined}
+              maintainVisibleContentPosition={{ startRenderingFromBottom: true, autoscrollToBottomThreshold: 0.2, animateAutoScrollToBottom: false }}
+              keyboardDismissMode="interactive"
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.list}
+              ListHeaderComponent={chatEmpty}
+              renderItem={renderItem}
+            />
+          ) : (
           <FlatList
             ref={list}
             inverted
@@ -1016,17 +1040,10 @@ function ChatConversation({ account }: { account: Account }) {
             keyboardDismissMode="interactive"
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.list}
-            ListFooterComponent={
-              messages.length === 0 && !firstRow && loadError ? (
-                <View style={styles.empty}>
-                  <Text accessibilityRole="header" style={styles.emptyTitle}>Couldn't load this chat</Text>
-                  <Text accessibilityRole="alert" style={styles.emptyBody}>{loadError}</Text>
-                  <Button label="Try again" kind="secondary" onPress={() => { setMessages(null); setLoadError(null); void load(); }} style={styles.retry} />
-                </View>
-              ) : undefined
-            }
+            ListFooterComponent={chatEmpty}
             renderItem={renderItem}
           />
+          )
         )}
         {forwarding ? <ForwardSheet target={forwarding} onClose={() => setForwarding(null)} /> : null}
         {chatUsage?.total ? <Text accessibilityLabel={`This conversation has used ${formatTokens(chatUsage.total)} tokens, about ${formatCost(estimateCost(chatUsage.input, chatUsage.output))} estimated`} style={styles.usageLine}>{formatTokens(chatUsage.total)} tokens · about {formatCost(estimateCost(chatUsage.input, chatUsage.output))}</Text> : null}
