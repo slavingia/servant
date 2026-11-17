@@ -80,3 +80,14 @@ test("it waits a moment before it shows, in its place, so a quick load never fla
   assert.match(loader, /<Animated\.View style=\{\[box, \{ opacity: shown \}\]\} \{\.\.\.hidden\}>/);
   assert.match(loader, /accessibilityRole="progressbar"\n\s+accessibilityLabel=\{accessibilityLabel\}/);
 });
+
+test("loading rows wait the same moment; the launch shapes do not", () => {
+  const skeleton = fs.readFileSync(path.join(import.meta.dirname, "../components/Skeleton.tsx"), "utf8");
+  const rows = skeleton.slice(skeleton.indexOf("export function SkeletonRows"));
+  assert.match(rows, /Animated\.timing\(shown, \{ toValue: 1, duration: LOADER_FADE_MS, delay: LOADER_DELAY_MS,/);
+  assert.match(rows, /accessibilityRole="progressbar" accessibilityLabel=\{label\}[^\n]*\n\s+<Animated\.View style=\{\{ opacity: shown \}\}>/, "in their place and named from the first frame");
+  // Home's loading rows and the launch screen take over from a still frame of the same shapes (launch-skeleton.json).
+  const pulse = skeleton.slice(skeleton.indexOf("export function Pulse"), skeleton.indexOf("// Rows for a list that is loading"));
+  assert.doesNotMatch(pulse, /LOADER_DELAY_MS/);
+  assert.match(skeleton, /new Animated\.Value\(1\)/, "the pulse starts at full strength");
+});
