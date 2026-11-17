@@ -19,6 +19,7 @@ import { landingHref, useFeatures } from "../lib/features";
 import { WideBack } from "../components/WideBack";
 import { SessionExpiryGate } from "../components/SessionExpiryGate";
 import { ShareGate } from "../components/ShareGate";
+import { CodeRequestOpener } from "../components/CodeRequestOpener";
 import { LaunchScreen } from "../components/LaunchScreen";
 import { useApplyUpdates } from "../lib/ota";
 import { useAppFonts } from "../lib/use-app-fonts";
@@ -169,6 +170,7 @@ function SessionNavigation() {
     </Stack>
     {paired ? <SessionExpiryGate /> : null}
     {paired ? <ShareGate /> : null}
+    {paired ? <CodeRequestOpener /> : null}
     </AppChrome>
     </>}
     </LiveProvider>

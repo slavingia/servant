@@ -201,6 +201,7 @@ export type LiveEvent =
   | { event: "presence.updated"; data: Presence }
   | { event: "person.updated"; data: Person }
   | { event: "typing"; data: { conversationId: string; threadRoot: string | null; user: Person } }
+  | { event: "code.requested"; data: { requestId: string } }
   | { event: "ready"; data: { cursor?: string; reset?: boolean } }
   | { event: "checkpoint"; data: { cursor: string } };
 

@@ -7,7 +7,8 @@
 # <data>/app-previews/<project id>/ in one step, so people never see half an export. The default export command is
 # `npx expo export --platform web`; pass your own (for example `npm run export:web:pages`) when the app has one.
 # The export command must write to dist/ or dist/pages/ (or set APP_PREVIEW_OUT to where it writes) and read the
-# base path from EXPO_BASE_URL. The same path is also set as IRS2GO_PAGES_BASE_PATH for apps that read that name.
+# base path from EXPO_BASE_URL. It is also in APP_PREVIEW_BASE_PATH, for an app whose own script reads another name:
+#   scripts/app-preview-export.sh my-app ../my-app 'MY_BASE=$APP_PREVIEW_BASE_PATH npm run export:web'
 set -euo pipefail
 pid="${1:-}"; app="${2:-}"; shift 2 || true
 cmd="${*:-npx expo export --platform web --output-dir dist}"
@@ -19,7 +20,7 @@ data="${SERVANT_DATA_DIR:-$here/server/data}"
 base="/a/$pid"
 cd "$app"
 echo "Exporting $app for $base ..."
-EXPO_BASE_URL="$base" IRS2GO_PAGES_BASE_PATH="$base" CI=1 EXPO_NO_TELEMETRY=1 bash -c "$cmd"
+EXPO_BASE_URL="$base" APP_PREVIEW_BASE_PATH="$base" CI=1 EXPO_NO_TELEMETRY=1 bash -c "$cmd"
 out="${APP_PREVIEW_OUT:-}"
 if [ -z "$out" ]; then for d in dist/pages dist; do if [ -f "$d/index.html" ]; then out="$d"; break; fi; done; fi
 if [ -z "$out" ] || [ ! -f "$out/index.html" ]; then echo "No export found (looked in dist/pages and dist). Set APP_PREVIEW_OUT." >&2; exit 1; fi

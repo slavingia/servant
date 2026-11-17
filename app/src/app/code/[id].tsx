@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, AppState, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Button } from "../../components/Button";
 import { cleanCode, shouldAutoSend } from "../../lib/code-autosend";
@@ -23,6 +23,19 @@ export default function EnterCode() {
   const [minutes, setMinutes] = useState(0);
   const inFlight = useRef(false);
   const lastSent = useRef<string | null>(null);
+  const field = useRef<{ focus(): void } | null>(null);
+  // The box is ready to type in: when the request loads (autoFocus can miss right after the screen slides in), and
+  // again when the app or the Mac window comes back to the front while it waits.
+  const waiting = request?.status === "pending" && !done;
+  useEffect(() => {
+    if (!waiting) return;
+    const focus = () => field.current?.focus();
+    const timer = setTimeout(focus, 350);
+    const state = AppState.addEventListener("change", s => { if (s === "active") setTimeout(focus, 100); });
+    const onWindow = () => setTimeout(focus, 50);
+    if (Platform.OS === "web" && typeof window !== "undefined") window.addEventListener("focus", onWindow);
+    return () => { clearTimeout(timer); state.remove(); if (Platform.OS === "web" && typeof window !== "undefined") window.removeEventListener("focus", onWindow); };
+  }, [waiting]);
 
   useEffect(() => {
     if (!account || !id) return;
@@ -69,6 +82,7 @@ export default function EnterCode() {
           <Text style={styles.label} nativeID="codeRequestLabel">Code</Text>
           <TextInput
             testID="code-request-code"
+            ref={(node: unknown) => { field.current = node as { focus(): void } | null; }}
             accessibilityLabelledBy="codeRequestLabel"
             accessibilityLabel="Code"
             value={code}

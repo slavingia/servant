@@ -1883,6 +1883,8 @@ async function handle(req, res, cfg) {
       if (!made) return;
       // The alert names the device and what the code is for; the worker that sends it cannot see this process's memory.
       try { push?.enqueue({ kind: "code", eventId: made.id, to: user.id, requestId: made.id, device: made.device, label: made.label, expiresAt: made.expiresAt }); } catch (error) { console.error("[servant] code request alert", error.message); }
+      // And straight onto the screen of any Servant app they have open.
+      try { messaging?.codeRequested(user.id, made.id); } catch (error) { console.error("[servant] code request live event", error.message); }
       return send(res, 201, { request: made });
     }
     if (method === "GET" && parts.length === 3) return guard(() => send(res, 200, { request: codeRequests.get(parts[2], user) }));

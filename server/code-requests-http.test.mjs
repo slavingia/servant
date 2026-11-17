@@ -80,3 +80,39 @@ test("a cancelled request is not alerted and cannot be answered", async () => {
   assert.equal((await api("phone", "POST", `code-requests/${id}/answer`, { code: "123456" })).status, 410);
   assert.equal((await api("runner", "POST", "code-requests", {})).status, 400);
 });
+
+// Read SSE from /v1/events until `want` matches or time runs out.
+async function events(who, want, ms = 3000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  const seen = [];
+  try {
+    const response = await testFetch(directory, `${base}/v1/events`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${devices[who].token}`, Accept: "text/event-stream" }, body: "{}", signal: ctrl.signal });
+    const reader = response.body.getReader(); let text = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      text += new TextDecoder().decode(value);
+      for (const block of text.split("\n\n").slice(0, -1)) {
+        const event = /event: (.+)/.exec(block)?.[1], data = /data: (.+)/.exec(block)?.[1];
+        if (event && !seen.some(s => s.raw === block)) seen.push({ raw: block, event, data: data ? JSON.parse(data) : null });
+      }
+      if (want(seen)) break;
+    }
+  } catch { /* aborted */ } finally { clearTimeout(timer); ctrl.abort(); }
+  return seen.map(({ event, data }) => ({ event, data }));
+}
+
+test("an open app hears about a new code request at once: only its id, only for its own person", async () => {
+  const patStream = events("phone", seen => seen.some(e => e.event === "code.requested"));
+  const joStream = events("jo", () => false, 1500);
+  await new Promise(r => setTimeout(r, 400));
+  const made = await api("runner", "POST", "code-requests", { label: "Login.gov sign-in", hint: "Texted to the number ending 0000" });
+  assert.equal(made.status, 201);
+  const pat = await patStream;
+  const heard = pat.filter(e => e.event === "code.requested");
+  assert.deepEqual(heard, [{ event: "code.requested", data: { requestId: made.body.request.id } }], "just the id: no label, hint or code");
+  assert.ok(!(await joStream).some(e => e.event === "code.requested"), "nobody else hears about it");
+  await pushed(1);
+  await api("phone", "POST", `code-requests/${made.body.request.id}/cancel`);
+});

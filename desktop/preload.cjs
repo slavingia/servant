@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('servantDesktop', {
     ipcRenderer.on('servant:invite', listener);
     return () => ipcRenderer.removeListener('servant:invite', listener);
   },
+  // Bring the window to the front (a code request arrived while Servant was open behind other windows).
+  focus: () => ipcRenderer.invoke('servant:focus'),
   notifications: {
     show: value => ipcRenderer.invoke('servant:notify', value),
     setBadge: count => ipcRenderer.invoke('servant:badge', count),

@@ -651,6 +651,12 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     }
     // Invalidation contains only an already-known ID and must survive leave/delete.
     if (row.event === 'conversation.updated') return { id: row.conversation_id };
+    // A code request of yours (docs/code-requests.md): only its id, never what it is for or the code. An app that is
+    // open fetches the request itself and shows the Enter code screen. Old ones are not replayed after a reconnect.
+    if (row.event === 'code.requested') {
+      const { requestId } = JSON.parse(row.payload);
+      return typeof requestId === 'string' && now() - row.created_at < 15 * 60_000 ? { requestId } : null;
+    }
     const conv = st.conv.get(row.conversation_id);
     if (!conv || conv.archived_at || hidden(conv) || !st.member.get(conv.id, userId)) return null;
     const data = JSON.parse(row.payload);
@@ -683,7 +689,8 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
       const payload = event.startsWith('message.') ? { messageId: data.id }
         : event === 'typing' ? { userId: data.user.id, threadRoot: data.threadRoot }
         : event === 'messages.read' ? { userId: data.userId, messageIds: data.messageIds, readAt: data.readAt }
-        : event === 'presence.updated' || event === 'person.updated' ? { userId: data.userId } : {};
+        : event === 'presence.updated' || event === 'person.updated' ? { userId: data.userId }
+        : event === 'code.requested' ? { requestId: data.requestId } : {};
       const at = now();
       const id = Number(eventInsert.run(conversationId, event, JSON.stringify(payload), JSON.stringify(ids), at).lastInsertRowid);
       db.prepare('DELETE FROM live_events WHERE id <= ?').run(id - EVENT_HISTORY);
@@ -2039,9 +2046,11 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
   }
 
   function personChanged(userId) { publish('', 'person.updated', { userId }, Object.keys(users())); }
+  // An automation of theirs is waiting for a code: their open apps bring up the Enter code screen.
+  function codeRequested(userId, requestId) { if (users()[userId]) publish('', 'code.requested', { requestId }, [userId]); }
   // Their deep work switch moved: everyone's "Deep work" label and the person's other devices update at once.
   const presenceChanged = userId => publishPresence(userId);
-  return { workLog, channelFor, postActivity, personChanged, presenceChanged, handle, forwardSource, forwardInto, notificationFor, joinDefaults, joinEveryone, welcomeFromAgent, notifyFromAgent, ensureAgentDms, congratulateLimit, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, keep, keepAll, close: () => { closeEvents(); db.close(); }, db };
+  return { workLog, channelFor, postActivity, personChanged, codeRequested, presenceChanged, handle, forwardSource, forwardInto, notificationFor, joinDefaults, joinEveryone, welcomeFromAgent, notifyFromAgent, ensureAgentDms, congratulateLimit, noteMemberLeft, ensureGeneral, postRelease, latestRelease, createChannel, openDm, post, agentReply, processAgentJob, recoverInterruptedJobs, drainOutbox, subscribe, whenIdle, closeEvents, keep, keepAll, close: () => { closeEvents(); db.close(); }, db };
 }
 
 function httpError(status, code, message) {
