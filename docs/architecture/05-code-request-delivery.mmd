@@ -1,0 +1,17 @@
+sequenceDiagram
+  autonumber
+  participant R as Automation signed in as you
+  participant API as Servant API memory
+  participant Q as Push queue on disk
+  participant W as Push worker
+  participant D as Your other device
+  R->>API: POST code request with label, hint and length
+  API->>API: Keep code request in memory only
+  API->>Q: Queue alert without the code
+  W->>Q: Read pending alert
+  W->>D: Push "Code needed" if unexpired
+  API-->>D: Live event carries only request id
+  D->>API: Fetch request and show Enter code
+  D->>API: Answer over encrypted API
+  R->>API: Claim once from asking device
+  API-->>R: Return code, then forget it

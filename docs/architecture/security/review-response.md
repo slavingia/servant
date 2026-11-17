@@ -27,25 +27,9 @@ This was the review's first concern, and it is accurate for any server left at i
 
 Four controls answer it. They stack; each is worth having without the others.
 
-```mermaid
-flowchart TB
-  P["Person sends to Agent<br/>(tier 1-3 or 5, full agent)"] --> T["Turn carries a signed token:<br/>this person, this chat"]
-  T --> H{"Agent is about to use a tool"}
-  H -- "touches neither files nor GitHub" --> GO["Tool runs"]
-  H -- "reads or changes files or GitHub" --> ASK["Bridge asks the server first<br/>(stops the call if it can't ask)"]
-  ASK --> HOLD{"Does the person hold<br/>the built-in entitlement?"}
-  HOLD -- "yes, or the person is an owner" --> LOG
-  HOLD -- "no" --> MGR["Their manager is told and sees<br/>what the agent was about to do"]
-  MGR -- "Allow once / Allow always" --> LOG["Written to the agent action log<br/>(append-only), then allowed"]
-  MGR -- "Decline, or no answer yet" --> STOP["Written to the log, then stopped;<br/>the agent tells the person"]
-  LOG --> GO
-  GO --> NET{"Tool opens a network connection"}
-  NET --> SB["OS sandbox: the only way out<br/>is the server's gate on localhost"]
-  SB --> GATE{"Host on the always list, or covered by<br/>an entitlement this person holds?"}
-  GATE -- "yes" --> OUT["Connection made<br/>(never to this Mac or a private network)"]
-  GATE -- "no" --> REF["Refused, written down,<br/>person or owners told"]
-  SB -. "server keys and databases<br/>closed to the agent" .-> X["Operation not permitted"]
-```
+![Entitlements, approvals and the network gate](08-entitlements-and-approvals.png)
+
+Source: [08-entitlements-and-approvals.mmd](08-entitlements-and-approvals.mmd).
 
 (The same diagram is `08-entitlements-and-approvals.mmd`.)
 
@@ -61,7 +45,7 @@ Evidence: `server/usage.mjs` (`agentTierOf`), `server/server.mjs` (`noAgent`); d
 
 This is the strongest answer to the concern and the simplest: it removes the capability instead of governing it. Its cost is that members can no longer have the agent do work on the server's computer.
 
-Evidence: [member-security.md](../member-security.md); `server/member-policy.mjs`, `server/member-policy.json`; `server/member-policy.test.mjs` ("member turns require explicit bridge attestation, not ordinary Hermes tool listing"); `scripts/test-hermes-compat.py` builds two real member agents and asserts neither has tools or memory.
+Evidence: [member-security.md](../../member-security.md); `server/member-policy.mjs`, `server/member-policy.json`; `server/member-policy.test.mjs` ("member turns require explicit bridge attestation, not ordinary Hermes tool listing"); `scripts/test-hermes-compat.py` builds two real member agents and asserts neither has tools or memory.
 
 ### 1c. The full agent asks before it reads or changes files or GitHub
 
@@ -73,7 +57,7 @@ For people who do need the agent to work on the server's computer, `"agentCapabi
 - It fails closed. If the bridge can't reach the server, the call is stopped. A bridge that can't ask at all is not handed a turn.
 - A shell command is read one-sidedly: it counts as "read" only when every part of it is on a short list of commands known to only read. Anything else needs Filesystem write. A wrong guess asks for more approval than was needed, never less.
 
-Evidence: [entitlements.md](../entitlements.md) ("Built-in entitlements"); `server/entitlements.mjs`, `server/hermes_guard.py`, `server/hermes_capabilities.py`; `server/entitlements-http.test.mjs` ("built-in entitlements: the first use asks the manager, who allows once or always, and it is recorded"); `scripts/test-agent-capabilities.py` (what each command needs; unreachable and malformed answers are refusals); `scripts/test-hermes-compat.py` (`EntitlementCheckTest`: a real Hermes stops the tool call until the server allows it).
+Evidence: [entitlements.md](../../entitlements.md) ("Built-in entitlements"); `server/entitlements.mjs`, `server/hermes_guard.py`, `server/hermes_capabilities.py`; `server/entitlements-http.test.mjs` ("built-in entitlements: the first use asks the manager, who allows once or always, and it is recorded"); `scripts/test-agent-capabilities.py` (what each command needs; unreachable and malformed answers are refusals); `scripts/test-hermes-compat.py` (`EntitlementCheckTest`: a real Hermes stops the tool call until the server allows it).
 
 What it does not do:
 
@@ -86,7 +70,7 @@ What it does not do:
 
 `"agentEgress": { "mode": "ask" }`, with the agent started through `scripts/run-agent-sandboxed.sh`, leaves the agent one way out to the network: a gate inside the server that refuses every host not on the server's `always` list or covered by an entitlement the person holds. Each chat's commands present a signed token, so they are judged for that person alone. The gate never connects to the server's own computer or a private network.
 
-Evidence: [agent-egress.md](../agent-egress.md); `server/egress.mjs`, `server/hermes_egress.py`, `scripts/run-agent-sandboxed.sh`; `server/egress.test.mjs`; `server/entitlements-http.test.mjs` ("ask, confirm, be granted: the agent reaches a host only for the person who holds the entitlement"); the wrapper was run on a Mac: a command that ignores the proxy has no network, and a raw socket is refused by the system.
+Evidence: [agent-egress.md](../../agent-egress.md); `server/egress.mjs`, `server/hermes_egress.py`, `scripts/run-agent-sandboxed.sh`; `server/egress.test.mjs`; `server/entitlements-http.test.mjs` ("ask, confirm, be granted: the agent reaches a host only for the person who holds the entitlement"); the wrapper was run on a Mac: a command that ignores the proxy has no network, and a raw socket is refused by the system.
 
 What it does not do: it sees host names, not content, so an allowed host can receive anything; web and browser tools that go through a gateway appear as the gateway's host; the token keeps a command honest about whose it is but commands still run as one user on one computer. The Linux path of the wrapper has not been run.
 
@@ -108,7 +92,7 @@ What exists:
 - The server writes its configuration and state files private to its own user (0600, in a 0700 folder). Device tokens are stored only as hashes. The server's private key never leaves the computer.
 - The sandbox wrapper can close files and folders to the agent and everything it starts: `SERVANT_SANDBOX_DENY_PATHS` (the data folder, the push credentials folder) with `SERVANT_SANDBOX_ALLOW_PATHS` for the folders the agent is handed files in. A closed path can't be read, written, listed, moved, copied or linked to. This matters most for the secret that signs per-person tokens: without it, an agent allowed to read files could read that secret and pass as anyone. Mac only.
 
-Evidence: [agent-egress.md](../agent-egress.md), step 4; `scripts/run-agent-sandboxed.sh`; run on a Mac against a stand-in data folder (reads, writes, links, moves and copies of closed files refused; attached files still readable).
+Evidence: [agent-egress.md](../../agent-egress.md), step 4; `scripts/run-agent-sandboxed.sh`; run on a Mac against a stand-in data folder (reads, writes, links, moves and copies of closed files refused; attached files still readable).
 
 Still open, and the review is right to press on it:
 
@@ -124,21 +108,21 @@ What limits it:
 
 - One provider is configured, and the reference deployment uses the agency's own model endpoint ([diagram 6](README.md#6-deployment-environment)).
 - With the network gate on and only that endpoint on the `always` list, the agent cannot send content to any other provider.
-- An optional check warns a person before they send a message that looks like it holds personal or sensitive business information ([business-info-filter.md](../business-info-filter.md)). It warns and never blocks: the sender can send anyway.
+- An optional check warns a person before they send a message that looks like it holds personal or sensitive business information ([business-info-filter.md](../../business-info-filter.md)). It warns and never blocks: the sender can send anyway.
 - Daily token limits per person, and a count of tokens per person with no prompt text kept.
 
 Still open: there is no control on what a repository or file contains before the agent reads it. Whether source code or other sensitive material may be sent to the endpoint is the deploying agency's decision about that endpoint.
 
 ## 5. Device enrollment, tokens, revocation and replay
 
-- **Enrollment.** A device joins with a one-use or expiring invite. Where email sign-in is on, a code sent to a work address on an allowed domain is required first ([email-sign-in.md](../email-sign-in.md)). Sign-in with a federal identity provider or a certificate card is a proposal, not built ([piv-sign-in.md](../piv-sign-in.md)).
+- **Enrollment.** A device joins with a one-use or expiring invite. Where email sign-in is on, a code sent to a work address on an allowed domain is required first ([email-sign-in.md](../../email-sign-in.md)). Sign-in with a federal identity provider or a certificate card is a proposal, not built ([piv-sign-in.md](../../piv-sign-in.md)).
 - **Server identity.** The invite carries the server's public key and the app pins it; it is never learned from the relay, and there is no fallback to plaintext.
 - **Tokens.** The device token travels inside the encrypted request, never in the outer transport, and is stored on the server as a hash.
 - **Replay.** Each request has a fresh key, a two-minute time window and a replay check that survives a restart.
 - **Revocation.** Removing a device or a person makes their tokens fail at once and ends their live connections; a removed person's entitlements are revoked in the same step.
 - **Re-entry.** `sessionMaxHours` makes a device confirm a code from the work address on file every so many hours. Off by default.
 
-Evidence: [encryption.md](../encryption.md); `server/secure-transport.test.mjs` ("modified, expired, wrong-server and replayed requests never execute, including after restart"; "bad pins and plaintext responses fail closed without fallback"; "response tampering, reordering and truncation are detected"); `server/session-expiry.test.mjs` ("twelve hours after the email step every door closes with session_expired…"); `server/entitlements-http.test.mjs` ("removing a person revokes what they held and stops their agent's traffic…").
+Evidence: [encryption.md](../../encryption.md); `server/secure-transport.test.mjs` ("modified, expired, wrong-server and replayed requests never execute, including after restart"; "bad pins and plaintext responses fail closed without fallback"; "response tampering, reordering and truncation are detected"); `server/session-expiry.test.mjs` ("twelve hours after the email step every door closes with session_expired…"); `server/entitlements-http.test.mjs` ("removing a person revokes what they held and stops their agent's traffic…").
 
 Still open: the transport has no forward secrecy if the server's long-term key is taken, and it has not had an independent protocol audit.
 
@@ -148,7 +132,7 @@ With `"recordsPreservation": { "enabled": true }`, every edit or delete first co
 
 Two records are kept whatever that setting is, because they are about access, not content: the history of every entitlement request and decision, and the agent action log. Both refuse updates and deletes.
 
-Evidence: [records-management.md](../records-management.md); `server/records-preserve.mjs`, `server/records-preserve.test.mjs`; `server/entitlements.test.mjs` ("editing, retiring and a person leaving close access without deleting anything"; "the agent action log keeps every line, newest first, and can't be changed").
+Evidence: [records-management.md](../../records-management.md); `server/records-preserve.mjs`, `server/records-preserve.test.mjs`; `server/entitlements.test.mjs` ("editing, retiring and a person leaving close access without deleting anything"; "the agent action log keeps every line, newest first, and can't be changed").
 
 Still open: the archive makes tampering detectable, not impossible, for someone with the server's user account. Servant has no retention schedule; the agency sets one.
 
@@ -172,7 +156,7 @@ Still open: allowed connections are counted per person, host and day, not listed
 
 Phones reach the server through a Cloudflare tunnel or the optional relay. Either one carries only ciphertext, sizes, timing and network addresses: the app encrypts to the server's pinned key, and the device token is inside the ciphertext. An encrypted request cannot reach the server's local administration routes. The agent's own API listens on localhost only.
 
-Evidence: [encryption.md](../encryption.md), [relay-transport.md](../relay-transport.md); `server/secure-transport.test.mjs` ("real app crypto interoperates with Node; proxy sees neither token, content, files nor response"; "encrypted requests cannot reach local admin or recursively tunnel").
+Evidence: [encryption.md](../../encryption.md), [relay-transport.md](../../relay-transport.md); `server/secure-transport.test.mjs` ("real app crypto interoperates with Node; proxy sees neither token, content, files nor response"; "encrypted requests cannot reach local admin or recursively tunnel").
 
 Still open: the reference deployment uses a quick tunnel with a discovery file rather than the stable relay.
 
