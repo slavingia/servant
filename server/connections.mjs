@@ -130,20 +130,34 @@ export function tokenInText(text, tools) {
 }
 export const tokenInChatMessage = tool => `That looks like a ${tool.name} token. Use Connections so it stays out of chat.`;
 
+// The letters every match of a pattern must start with ("ghp_" for a classic GitHub token), one per alternative; null
+// when they can't be told from the pattern, and then a reply still being written is held a whole word at a time.
+function literalStarts(source) {
+  if (/[()\\]/.test(source)) return null;
+  const starts = source.split("|").map(alternative => /^[A-Za-z0-9_-]*/.exec(alternative)[0]);
+  return starts.every(Boolean) ? starts : null;
+}
+
 /**
  * A function that hides secrets in text: every saved value it is given, and anything shaped like a known token.
- * Longest values first, so a value that contains another is hidden whole.
+ * Longest values first, so a value that contains another is hidden whole. It carries what a stream needs to know
+ * to hold back the start of a secret that has only half arrived (`secrets`, `starts`).
  */
 export function redactor(tools, secrets = []) {
   const exact = [...new Set(secrets.filter(s => typeof s === "string" && s.length >= 8))].sort((a, b) => b.length - a.length);
-  const patterns = detectorsFor(tools).map(d => new RegExp(d.pattern, "g"));
-  return text => {
+  const found = detectorsFor(tools);
+  const patterns = found.map(d => new RegExp(d.pattern, "g"));
+  const starts = tools.flatMap(tool => tool.fields.filter(f => f.secret && f.detect).map(f => literalStarts(f.detect)));
+  const hide = text => {
     if (typeof text !== "string" || !text) return text;
     let out = text;
     for (const secret of exact) if (out.includes(secret)) out = out.split(secret).join(HIDDEN);
     for (const pattern of patterns) out = out.replace(pattern, HIDDEN);
     return out;
   };
+  hide.secrets = exact;
+  hide.starts = starts.includes(null) ? null : starts.flat();
+  return hide;
 }
 
 const MARKER = /\[\[connect:([A-Za-z0-9_-]{1,40})\]\]/g;
@@ -167,19 +181,40 @@ export function readConnectMarkers(text, tools) {
 export const stripConnectMarkers = text => typeof text === "string" && text.includes("[[connect:") ? text.replace(MARKER, "") : text;
 
 /**
- * For text that arrives in pieces: `clean` only sees whole words, so a token or a marker split across two pieces is
- * still caught. The last unfinished word is held until more arrives (or `flush`).
+ * For text that arrives in pieces. `clean` is only ever given text in which nothing sensitive is half-arrived, so a
+ * token, a saved value or a marker split across two pieces is still caught. What could be the start of one is held
+ * until the rest arrives (or `flush`); everything else goes out at once, so a reply cut off mid-way keeps its words.
+ *  - `secrets`: saved values; the end of the text is held while it could be the start of one.
+ *  - `starts`: how known tokens begin; a word that begins like one is held until it ends. null: hold every unfinished word.
  */
-export function createTextStream(clean, { hold = 600 } = {}) {
+export function createTextStream(clean, { secrets = [], starts = [], hold = 600 } = {}) {
   let held = "";
+  const word = /[A-Za-z0-9_]/;
+  function from(text) {
+    let at = text.length;
+    for (const secret of secrets) {
+      for (let k = Math.min(secret.length - 1, text.length); k > 0; k--) if (text.endsWith(secret.slice(0, k))) { at = Math.min(at, text.length - k); break; }
+    }
+    // A marker that has begun and not ended.
+    const marker = text.lastIndexOf("[[");
+    if (marker >= 0 && !text.includes("]]", marker) && text.length - marker <= 60) at = Math.min(at, marker);
+    else if (text.endsWith("[")) at = Math.min(at, text.length - 1);
+    const run = Math.max(text.lastIndexOf(" "), text.lastIndexOf("\n"), text.lastIndexOf("\t")) + 1;
+    if (starts === null) return Math.min(at, run);
+    for (let i = run; i < Math.min(at, text.length); i++) {
+      if (i > run && word.test(text[i - 1])) continue;
+      const rest = text.slice(i);
+      if (starts.some(start => rest.startsWith(start) || start.startsWith(rest))) { at = i; break; }
+    }
+    return at;
+  }
   return {
     push(piece) {
       held += String(piece ?? "");
-      const cut = Math.max(held.lastIndexOf(" "), held.lastIndexOf("\n"), held.lastIndexOf("\t"));
-      if (cut < 0 && held.length <= hold) return "";
-      const ready = cut < 0 ? held : held.slice(0, cut + 1);
-      held = cut < 0 ? "" : held.slice(cut + 1);
-      return clean(ready);
+      const at = held.length - from(held) > hold ? held.length : from(held);
+      const ready = held.slice(0, at);
+      held = held.slice(at);
+      return ready ? clean(ready) : "";
     },
     flush() { const rest = held; held = ""; return rest ? clean(rest) : ""; },
   };

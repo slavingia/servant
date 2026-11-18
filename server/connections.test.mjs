@@ -246,22 +246,35 @@ test("[[connect:type]] is taken out of the reply and names the tools asked for; 
   assert.deepEqual(readConnectMarkers("No marker, [[just brackets]]", tools), { text: "No marker, [[just brackets]]", types: [] });
 });
 
-test("text that arrives in pieces is cleaned a whole word at a time", () => {
-  const hide = redactor(BUILTIN_TOOLS, []);
-  const clean = text => stripConnectMarkers(hide(text));
-  const stream = createTextStream(hide);
-  const pieces = [`The token is gh`, `p_${"x".repeat(20)}`, `${"x".repeat(12)}a1b2 and `, "that is all"];
-  let out = "";
-  for (const piece of pieces) out += stream.push(piece);
-  out += stream.flush();
-  assert.equal(out, `The token is ${HIDDEN} and that is all`);
-  assert.equal(stream.flush(), "");
-  const markers = createTextStream(clean);
-  assert.equal(markers.push("ok [[conn") + markers.push("ect:github]] ") + markers.flush(), "ok  ");
+test("text that arrives in pieces: the start of a secret is held until the rest arrives, and nothing else is", () => {
+  const hide = redactor(BUILTIN_TOOLS, ["correct horse battery"]);
+  assert.deepEqual(hide.starts, ["github_pat_", "gh", "ATATT3"]);
+  const stream = () => createTextStream(text => stripConnectMarkers(hide(text)), hide);
+  const run = pieces => { const s = stream(); const out = pieces.map(piece => s.push(piece)); return [...out, s.flush()]; };
+  // Ordinary words go out the moment they arrive, so a reply cut off mid-way keeps all of them.
+  assert.deepEqual(run(["Still working", " on it"]), ["Still working", " on it", ""]);
+  // A token split across pieces is held from where it starts and hidden whole.
+  assert.deepEqual(run(["The token is gh", `p_${"x".repeat(20)}`, `${"x".repeat(12)}a1b2 and `, "that is all"]), ["The token is ", "", `${HIDDEN} and `, "that is all", ""]);
+  assert.deepEqual(run([`GH_TOKEN=${GH.slice(0, 9)}`, GH.slice(9)]).join(""), `GH_TOKEN=${HIDDEN}`);
+  assert.deepEqual(run(["AT", "ATT3", "z".repeat(40), " ok"]).join(""), `${HIDDEN} ok`);
+  // A word that only begins like one comes out when it ends.
+  assert.deepEqual(run(["a gh", "ost town"]), ["a ", "ghost town", ""]);
+  assert.deepEqual(run(["thigh", " bone"]), ["thigh", " bone", ""], "not the start of a word, so not the start of a token");
+  // A saved value, spaces and all.
+  assert.deepEqual(run(["it says correct ho", "rse bat", "tery here"]), ["it says ", "", `${HIDDEN} here`, ""]);
+  assert.deepEqual(run(["it says correct ho", "tel"]), ["it says ", "correct hotel", ""]);
+  // The agent's marker never shows half-written.
+  assert.deepEqual(run(["ok [[conn", "ect:github]] then"]), ["ok ", " then", ""]);
+  assert.deepEqual(run(["see [", "1] and [", "[connect:jira]]"]), ["see ", "[1] and ", "", ""]);
   assert.equal(stripConnectMarkers("plain text "), "plain text ");
-  // A very long run with no space is let through rather than held for ever.
-  const long = createTextStream(hide, { hold: 10 });
-  assert.equal(long.push("abcdefghijklmnop"), "abcdefghijklmnop");
+  // Held text is let go rather than kept for ever.
+  const long = createTextStream(hide, { starts: ["tok_"], hold: 10 });
+  assert.equal(long.push("tok_abcdefghijklmnop"), "tok_abcdefghijklmnop");
+  // A pattern whose beginning can't be told: every unfinished word waits.
+  const odd = redactor([{ id: "odd", name: "Odd", fields: [{ key: "k", secret: true, detect: "(?:a|b)[0-9]{20}" }], env: { ODD: "{k}" } }], []);
+  assert.equal(odd.starts, null);
+  const careful = createTextStream(odd, odd);
+  assert.deepEqual([careful.push("Still working"), careful.push(" on"), careful.flush()], ["Still ", "working ", "on"]);
 });
 
 test("a GitHub token is checked by asking GitHub who it belongs to", async () => {
