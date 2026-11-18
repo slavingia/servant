@@ -7,6 +7,7 @@ No vendor source or live profile is modified.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import copy
 import inspect
@@ -385,6 +386,8 @@ class ServantAPIServerAdapter(APIServerAdapter):
         data["features"]["servant_steer"] = not self.restricted_member
         # This bridge can ask Servant before a tool call reads or changes files or GitHub (hermes_guard.py).
         data["features"]["servant_entitlement_checks"] = bool(not self.restricted_member and hermes_guard is not None and hermes_guard.install())
+        # This bridge can put a person's own credentials into their turn's commands (hermes_egress.py, docs/connections.md).
+        data["features"]["servant_connections"] = bool(not self.restricted_member and hermes_egress is not None and hasattr(hermes_egress, "fetch_connections"))
         data["features"]["servant_member_isolation"] = self.restricted_member and not self.researcher
         data["servant"] = {"bridgeVersion": 1}
         if self.researcher:
@@ -411,7 +414,7 @@ class ServantAPIServerAdapter(APIServerAdapter):
             return await super()._handle_runs(request)
         context = None
         session_id = body.get("session_id") if isinstance(body, dict) else None
-        self._servant_bind_egress(request, session_id)
+        self._servant_bind_egress(request, session_id, await self._servant_connection_env(request))
         if session_id and isinstance(session_id, str):
             history = self._conversation_history_for_session(session_id)
             if inspect.isawaitable(history):
@@ -425,10 +428,27 @@ class ServantAPIServerAdapter(APIServerAdapter):
         finally:
             _run_context.reset(token)
 
-    def _servant_bind_egress(self, request, session_id):
+    async def _servant_connection_env(self, request):
+        # The person's own credentials for this turn's commands (docs/connections.md), fetched from Servant with the
+        # turn's token. Asked off the event loop. A restricted agent has no terminal, so it is given none. If they
+        # can't be fetched the turn starts without them, and the log says so without a value.
+        if self.restricted_member or hermes_egress is None or not hasattr(hermes_egress, "fetch_connections"):
+            return None
+        token = request.headers.get("X-Servant-Egress-Token")
+        door = request.headers.get("X-Servant-Connections-Door")
+        if not token or not door:
+            return None
+        try:
+            return await asyncio.get_running_loop().run_in_executor(None, hermes_egress.fetch_connections, token, door)
+        except Exception as error:
+            logger.warning("Servant connections: could not fetch this person's credentials (%s); the turn starts without them", type(error).__name__)
+            return None
+
+    def _servant_bind_egress(self, request, session_id, connection_env=None):
         # Servant says whose turn this is. With the network gate on, that session's commands carry the token to the
-        # gate (hermes_egress.py); with built-in entitlements checked, tool calls ask Servant first (hermes_guard.py).
-        # Restricted agents have no terminal and no file tools, so there is nothing to name or to ask about.
+        # gate, and a person's own credentials go into that session's shell (hermes_egress.py); with built-in
+        # entitlements checked, tool calls ask Servant first (hermes_guard.py).
+        # Restricted agents have no terminal and no file tools, so there is nothing to name, to hand over or to ask about.
         if self.restricted_member or not isinstance(session_id, str):
             return
         token = request.headers.get("X-Servant-Egress-Token")
@@ -447,8 +467,11 @@ class ServantAPIServerAdapter(APIServerAdapter):
         if hermes_egress is None:
             return
         try:
-            if not hermes_egress.bind(session_id, token) and not door:
-                logger.warning("Servant network gate: this turn's commands are not named (no gate, or an unsupported Hermes); they are judged for everyone working")
+            if not hermes_egress.bind(session_id, token, extra_env=connection_env) and not door:
+                if connection_env:
+                    logger.warning("Servant connections: this Hermes can't give a session its own shell, so this turn's commands run without the person's own credentials")
+                elif not request.headers.get("X-Servant-Connections-Door"):
+                    logger.warning("Servant network gate: this turn's commands are not named (no gate, or an unsupported Hermes); they are judged for everyone working")
         except Exception:
             logger.exception("Servant network gate: could not name this turn's commands")
 
@@ -456,7 +479,7 @@ class ServantAPIServerAdapter(APIServerAdapter):
         auth_error = self._check_auth(request)
         if auth_error is not None:
             return auth_error
-        self._servant_bind_egress(request, request.match_info.get("session_id"))
+        self._servant_bind_egress(request, request.match_info.get("session_id"), await self._servant_connection_env(request))
         return await super()._handle_session_chat_stream(request)
 
     def _create_agent(self, *args, **kwargs):

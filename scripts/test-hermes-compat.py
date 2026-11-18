@@ -463,6 +463,136 @@ class EgressNamingTest(unittest.TestCase):
         self.assertEqual(self.run_in("servant_egress_plain", "echo $HTTPS_PROXY"), "http://127.0.0.1:8790")
 
 
+class ConnectionsTest(unittest.TestCase):
+    """A person's own credentials reach their own session's real shell and nobody else's (hermes_egress.py, docs/connections.md)."""
+
+    PAT = "ghp_" + "p" * 32 + "a1b2"
+    JO = "ghp_" + "j" * 32 + "e5f6"
+
+    def setUp(self):
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        import hermes_egress
+        from tools import terminal_tool
+        self.egress, self.terminal = hermes_egress, terminal_tool
+        names = EgressNamingTest.PROXY + ("GH_TOKEN", "GITHUB_TOKEN")
+        self.saved = {name: os.environ.get(name) for name in names}
+        for name in names:
+            os.environ.pop(name, None)
+        os.environ["TERMINAL_ENV"] = "local"
+        answers = self.answers = {
+            "turn-token-for-pat-" + "P" * 12: {"env": {"GH_TOKEN": self.PAT, "GITHUB_TOKEN": self.PAT, "JIRA_SITE": "example.atlassian.net"}, "connections": ["github", "jira"]},
+            "turn-token-for-jo-" + "J" * 12: {"env": {"GH_TOKEN": self.JO}, "connections": ["github"]},
+        }
+
+        class Door(BaseHTTPRequestHandler):
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                answer = answers.get(body.get("token")) if self.path == "/connections" else None
+                data = json.dumps(answer or {"error": "no"}).encode()
+                self.send_response(200 if answer else 403)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *args):
+                pass
+
+        self.server = HTTPServer(("127.0.0.1", 0), Door)
+        self.port = str(self.server.server_address[1])
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.sessions = []
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        for session in self.sessions:
+            self.egress.forget(session)
+            try:
+                self.terminal.cleanup_vm(session)
+            except Exception:
+                pass
+            self.terminal._task_env_overrides.pop(session, None)
+        for name, value in self.saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+    def run_in(self, session, command):
+        if session not in self.sessions:
+            self.sessions.append(session)
+        result = json.loads(self.terminal.terminal_tool(command, task_id=session, force=True))
+        return (result.get("output") or result.get("error") or "").strip()
+
+    # Hermes masks anything shaped like a token in a command's output, so a value is read back a letter at a time.
+    SPELL = "printf %%s \"$%s\" | sed 's/./&-/g'"
+
+    def spelled(self, session, name):
+        return self.run_in(session, self.SPELL % name).replace("-", "")
+
+    def turn(self, adapter, session, token, door=None):
+        class Request:
+            headers = {"X-Servant-Egress-Token": token, "X-Servant-Connections-Door": door or self.port}
+        if session not in self.sessions:
+            self.sessions.append(session)
+        env = asyncio.run(adapter._servant_connection_env(Request))
+        adapter._servant_bind_egress(Request, session, env)
+        return env
+
+    def test_each_persons_credentials_reach_only_their_own_sessions_commands(self):
+        full = ServantAPIServerAdapter(PlatformConfig(enabled=True, extra={"host": "127.0.0.1", "port": 0, "key": KEY}))
+        member = ServantAPIServerAdapter(PlatformConfig(enabled=True, extra={"host": "127.0.0.1", "port": 0, "key": KEY}), restricted_member=True)
+        pat, jo = "turn-token-for-pat-" + "P" * 12, "turn-token-for-jo-" + "J" * 12
+        self.turn(full, "servant_conn_pat", pat)
+        self.turn(full, "servant_conn_jo", jo)
+        # Hermes takes GH_TOKEN out of every command's environment; a person's own is handed over on purpose.
+        self.assertEqual([self.spelled("servant_conn_pat", name) for name in ("GH_TOKEN", "GITHUB_TOKEN", "JIRA_SITE")], [self.PAT, self.PAT, "example.atlassian.net"])
+        self.assertEqual(self.spelled("servant_conn_jo", "GH_TOKEN"), self.JO)
+        self.assertEqual(self.run_in("servant_conn_jo", "echo [$GITHUB_TOKEN] [$JIRA_SITE]"), "[] []", "Jo's commands have Jo's and nothing of Pat's")
+        self.assertNotIn(self.PAT, self.run_in("servant_conn_pat", "echo $GH_TOKEN"), "and Hermes itself masks a token a command prints")
+        self.assertEqual(self.run_in("servant_conn_none", "echo [$GH_TOKEN] [$JIRA_SITE]"), "[] []", "a session Servant gave nothing has nothing")
+        self.assertEqual(self.run_in("servant_conn_pat", "env | grep -c _HERMES_FORCE_ || true"), "0", "the force prefix is Hermes's own business")
+        # Never in the bridge's own environment, where every session would inherit it.
+        self.assertNotIn("GH_TOKEN", os.environ)
+        self.assertNotIn(self.PAT, os.environ.values())
+        # A restricted agent is given none, even with a token that would fetch some.
+        self.assertIsNone(self.turn(member, "servant_conn_member", pat))
+        self.assertEqual(self.run_in("servant_conn_member", "echo [$GH_TOKEN]"), "[]")
+        # A token Servant doesn't know, or a door nobody answers at: the turn still starts, without them.
+        self.assertIsNone(self.turn(full, "servant_conn_unknown", "turn-token-unknown-" + "U" * 12))
+        self.assertIsNone(self.turn(full, "servant_conn_nobody", pat, door="1"))
+        self.assertEqual(self.run_in("servant_conn_unknown", "echo [$GH_TOKEN]"), "[]")
+        self.assertEqual(self.run_in("servant_conn_nobody", "echo [$GH_TOKEN]"), "[]")
+
+    def test_a_replaced_or_removed_credential_does_not_linger_in_the_sessions_shell(self):
+        full = ServantAPIServerAdapter(PlatformConfig(enabled=True, extra={"host": "127.0.0.1", "port": 0, "key": KEY}))
+        pat = "turn-token-for-pat-" + "P" * 12
+        self.turn(full, "servant_conn_change", pat)
+        self.assertEqual(self.spelled("servant_conn_change", "GH_TOKEN"), self.PAT)
+        self.run_in("servant_conn_change", "export PROBE=kept")
+        self.turn(full, "servant_conn_change", pat)
+        self.assertEqual(self.run_in("servant_conn_change", "echo [$PROBE]"), "[kept]", "nothing changed, so the shell keeps going")
+        self.answers[pat] = {"env": {"GH_TOKEN": self.JO}, "connections": ["github"]}
+        self.turn(full, "servant_conn_change", pat)
+        self.assertEqual(self.spelled("servant_conn_change", "GH_TOKEN"), self.JO)
+        self.assertEqual(self.run_in("servant_conn_change", "echo [$GITHUB_TOKEN] [$PROBE]"), "[] []", "replaced: a fresh shell with the new one only")
+        self.answers[pat] = {"env": {}, "connections": []}
+        self.turn(full, "servant_conn_change", pat)
+        self.assertEqual(self.run_in("servant_conn_change", "echo [$GH_TOKEN]"), "[]", "removed: no shell remembers it")
+
+    def test_the_bridge_says_it_can_carry_connections_for_the_full_agent_only(self):
+        async def features(**kwargs):
+            adapter = ServantAPIServerAdapter(PlatformConfig(enabled=True, extra={"host": "127.0.0.1", "port": 0, "key": KEY}), **kwargs)
+            app = web.Application()
+            app.router.add_get("/v1/capabilities", adapter._handle_capabilities)
+            async with TestClient(TestServer(app)) as client:
+                response = await client.get("/v1/capabilities", headers={"Authorization": "Bearer " + KEY})
+                return (await response.json())["features"]
+        self.assertIs(asyncio.run(features())["servant_connections"], True)
+        self.assertIs(asyncio.run(features(restricted_member=True))["servant_connections"], False)
+
+
 class EntitlementCheckTest(unittest.TestCase):
     """Hermes stops a tool call when Servant doesn't allow it (hermes_guard.py), and the bridge says it can."""
 
