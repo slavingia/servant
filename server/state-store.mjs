@@ -115,6 +115,20 @@ export function createStateStore({ directory }) {
 
   let closed = false;
   let mutating = false;
+  // Reads are hot (every request reads the document several times). Parsing and validating the whole document each
+  // time cost most of the server's CPU, so the last committed document is kept, frozen, until this connection commits
+  // or SQLite's data_version says another connection (the CLI, another process) did. Callers get a read-only view;
+  // changes go through mutate(), which always works on a fresh copy.
+  let cached = null;
+  let cachedVersion = null;
+  const dataVersion = () => db.prepare('PRAGMA data_version').get().data_version;
+  const deepFreeze = value => {
+    if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+      Object.freeze(value);
+      for (const child of Object.values(value)) deepFreeze(child);
+    }
+    return value;
+  };
   function readDocument() {
     if (db.prepare('PRAGMA user_version').get().user_version !== VERSION) {
       throw new Error('Unsupported state database version');
@@ -125,7 +139,11 @@ export function createStateStore({ directory }) {
   }
   function read() {
     if (closed) throw new Error('State store is closed');
-    return readDocument();
+    const version = dataVersion();
+    if (cached && version === cachedVersion) return cached;
+    cached = deepFreeze(readDocument());
+    cachedVersion = version;
+    return cached;
   }
   function mutate(fn) {
     if (closed) throw new Error('State store is closed');
@@ -146,6 +164,7 @@ export function createStateStore({ directory }) {
         validate(current);
         db.prepare('UPDATE state_document SET payload = ? WHERE id = 1').run(JSON.stringify(current));
         db.exec('COMMIT');
+        cached = null;
         return result;
       } catch (error) {
         db.exec('ROLLBACK');
