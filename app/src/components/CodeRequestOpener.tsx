@@ -5,6 +5,7 @@ import { api } from "../lib/server";
 import { useSession } from "../lib/session";
 import { useLiveActions } from "../lib/live";
 import { codeRequestAt, codeRequestToOpen } from "../lib/code-request-open";
+import { isCodeLinkScreen } from "../lib/code-fill-link";
 
 // When an automation of yours asks for a one-time code (docs/code-requests.md) and Servant is already open, the
 // Enter code screen comes up by itself, with its box ready to type in: no need to find the alert first. It comes up
@@ -25,7 +26,7 @@ export function CodeRequestOpener() {
     if (!account) return;
     let live = true;
     const open = (id: string) => {
-      if (!live || shown.current.has(id) || codeRequestAt(path.current) === id) return;
+      if (!live || shown.current.has(id) || codeRequestAt(path.current) === id || isCodeLinkScreen(path.current)) return;
       shown.current.add(id);
       if (typeof window !== "undefined") void window.servantDesktop?.focus?.().catch(() => false);
       router.push({ pathname: "/code/[id]", params: { id } });
