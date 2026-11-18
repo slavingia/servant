@@ -10,7 +10,7 @@ Each entitlement has:
 
 Two rules sit behind it.
 
-**The agent never gets someone further than their own access goes.** The agent works with the server's credentials, which usually reach more than any one person's do. So before the agent reaches a system for someone, that person says they hold that access themselves, and their manager agrees. It is the same step a new teammate takes to get into a repository, done once per entitlement when they join.
+**The agent never gets someone further than their own access goes.** Unless a person has connected a login of their own ([connections.md](connections.md)), the agent works with the server's credentials, which usually reach more than any one person's do. So before the agent reaches a system for someone, that person says they hold that access themselves, and their manager agrees. It is the same step a new teammate takes to get into a repository, done once per entitlement when they join.
 
 **Access is handed down, never made up.** A manager can only grant an entitlement they hold themselves. Owners can grant anything. So every grant traces back, person by person, to an owner.
 
