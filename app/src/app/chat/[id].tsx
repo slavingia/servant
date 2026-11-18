@@ -26,6 +26,7 @@ import { mediaEmbeds } from "../../lib/media-embed";
 import { tweetIds } from "../../lib/tweet-embed";
 import { AgentApprovalCard } from "../../components/AgentApprovalCard";
 import { MessageConnectCard } from "../../components/ConnectionCard";
+import { refusedByServer } from "../../lib/send-refusal";
 import { activeAgentTurn, agentTurnLabel, inOrder, joinsReply, liveAgentLine, queuedBelow, splitTurns, withRead, workByMessage, workedFor, type AgentStep, type AgentTurn } from "../../lib/agent-turns";
 import { reuseEqual, sameEntries } from "../../lib/reuse-equal";
 import { useStableCallback } from "../../lib/stable-callback";
@@ -460,6 +461,9 @@ function ChatConversation({ account }: { account: Account }) {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
+  // The server refused the message itself (a token typed into chat, too long): its reason stays until the next send,
+  // where a failed connection's line clears once the conversation is in step again.
+  const refused = useRef(false);
   const { ask: askPii, dialog: piiDialog } = usePiiConfirm();
   const [chatUsage, setChatUsage] = useState<Chat["usage"] | null>(kept?.info?.usage ?? null);
   const renamed = useCallback((title: string) => { setHeading(title); if (lastInfo.current) lastInfo.current = { ...lastInfo.current, title, titledBy: "user" }; }, []);
@@ -631,7 +635,7 @@ function ChatConversation({ account }: { account: Account }) {
           if (!history) { if (!read.length) showWaiting(); return; }
           if (reload && !abort.current) {
             const fetched = history;
-            setMessages(shown => reuseEqual<Row[] | null>(shown, fetched)); setLoadError(null); setSendError(null);
+            setMessages(shown => reuseEqual<Row[] | null>(shown, fetched)); setLoadError(null); if (!refused.current) setSendError(null);
             lastTurnUpdate.current = newest;
             foregroundRefresh = false;
           } else {
@@ -762,10 +766,12 @@ function ChatConversation({ account }: { account: Account }) {
       setUploadProgress(null);
       if (e instanceof PiiDeclined) return false;
       if (!taken.turn) {
+        refused.current = refusedByServer(e);
         setSendError(e instanceof ServerError || e instanceof UploadError ? e.message : "Couldn't send your message. Your draft is saved; try again.");
         return false;
       }
     }
+    refused.current = false;
     setSendError(null);
     delivery.current = null;
     if (taken.turn && forwarding) setPendingForward(null);
@@ -820,6 +826,7 @@ function ChatConversation({ account }: { account: Account }) {
     if (busy || activeAgentTurn(turn)) return await queue(body, attachments, later);
     setBusy(true);
     setStatus(null);
+    refused.current = false;
     setSendError(null);
     setActionError(null);
     // Retain the key after an uncertain delivery; an unchanged draft can be
@@ -917,6 +924,7 @@ function ChatConversation({ account }: { account: Account }) {
     } catch (e) {
       failed = true;
       setUploadProgress(null);
+      refused.current = refusedByServer(e);
       if (isCurrent() && !(e instanceof PiiDeclined)) setSendError(e instanceof ServerError || e instanceof UploadError ? e.message : accepted ? "Your message was sent. Reconnecting to the reply saved on your Mac…" : "Couldn't confirm delivery. Your draft is saved; check the conversation before trying again.");
       update((r) => ({ ...r, pending: false, failed: !(e instanceof PiiDeclined) }));
     } finally {
