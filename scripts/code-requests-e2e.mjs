@@ -148,7 +148,52 @@ try {
       }
       await context.close();
     }
+    // A code link from a Shortcuts automation (lib/code-fill-link.ts): the text that arrived goes in, only its code
+    // comes out, and it answers the one request waiting. A text that arrives before the request waits for it.
+    const loginGovText = 'Login.gov: Your one-time code is 731904. It expires in 10 minutes.\n\n@login.gov #731904';
+    const linked = (await call(runner.token, 'POST', 'code-requests', { label: 'Login.gov sign-in', hint: 'Texted to the number ending 0000', length: 6 })).body.request;
+    for (const [label, viewport] of [['phone', { width: 390, height: 844 }], ['desktop', { width: 1280, height: 900 }]]) {
+      if (label === 'desktop') {
+        const late = `/code?text=${encodeURIComponent('Your Example code is 482915. It is valid for 10 minutes.')}`;
+        const context = await shoot(viewport, label, late);
+        await page.getByText('Waiting for a code request', { exact: true }).waitFor();
+        await page.screenshot({ path: path.join(artifacts, 'after-link-waiting-desktop.png'), animations: 'disabled' });
+        const later = (await call(runner.token, 'POST', 'code-requests', { label: 'Example sign-in' })).body.request;
+        await page.getByText('Code sent', { exact: true }).waitFor();
+        assert.deepEqual((await call(runner.token, 'POST', `code-requests/${later.id}/claim`)).body, { status: 'answered', code: '482915' }, 'a request made after the text still gets its code');
+        await context.close();
+        continue;
+      }
+      const context = await shoot(viewport, label, `/code?text=${encodeURIComponent(loginGovText)}`);
+      await page.getByText('Code sent', { exact: true }).waitFor();
+      await page.getByText('QA runner can continue with Login.gov sign-in now. The code isn\'t kept here.', { exact: true }).waitFor();
+      await page.screenshot({ path: path.join(artifacts, `after-link-sent-${label}.png`), animations: 'disabled' });
+      assert.deepEqual((await call(runner.token, 'POST', `code-requests/${linked.id}/claim`)).body, { status: 'answered', code: '731904' }, 'the code from the text, picked up once');
+      assert.equal((await call(phone.token, 'GET', 'code-requests')).body.requests.length, 0, 'nothing left waiting');
+      await context.close();
+    }
+    // Two requests waiting: the link sends nothing by itself and asks which one.
+    const first = (await call(runner.token, 'POST', 'code-requests', { label: 'Login.gov sign-in' })).body.request;
+    const second = (await call(runner.token, 'POST', 'code-requests', { label: 'Example sign-in' })).body.request;
+    {
+      const context = await shoot({ width: 390, height: 844 }, 'phone', `/code?text=${encodeURIComponent(loginGovText)}`);
+      await page.getByText('Which sign-in is this for?', { exact: true }).waitFor();
+      await page.screenshot({ path: path.join(artifacts, 'after-link-choose-phone.png'), animations: 'disabled' });
+      assert.equal((await call(runner.token, 'POST', `code-requests/${first.id}/claim`)).body.status, 'pending', 'nothing sent before the person picks');
+      await page.getByRole('button', { name: 'Send to Example sign-in' }).click();
+      await page.getByText('Code sent', { exact: true }).waitFor();
+      assert.deepEqual((await call(runner.token, 'POST', `code-requests/${second.id}/claim`)).body, { status: 'answered', code: '731904' });
+      assert.equal((await call(runner.token, 'POST', `code-requests/${first.id}/claim`)).body.status, 'pending', 'the other request is untouched');
+      await call(runner.token, 'POST', `code-requests/${first.id}/cancel`);
+      await context.close();
+    }
+    {
+      const context = await shoot({ width: 390, height: 844 }, 'phone', `/code?text=${encodeURIComponent('Codes 123456 and 654321')}`);
+      await page.getByText('This link has no code in it. Check the automation passes the text it received, then try again.', { exact: true }).waitFor();
+      await context.close();
+    }
     console.log('code requests e2e: OK — runner asked, web app showed the request, the complete code sent itself, runner picked it up once');
+    console.log('code link e2e: OK — the text\'s code answered the one request waiting, waited for a late request, asked which of two, and turned down a text with two codes');
     console.log(`Screenshots: ${artifacts}`);
   }
   assert.deepEqual(pageErrors, [], 'no uncaught browser errors');

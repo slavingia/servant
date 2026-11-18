@@ -34,9 +34,14 @@ test('state migrates once and every connection reads committed changes without r
     assert.equal(a.read().users.alice.name, 'Alice');
     assert.equal(a.mutate(s => { s.users.alice.name = 'Updated'; return 'result'; }), 'result');
     assert.equal(b.read().users.alice.name, 'Updated');
-    const detached = b.read();
-    detached.users.alice.name = 'Not persisted';
+    const view = b.read();
+    assert.throws(() => { view.users.alice.name = 'Not persisted'; }, TypeError, 'reads are read-only views');
     assert.equal(a.read().users.alice.name, 'Updated');
+    assert.equal(b.read(), view, 'an unchanged document is not parsed again');
+    a.mutate(s => { s.users.alice.name = 'Again'; });
+    assert.equal(b.read().users.alice.name, 'Again', 'a commit on another connection is seen at once');
+    assert.equal(a.read().users.alice.name, 'Again', 'and on the committing connection');
+    a.mutate(s => { s.users.alice.name = 'Updated'; });
     assert.equal(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'), legacy);
     fs.writeFileSync(path.join(dir, 'state.json'), '{outdated, damaged snapshot');
   } finally { a.close(); b.close(); }
