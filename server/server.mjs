@@ -62,6 +62,7 @@ import { tierCosts } from "./usage-cost.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { createEgressProxy, createEgressStore, egressSettings } from "./egress.mjs";
 import { capabilitySettings, createEntitlements, NATIVE } from "./entitlements.mjs";
+import { checkGithubToken, cleanValues, createConnections, createTextStream, publicTool, readConnectMarkers, redactor, stripConnectMarkers, tokenInChatMessage, tokenInText, toolCatalog } from "./connections.mjs";
 import { createPrototypeReviews, maskEmail, reviewDomains } from "./prototype-reviews.mjs";
 import { reviewPage, reviewPageHeaders } from "./prototype-review-page.mjs";
 import { createCodeRequests } from "./code-requests.mjs";
@@ -179,6 +180,8 @@ export function loadConfig() {
     agentEgress: egressSettings(cfg.agentEgress),
     // Built-in entitlements checked before the agent reads or changes files or GitHub (docs/entitlements.md). Off unless mode is "ask".
     agentCapabilities: capabilitySettings(cfg.agentCapabilities),
+    // Personal connections (docs/connections.md): an owner's own tool types ("types"), and `"verify": false` to save a GitHub token without asking GitHub whose it is.
+    connections: cfg.connections && typeof cfg.connections === "object" ? cfg.connections : undefined,
     // Where new people start: 0 = no agent until an owner sets a tier (1 tester, 2 business owner, 3 software engineer, 4 researcher, 5 product manager).
     defaultAgentTier: [0, 1, 2, 3, 4, 5].includes(cfg.defaultAgentTier) ? cfg.defaultAgentTier : 0,
     // Email code sign-in (docs/email-sign-in.md). Off unless enabled.
@@ -516,6 +519,8 @@ function removePerson(state, targetId) {
   for (const d of Object.values(state.devices)) if (d.userId === targetId && !d.revokedAt) revokeDevice(d);
   // Everything they held is revoked and their code requests are dropped. Their agent's network tokens stop counting because they are no longer on the server.
   entitlementStore().forget(targetId, "server"); codeRequests.forget(targetId);
+  // The credentials they saved for their own agent go with them.
+  connectionStore().forget(targetId);
   // Out of every project; projects they owned stay (admins can still edit them).
   projects().mutate(data => { for (const p of data.projects) removeAccess(p, targetId, state.users, data.people); });
   return target.name;
@@ -1046,15 +1051,16 @@ async function agentUse(body, config = loadConfig) {
     await sleepMs(Math.min(1000, Math.max(50, until - Date.now())));
   }
 }
-// Requests the bridge makes to the local listener itself. Only POST /use; the token in the body says whose turn it is.
+// Requests the bridge makes to the local listener itself: POST /use (may this person's agent do this?) and
+// POST /connections (this person's own credentials, for this turn's commands). The token in the body says whose turn it is.
 async function agentDoor(req, res, config) {
-  const reply = (status, value) => { res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify(value)); };
-  if (req.method !== "POST" || req.url !== "/use") return reply(404, { verdict: "deny", message: "Servant has no such check." });
+  const reply = (status, value) => { res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify(value)); };
+  if (req.method !== "POST" || (req.url !== "/use" && req.url !== "/connections")) return reply(404, { verdict: "deny", message: "Servant has no such check." });
   const chunks = []; let size = 0;
   for await (const chunk of req) { size += chunk.length; if (size > 16384) return reply(413, { verdict: "deny", message: "That check was too large." }); chunks.push(chunk); }
   let body;
   try { body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"); } catch { return reply(400, { verdict: "deny", message: "That check could not be read." }); }
-  const { status, answer } = await agentUse(body, config);
+  const { status, answer } = req.url === "/connections" ? agentConnections(body, config) : await agentUse(body, config);
   return reply(status, answer);
 }
 // The agent working for someone outside an agent chat (a reply to @agent, a wiki page): counted while it lasts, so
@@ -1093,6 +1099,120 @@ const egressHint = host => {
   return covering.length ? `it needs the entitlement ${covering.map(e => JSON.stringify(e.name)).join(" or ")}, which the person you are working for does not hold. They can ask for it in Servant under Entitlements.`
     : "no entitlement covers it. The person can ask an owner to add it to one.";
 };
+// ---------- personal connections (docs/connections.md) ----------
+// Each person's own credentials for the tools their agent works with. The values stay in connections.db, encrypted,
+// and leave one way: the bridge asks for them at the start of that person's turn (agentConnections below) and puts
+// them in the environment of that turn's commands.
+let connectionDb = null, connectionDoor = null, toolsCache = null;
+const connectionTools = () => {
+  const raw = (glossaryConfig || loadConfig()).connections;
+  const key = JSON.stringify(raw?.types ?? null);
+  if (toolsCache?.key !== key) {
+    const problems = [];
+    toolsCache = { key, tools: toolCatalog(raw, problems) };
+    for (const problem of problems) console.warn(`[servant] connections: tool type ${problem}. It was left out`);
+  }
+  return toolsCache.tools;
+};
+const connectionStore = () => connectionDb ??= createConnections({ file: path.join(DATA_DIR, "connections.db"), tools: connectionTools,
+  known: userId => { const u = readState().users[userId]; return !!u && !isRemoved(u); } });
+// Hides these people's saved values, and anything shaped like a known token, in text the agent wrote.
+const replyCleaner = userIds => { const store = connectionStore(); return redactor(connectionTools(), [...new Set(userIds)].filter(Boolean).flatMap(userId => store.secrets(userId))); };
+// A person's message with a token in it is not stored: what to tell them, or null.
+const tokenRefusal = text => { const tool = tokenInText(text, connectionTools()); return tool ? tokenInChatMessage(tool) : null; };
+// Which agent a person has, for connections: only the full agent runs commands, so only it can use one.
+const connectionAgent = (user, cfg) => noAgent(user) ? "none" : agentLane(user, cfg) === "owner" ? "full" : "restricted";
+/**
+ * Where the bridge asks for a person's connection environment. With the network gate or the entitlement checks on
+ * it is the listener they already use (inside the sandbox it is the only one the bridge can reach). Otherwise this
+ * process starts a small listener of its own on localhost, the first time anyone needs it.
+ */
+async function connectionsDoorPort(cfg) {
+  if (egressOn(cfg) || capabilitiesOn(cfg)) return doorPort(cfg);
+  connectionDoor ??= new Promise((resolve, reject) => {
+    const door = http.createServer((req, res) => { agentDoor(req, res, () => glossaryConfig || loadConfig()).catch(() => { if (!res.headersSent) res.writeHead(500, { "Content-Type": "application/json" }); res.end('{"error":"Servant could not answer"}'); }); });
+    door.once("error", reject);
+    door.listen(0, "127.0.0.1", () => { door.unref(); resolve(door); });
+  });
+  try { return (await connectionDoor).address().port; }
+  catch (error) { connectionDoor = null; throw error; }
+}
+/**
+ * What a full-agent turn is sent with: the gate's and the checks' headers, and for someone with a connection of
+ * their own, where the bridge fetches it. The token says whose turn it is, so it is sent then even with the gate
+ * and the checks off. A turn never fails over this: without it the agent simply starts without their credentials.
+ */
+async function turnHeaders(cfg, userId, scope) {
+  const headers = egressHeaders(cfg, userId, scope);
+  try {
+    if (!userId || !connectionStore().has(userId)) return headers;
+    const port = await connectionsDoorPort(cfg);
+    return { ...headers, "X-Servant-Egress-Token": egressStore().tokenFor(userId, scope), "X-Servant-Connections-Door": String(port) };
+  } catch (error) {
+    console.error("[servant] connections: this turn starts without the person's own credentials:", error.message);
+    return headers;
+  }
+}
+const listed = words => words.length > 1 ? `${words.slice(0, -1).join(", ")} and ${words.at(-1)}` : words[0] || "";
+/**
+ * What the agent is told, each turn, about this person's connections: which ones its commands have, and how to ask
+ * for one that is missing (only where Servant can show the form: an agent chat). Never a value.
+ */
+function connectionNotes(userId, chatId, { ask = true } = {}) {
+  // An owner's agent is not held back (docs/entitlements.md) and already works with the server's own logins, so it is
+  // told what is connected but never prompted to ask for a token.
+  if (readState().users[userId]?.role === "owner") ask = false;
+  const store = connectionStore();
+  const declined = ask ? store.declinedIn(userId, chatId) : [];
+  const lines = [];
+  for (const tool of connectionTools()) {
+    const mine = store.status(userId, tool.id);
+    const what = tool.fields.length > 1 ? "credentials" : "token";
+    if (mine) lines.push(`Your commands have this person's own ${tool.name} ${what} in ${listed(Object.keys(tool.env))}${mine.account ? ` (connected as ${mine.account})` : ""}. Use ${what === "token" ? "it" : "them"}; don't use any other ${tool.name} login. Never print or repeat the value.`);
+    else if (declined.includes(tool.id)) lines.push(`This person declined to connect ${tool.name} in this chat. Don't ask again here; carry on without it, and say plainly what you can't do.`);
+    else if (ask) lines.push(`Only when a task needs ${tool.name} for this person, ask for their ${what} by writing [[connect:${tool.id}]] on its own line; Servant shows them a secure form. Never ask them to paste a token in chat.`);
+  }
+  return lines.join("\n");
+}
+/**
+ * The bridge asks, at the start of a turn: what does this person's environment hold? The token says whose turn it
+ * is; nobody else's values are ever in the answer. Someone whose agent can't run commands gets nothing.
+ */
+function agentConnections(body, config = loadConfig) {
+  const who = egressStore().whose(body?.token);
+  const person = who && readState().users[who.userId];
+  if (!person || isRemoved(person)) return { status: 403, answer: { error: "Servant doesn't know whose turn this is." } };
+  if (connectionAgent(person, config()) !== "full") return { status: 200, answer: { env: {}, connections: [] } };
+  const { env, types } = connectionStore().envFor(person.id, { chatId: who.chatId });
+  return { status: 200, answer: { env, connections: types } };
+}
+// The "connect" parts of a chat's messages: the form the agent asked for, and where it stands. The person it was
+// asked of sees the last four characters once saved; anyone else reading the chat sees only that it was asked.
+function connectParts(chatId, viewer, cfg) {
+  const store = connectionStore();
+  const parts = new Map();
+  for (const request of store.requestsForChat(chatId)) {
+    const tool = request.messageId && store.tool(request.type);
+    if (!tool) continue;
+    const mine = request.userId === viewer?.id;
+    const saved = mine ? store.status(request.userId, request.type) : null;
+    // Saved and later removed: neither a form nor "saved".
+    const status = saved ? "saved" : request.status === "saved" ? (mine ? "removed" : "saved") : request.status;
+    const part = { requestId: request.id, mine, status, ...(saved ? { last4: saved.last4, ...(saved.account ? { account: saved.account } : {}) } : {}),
+      ...(mine ? { agent: connectionAgent(viewer, cfg) } : {}), tool: publicTool(tool) };
+    parts.set(request.messageId, [...(parts.get(request.messageId) || []), part]);
+  }
+  return parts;
+}
+const withConnect = (message, parts) => parts.has(message?.id) ? { ...message, connect: parts.get(message.id) } : message;
+// A reply as Hermes keeps it, cleaned the way the copy saved here was: saved values hidden, markers taken out.
+function cleanUpstreamMessage(message, hide) {
+  if (!message || message.role !== "assistant") return message;
+  const clean = text => readConnectMarkers(hide(text), connectionTools()).text;
+  const mapped = value => typeof value === "string" ? clean(value) : Array.isArray(value) ? value.map(part => part && typeof part === "object" && typeof part.text === "string" ? { ...part, text: clean(part.text) } : typeof part === "string" ? clean(part) : part) : value;
+  return { ...message, ...("content" in message ? { content: mapped(message.content) } : {}), ...("text" in message ? { text: mapped(message.text) } : {}) };
+}
+export const connectionsForTest = () => ({ store: connectionStore(), doorPort: cfg => connectionsDoorPort(cfg), headers: (cfg, userId, scope) => turnHeaders(cfg, userId, scope), notes: connectionNotes });
 const usageStore = () => usageDb ??= createUsageStore(path.join(DATA_DIR, "usage.db"));
 // Tier 0 has no agent; otherwise the message names this person's own daily limit.
 const limitText = user => agentTierOf(user) === 0 ? noAgentMessage : limitMessage(usageStore().limitFor(user));
@@ -1902,6 +2022,46 @@ async function handle(req, res, cfg) {
     }
     return fail(res, 404, "not_found", "Not found");
   }
+  // Personal connections (docs/connections.md): a person's own credentials for the tools their agent works with.
+  // Everyone sees the tool types and where they stand themselves. No route returns a value, to anyone.
+  if (parts[1] === "connections") {
+    const store = connectionStore();
+    const view = tool => ({ ...publicTool(tool), mine: store.status(user.id, tool.id) });
+    const agent = connectionAgent(user, cfg);
+    if (method === "GET" && parts.length === 2) return send(res, 200, { tools: store.tools().map(view), agent });
+    // What happened to your own connections; an owner sees everyone's. Actions and times only.
+    if (method === "GET" && parts[2] === "history" && parts.length === 3) {
+      const users = readState().users;
+      const everyone = user.role === "owner" && url.searchParams.get("all") === "1";
+      return send(res, 200, { history: store.history(everyone ? {} : { userId: user.id }).map(h => ({ ...h, name: users[h.userId]?.name || "Former member", tool: store.tool(h.type)?.name || h.type })) });
+    }
+    if (method === "POST" && parts[2] === "requests" && parts[4] === "decline" && parts.length === 5) {
+      await readAuthorizedBody(req);
+      const declined = store.decline(parts[3], user.id);
+      return send(res, 200, { request: { id: declined.id, status: declined.status } });
+    }
+    const tool = parts.length === 3 ? store.tool(parts[2]) : null;
+    if (!tool) return fail(res, 404, "not_found", "No such tool to connect");
+    if (method === "PUT") {
+      const body = await readAuthorizedBody(req);
+      // Only the full agent runs commands, and commands are the only place a connection is used.
+      if (agent !== "full") return fail(res, 403, "agent_restricted", agent === "none" ? "You don't have an agent yet, so nothing could use this. Ask an owner to give you the full agent first" : "Your agent can't run commands, so it can't use this yet. Ask an owner to give you the full agent first");
+      const values = cleanValues(tool, body.values);
+      let account = "", checked = false;
+      if (tool.check === "github" && cfg.connections?.verify !== false) {
+        const result = await (globalThis.__servantConnectionCheck || checkGithubToken)(values);
+        if (!result.ok) return fail(res, 400, "token_rejected", "GitHub didn't accept that token. Check that it hasn't expired and that you copied all of it, then try again");
+        account = result.account || ""; checked = !result.unreachable;
+      }
+      const saved = store.save(user.id, tool.id, values, { account });
+      return send(res, 200, { tool: view(tool), replaced: saved.replaced, checked });
+    }
+    if (method === "DELETE") {
+      if (!store.remove(requireAuth(req).user.id, tool.id)) return fail(res, 404, "not_found", `You haven't connected ${tool.name}`);
+      return send(res, 200, { tool: view(tool) });
+    }
+    return fail(res, 404, "not_found", "Not found");
+  }
   // Entitlements (docs/entitlements.md): named access people ask for and their manager grants. Everyone sees the list and
   // their own standing; a manager also sees their reports'; owners see everyone's and make, edit and retire them.
   if (parts[1] === "entitlements") {
@@ -2229,7 +2389,8 @@ async function handle(req, res, cfg) {
     const sources = agentTurns.messageSources(visible.id);
     const posters = { byMessage: agentTurns.messagePosters(visible.id), users: currentState.users, authorId: visible.userId };
     agentTurns.markViewed(user.id, [visible.id]);
-    return send(res, 200, { chat: chatView(visible, viewer, currentState.users), messages: history.map(message => privateMessageView(message, viewer, sources, posters)), latestTurn: null, upstreamUnavailable: false });
+    const connects = connectParts(visible.id, viewer, cfg);
+    return send(res, 200, { chat: chatView(visible, viewer, currentState.users), messages: history.map(message => withConnect(privateMessageView(message, viewer, sources, posters), connects)), latestTurn: null, upstreamUnavailable: false });
   }
   const chat = joining ? visible : mine.find((c) => c.id === parts[2]);
   if (!chat) return fail(res, 404, "not_found", "No such chat");
@@ -2415,7 +2576,10 @@ async function handle(req, res, cfg) {
     requireChatParticipant(latest, requireAuth(req, latest).user.id, chat.id);
     const messages = data.messages ?? data.data;
     if (!Array.isArray(messages)) throw requestError(502, "agent_error", "The agent returned invalid message history");
-    return chatMediaStore().sync(chat.id, messages, generation);
+    // Hermes keeps each reply as the agent wrote it. What is saved here has the person's saved values hidden and the
+    // agent's requests for a connection taken out, the same as the copy saved when the reply arrived.
+    const hide = replyCleaner([chat.userId, user.id]);
+    return chatMediaStore().sync(chat.id, messages.map(message => cleanUpstreamMessage(message, hide)), generation);
   };
 
   // The author has seen every finished reply (others reading a shared chat never get here).
@@ -2436,7 +2600,8 @@ async function handle(req, res, cfg) {
     const current = requireAuth(req);
     const sources = agentTurns.messageSources(chat.id);
     const posters = { byMessage: agentTurns.messagePosters(chat.id), users: readState().users, authorId: chat.userId };
-    return send(res, 200, { messages: messages.map(message => privateMessageView(message, current.user, sources, posters)), latestTurn, upstreamUnavailable });
+    const connects = connectParts(chat.id, current.user, cfg);
+    return send(res, 200, { messages: messages.map(message => withConnect(privateMessageView(message, current.user, sources, posters), connects)), latestTurn, upstreamUnavailable });
   }
 
   if (method === "GET" && parts[3] === "media" && parts.length === 4) {
@@ -2527,6 +2692,9 @@ async function handle(req, res, cfg) {
       ({ text, attachments } = composeForward({ text, attachments }, source));
     }
     if (!text && !attachments.length) return fail(res, 400, "empty", "Type a message first");
+    // A token typed into chat is not stored or sent to the agent: it belongs in Connections (docs/connections.md).
+    const tokenTyped = tokenRefusal(ownText);
+    if (tokenTyped) return fail(res, 400, "secret_in_chat", tokenTyped);
     // Warn before personal information is saved (pii-gate.mjs); the person can send anyway.
     if (body.confirmPii === true && body.reportFalseAlarm === true && ownText && reportingEnabled(cfg.piiWarning)) {
       // Sent anyway, and the person says the warning was wrong: queue it for the owner to review (business-reports.mjs).
@@ -2595,7 +2763,7 @@ function streamPrivateTurn(req, res, turnId, authorize, after = 0) {
         for (const event of events) {
           const payload = event.event === 'sent'
             ? { ...event.payload, message: privateMessageView(event.payload.message, current?.user, sources, posters) }
-            : event.event === 'message' ? privateMessageView(event.payload, current?.user, sources, posters) : event.payload;
+            : event.event === 'message' ? withConnect(privateMessageView(event.payload, current?.user, sources, posters), connectParts(turnChat?.id, current?.user, loadConfig())) : event.payload;
           res.write(`event: ${event.event}\ndata: ${JSON.stringify(payload)}\nid: ${event.seq}\n\n`);
           after = event.seq;
           if (event.event === "done") { close(); break; }
@@ -2629,6 +2797,12 @@ async function executePrivateTurn(turn, hooks, cfg) {
   const text = agentText(turn, full, durable ? INLINE_MESSAGE_CHARS : TEXT_PART_CHARS);
   const files = agentFiles(turn, full);
   const input = hermesInput(files ? (text ? `${text}\n\n${files}` : files) : text, turn.attachments, { durable, full });
+  // Everything the agent writes back is cleaned before it is saved or shown: this person's saved values and anything
+  // shaped like a known token become "[hidden]", and a request for a connection becomes the form, not text.
+  const hide = replyCleaner([turn.user_id]);
+  const deltas = createTextStream(piece => stripConnectMarkers(hide(piece)), hide);
+  const headers = full ? await turnHeaders(cfg, turn.user_id, turn.chat_id) : {};
+  const instructions = full ? [chatContext(chat), connectionNotes(turn.user_id, turn.chat_id)].filter(Boolean).join("\n\n") : chatContext(chat);
   let assistantMessage;
   let todoFinished = false;
   const saveAssistant = content => {
@@ -2639,10 +2813,17 @@ async function executePrivateTurn(turn, hooks, cfg) {
     const normalized = normalizeMediaContent(content);
     const marked = readDoneTag(normalized.text);
     todoFinished = marked.done;
-    normalized.text = marked.text;
+    const asked = readConnectMarkers(hide(marked.text), connectionTools());
+    normalized.text = asked.text;
     assistantMessage = active.deletedAt
       ? { id: id("msg"), role: "assistant", text: normalized.text, at: now(), attachments: [] }
       : chatMediaStore().accept(turn.chat_id, "assistant", normalized.text, normalized.attachments, turn.id);
+    // The agent asked for a connection this person doesn't have: the form goes on this message. Only the full agent
+    // can use one, and a request that can't be recorded is dropped rather than failing the reply.
+    if (full && !active.deletedAt) for (const type of asked.types) {
+      try { connectionStore().request(turn.user_id, turn.chat_id, type, assistantMessage.id); }
+      catch (error) { console.error("[servant] connections: could not record the agent's request:", error.message); }
+    }
     hooks.emit("message", assistantMessage);
   };
   const onAccepted = () => {
@@ -2661,9 +2842,18 @@ async function executePrivateTurn(turn, hooks, cfg) {
   // tapping the progress line can show everything the agent has done so far.
   const step = (label, detail) => hooks.emit("step", { label, ...(full && detail ? { detail: stepDetail(detail) } : {}) });
   const onEvent = (name, payload) => {
-    if (name === "assistant.delta") { if (payload.delta) { if (activity !== WRITING_LINE) step(WRITING_LINE); setActivity(WRITING_LINE); } hooks.emit("delta", { text: payload.delta || "" }); }
-    else if (name === "tool.started") { const line = toolStatusLine(payload.tool_name, { full }); step(line, typeof payload.preview === "string" ? payload.preview : ""); setActivity(line); }
-    else if (name === "reasoning.available" || (name === "tool.progress" && payload.tool_name === "_thinking")) { step(THINKING_LINE, payload.text ?? payload.delta); setActivity(THINKING_LINE); }
+    if (name === "assistant.delta") {
+      if (payload.delta) { if (activity !== WRITING_LINE) step(WRITING_LINE); setActivity(WRITING_LINE); }
+      // Cleaned a whole word at a time, so a token split across two pieces is still hidden.
+      const text = deltas.push(payload.delta || "");
+      if (text) hooks.emit("delta", { text });
+      return;
+    }
+    // Anything else ends the run of words: what was held back for cleaning goes out first.
+    const held = deltas.flush();
+    if (held) hooks.emit("delta", { text: held });
+    if (name === "tool.started") { const line = toolStatusLine(payload.tool_name, { full }); step(line, typeof payload.preview === "string" ? hide(payload.preview) : ""); setActivity(line); }
+    else if (name === "reasoning.available" || (name === "tool.progress" && payload.tool_name === "_thinking")) { step(THINKING_LINE, hide(payload.text ?? payload.delta)); setActivity(THINKING_LINE); }
     else if (name === "run.started" || name === "tool.completed" || name.startsWith("reasoning.")) setActivity(THINKING_LINE);
     else if (name === "assistant.completed") saveAssistant(payload.content || "");
     else if (name === "run.completed") {
@@ -2671,8 +2861,8 @@ async function executePrivateTurn(turn, hooks, cfg) {
       if (assistantMessage && source) chatMediaStore().identify(assistantMessage.id, source.content ?? source.text);
     } else if (name === "approval.request") {
       if (!full) throw requestError(403, "forbidden", "Member agents cannot request privileged approvals");
-      hooks.emit("approval", { approval: { id: payload.approval_id, command: String(payload.command || "").slice(0, 8000),
-        description: String(payload.description || payload.reason || "Allow this action on your Mac?").slice(0, 2000), choices: ["once", "deny"] } });
+      hooks.emit("approval", { approval: { id: payload.approval_id, command: hide(String(payload.command || "")).slice(0, 8000),
+        description: hide(String(payload.description || payload.reason || "Allow this action on your Mac?")).slice(0, 2000), choices: ["once", "deny"] } });
     } else if (name === "approval.responded") {
       const current = hooks.controls().approval;
       if (current && (!payload.approvalId || current.id === payload.approvalId)) hooks.emit("approval_resolved", { approvalId: current.id });
@@ -2690,7 +2880,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
       chatMediaStore().accept(turn.chat_id, "user", text, [], steerId);
       hooks.steered?.(steerId);
     };
-    result = await runDurableHermes({ up, sessionId: turn.session_id, input, sessionKey: sessionKey(user, turn.chat_id), instructions: chatContext(chat), runId: turn.run_id, headers: full ? egressHeaders(cfg, turn.user_id, turn.chat_id) : {},
+    result = await runDurableHermes({ up, sessionId: turn.session_id, input, sessionKey: sessionKey(user, turn.chat_id), instructions, runId: turn.run_id, headers,
       onAccepted, onEvent, checkpoint: hooks.checkpoint, controls: hooks.controls, steered, canSteer });
     if (result.usage) recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", chatId: turn.chat_id, text: turn.text, usage: result.usage });
     // Run output is resolved by the bridge, while history contains its original
@@ -2704,7 +2894,7 @@ async function executePrivateTurn(turn, hooks, cfg) {
     }
   } else {
     const answer = await streamTurn(up, turn.session_id, input, sessionKey(user, turn.chat_id), onEvent, () => false, onAccepted,
-      usage => recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", chatId: turn.chat_id, text: turn.text, usage }), chatContext(chat), full ? egressHeaders(cfg, turn.user_id, turn.chat_id) : {});
+      usage => recordUsage({ eventId: `chat:${turn.id}`, userId: turn.user_id, source: "chat", chatId: turn.chat_id, text: turn.text, usage }), instructions, headers);
     if (!assistantMessage && answer) saveAssistant(answer);
     result = { status: "completed" };
   }
@@ -2745,6 +2935,8 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
     features: () => normalizeFeatures((fixedCfg || loadConfig()).features),
     emailChecks: () => emailSettings(fixedCfg || loadConfig()).enabled,
     piiWarning: () => { const c = (fixedCfg || loadConfig()).piiWarning; return piiWarningEnabled(c) ? c : false; },
+    // A token typed into a channel or a direct message is refused, not stored (docs/connections.md).
+    refuseText: tokenRefusal,
     // Sent anyway and marked "this wasn't sensitive": queued for the owner to review (business-reports.mjs).
     reportFalseAlarm: (userId, text) => reportFalseAlarm({ store: reports, userId, text, verdict: businessVerdict, personal: screenText }),
     recordsPreservation: () => recordsPreservationEnabled((fixedCfg || loadConfig()).recordsPreservation),
@@ -2806,11 +2998,19 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
         const made = await hermes(up, "POST", "/api/sessions", { id: sessionId, title: `Servant · ${sessionId.slice(8, 30)}` });
         if (!made.ok && made.status !== 409) throw new Error(`session ${made.status}`);
       }
-      // A thread's session is shared by whoever mentions the agent in it; each reply is the asker's.
-      const answer = await whileWorkingFor(cfg, userId, () => streamTurn(up, sessionId, hermesInput(text, attachments), key, (name, p) => {
-        if (name === "assistant.delta") onDelta(p.delta || "");
-      }, () => false, () => {}, onUsage, "", lane === "researcher" || !fullAgentAccess(cfg) ? {} : egressHeaders(cfg, userId, sessionId)));
-      return normalizeMediaContent(answer);
+      // A thread's session is shared by whoever mentions the agent in it; each reply is the asker's: their own
+      // connections reach its commands, and their saved values are hidden in what it writes. A channel has no form
+      // for a missing connection, so the agent is only told what it has.
+      const fullTurn = lane !== "researcher" && fullAgentAccess(cfg);
+      const hide = replyCleaner([userId]);
+      const pieces = createTextStream(piece => stripConnectMarkers(hide(piece)), hide);
+      const answer = await whileWorkingFor(cfg, userId, async () => streamTurn(up, sessionId, hermesInput(text, attachments), key, (name, p) => {
+        if (name !== "assistant.delta") return;
+        const piece = pieces.push(p.delta || "");
+        if (piece) onDelta(piece);
+      }, () => false, () => {}, onUsage, fullTurn ? connectionNotes(userId, sessionId, { ask: false }) : "", fullTurn ? await turnHeaders(cfg, userId, sessionId) : {}));
+      const reply = normalizeMediaContent(answer);
+      return { ...reply, text: readConnectMarkers(hide(reply.text), connectionTools()).text };
     },
   });
   todosStore = createTodos({
@@ -2901,8 +3101,9 @@ async function askWikiAgent(messages, user, cfg) {
     if (agentLane(user, cfg) === "owner") await requireEntitlementChecks(cfg, up, user);
     const made = await hermes(up, "POST", "/api/sessions", { id: sessionId, title: `Servant · wiki · ${user.name}`.slice(0, 66) + ` · ${sessionId.slice(-12)}` });
     if (!made.ok) throw requestError(502, "agent_failed", `The agent returned ${made.status}. Your page is unchanged; try again in a moment`);
-    const content = await whileWorkingFor(cfg, user.id, () => streamTurn(up, sessionId, request, `servant:wiki:${user.id}`, () => {}, () => false, () => {}, reported => { usage = reported; }, instructions, egressHeaders(cfg, user.id, sessionId)));
-    return { content, usage };
+    const headers = agentLane(user, cfg) === "owner" ? await turnHeaders(cfg, user.id, sessionId) : egressHeaders(cfg, user.id, sessionId);
+    const content = await whileWorkingFor(cfg, user.id, () => streamTurn(up, sessionId, request, `servant:wiki:${user.id}`, () => {}, () => false, () => {}, reported => { usage = reported; }, instructions, headers));
+    return { content: stripConnectMarkers(replyCleaner([user.id])(content)), usage };
   } catch (error) {
     if (error?.status && error?.code) throw error;
     throw requestError(503, "agent_unavailable", "The agent didn't answer. Your page is unchanged; try again in a moment");
@@ -3037,6 +3238,8 @@ export function startServer(fixedCfg) {
     chatMedia?.close(); chatMedia = null; usageDb?.close(); usageDb = null;
     await egressProxy?.close(); egressProxy = null;
     entitlementDb?.close(); entitlementDb = null; egressDb?.close(); egressDb = null; reviewDb?.close(); reviewDb = null;
+    if (connectionDoor) { const door = await connectionDoor.catch(() => null); connectionDoor = null; door?.close(); door?.closeAllConnections?.(); }
+    connectionDb?.close(); connectionDb = null; toolsCache = null;
     secureTransport?.close(); secureTransport = null;
     stateStore?.close(); stateStore = null;
   })();

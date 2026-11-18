@@ -854,7 +854,8 @@ test("each agent chat is its own session: a separate Hermes session and session 
   assert.notEqual(sa.url, sb.url, "different Hermes sessions");
   assert.notEqual(sa.headers["x-hermes-session-key"], sb.headers["x-hermes-session-key"], "different session keys");
   assert.ok(sa.headers["x-hermes-session-key"].endsWith(a.id));
-  assert.equal(sa.body.system_message, undefined, "no project, no extra instructions");
+  // No project: the only instructions are how to ask this person for a connection of their own (docs/connections.md).
+  assert.deepEqual(sa.body.system_message.split("\n").map(line => line.slice(0, 20)), ["Only when a task nee", "Only when a task nee"], "no project, no project instructions");
 });
 
 test("projects: the list comes from projects.json; a chat in one carries its repo, workflow, rules and what the asker may do", async () => {

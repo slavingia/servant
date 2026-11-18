@@ -2,6 +2,7 @@ import type { Attachment, Message } from "./server";
 import { parseAgentTurn, parseApproval, type AgentTurn, type AgentApproval } from './agent-turns.ts';
 import { parseSourceDevice } from './message-device.ts';
 import { parsePoster } from './message-poster.ts';
+import { parseConnectParts, type ConnectPart } from './connections.ts';
 
 export type StreamEvent =
   | { type: "turn"; turn: AgentTurn }
@@ -9,7 +10,7 @@ export type StreamEvent =
   | { type: "delta"; text: string }
   | { type: "status"; text: string }
   | { type: "sent"; message: Message }
-  | { type: "message"; text: string; attachments?: Attachment[]; id?: string; at?: Message["at"] }
+  | { type: "message"; text: string; attachments?: Attachment[]; id?: string; at?: Message["at"]; connect?: ConnectPart[] }
   | { type: "error"; message: string }
   | { type: "done" };
 
@@ -71,7 +72,8 @@ export function parseAgentEvent(name: string, payload: Record<string, unknown>):
     const postedBy = parsePoster(value.postedBy);
     return { type: "sent", message: { id, role: "user", text: body, at, attachments: files, ...(sourceDevice ? { sourceDevice } : {}), ...(postedBy ? { postedBy } : {}) } };
   }
-  return { type: "message", id, text: body, at, attachments: files };
+  const connect = parseConnectParts(value.connect);
+  return { type: "message", id, text: body, at, attachments: files, ...(connect.length ? { connect } : {}) };
 }
 
 export function createAgentEventDecoder(onEvent: (event: StreamEvent) => void) {

@@ -294,7 +294,7 @@ const maybeHidden = text => { const start = text.trim(); return !!start && ("<se
  * @param {() => string} o.agentName
  * @param {(o:{sessionId:string, sessionKey:string, text:string, attachments:Array, onDelta:(t:string)=>void, onStatus:(t:string)=>void}) => Promise<string|{text:string,attachments:Array}>} o.askAgent
  */
-export function createMessaging({ file, users, agentName, managerOf = () => null, emailChecks = () => false, askAgent, onMessage = () => {}, externalWorker = false, onUsage = () => {}, features = () => ({ channels: true, directMessages: true }), linkPreview = null, startWorkChat = null, piiWarning = () => false, reportFalseAlarm = null, recordsPreservation = () => false, tierCosts = () => null }) {
+export function createMessaging({ file, users, agentName, managerOf = () => null, emailChecks = () => false, askAgent, onMessage = () => {}, externalWorker = false, onUsage = () => {}, features = () => ({ channels: true, directMessages: true }), linkPreview = null, startWorkChat = null, piiWarning = () => false, refuseText = () => null, reportFalseAlarm = null, recordsPreservation = () => false, tierCosts = () => null }) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(file);
   db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON');
@@ -1952,6 +1952,9 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
         const attachments = validateUploads(body.attachments);
         if (!text && !attachments.length) return fail(res, 400, "empty", "Type a message first"), true;
         if (text.length > MAX_TEXT) return fail(res, 413, "too_long", "That message is too long"), true;
+        // A token typed into chat is not stored: it belongs in Connections (docs/connections.md).
+        const tokenTyped = refuseText(text);
+        if (tokenTyped) return fail(res, 400, "secret_in_chat", tokenTyped), true;
         if (body.confirmPii === true && body.reportFalseAlarm === true && reportFalseAlarm && reportingEnabled(piiWarning())) void reportFalseAlarm(user.id, text);
         const piiConfig = body.confirmPii !== true && piiWarning();
         if (piiConfig) {
@@ -2009,6 +2012,8 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
         const body = await readBody(req);
         const text = String(body.text || "").trim();
         if (!text) return fail(res, 400, "empty", "Type a message first"), true;
+        const tokenTyped = refuseText(text);
+        if (tokenTyped) return fail(res, 400, "secret_in_chat", tokenTyped), true;
         const v = transaction(() => {
           const current = requireMessage(m.seq, user.id, true);
           if (current.user_id !== user.id) throw httpError(403, 'forbidden', 'You can only edit your own messages');

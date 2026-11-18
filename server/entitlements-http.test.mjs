@@ -380,3 +380,21 @@ test("removing a person revokes what they held and stops their agent's traffic; 
   assert.equal((await api("owner", "GET", "entitlements")).body.entitlements.some(e => e.id === id), false);
   assert.equal((await api("sam", "POST", `entitlements/${id}/request`, { confirmed: true })).status, 404);
 });
+
+test("someone's own GitHub token is the access; the entitlement is still the permission", async () => {
+  // Sam connects a GitHub token of their own (docs/connections.md). With the checks on, the bridge is told one place
+  // to ask both questions, and GitHub write is still Sam's manager's to allow.
+  const token = "ghp_" + "s".repeat(32) + "a1b2";
+  globalThis.__servantConnectionCheck = async () => ({ ok: true, account: "@sam-lee" });
+  try {
+    assert.equal((await api("sam", "PUT", "connections/github", { values: { token } })).status, 200);
+    const headers = await mod.connectionsForTest().headers(config, people.sam.id, "cht_own_token");
+    assert.equal(headers["X-Servant-Connections-Door"], String(mod.egressForTest().port), "inside the sandbox the gate's listener is the only one the bridge can reach");
+    assert.equal(headers["X-Servant-Door"], String(mod.egressForTest().port));
+    const answer = async route => { const r = await fetch(`http://127.0.0.1:${mod.egressForTest().port}${route}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: headers["X-Servant-Egress-Token"], needs: ["github-write"], detail: "Run: git push" }) }); return r.json(); };
+    assert.equal((await answer("/connections")).env.GH_TOKEN, token);
+    const push = await answer("/use");
+    assert.notEqual(push.verdict, "allow", "holding a token does not grant GitHub write");
+    assert.match(push.message, /GitHub write/);
+  } finally { delete globalThis.__servantConnectionCheck; }
+});
