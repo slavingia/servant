@@ -17,11 +17,13 @@ type Props = {
   busy?: boolean;
   disabled?: boolean;
   compact?: boolean;
+  /** A small picture after the words, for a button that leaves the app ("Open github.com"). */
+  icon?: AppIconName;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 };
 
-export function Button({ label, accessibilityLabel, onPress, kind = "primary", busy, disabled, compact, style, testID }: Props) {
+export function Button({ label, accessibilityLabel, onPress, kind = "primary", busy, disabled, compact, icon, style, testID }: Props) {
   const styles = useStyles();
   const { colors } = useTheme();
   const off = disabled || busy;
@@ -38,7 +40,10 @@ export function Button({ label, accessibilityLabel, onPress, kind = "primary", b
       {busy ? (
         <ActivityIndicator color={kind === "primary" ? colors.onPrimary : kind === "danger" ? colors.red : colors.blue} />
       ) : (
-        <Text style={[styles.label, styles[`${kind}Label`], off && kind === "primary" && styles.primaryOffLabel]}>{label}</Text>
+        <View style={styles.words}>
+          <Text style={[styles.label, styles[`${kind}Label`], off && kind === "primary" && styles.primaryOffLabel]}>{label}</Text>
+          {icon ? <AppIcon name={icon} size={16} color={off && kind === "primary" ? colors.muted : kind === "primary" ? colors.onPrimary : kind === "danger" ? colors.red : kind === "link" ? colors.blue : colors.ink} /> : null}
+        </View>
       )}
     </Pressable>
   );
@@ -99,7 +104,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   primaryOff: { backgroundColor: colors.line },
   primaryOffLabel: { color: colors.muted },
   pressed: { opacity: 0.85 },
-  label: { ...typography.bodyStrong, textAlign: "center" },
+  words: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.xs, maxWidth: "100%" },
+  label: { ...typography.bodyStrong, textAlign: "center", flexShrink: 1 },
   primaryLabel: { color: colors.onPrimary },
   secondaryLabel: { color: colors.ink },
   linkLabel: { color: colors.blue, ...linkUnderline },

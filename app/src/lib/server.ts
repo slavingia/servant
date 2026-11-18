@@ -18,6 +18,7 @@ import { bannerFromServer } from './banner.ts';
 import { normalizeTheme } from './theme-colors.ts';
 import { noteSessionExpired } from './session-expiry';
 import { SESSION_EXPIRED, type SessionInfo } from './session-expiry-rules';
+import type { ConnectPart, ConnectTool, ConnectionStanding, ConnectionsPage } from "./connections.ts";
 export { accountId } from './accounts-store';
 export type { Account, Accounts } from './accounts-store';
 export type { SessionInfo } from './session-expiry-rules';
@@ -69,7 +70,7 @@ export type ProjectRelease = { id: string; name: string; date: string; items: Re
 // mode "vibe": a vibe-coding chat that builds a prototype with a preview link.
 export type Chat = { usage?: { input: number; output: number; total: number; turns: number }; projectId?: string; projectShared?: boolean; project?: { id: string; name: string }; mode?: "vibe"; previewUrl?: string; files?: boolean; id: string; title: string; titledBy?: "user" | "agent"; createdAt: number; updatedAt: number; lastMessage?: ChatLastMessage | null; unread?: number; shared?: boolean; author?: { id: string; name: string }; readOnly?: boolean; archived?: boolean; latestTurn?: AgentTurn | null; members?: ChatMember[] };
 export type Reaction = { emoji: string; userIds: string[] };
-export type Message = { id: string; role: "user" | "assistant"; text: string; reactions?: Reaction[]; at?: number | string | null; attachments?: Attachment[]; pending?: boolean; interrupted?: boolean; sourceDevice?: SourceDevice; postedBy?: { id: string; name: string } };
+export type Message = { /** The form the agent asked for, to connect a tool of your own (docs/connections.md). */ connect?: ConnectPart[]; id: string; role: "user" | "assistant"; text: string; reactions?: Reaction[]; at?: number | string | null; attachments?: Attachment[]; pending?: boolean; interrupted?: boolean; sourceDevice?: SourceDevice; postedBy?: { id: string; name: string } };
 
 // ----- token leaderboard -----
 export type LeaderboardPeriod = "day" | "week" | "month" | "all";
@@ -522,6 +523,12 @@ export const api = {
   removePerson: (a: Account, userId: string) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "DELETE" }).then(json<{ ok: true }>),
   /** Owner only: one person's daily agent limit (token-limit.ts): a step, their role's default (null), or none. */
   setDailyLimit: (a: Account, userId: string, change: { unlimitedTokens: boolean; tokenLimit?: number | null }) => request(a, `/v1/people/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify(change) }).then(json<{ person: Person }>),
+  // Personal connections (docs/connections.md): your own credentials for the tools your agent works with. A value
+  // goes up once and is never returned; the app only learns its last four characters.
+  connections: (a: Account) => request(a, "/v1/connections").then(json<ConnectionsPage>),
+  saveConnection: (a: Account, type: string, values: Record<string, string>) => request(a, `/v1/connections/${encodeURIComponent(type)}`, { method: "PUT", body: JSON.stringify({ values }) }).then(json<{ tool: ConnectTool & { mine: ConnectionStanding | null }; replaced: boolean; checked: boolean }>),
+  removeConnection: (a: Account, type: string) => request(a, `/v1/connections/${encodeURIComponent(type)}`, { method: "DELETE" }).then(json<{ tool: ConnectTool & { mine: ConnectionStanding | null } }>),
+  declineConnection: (a: Account, requestId: string) => request(a, `/v1/connections/requests/${encodeURIComponent(requestId)}/decline`, { method: "POST", body: "{}" }).then(json<{ request: { id: string; status: string } }>),
   // Entitlements (docs/entitlements.md): named access people ask for and their manager grants.
   entitlements: (a: Account) => request(a, "/v1/entitlements").then(json<EntitlementsPage>),
   // Owners: what agents did or were stopped from doing, newest first.

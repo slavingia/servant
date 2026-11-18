@@ -59,6 +59,12 @@ const paths = {
   bellOff: "M13.7 21a2 2 0 0 1-3.4 0 M18.6 13A17.9 17.9 0 0 1 18 8 M6.3 6.3A6 6 0 0 0 6 8c0 7-3 9-3 9h14 M18 8a6 6 0 0 0-9.3-5 M3 3l18 18",
   moon: "M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11Z",
   warning: "M12 3 2 20h20L12 3Z M12 10v4 M12 17h.01",
+  // A box with an arrow out of its corner: opens in the browser.
+  external: "M14 4h6v6 M20 4l-9 9 M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5",
+  // A shield with a tick: kept safe.
+  shield: "M12 3 4 6v6c0 4.5 3.2 7.8 8 9 4.8-1.2 8-4.5 8-9V6l-8-3Z m-3 9 2 2 4-4",
+  // A plug: a tool connected with your own login.
+  plug: "M9 3v5 M15 3v5 M6 8h12v3a6 6 0 0 1-12 0V8Z M12 17v4",
 } as const;
 
 export type AppIconName = keyof typeof paths;

@@ -25,6 +25,7 @@ import { MediaEmbed } from "../../components/MediaEmbed";
 import { mediaEmbeds } from "../../lib/media-embed";
 import { tweetIds } from "../../lib/tweet-embed";
 import { AgentApprovalCard } from "../../components/AgentApprovalCard";
+import { MessageConnectCard } from "../../components/ConnectionCard";
 import { activeAgentTurn, agentTurnLabel, inOrder, joinsReply, liveAgentLine, queuedBelow, splitTurns, withRead, workByMessage, workedFor, type AgentStep, type AgentTurn } from "../../lib/agent-turns";
 import { reuseEqual, sameEntries } from "../../lib/reuse-equal";
 import { useStableCallback } from "../../lib/stable-callback";
@@ -880,7 +881,7 @@ function ChatConversation({ account }: { account: Account }) {
             accept();
             canonicalReplyId = e.id ?? canonicalReplyId;
             responseSeen ||= !!e.text || !!e.attachments?.length;
-            update((r) => ({ ...r, id: e.id ?? r.id, at: e.at ?? r.at, text: e.text, attachments: e.attachments ?? r.attachments }));
+            update((r) => ({ ...r, id: e.id ?? r.id, at: e.at ?? r.at, text: e.text, attachments: e.attachments ?? r.attachments, ...(e.connect ? { connect: e.connect } : {}) }));
           }
           else if (e.type === "status") setStatus(e.text);
           else if (e.type === "error") {
@@ -1221,6 +1222,8 @@ const ChatRow = memo(function ChatRow({ item, chatId, me, role, canForward, work
       {!working && !item.failed ? tweetIds(item.text || "").map(id => <TweetEmbed key={id} id={id} />) : null}
       {!working && !item.failed ? mediaEmbeds(item.text || "").map(embed => <MediaEmbed key={embed.key} embed={embed} />) : null}
       {!working && item.attachments?.length ? <Attachments files={item.attachments} /> : null}
+      {/* The agent asked for a tool's token: a form that keeps it out of the chat (docs/connections.md). */}
+      {!working && !mine ? item.connect?.map(part => <MessageConnectCard key={part.requestId} part={part} />) : null}
       {item.uploads?.length ? <PendingAttachments files={item.uploads} progress={uploadProgress} /> : null}
       {working ? <AgentProgress line={liveAgentLine(turn, status)} turn={turn} /> : null}
       {queued ? <View style={styles.waitingRow}>
