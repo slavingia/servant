@@ -1159,6 +1159,9 @@ const listed = words => words.length > 1 ? `${words.slice(0, -1).join(", ")} and
  * for one that is missing (only where Servant can show the form: an agent chat). Never a value.
  */
 function connectionNotes(userId, chatId, { ask = true } = {}) {
+  // An owner's agent is not held back (docs/entitlements.md) and already works with the server's own logins, so it is
+  // told what is connected but never prompted to ask for a token.
+  if (readState().users[userId]?.role === "owner") ask = false;
   const store = connectionStore();
   const declined = ask ? store.declinedIn(userId, chatId) : [];
   const lines = [];
@@ -1167,7 +1170,7 @@ function connectionNotes(userId, chatId, { ask = true } = {}) {
     const what = tool.fields.length > 1 ? "credentials" : "token";
     if (mine) lines.push(`Your commands have this person's own ${tool.name} ${what} in ${listed(Object.keys(tool.env))}${mine.account ? ` (connected as ${mine.account})` : ""}. Use ${what === "token" ? "it" : "them"}; don't use any other ${tool.name} login. Never print or repeat the value.`);
     else if (declined.includes(tool.id)) lines.push(`This person declined to connect ${tool.name} in this chat. Don't ask again here; carry on without it, and say plainly what you can't do.`);
-    else if (ask) lines.push(`To use ${tool.name} for this person, ask for their ${what} by writing [[connect:${tool.id}]] on its own line; Servant shows them a secure form. Never ask them to paste a token in chat.`);
+    else if (ask) lines.push(`Only when a task needs ${tool.name} for this person, ask for their ${what} by writing [[connect:${tool.id}]] on its own line; Servant shows them a secure form. Never ask them to paste a token in chat.`);
   }
   return lines.join("\n");
 }

@@ -171,7 +171,7 @@ test("a turn of someone with a connection says where to fetch it; the door gives
   assert.equal(turn.checks, undefined, "the entitlement checks stay off: this is a different question");
   assert.match(turn.instructions, /Your commands have this person's own GitHub token in GH_TOKEN and GITHUB_TOKEN \(connected as @pat-tester\)\. Use it; don't use any other GitHub login\./);
   assert.match(turn.instructions, /Your commands have this person's own Jira credentials in JIRA_SITE, JIRA_EMAIL and JIRA_API_TOKEN\./);
-  assert.match(turn.instructions, /To use Tax data API for this person, ask for their token by writing \[\[connect:tax-api\]\] on its own line; Servant shows them a secure form\. Never ask them to paste a token in chat\./);
+  assert.match(turn.instructions, /Only when a task needs Tax data API for this person, ask for their token by writing \[\[connect:tax-api\]\] on its own line; Servant shows them a secure form\. Never ask them to paste a token in chat\./);
   holdsNoSecret(turn, "what the agent was sent");
 
   const mine = await door(turn.door, "/connections", { token: turn.token });
@@ -190,7 +190,7 @@ test("a turn of someone with a connection says where to fetch it; the door gives
   await say("owner", ownerChat.id, "Hello");
   assert.equal(turns.at(-1).door, undefined);
   assert.equal(turns.at(-1).token, undefined);
-  assert.match(turns.at(-1).instructions, /To use GitHub for this person, ask for their token by writing \[\[connect:github\]\]/);
+  assert.doesNotMatch(turns.at(-1).instructions ?? "", /\[\[connect:/, "an owner's agent already has the server's logins and is never prompted to ask for a token");
   const forged = `${turn.token.split(".")[0]}.${turn.token.split(".")[1]}.${"A".repeat(43)}`;
   for (const bad of [forged, "", "not-a-token", undefined]) {
     const refused = await door(turn.door, "/connections", { token: bad });
