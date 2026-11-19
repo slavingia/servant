@@ -136,6 +136,7 @@ The feature guide, [docs/features.md](docs/features.md), covers each of these:
 - [A warning before personal information](docs/features.md#a-warning-before-personal-information)
 - [Records preservation](docs/features.md#records-preservation)
 - [Deep work](docs/features.md#deep-work)
+- [File drop](docs/features.md#file-drop)
 - [Voice memos](docs/features.md#voice-memos)
 
 ## Security notes

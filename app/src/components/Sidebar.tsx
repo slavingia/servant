@@ -77,7 +77,7 @@ export function Sidebar() {
   // What this server uses (features.ts): sections and entries for the rest never render.
   const features = useFeatures();
   useEffect(() => { if (account) void refreshProjects(account); }, [pathname, account]);
-  const viewer = { features, owner: account?.user.role === "owner" };
+  const viewer = { features, owner: account?.user.role === "owner", fileDrop: account?.fileDrop === true };
   const counts: Record<string, number> = { home: unread.channels, agent: unread.agent, messages: unread.messages };
   if (!account) return null;
 

@@ -267,7 +267,7 @@ export default function Settings() {
       <Text accessibilityRole="header" style={styles.section}>Servers</Text>
       <View style={[styles.group, { paddingHorizontal: space.md, paddingVertical: space.xs }]}><ServerSwitcher /></View>
       {/* The same places as the sidebar, under the same names and in the same groups (destinations.ts). */}
-      {destinationGroups("you", { features, owner }).map(entry => <View key={entry.group}>
+      {destinationGroups("you", { features, owner, fileDrop: account.fileDrop === true }).map(entry => <View key={entry.group}>
         <Text accessibilityRole="header" style={styles.section}>{entry.title}</Text>
         <View style={styles.group}>
           {entry.places.map(place => <Row key={place.id} label={place.label} onPress={() => router.push(place.path as Href)} />)}

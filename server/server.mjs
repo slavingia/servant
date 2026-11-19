@@ -41,6 +41,7 @@ import { createSecureInbox, INBOX_BODY_LIMIT, secureInboxPublicUrl } from "./sec
 import { secureInboxPage, secureInboxScript } from "./secure-inbox-page.mjs";
 import { createInboxNotices, inboxNoticeSettings } from "./secure-inbox-notices.mjs";
 import { createRecordings } from "./recordings.mjs";
+import { createFileDrop } from "./file-drop.mjs";
 import { createTodos, readDoneTag } from "./todos.mjs";
 import { NOTES_PROMPT as RECORDING_NOTES_PROMPT } from "./transcription.mjs";
 import os from "node:os";
@@ -166,6 +167,9 @@ function saveJson(file, value) {
   fs.renameSync(tmp, file);
 }
 
+// An absolute path, or one under the home folder ("~/Desktop"); anything else leaves file drop off.
+export const fileDropFolder = value => { const dir = typeof value === "string" ? expandPath(value.trim()) : ""; return path.isAbsolute(dir) ? path.resolve(dir) : ""; };
+
 export function loadConfig() {
   const cfg = loadJson(CONFIG_FILE, {});
   return {
@@ -218,6 +222,8 @@ export function loadConfig() {
     theme: normalizeTheme(cfg.theme),
     piiWarning: cfg.piiWarning && typeof cfg.piiWarning === "object" ? cfg.piiWarning : undefined,
     recordsPreservation: cfg.recordsPreservation && typeof cfg.recordsPreservation === "object" ? cfg.recordsPreservation : undefined,
+    // File drop (file-drop.mjs): the folder on this computer where files the owner drops on the app land. Off unless set.
+    fileDropDir: fileDropFolder(process.env.SERVANT_FILE_DROP_DIR || cfg.fileDrop?.dir),
     // Lets build scripts on this Mac post release notes. Never leaves the Mac.
     adminKey: process.env.SERVANT_ADMIN_KEY || cfg.adminKey || "",
     // Where projects live (docs/projects.md). A relative path is inside the data dir.
@@ -855,6 +861,8 @@ function chatContextBase(chat) {
 const documents = () => documentStore ??= createDocumentStore(path.join(DATA_DIR, "chat-files"), { keep: () => recordsPreservationEnabled(loadConfig().recordsPreservation) });
 let usageDb;
 let recordings = null;
+let fileDropStore;
+const fileDrop = () => fileDropStore ??= createFileDrop({ directory: path.join(DATA_DIR, "file-drop"), folder: () => loadConfig().fileDropDir });
 let todosStore = null;
 let workChatStarter = null;
 let otaServer;
@@ -1578,7 +1586,7 @@ async function handle(req, res, cfg) {
 
   if (method === "GET" && url.pathname === "/v1/me") {
     mutateAuthenticated(req, (_state, current) => { current.device.lastSeenAt = now(); });
-    return send(res, 200, { user: { id: user.id, name: user.name, role: user.role, ...(user.emailVerifiedAt ? { emailVerified: true } : {}) }, emailRequired: emailSettings(cfg).enabled && !user.emailVerifiedAt, device: { id: device.id, label: device.label }, session: sessions.view(device, user), server: { name: cfg.name }, hub: { name: cfg.name }, features: normalizeFeatures(cfg.features), banner: cfg.banner ?? null, theme: normalizeTheme(cfg.theme), deepWork: inDeepWork(user), ...(recordsPreservationEnabled(cfg.recordsPreservation) ? { recordsKept: true } : {}) });
+    return send(res, 200, { user: { id: user.id, name: user.name, role: user.role, ...(user.emailVerifiedAt ? { emailVerified: true } : {}) }, emailRequired: emailSettings(cfg).enabled && !user.emailVerifiedAt, device: { id: device.id, label: device.label }, session: sessions.view(device, user), server: { name: cfg.name }, hub: { name: cfg.name }, features: normalizeFeatures(cfg.features), banner: cfg.banner ?? null, theme: normalizeTheme(cfg.theme), deepWork: inDeepWork(user), ...(recordsPreservationEnabled(cfg.recordsPreservation) ? { recordsKept: true } : {}), ...(user.role === "owner" && cfg.fileDropDir ? { fileDrop: true } : {}) });
   }
 
   if (method === "POST" && url.pathname === "/v1/signout") {
@@ -2230,6 +2238,7 @@ async function handle(req, res, cfg) {
     return send(res, 200, { items });
   }
   if (todosStore && parts[1] === "todos" && (await todosStore.handle(req, res, { user, device, method, parts, url, send, fail, readBody: readAuthorizedBody }))) return undefined;
+  if (parts[1] === "file-drop" && (await fileDrop().handle(req, res, { user, method, parts, send, fail, readBody: readAuthorizedBody }))) return undefined;
   if (recordings && parts[1] === "recordings" && (await recordings.handle(req, res, { user, device, method, parts, send, fail, readBody: readAuthorizedBody }))) return undefined;
   if (messaging && (await messaging.handle(req, res, { user, device, method, parts, url, send, fail, readBody: readAuthorizedBody, cors: CORS,
     isAuthorized: () => authenticate(req, readState())?.user.id === user.id,

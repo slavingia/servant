@@ -21,6 +21,8 @@ export type Destination = {
   needs?: FeatureName | "talk";
   /** Only for the owner. */
   owner?: true;
+  /** Only where the server has a file drop folder and says so to this person (server/file-drop.mjs). */
+  fileDrop?: true;
   /** In the sidebar of a wide window. Places reached from You's page there (usage, invites, the archive) are not. */
   sidebar: boolean;
   /** On You. The tabs are not: on a phone they are already on screen. */
@@ -38,6 +40,7 @@ export const DESTINATIONS: Destination[] = [
   { id: "todos", label: "To-dos", icon: "check", path: "/todos", group: "work", sidebar: true, you: true, detail: "To-dos for you and your projects", keywords: "todo to-do task tasks checklist" },
   { id: "saved", label: "Saved", icon: "bookmark", path: "/saved", group: "work", sidebar: true, you: true, detail: "Messages you saved to follow up, and your work log", keywords: "save saved later bookmark todo to-do checklist follow up completed work log" },
   { id: "recordings", label: "Recordings", icon: "mic", path: "/recordings", group: "work", sidebar: true, you: true, detail: "Voice memos and their notes", keywords: "record recording recordings voice memo memos audio transcript notes granola" },
+  { id: "fileDrop", label: "File drop", icon: "folder", path: "/file-drop", group: "work", owner: true, fileDrop: true, sidebar: true, you: true, detail: "Send files to the server's computer", keywords: "file files drop drag send transfer airdrop desktop computer mac upload" },
   { id: "archive", label: "Archived", icon: "archive", path: "/archived-channels", group: "work", needs: "talk", sidebar: false, you: true, detail: "Channels and messages you archived", keywords: "archive archived restore channels messages" },
   { id: "members", label: "People", icon: "people", path: "/members", group: "team", needs: "people", sidebar: true, you: true, detail: "Everyone on your server", keywords: "people members directory" },
   { id: "entitlements", label: "Entitlements", icon: "key", path: "/entitlements", group: "team", sidebar: false, you: true, detail: "What your agent may reach, and the requests waiting on you", keywords: "entitlements access permissions approve approval request grant manager network hosts gate sandbox" },
@@ -47,11 +50,12 @@ export const DESTINATIONS: Destination[] = [
   { id: "usage", label: "Agent usage", icon: "clock", path: "/leaderboard", group: "team", sidebar: false, you: true, detail: "How much each person uses the agent", keywords: "agent usage tokens leaderboard" },
 ];
 
-export type Viewer = { features: Features; owner: boolean };
+export type Viewer = { features: Features; owner: boolean; fileDrop?: boolean };
 
 /** Whether this person, on this server, has this place. */
 export const reachable = (place: Destination, viewer: Viewer) =>
   (!place.owner || viewer.owner)
+  && (!place.fileDrop || viewer.fileDrop === true)
   && (!place.needs || (place.needs === "talk" ? anyTalk(viewer.features) : viewer.features[place.needs]));
 
 /** The places for the sidebar or for You, grouped and in order; a group with nothing in it is left out. */

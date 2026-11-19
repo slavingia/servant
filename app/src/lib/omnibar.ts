@@ -2,12 +2,12 @@ import { DESTINATIONS } from "./destinations.ts";
 import { ALL_FEATURES, anyTalk, type FeatureName, type Features } from "./features.ts";
 
 // `needs`: a server feature (features.ts) without which the shortcut would be a dead link; "talk" means channels or DMs.
-export type Shortcut = { id: string; title: string; detail: string; path: string; keywords: string; owner?: boolean; needs?: FeatureName | "talk" };
+export type Shortcut = { id: string; title: string; detail: string; path: string; keywords: string; owner?: boolean; fileDrop?: boolean; needs?: FeatureName | "talk" };
 
 // A place from the one list (destinations.ts), under the name it has everywhere.
 const place = (id: string): Shortcut => {
   const found = DESTINATIONS.find(item => item.id === id)!;
-  return { id: found.id, title: found.label, detail: found.detail, path: found.path, keywords: found.keywords, ...(found.needs ? { needs: found.needs } : {}), ...(found.owner ? { owner: true } : {}) };
+  return { id: found.id, title: found.label, detail: found.detail, path: found.path, keywords: found.keywords, ...(found.needs ? { needs: found.needs } : {}), ...(found.owner ? { owner: true } : {}), ...(found.fileDrop ? { fileDrop: true } : {}) };
 };
 // Search shows the first four before anything is typed, so two things to start and the two everyday places lead.
 const LEADING = ["agent", "members"];
@@ -31,8 +31,8 @@ export function matchesQuery(query: string, ...values: (string | null | undefine
 
 const offered = (item: Shortcut, features: Features) => !item.needs || (item.needs === "talk" ? anyTalk(features) : features[item.needs]);
 
-export function omnibarShortcuts(query: string, owner: boolean, features: Features = ALL_FEATURES) {
-  return shortcuts.filter(item => (!item.owner || owner) && offered(item, features) && matchesQuery(query, item.title, item.detail, item.keywords));
+export function omnibarShortcuts(query: string, owner: boolean, features: Features = ALL_FEATURES, fileDrop = false) {
+  return shortcuts.filter(item => (!item.owner || owner) && (!item.fileDrop || fileDrop) && offered(item, features) && matchesQuery(query, item.title, item.detail, item.keywords));
 }
 
 // Filters the server understands (server/search.mjs): they narrow messages, so with one typed only messages
