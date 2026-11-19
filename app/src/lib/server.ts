@@ -641,6 +641,7 @@ export const api = {
   saveMessage: (a: Account, messageId: string) => request(a, `/v1/saved-messages/${encodeURIComponent(messageId)}`, { method: "POST", body: "{}" }).then(json<{ item: SavedMessage }>),
   completeSavedMessage: (a: Account, messageId: string, completed: boolean, completion?: { note: string; requestId: string }) => request(a, `/v1/saved-messages/${encodeURIComponent(messageId)}`, { method: "PATCH", body: JSON.stringify({ completed, ...(completed ? completion : {}) }) }).then(json<{ item: SavedMessage | null }>),
   removeSavedMessage: (a: Account, messageId: string) => request(a, `/v1/saved-messages/${encodeURIComponent(messageId)}`, { method: "DELETE" }).then(json<{ ok: true }>),
+  airdropFolder: (a: Account) => request(a, "/v1/airdrop").then(json<{ folder: string }>).then(d => d.folder),
   recordings: (a: Account, m?: (a: Account) => void) => request(a, "/v1/recordings", {}, m).then(json<{ recordings: RecordingSummary[] }>).then(d => d.recordings),
   recording: (a: Account, id: string) => request(a, `/v1/recordings/${encodeURIComponent(id)}`).then(json<{ recording: Recording }>).then(d => d.recording),
   retryRecording: (a: Account, id: string) => request(a, `/v1/recordings/${encodeURIComponent(id)}/retry`, { method: "POST", body: "{}" }).then(json<{ recording: Recording }>).then(d => d.recording),

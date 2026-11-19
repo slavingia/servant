@@ -50,7 +50,7 @@ test("conversation flags conceal sources while voice memos stay in history", () 
 
 test("source links choose message thread, recording, or to-do and disappear for unavailable sources", () => {
   assert.deepEqual(workLogHref(saved), { pathname: "/thread", params: { conv: "ch_example", root: "7", focus: "10", from: "saved", title: "#example-app" } });
-  assert.deepEqual(workLogHref(recording), { pathname: "/recordings/[id]", params: { id: "rec_1" } });
+  assert.deepEqual(workLogHref(recording), { pathname: "/notetaker/[id]", params: { id: "rec_1" } });
   assert.deepEqual(workLogHref(todo), { pathname: "/todos", params: { id: "10" } });
   assert.equal(workLogHref({ ...recording, source: null }), null);
   assert.equal(workLogHref({ ...todo, source: null }), null);
@@ -59,9 +59,9 @@ test("source links choose message thread, recording, or to-do and disappear for 
 
 test("voice memos have truthful title fallbacks", () => {
   const untitled = { ...recording, source: { ...recording.source!, title: null } };
-  assert.equal(workLogLabel(untitled), "Voice memo");
-  assert.equal(workLogPreview(untitled), "Voice memo");
-  assert.equal(workLogPreview({ ...recording, source: null }), "This recording is no longer available.");
+  assert.equal(workLogLabel(untitled), "Notes");
+  assert.equal(workLogPreview(untitled), "Notes");
+  assert.equal(workLogPreview({ ...recording, source: null }), "These notes are no longer available.");
   assert.equal(workLogPreview({ ...todo, source: null }), "This to-do is no longer available.");
 });
 

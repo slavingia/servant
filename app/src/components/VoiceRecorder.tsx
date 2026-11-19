@@ -33,9 +33,9 @@ export function VoiceRecorder({ account, onMove, onSaved, onClose }: { account: 
     working.current = true; setError(null); setNote(null); setPhase("starting");
     try {
       const got = await engine.start({ systemAudio });
-      setNote(got.note ?? (got.systemAudio ? "Recording the microphone and this computer's audio" : engine.systemAudioOffered ? "Recording the microphone only" : null));
+      setNote(got.note ?? (got.systemAudio ? "Listening to the microphone and this computer's audio" : engine.systemAudioOffered ? "Listening to the microphone only" : null));
       setPhase("recording");
-    } catch (e) { setError(e instanceof Error ? e.message : "Couldn't start recording"); setPhase("ready"); }
+    } catch (e) { setError(e instanceof Error ? e.message : "Couldn't start the notetaker"); setPhase("ready"); }
     finally { working.current = false; }
   };
 
@@ -52,7 +52,7 @@ export function VoiceRecorder({ account, onMove, onSaved, onClose }: { account: 
       onClose();
     } catch (e) {
       if (e instanceof RecordingError && e.recordingId) p.id = e.recordingId;
-      setError(e instanceof Error ? e.message : "Couldn't send the recording");
+      setError(e instanceof Error ? e.message : "Couldn't send the audio");
       setPhase("failed");
     }
   };
@@ -64,7 +64,7 @@ export function VoiceRecorder({ account, onMove, onSaved, onClose }: { account: 
       const result = await engine.stop();
       pending.current = { result };
       await send();
-    } catch (e) { setError(e instanceof Error ? e.message : "Couldn't save the recording. Try again"); setPhase("ready"); }
+    } catch (e) { setError(e instanceof Error ? e.message : "Couldn't save the audio. Try again"); setPhase("ready"); }
     finally { working.current = false; }
   };
 
@@ -72,8 +72,8 @@ export function VoiceRecorder({ account, onMove, onSaved, onClose }: { account: 
 
   if (!engine.supported) {
     return <View style={styles.card}>
-      <Text accessibilityRole="header" style={styles.title}>Record a voice memo</Text>
-      <Text style={styles.hint}>{Platform.OS === "web" ? "Recording unavailable. Use Chrome, Edge, Safari or the mobile app." : "Recording unavailable on this device."}</Text>
+      <Text accessibilityRole="header" style={styles.title}>Take notes</Text>
+      <Text style={styles.hint}>{Platform.OS === "web" ? "The notetaker needs Chrome, Edge, Safari or the mobile app." : "The notetaker isn't available on this device."}</Text>
       <Button label="Close" kind="secondary" onPress={onClose} />
     </View>;
   }
@@ -83,10 +83,10 @@ export function VoiceRecorder({ account, onMove, onSaved, onClose }: { account: 
       <View style={styles.liveRow}>
         <View style={styles.dot} />
         <Text accessibilityLiveRegion="polite" accessibilityLabel={`Recording, ${clockText(engine.elapsedMs)}`} style={styles.timer}>{clockText(engine.elapsedMs)}</Text>
-        <Text style={styles.liveLabel}>Recording</Text>
+        <Text style={styles.liveLabel}>Listening</Text>
       </View>
       {note ? <Text style={styles.hint}>{note}</Text> : null}
-      {Platform.OS === "web" ? <Text style={styles.hint}>Keep this window open while recording.</Text> : null}
+      {Platform.OS === "web" ? <Text style={styles.hint}>Keep this window open while the notetaker listens.</Text> : null}
       <Button label="Stop and make notes" kind="danger" onPress={() => void stop()} />
     </View>;
   }
@@ -100,17 +100,17 @@ export function VoiceRecorder({ account, onMove, onSaved, onClose }: { account: 
 
   if (phase === "failed") {
     return <View style={styles.card} testID="voice-recorder">
-      <Text accessibilityRole="header" style={styles.title}>Recording saved on this device</Text>
+      <Text accessibilityRole="header" style={styles.title}>Audio saved on this device</Text>
       <Text accessibilityRole="alert" style={styles.error}>{error}</Text>
       <View style={styles.actions}>
         <Button label="Try again" onPress={() => void send()} style={styles.grow} />
-        <Button label="Delete recording" kind="danger" onPress={discard} />
+        <Button label="Delete audio" kind="danger" onPress={discard} />
       </View>
     </View>;
   }
 
   return <View style={styles.card} testID="voice-recorder">
-    <Text accessibilityRole="header" style={styles.title}>Record a voice memo</Text>
+    <Text accessibilityRole="header" style={styles.title}>Take notes</Text>
     {engine.systemAudioOffered ? <View style={styles.option}>
       <View style={styles.grow}>
         <Text style={styles.body}>Include audio from this computer</Text>
@@ -119,9 +119,9 @@ export function VoiceRecorder({ account, onMove, onSaved, onClose }: { account: 
       <Toggle label="Include audio from this computer" value={systemAudio} onValueChange={setSystemAudio} />
     </View> : null}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-    <Text style={styles.consent}>Tell anyone else you're recording.</Text>
+    <Text style={styles.consent}>Tell anyone else the notetaker is listening.</Text>
     <View style={styles.actions}>
-      <Button label="Start recording" busy={phase === "starting"} onPress={() => void start()} style={styles.grow} />
+      <Button label="Start" busy={phase === "starting"} onPress={() => void start()} style={styles.grow} />
       <Button label="Cancel" kind="secondary" disabled={phase === "starting"} onPress={onClose} />
     </View>
   </View>;

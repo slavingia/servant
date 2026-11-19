@@ -64,7 +64,7 @@ test("a card moves by dragging with a mouse, and from the row being edited every
   assert.match(component, /if \(!canDrag \|\| !t\.canEdit \|\| selecting \|\| active \|\| !!busy\) return line;/, "a card that cannot be changed, or whose words are being edited, is not picked up");
   assert.match(component, /\{board && !finished \? <Button label=\{stage === "doing" \? "Move to To do" : "Start"\}/);
   // A recording's follow-ups stay a plain list.
-  assert.doesNotMatch(read("app/recordings/[id].tsx"), /<TodoList[^>]*\bboard\b/);
+  assert.doesNotMatch(read("app/notetaker/[id].tsx"), /<TodoList[^>]*\bboard\b/);
 });
 
 test("the details sheet takes a due date and says what happens without one", () => {

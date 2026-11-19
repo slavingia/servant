@@ -19,7 +19,7 @@ test("every other screen follows, once; layouts, sign-in screens and non-screens
   const { first, later } = preloadOrder(keys);
   const all = [...first, ...later];
   assert.equal(new Set(all).size, all.length);
-  for (const key of ["./notifications.tsx", "./saved.tsx", "./channel-info.tsx", "./recordings/[id].tsx", "./(tabs)/channels.tsx"]) assert.ok(all.includes(key), key);
+  for (const key of ["./notifications.tsx", "./saved.tsx", "./channel-info.tsx", "./notetaker/[id].tsx", "./(tabs)/channels.tsx"]) assert.ok(all.includes(key), key);
   for (const key of all) assert.doesNotMatch(key, /_layout|\/\+|^\.\/(welcome|pair|sign-in|join-server|invite|scan|reverify|index)\.tsx$/, key);
   assert.ok(keys.includes("./_layout.tsx") && keys.includes("./pair.tsx"), "they exist, and are skipped on purpose");
   assert.deepEqual(later, [...later].sort());

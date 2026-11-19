@@ -23,7 +23,7 @@ test("every place has one name, its own icon and its own address", () => {
 test("the sidebar is three short groups: where people talk, your work, the team", () => {
   assert.deepEqual(labels("sidebar"), [
     ["Conversations", ["Home", "Agent", "Chats", "Cases"]],
-    ["Your work", ["To-dos", "Saved", "Recordings"]],
+    ["Your work", ["To-dos", "Saved", "Notetaker", "AirDrop"]],
     ["Team", ["People", "Wiki"]],
   ]);
 });
@@ -31,12 +31,12 @@ test("the sidebar is three short groups: where people talk, your work, the team"
 test("You lists the same places under the same names, plus the ones a wide window reaches from You", () => {
   assert.deepEqual(labels("you"), [
     ["Conversations", ["Cases"]],
-    ["Your work", ["To-dos", "Saved", "Recordings", "Archived"]],
+    ["Your work", ["To-dos", "Saved", "Notetaker", "AirDrop", "Archived"]],
     ["Team", ["People", "Entitlements", "Connections", "Invite people", "Wiki", "Agent usage"]],
   ]);
   assert.deepEqual(labels("you", member), [
     ["Conversations", ["Cases"]],
-    ["Your work", ["To-dos", "Saved", "Recordings", "Archived"]],
+    ["Your work", ["To-dos", "Saved", "Notetaker", "Archived"]],
     ["Team", ["People", "Entitlements", "Connections", "Wiki", "Agent usage"]],
   ], "a member sees no invites");
 });
@@ -62,7 +62,7 @@ test("the sidebar marks the place that is open, including the screens under it",
   assert.equal(placeIsOpen(place("home"), "/", undefined, ALL_FEATURES), true);
   assert.equal(placeIsOpen(place("agent"), "/", undefined, { ...ALL_FEATURES, channels: false, home: false }), true, "without channels the agent is the landing place");
   assert.equal(placeIsOpen(place("members"), "/invite", undefined, ALL_FEATURES), true);
-  assert.equal(placeIsOpen(place("recordings"), "/recordings/rec_1", undefined, ALL_FEATURES), true);
+  assert.equal(placeIsOpen(place("recordings"), "/notetaker/rec_1", undefined, ALL_FEATURES), true);
   assert.equal(placeIsOpen(place("inbox"), "/inbox", undefined, ALL_FEATURES), true);
   assert.equal(placeIsOpen(place("inbox"), "/inbox/inbox_abc", undefined, ALL_FEATURES), true, "a case is under Cases");
   assert.equal(placeIsOpen(place("saved"), "/saved", undefined, ALL_FEATURES), true);

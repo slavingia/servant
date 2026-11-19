@@ -17,7 +17,7 @@ export function visibleWorkLog(entries: readonly WorkLogEntry[], features: Featu
 }
 
 export function workLogLabel(entry: WorkLogEntry): string {
-  if (entry.kind === "recording") return "Voice memo";
+  if (entry.kind === "recording") return "Notes";
   if (entry.kind === "saved") return "Completed saved task";
   return entry.completedBy.kind === "agent" ? "Completed by Agent" : "To-do completed";
 }
@@ -47,13 +47,13 @@ export function workLogDue(entry: Extract<WorkLogEntry, { kind: "todo" }>, timeZ
 export function workLogPreview(entry: WorkLogEntry): string {
   if (entry.kind === "saved") return savedMessagePreview(entry.completion);
   if (entry.kind === "todo") return entry.source?.text ?? "This to-do is no longer available.";
-  return entry.source ? entry.source.title || "Voice memo" : "This recording is no longer available.";
+  return entry.source ? entry.source.title || "Notes" : "These notes are no longer available.";
 }
 
 export function workLogHref(entry: WorkLogEntry) {
   if (entry.kind === "saved") return savedMessageHref(entry.completion);
   if (!entry.source) return null;
-  if (entry.kind === "recording") return { pathname: "/recordings/[id]" as const, params: { id: entry.recordingId } };
+  if (entry.kind === "recording") return { pathname: "/notetaker/[id]" as const, params: { id: entry.recordingId } };
   return { pathname: "/todos" as const, params: { id: entry.todoId } };
 }
 

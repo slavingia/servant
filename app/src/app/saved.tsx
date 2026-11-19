@@ -205,7 +205,7 @@ function SavedTasks({ account }: { account: Account }) {
         </View> : null}
         {error ? <View style={styles.error}><Text accessibilityRole="alert" style={styles.errorText}>{error}</Text><Button label="Try again" kind="link" compact disabled={!!busy} onPress={() => void load(true)} /></View> : null}
         {view === "history" ? <View style={styles.reportTools}>
-          <Text style={styles.caption}>Voice memos, completed to-dos, and saved tasks appear here automatically. Agent completions are labeled.</Text>
+          <Text style={styles.caption}>Notes, completed to-dos, and saved tasks appear here automatically. Agent completions are labeled.</Text>
           <View accessibilityRole="radiogroup" accessibilityLabel="Period" style={styles.periods}>{([["today", "Today"], ["week", "Past 7 days"], ["all", "All time"], ["custom", "Custom"]] as const).map(([value, label]) =>
             <Radio key={value} accessibilityState={{ checked: periodName === value }} aria-checked={periodName === value} onPress={() => { setPeriodName(value); setAsOf(Date.now()); setCopyState("idle"); }}
               style={[styles.period, periodName === value && styles.selectedPeriod]}><Text style={[styles.periodText, periodName === value && styles.tabTextOn]}>{label}</Text></Radio>)}</View>
@@ -214,7 +214,7 @@ function SavedTasks({ account }: { account: Account }) {
             <View style={styles.dateField}><Text style={styles.caption}>To</Text><TextInput accessibilityLabel="To date" placeholder="YYYY-MM-DD" placeholderTextColor={colors.muted} value={to} onChangeText={value => { setTo(value); setCopyState("idle"); }} autoCapitalize="none" style={styles.dateInput} /></View>
           </View> : null}
           {report.error ? <Text accessibilityRole="alert" style={styles.errorText}>{report.error}</Text> : null}
-          <View style={styles.reportSummary}><Text style={styles.caption}>{report.completionCount} {report.completionCount === 1 ? "completion" : "completions"} · {report.recordingCount} {report.recordingCount === 1 ? "voice memo" : "voice memos"}{report.agentCompletionCount ? ` · ${report.agentCompletionCount} by Agent` : ""}</Text>
+          <View style={styles.reportSummary}><Text style={styles.caption}>{report.completionCount} {report.completionCount === 1 ? "completion" : "completions"} · {report.recordingCount} {report.recordingCount === 1 ? "note" : "notes"}{report.agentCompletionCount ? ` · ${report.agentCompletionCount} by Agent` : ""}</Text>
             <Button label="Copy to clipboard" kind="secondary" compact busy={copyState === "copying"} disabled={!data || refreshing || !!error || !!report.error || !report.rows.length} onPress={() => void copyReport()} /></View>
           {copyState === "copied" ? <Text accessibilityLiveRegion="polite" style={styles.copied}>Report copied</Text> : null}
           {copyState === "failed" ? <><Text accessibilityRole="alert" style={styles.errorText}>Couldn't copy the report. Try Copy to clipboard again, or select the report below.</Text><Text testID="saved-report-fallback" selectable style={styles.reportFallback}>{report.markdown}</Text></> : null}
@@ -223,7 +223,7 @@ function SavedTasks({ account }: { account: Account }) {
       ListEmptyComponent={data === null ? refreshing ? <ServeLoader accessibilityLabel="Loading saved tasks" style={styles.loading} /> : undefined
         : <View style={styles.empty}><View style={styles.emptyIcon}><AppIcon name={view === "history" ? "clock" : "check"} size={28} color={colors.greenDark} /></View>
           <Text style={styles.emptyTitle}>{view === "history" ? "No work in this period" : view === "completed" ? "Nothing completed yet" : "Nothing to follow up"}</Text>
-          <Text style={styles.emptyText}>{view === "history" ? "Record a voice memo or finish a task to start your work log, or choose another date range." : view === "completed" ? "Check off a task when you're done. Add a work note first if there's a result you want to remember." : "Open a message's actions and choose Save for later. On your phone, touch and hold the message."}</Text>
+          <Text style={styles.emptyText}>{view === "history" ? "Take notes or finish a task to start your work log, or choose another date range." : view === "completed" ? "Check off a task when you're done. Add a work note first if there's a result you want to remember." : "Open a message's actions and choose Save for later. On your phone, touch and hold the message."}</Text>
         </View>}
       renderItem={({ item: row }) => row.kind === "task" ? <SavedTaskRow item={row.item}
         completion={history.find(entry => entry.messageId === row.item.messageId && entry.completedAt === row.item.completedAt)}
@@ -265,7 +265,7 @@ function WorkLogRow({ item }: { item: WorkLogEntry }) {
           {item.reopenedAt !== null ? <Text style={styles.reopened}>Reopened {savedWorkLabel(item.reopenedAt)}</Text> : null}
         </View> : null}
       </>}
-      {href ? <View style={styles.sourceLink}><Button label={item.kind === "saved" ? "Open message" : item.kind === "recording" ? "Open recording" : "Open to-do"} kind="link" compact onPress={() => router.push(href)} /></View> : null}
+      {href ? <View style={styles.sourceLink}><Button label={item.kind === "saved" ? "Open message" : item.kind === "recording" ? "Open notes" : "Open to-do"} kind="link" compact onPress={() => router.push(href)} /></View> : null}
     </View>
   </View>;
 }

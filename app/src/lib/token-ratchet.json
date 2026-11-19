@@ -28,7 +28,7 @@
     "components/Sidebar.tsx": 2,
     "components/VideoMedia.tsx": 1,
     "components/WebTabBar.tsx": 1,
-    "app/recordings/[id].tsx": 1
+    "app/notetaker/[id].tsx": 1
   },
   "radius": {
     "components/PhotoCropper.web.tsx": 1
@@ -64,7 +64,7 @@
     "components/VideoMedia.tsx": 4,
     "components/WebTabBar.tsx": 2,
     "lib/typing.tsx": 1,
-    "app/recordings/[id].tsx": 1,
-    "app/recordings/index.tsx": 2
+    "app/notetaker/[id].tsx": 1,
+    "app/notetaker/index.tsx": 2
   }
 }

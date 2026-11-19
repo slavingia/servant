@@ -20,17 +20,24 @@ async function call(post: UploadPost, path: string, body: unknown) {
 }
 
 /** Returns the server's upload ID once every byte has arrived. */
-export async function uploadDocument({ chatId, name, size, read, post, onProgress, signal }: {
+export async function uploadDocument(args: {
   chatId: string; name: string; size: number; read: ChunkReader; post: UploadPost; onProgress?: (fraction: number) => void; signal?: AbortSignal;
 }): Promise<string> {
+  return (await uploadChunks({ ...args, base: `/v1/chats/${encodeURIComponent(args.chatId)}/uploads` })).id;
+}
+
+/** The same chunked upload to any endpoint that speaks it (chat uploads, AirDrop). Returns the ID and the last reply. */
+export async function uploadChunks({ base, name, size, read, post, onProgress, signal }: {
+  base: string; name: string; size: number; read: ChunkReader; post: UploadPost; onProgress?: (fraction: number) => void; signal?: AbortSignal;
+}): Promise<{ id: string; last: any }> {
   if (!Number.isSafeInteger(size) || size <= 0) throw new UploadError("Couldn't read this file");
   if (size > MAX_DOCUMENT_BYTES) throw new UploadError("Choose documents under 100 MB each");
-  const base = `/v1/chats/${encodeURIComponent(chatId)}/uploads`;
   const created = await call(post, base, { name, size });
   const id = String(created.id);
   const chunk = Math.min(Number(created.chunkBytes) || DOCUMENT_CHUNK_BYTES, DOCUMENT_CHUNK_BYTES);
   let offset = Number(created.received) || 0;
   let retries = 0;
+  let last: any = created;
   onProgress?.(offset / size);
   while (offset < size) {
     if (signal?.aborted) throw new UploadError("Upload canceled");
@@ -39,6 +46,7 @@ export async function uploadDocument({ chatId, name, size, read, post, onProgres
     try {
       const result = await call(post, `${base}/${encodeURIComponent(id)}`, { offset, data: toBase64(bytes) });
       offset = Number(result.received);
+      last = result;
       retries = 0;
     } catch (error) {
       // A dropped connection may have delivered the chunk; resume where the server is.
@@ -49,7 +57,7 @@ export async function uploadDocument({ chatId, name, size, read, post, onProgres
     }
     onProgress?.(Math.min(1, offset / size));
   }
-  return id;
+  return { id, last };
 }
 
 /** Joins ranged downloads of a stored document into one base64 string. */

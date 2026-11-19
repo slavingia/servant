@@ -208,9 +208,9 @@ export function buildWorkLogReport(history: readonly WorkLogEntry[], options: Sa
       sections.push(`**Recording added**\n\n${quote(savedWorkTime(entry.at, timeZone))}`);
       if (entry.durationMs !== null) sections.push(`**Recording duration**\n\n${quote(`${entry.durationMs / 1000} seconds`)}`);
       if (entry.source) {
-        sections.push("**Current recording details**", quote(entry.source.title || "Voice memo"));
-        if (entry.source.summary) sections.push("**Current recording summary**", quote(entry.source.summary));
-      } else sections.push("**Current recording details**\n\nSource unavailable.");
+        sections.push("**Current notes details**", quote(entry.source.title || "Notes"));
+        if (entry.source.summary) sections.push("**Current notes summary**", quote(entry.source.summary));
+      } else sections.push("**Current notes details**\n\nSource unavailable.");
     } else {
       sections.push(`**To-do ID**\n\n${quote(entry.todoId)}`,
         `**Completed**\n\n${quote(savedWorkTime(entry.at, timeZone))}`,

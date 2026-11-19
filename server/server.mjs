@@ -41,6 +41,7 @@ import { createSecureInbox, INBOX_BODY_LIMIT, secureInboxPublicUrl } from "./sec
 import { secureInboxPage, secureInboxScript } from "./secure-inbox-page.mjs";
 import { createInboxNotices, inboxNoticeSettings } from "./secure-inbox-notices.mjs";
 import { createRecordings } from "./recordings.mjs";
+import { createAirdrop } from "./airdrop.mjs";
 import { createTodos, readDoneTag } from "./todos.mjs";
 import { NOTES_PROMPT as RECORDING_NOTES_PROMPT } from "./transcription.mjs";
 import os from "node:os";
@@ -855,6 +856,8 @@ function chatContextBase(chat) {
 const documents = () => documentStore ??= createDocumentStore(path.join(DATA_DIR, "chat-files"), { keep: () => recordsPreservationEnabled(loadConfig().recordsPreservation) });
 let usageDb;
 let recordings = null;
+let airdropStore = null;
+const airdrop = () => (airdropStore ??= createAirdrop({ dataDir: DATA_DIR }));
 let todosStore = null;
 let workChatStarter = null;
 let otaServer;
@@ -2230,6 +2233,7 @@ async function handle(req, res, cfg) {
     return send(res, 200, { items });
   }
   if (todosStore && parts[1] === "todos" && (await todosStore.handle(req, res, { user, device, method, parts, url, send, fail, readBody: readAuthorizedBody }))) return undefined;
+  if (parts[1] === "airdrop" && (await airdrop().handle(req, res, { user, method, parts, send, fail, readBody: readAuthorizedBody, chunkBody: DOCUMENT_CHUNK_BODY }))) return undefined;
   if (recordings && parts[1] === "recordings" && (await recordings.handle(req, res, { user, device, method, parts, send, fail, readBody: readAuthorizedBody }))) return undefined;
   if (messaging && (await messaging.handle(req, res, { user, device, method, parts, url, send, fail, readBody: readAuthorizedBody, cors: CORS,
     isAuthorized: () => authenticate(req, readState())?.user.id === user.id,

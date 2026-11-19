@@ -39,6 +39,8 @@ const paths = {
   send: "m3 3 19 9-19 9 4-9-4-9Z M7 12h15",
   image: "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z M8.5 7a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z m12.5 8-5-5L5 21",
   copy: "M9 9h10v10H9zM5 15V5h10",
+  // A tray with an arrow going up: AirDrop.
+  upload: "M12 15V3 M7 8l5-5 5 5 M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5",
   paperclip: "m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9a7 7 0 0 1 10 10l-9 9",
   more: "M5 12h.01 M12 12h.01 M19 12h.01",
   lock: "M6 10h12a1 1 0 0 1 1 1v9H5v-9a1 1 0 0 1 1-1Z M8 10V6a4 4 0 0 1 8 0v4 M12 14v2",
