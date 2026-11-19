@@ -23,7 +23,7 @@ test("every place has one name, its own icon and its own address", () => {
 test("the sidebar is three short groups: where people talk, your work, the team", () => {
   assert.deepEqual(labels("sidebar"), [
     ["Conversations", ["Home", "Agent", "Chats", "Cases"]],
-    ["Your work", ["To-dos", "Saved", "Recordings"]],
+    ["Your work", ["To-dos", "Saved", "Notetaker"]],
     ["Team", ["People", "Wiki"]],
   ]);
 });
@@ -31,12 +31,12 @@ test("the sidebar is three short groups: where people talk, your work, the team"
 test("You lists the same places under the same names, plus the ones a wide window reaches from You", () => {
   assert.deepEqual(labels("you"), [
     ["Conversations", ["Cases"]],
-    ["Your work", ["To-dos", "Saved", "Recordings", "Archived"]],
+    ["Your work", ["To-dos", "Saved", "Notetaker", "Archived"]],
     ["Team", ["People", "Entitlements", "Connections", "Invite people", "Wiki", "Agent usage"]],
   ]);
   assert.deepEqual(labels("you", member), [
     ["Conversations", ["Cases"]],
-    ["Your work", ["To-dos", "Saved", "Recordings", "Archived"]],
+    ["Your work", ["To-dos", "Saved", "Notetaker", "Archived"]],
     ["Team", ["People", "Entitlements", "Connections", "Wiki", "Agent usage"]],
   ], "a member sees no invites");
 });
@@ -82,6 +82,6 @@ test("the sidebar and You draw the list instead of keeping their own", () => {
   const sidebar = read("components/Sidebar.tsx"), you = read("app/(tabs)/you.tsx");
   assert.match(sidebar, /destinationGroups\("sidebar"/);
   assert.match(you, /destinationGroups\("you"/);
-  assert.doesNotMatch(sidebar, /<NavItem icon="\w+" label="(Saved|To-dos|Surveys|People|Recordings|Cases|Text shortcuts|Wiki)"/, "no place is written into the sidebar by hand");
-  assert.doesNotMatch(you, /<Row label="(Saved messages|Saved|To-dos|Surveys|People|Recordings|Cases|Text shortcuts|Wiki)"/, "nor into You");
+  assert.doesNotMatch(sidebar, /<NavItem icon="\w+" label="(Saved|To-dos|Surveys|People|Recordings|Notetaker|Cases|Text shortcuts|Wiki)"/, "no place is written into the sidebar by hand");
+  assert.doesNotMatch(you, /<Row label="(Saved messages|Saved|To-dos|Surveys|People|Recordings|Notetaker|Cases|Text shortcuts|Wiki)"/, "nor into You");
 });

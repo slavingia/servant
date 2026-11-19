@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { COLLOQUIALISMS, colloquialismPairs, withColloquialisms } from "./colloquialisms.mjs";
+import { COLLOQUIALISMS, COLLOQUIALISM_DESCRIPTIONS, colloquialismPairs, withColloquialisms } from "./colloquialisms.mjs";
 
 test("the group is off unless the workspace turns it on", () => {
   for (const raw of [undefined, null, false, "true", 1, {}, { enabled: "yes" }, []]) assert.equal(colloquialismPairs(raw), null);
@@ -25,4 +25,13 @@ test("shared shortcuts win over the built-in group, ignoring case", () => {
   const tmmrw = merged.find(item => item.abbreviation === "tmmrw");
   assert.deepEqual({ ...tmmrw }, { id: "colloquial:TMMRW", abbreviation: "tmmrw", fullName: "tomorrow", createdAt: 0, updatedAt: 0, canEdit: false, builtIn: true });
   assert.equal(new Set(merged.map(item => item.id)).size, merged.length);
+});
+
+test("engineering words say what they are, not just what the letters stand for", () => {
+  const merged = withColloquialisms([], true);
+  const pr = merged.find(item => item.abbreviation === "PR");
+  assert.equal(pr.fullName, "pull request");
+  assert.match(pr.description, /proposed change to the code/);
+  for (const key of Object.keys(COLLOQUIALISM_DESCRIPTIONS)) assert.ok(COLLOQUIALISMS[key], key);
+  assert.equal("description" in merged.find(item => item.abbreviation === "lmk"), false);
 });

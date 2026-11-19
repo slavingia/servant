@@ -167,8 +167,8 @@ function SessionNavigation() {
         <Stack.Screen name="connections" options={{ title: "Connections", ...childScreen }} />
         <Stack.Screen name="leaderboard" options={{ title: "Agent usage", ...childScreen }} />
         <Stack.Screen name="invite" options={{ title: "Invite someone", ...childScreen }} />
-        <Stack.Screen name="recordings/index" options={{ title: "Recordings", ...sidebarScreen }} />
-        <Stack.Screen name="recordings/[id]" options={{ title: "Recording", ...childScreen }} />
+        <Stack.Screen name="recordings/index" options={{ title: "Notetaker", ...sidebarScreen }} />
+        <Stack.Screen name="recordings/[id]" options={{ title: "Note", ...childScreen }} />
       </Stack.Protected>
     </Stack>
     {paired ? <SessionExpiryGate /> : null}

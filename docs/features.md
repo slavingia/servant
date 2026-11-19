@@ -265,8 +265,8 @@ When it is set, the owner sees **File drop** in the sidebar, on **You** and in s
 
 On the server it is `GET /v1/file-drop` (whether it is on), `POST /v1/file-drop {"name","size"}` and `POST /v1/file-drop/<id> {"offset","data"}`; the last chunk's answer carries `saved`, the name the file got. `GET /v1/me` says `fileDrop: true` to an owner when the folder is set; older apps ignore it.
 
-## Voice memos
+## Notetaker
 
-Open **Recordings** in the sidebar or **You → Recordings** and choose **Record a voice memo**. Stop recording and Servant uploads the audio, transcribes it, then writes notes and next steps. Each next step becomes a to-do you can edit, tag or send to the Agent. Recordings are private to the person who made them.
+Open **Notetaker** in the sidebar or **You → Notetaker** and choose **Take notes**, then **Start recording**. Stop recording and Servant uploads the audio, transcribes it, then writes notes and next steps. Each next step becomes a to-do you can edit, tag or send to the Agent. Notes and their recordings are private to the person who made them.
 
 In the browser or Mac app, you can also include audio playing on your computer when your browser supports it. Tell anyone else when you are recording.

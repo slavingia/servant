@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Synthetic before/after captures for the Recordings screen.
+// Synthetic before/after captures for Notetaker (the recordings screens): the list, the recorder and one note.
 // Usage: node scripts/recordings-pr-captures.mjs <output-dir> <path>
 // Run from the checkout being captured after npm ci --prefix app and --prefix desktop.
 import assert from 'node:assert/strict';
@@ -100,6 +100,15 @@ try {
     await page.goto(webUrl + route, { waitUntil: 'domcontentloaded' });
     await page.getByText(/Launch planning memo|Recorded meeting/).first().waitFor({ timeout: 30000 });
     await page.screenshot({ path: path.join(output, `${name}.png`), animations: 'disabled' });
+    if (route === '/recordings') {
+      // The same screen with the recorder open, then the note it made.
+      await page.getByRole('button', { name: /^(Take notes|Record a voice memo)$/ }).first().click();
+      await page.getByTestId('voice-recorder').or(page.getByRole('button', { name: 'Close' })).first().waitFor({ timeout: 30000 });
+      await page.screenshot({ path: path.join(output, `${name}-recorder.png`), animations: 'disabled' });
+      await page.goto(`${webUrl}/recordings/${created.id}`, { waitUntil: 'domcontentloaded' });
+      await page.getByText('Pat outlined launch checks and next steps.').first().waitFor({ timeout: 30000 });
+      await page.screenshot({ path: path.join(output, `${name}-detail.png`), animations: 'disabled' });
+    }
     await context.close();
   }
   console.log(`Captured ${output}`);

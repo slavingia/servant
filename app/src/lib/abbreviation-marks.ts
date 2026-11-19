@@ -4,10 +4,12 @@ import { findAbbreviations, type GlossaryEntry } from "./abbreviations.ts";
 export type AbbreviationPart = { text: string; title?: string };
 
 /** What a hover or tap shows, like Wikipedia's <abbr>: "API: Application programming interface".
- * A term with several meanings lists them all, so nobody is told the wrong one. */
+ * A term with several meanings lists them all, so nobody is told the wrong one. A term with one meaning and a
+ * description adds it, so someone who isn't an engineer learns what a "pull request" actually is. */
 export function abbreviationTitle(token: string, entries: readonly GlossaryEntry[]): string {
   const meanings = [...new Set(entries.map(entry => entry.fullName.trim()).filter(Boolean))];
-  return `${token}: ${meanings.join(" or ")}`;
+  const description = meanings.length === 1 ? entries.map(entry => entry.description?.trim()).find(Boolean) : undefined;
+  return `${token}: ${meanings.join(" or ")}${description ? `. ${description}` : ""}`;
 }
 
 /** Split text into plain runs and known abbreviations. The words are never changed: joining every part's

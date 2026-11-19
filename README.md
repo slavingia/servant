@@ -137,7 +137,7 @@ The feature guide, [docs/features.md](docs/features.md), covers each of these:
 - [Records preservation](docs/features.md#records-preservation)
 - [Deep work](docs/features.md#deep-work)
 - [File drop](docs/features.md#file-drop)
-- [Voice memos](docs/features.md#voice-memos)
+- [Notetaker](docs/features.md#notetaker)
 
 ## Security notes
 

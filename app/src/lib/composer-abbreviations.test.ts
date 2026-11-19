@@ -38,6 +38,12 @@ test("a term with several meanings lists each once", () => {
   assert.equal(abbreviationTitle("PR", [entry("PR", "Pull request", "a"), entry("PR", "Public relations", "b"), entry("PR", "Pull request", "c")]), "PR: Pull request or Public relations");
 });
 
+test("a term with one meaning and a description explains itself", () => {
+  const pr = { ...entry("PR", "pull request", "a"), description: "A proposed change to the code" };
+  assert.equal(abbreviationTitle("PR", [pr]), "PR: pull request. A proposed change to the code");
+  assert.equal(abbreviationTitle("PR", [pr, entry("PR", "Public relations", "b")]), "PR: pull request or Public relations");
+});
+
 test("messages underline abbreviations with a dotted line and a hover title", () => {
   const abbr = read("components/Abbr.tsx");
   assert.match(abbr, /createElement\("abbr", \{ title,/);

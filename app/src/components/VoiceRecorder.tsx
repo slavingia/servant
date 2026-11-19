@@ -72,7 +72,7 @@ export function VoiceRecorder({ account, onMove, onSaved, onClose }: { account: 
 
   if (!engine.supported) {
     return <View style={styles.card}>
-      <Text accessibilityRole="header" style={styles.title}>Record a voice memo</Text>
+      <Text accessibilityRole="header" style={styles.title}>Take notes</Text>
       <Text style={styles.hint}>{Platform.OS === "web" ? "Recording unavailable. Use Chrome, Edge, Safari or the mobile app." : "Recording unavailable on this device."}</Text>
       <Button label="Close" kind="secondary" onPress={onClose} />
     </View>;
@@ -110,7 +110,7 @@ export function VoiceRecorder({ account, onMove, onSaved, onClose }: { account: 
   }
 
   return <View style={styles.card} testID="voice-recorder">
-    <Text accessibilityRole="header" style={styles.title}>Record a voice memo</Text>
+    <Text accessibilityRole="header" style={styles.title}>Take notes</Text>
     {engine.systemAudioOffered ? <View style={styles.option}>
       <View style={styles.grow}>
         <Text style={styles.body}>Include audio from this computer</Text>
