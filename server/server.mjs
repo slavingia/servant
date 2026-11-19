@@ -58,8 +58,10 @@ import { createStateStore } from "./state-store.mjs";
 import { createDeviceLink, previewDeviceLink, approveDeviceLink, denyDeviceLink, pollDeviceLink, createSignInLink } from "./device-links.mjs";
 import { privateMessageView } from "./source-device.mjs";
 import { createChatMediaStore } from "./chat-media.mjs";
-import { createUsageStore, limitMessage, agentTierOf, AGENT_TIERS, RESEARCHER_TIER, TOKEN_LIMIT_CHOICES, MAX_AGENT_TIER } from "./usage.mjs";
+import { createUsageStore, limitMessage, agentTierOf, startOfDay, AGENT_TIERS, RESEARCHER_TIER, TOKEN_LIMIT_CHOICES, MAX_AGENT_TIER } from "./usage.mjs";
 import { tierCosts } from "./usage-cost.mjs";
+import { jobRoleOf, validJobRole } from "./job-roles.mjs";
+import { tourFacts } from "./tour.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { createEgressProxy, createEgressStore, egressSettings } from "./egress.mjs";
 import { capabilitySettings, createEntitlements, NATIVE } from "./entitlements.mjs";
@@ -1439,7 +1441,7 @@ async function handle(req, res, cfg) {
       else invite.usedAt = now();
       // The phone that made a sign-in link can show where it was used.
       if (invite.kind === "sign-in-link") invite.usedDevice = String(body.device || "Phone").slice(0, 80);
-      const user = existing || { id: id("usr"), name, role: invite.role, createdAt: now(), ...(invite.role === "owner" ? {} : { agentTier: loadConfig().defaultAgentTier ?? 0 }) };
+      const user = existing || { id: id("usr"), name, role: invite.role, createdAt: now(), tourDue: true, ...(invite.role === "owner" ? {} : { agentTier: loadConfig().defaultAgentTier ?? 0 }) };
       const token = crypto.randomBytes(32).toString("base64url");
       const deviceId = id("dev");
       // Every acceptance is kept: who, which version, which checks, when, on which device.
@@ -1462,7 +1464,7 @@ async function handle(req, res, cfg) {
     // A new person's first unread: a question from the agent, with quick answers. Never blocks pairing.
     if (verifiedEmail) emailVerifier.consume(body.emailChallenge);
     if (isNew) { try { messaging?.welcomeFromAgent(user.id); } catch (error) { console.error("[servant] welcome", error); } }
-    return send(res, 201, { token, user: { id: user.id, name: user.name, role: user.role }, server: { name: cfg.name }, hub: { name: cfg.name }, banner: cfg.banner ?? null, features: normalizeFeatures(cfg.features), theme: normalizeTheme(cfg.theme), deepWork: inDeepWork(user) });
+    return send(res, 201, { token, user: { id: user.id, name: user.name, role: user.role }, server: { name: cfg.name }, hub: { name: cfg.name }, banner: cfg.banner ?? null, features: normalizeFeatures(cfg.features), theme: normalizeTheme(cfg.theme), deepWork: inDeepWork(user), tour: { due: user.tourDue === true } });
   }
 
   // Build scripts on this Mac post release notes. Tunnel traffic always carries
@@ -1586,7 +1588,9 @@ async function handle(req, res, cfg) {
 
   if (method === "GET" && url.pathname === "/v1/me") {
     mutateAuthenticated(req, (_state, current) => { current.device.lastSeenAt = now(); });
-    return send(res, 200, { user: { id: user.id, name: user.name, role: user.role, ...(user.emailVerifiedAt ? { emailVerified: true } : {}) }, emailRequired: emailSettings(cfg).enabled && !user.emailVerifiedAt, device: { id: device.id, label: device.label }, session: sessions.view(device, user), server: { name: cfg.name }, hub: { name: cfg.name }, features: normalizeFeatures(cfg.features), banner: cfg.banner ?? null, theme: normalizeTheme(cfg.theme), deepWork: inDeepWork(user), ...(recordsPreservationEnabled(cfg.recordsPreservation) ? { recordsKept: true } : {}), ...(user.role === "owner" && cfg.fileDropDir ? { fileDrop: true } : {}) });
+    return send(res, 200, { user: { id: user.id, name: user.name, role: user.role, ...(user.emailVerifiedAt ? { emailVerified: true } : {}), ...(jobRoleOf(user) ? { jobRole: jobRoleOf(user) } : {}) },
+      // The onboarding tour (tour.mjs): due once for someone who joined since it existed, until they finish or skip it.
+      tour: { due: user.tourDue === true }, emailRequired: emailSettings(cfg).enabled && !user.emailVerifiedAt, device: { id: device.id, label: device.label }, session: sessions.view(device, user), server: { name: cfg.name }, hub: { name: cfg.name }, features: normalizeFeatures(cfg.features), banner: cfg.banner ?? null, theme: normalizeTheme(cfg.theme), deepWork: inDeepWork(user), ...(recordsPreservationEnabled(cfg.recordsPreservation) ? { recordsKept: true } : {}), ...(user.role === "owner" && cfg.fileDropDir ? { fileDrop: true } : {}) });
   }
 
   if (method === "POST" && url.pathname === "/v1/signout") {
@@ -2153,9 +2157,13 @@ async function handle(req, res, cfg) {
     const name = typeof body.name === "string" ? body.name.replace(/\s+/g, " ").trim().slice(0, 40) : "";
     const focus = "deepWork" in body;
     if (focus && typeof body.deepWork !== "boolean") return fail(res, 400, "bad_request", "deepWork is true or false"), undefined;
-    if (!name && !focus) return fail(res, 400, "name_required", "Enter a name"), undefined;
+    // The role someone says they have (job-roles.mjs): one from the list, or null for none. It only describes them.
+    const roleSet = "jobRole" in body;
+    if (roleSet && body.jobRole !== null && !validJobRole(body.jobRole)) return fail(res, 400, "bad_role", "Choose a role from the list"), undefined;
+    if (!name && !focus && !roleSet) return fail(res, 400, "name_required", "Enter a name"), undefined;
     const since = mutateAuthenticated(req, (state, auth) => {
       const me = state.users[auth.user.id];
+      if (roleSet) { if (body.jobRole === null) delete me.jobRole; else me.jobRole = body.jobRole; }
       if (name) {
         const clash = Object.values(state.users).find((u) => u.id !== auth.user.id && u.name.toLowerCase() === name.toLowerCase());
         if (clash) throw requestError(409, "name_taken", "Someone already uses that name. Try another");
@@ -2165,9 +2173,24 @@ async function handle(req, res, cfg) {
       if (focus) setDeepWork(me, body.deepWork, now());
       return was;
     });
-    try { if (name) messaging?.personChanged(user.id); if (focus) messaging?.presenceChanged(user.id); } catch (e) { console.error("[servant] person update", e); }
+    try { if (name || roleSet) messaging?.personChanged(user.id); if (focus) messaging?.presenceChanged(user.id); } catch (e) { console.error("[servant] person update", e); }
     const deepWork = focus ? body.deepWork : inDeepWork(user);
-    return send(res, 200, { user: { id: user.id, name: name || user.name, role: user.role }, deepWork });
+    const jobRole = jobRoleOf(roleSet ? { jobRole: body.jobRole } : user);
+    return send(res, 200, { user: { id: user.id, name: name || user.name, role: user.role, ...(jobRole ? { jobRole } : {}) }, deepWork });
+  }
+  // The onboarding tour (tour.mjs): what is true for this person on this server. Read only.
+  if (method === "GET" && parts[1] === "tour" && parts.length === 2) {
+    res.setHeader("Cache-Control", "no-store");
+    const state = readState();
+    const costs = tierCosts({ upstreams: cfg.upstreams, laneOf: tier => agentLane({ agentTier: tier }, cfg), mix: usageStore().mix({ since: now() - 30 * 24 * 60 * 60 * 1000 }) });
+    return send(res, 200, tourFacts({ user, lane: agentLane(user, cfg), limitFor: person => usageStore().limitFor(person), costs, today: usageStore().leaderboard({ since: startOfDay(now()) }),
+      tierOf: userId => agentTierOf(state.users[userId]), manager: managerOf(state, user), capabilities: capabilitySettings(cfg.agentCapabilities).mode, egress: egressSettings(cfg.agentEgress).mode, serverName: cfg.name, agentName: cfg.agentName }));
+  }
+  // Finished or skipped: the tour is not shown by itself again, on this device or any other. It stays in Settings.
+  if (method === "POST" && parts[1] === "tour" && parts[2] === "seen" && parts.length === 3) {
+    await readAuthorizedBody(req);
+    mutateAuthenticated(req, (state, auth) => { delete state.users[auth.user.id].tourDue; });
+    return send(res, 200, { tour: { due: false } });
   }
   // Someone who joined before email codes attaches a confirmed work email to their account. Once it is on file,
   // joining with that email on a new device signs in as them, and no one else can claim the address.
