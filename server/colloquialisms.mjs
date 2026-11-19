@@ -34,6 +34,16 @@ export const COLLOQUIALISMS = Object.freeze({
   UX: "user experience",
 });
 
+// The engineering words above mean nothing to most people even spelled out, so tapping one also says what it is.
+export const COLLOQUIALISM_DESCRIPTIONS = Object.freeze({
+  PR: "A proposed change to the code. Teammates look it over, and it becomes part of the app once it's approved and merged",
+  QA: "Testing the app to find problems before people use it",
+  API: "The way one program asks another for information or to do something",
+  UI: "What you see and tap on the screen",
+  UX: "How easy and clear something is to use",
+  PDF: "A document file that looks the same on every device",
+});
+
 const MAX_EXTRA = 200;
 
 /** The group's normalized setting: null when off, else the pairs to add (built in plus the workspace's own). */
@@ -59,7 +69,8 @@ export function withColloquialisms(entries, raw) {
     const key = abbreviation.toUpperCase();
     if (taken.has(key)) continue;
     taken.add(key);
-    added.push({ id: `colloquial:${key}`, abbreviation, fullName, createdAt: 0, updatedAt: 0, canEdit: false, builtIn: true });
+    const description = COLLOQUIALISM_DESCRIPTIONS[abbreviation];
+    added.push({ id: `colloquial:${key}`, abbreviation, fullName, ...(description ? { description } : {}), createdAt: 0, updatedAt: 0, canEdit: false, builtIn: true });
   }
   return [...entries, ...added];
 }
