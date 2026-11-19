@@ -3,7 +3,6 @@ import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, V
 import { router, Stack } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppIcon } from "../components/AppIcon";
-import { PageTitle } from "../components/Band";
 import { Button } from "../components/Button";
 import { Radio } from "../components/Radio";
 import { landingHref, useFeatures } from "../lib/features";
@@ -104,7 +103,13 @@ export default function Tour() {
   const last = index === TOUR_STEPS.length - 1;
   const role = facts ? chosenRole(facts, chosen) : null;
 
-  const points = (list: TourPoint[]) => <View style={styles.points}>
+  // A page's title with its one line of explanation: one group of text, kept close together.
+  const heading = (title: string, description: string) => <View style={styles.heading}>
+    <Text accessibilityRole="header" style={styles.title}>{title}</Text>
+    <Text style={styles.description}>{description}</Text>
+  </View>;
+
+  const points = (list: TourPoint[]) => <View testID="tour-points" style={styles.points}>
     {list.map(point => <View key={point.title} style={styles.point}>
       <Text style={styles.pointTitle}>{point.title}</Text>
       <Text style={styles.pointBody}>{point.body}</Text>
@@ -114,7 +119,7 @@ export default function Tour() {
   const page = () => {
     if (!facts) return null;
     if (step === "role") return <>
-      <PageTitle description="Choose the one closest to your work. You can change it here any time.">{STEP_TITLE.role}</PageTitle>
+      {heading(STEP_TITLE.role, "Choose the one closest to your work. You can change it here any time.")}
       <View accessibilityRole="radiogroup" accessibilityLabel="Your role" style={styles.card}>
         {facts.roles.map((entry, at) => {
           const on = entry.id === chosen;
@@ -131,8 +136,8 @@ export default function Tour() {
     if (step === "charge") {
       const example = (role ?? facts.roles.find(entry => entry.id === "other"))?.asks[0];
       return <>
-        <PageTitle description={chargeLead(facts, role)}>{STEP_TITLE.charge}</PageTitle>
-        {facts.agent.kind !== "none" && example ? <View accessible accessibilityRole="image" accessibilityLabel={`Example: you ask "${example}" While the agent is working, the Send button is a Stop button.`} style={[styles.card, styles.example]}>
+        {heading(STEP_TITLE.charge, chargeLead(facts, role))}
+        {facts.agent.kind !== "none" && example ? <View accessible accessibilityRole="image" accessibilityLabel={`Example: you ask "${example}" While the agent is working, the Send button is a Stop button.`} testID="tour-example" style={[styles.card, styles.example]}>
           <Text style={styles.exampleTag}>Example</Text>
           <View style={styles.bubble}><Text style={styles.bubbleText}>{example}</Text></View>
           <View style={styles.working}>
@@ -146,14 +151,14 @@ export default function Tour() {
     if (step === "access") {
       const summary = accessSummary(facts), rows = levelRows(facts);
       return <>
-        <PageTitle description="Your owner chooses what your agent may do. This is what you have now.">{STEP_TITLE.access}</PageTitle>
+        {heading(STEP_TITLE.access, "Your owner chooses what your agent may do. This is what you have now.")}
         <View style={[styles.card, styles.callout]}>
           <Text style={styles.calloutTag}>Your level</Text>
           <Text testID="tour-level" style={styles.calloutTitle}>{summary.title}</Text>
           <Text style={styles.calloutBody}>{summary.body}</Text>
         </View>
         <Text style={styles.note}>{role ? `You said your role is ${role.label}. ` : ""}{ROLE_NOTE}</Text>
-        {rows.length ? <>
+        {rows.length ? <View testID="tour-section" style={styles.group}>
           <Text accessibilityRole="header" style={styles.section}>Levels on this server</Text>
           <View style={styles.card}>
             {rows.map((row, at) => <View key={row.tier} accessible accessibilityLabel={`${row.label}${row.mine ? ", your level" : ""}: ${row.hint}`} style={[styles.row, at === rows.length - 1 && styles.lastRow]}>
@@ -164,19 +169,19 @@ export default function Tour() {
               {row.mine ? <Text style={styles.yours}>Yours</Text> : null}
             </View>)}
           </View>
-        </> : null}
+        </View> : null}
       </>;
     }
     if (step === "limit") {
       const limit = limitPage(facts), rows = facts.owner || facts.agent.kind === "none" ? [] : levelRows(facts);
       return <>
-        <PageTitle description="The agent's work is counted in tokens, and tokens cost money. Each person has a limit for the day.">{STEP_TITLE.limit}</PageTitle>
+        {heading(STEP_TITLE.limit, "The agent's work is counted in tokens, and tokens cost money. Each person has a limit for the day.")}
         {limit.headline ? <View style={[styles.card, styles.callout]}>
           <Text testID="tour-limit" style={styles.calloutTitle}>{limit.headline}</Text>
           {limit.lines.map(line => <Text key={line} style={styles.calloutBody}>{line}</Text>)}
         </View> : null}
         {limit.note ? <Text style={styles.note}>{limit.note}</Text> : null}
-        {rows.length ? <>
+        {rows.length ? <View testID="tour-section" style={styles.group}>
           <Text accessibilityRole="header" style={styles.section}>Where each level starts</Text>
           <View style={styles.card}>
             {rows.map((row, at) => <View key={row.tier} accessible accessibilityLabel={`${row.label}${row.mine ? ", your level" : ""}: ${row.cost}`} style={[styles.row, at === rows.length - 1 && styles.lastRow]}>
@@ -184,16 +189,16 @@ export default function Tour() {
               <Text style={styles.rowValue}>{row.cost}</Text>
             </View>)}
           </View>
-        </> : null}
+        </View> : null}
       </>;
     }
     if (step === "data") return <>
-      <PageTitle description="What you write goes to one place: the server your team runs.">{STEP_TITLE.data}</PageTitle>
+      {heading(STEP_TITLE.data, "What you write goes to one place: the server your team runs.")}
       {points(dataPoints(facts))}
     </>;
     const asking = tryPage(facts, role);
     return <>
-      <PageTitle description={asking.lead}>{STEP_TITLE.try}</PageTitle>
+      {heading(STEP_TITLE.try, asking.lead)}
       {asking.asks.length ? <View style={styles.card}>
         {asking.asks.map((ask, at) => asking.canAsk
           ? <Pressable key={ask} testID={`tour-ask-${at}`} accessibilityRole="button" accessibilityLabel={ask} accessibilityHint="Opens a new agent chat with these words filled in" onPress={() => leave(ask)}
@@ -211,7 +216,7 @@ export default function Tour() {
     <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <Stack.Screen options={{ headerShown: false, title: "Tour" }} />
       <View style={styles.frame}>
-        <View style={styles.top}>
+        <View testID="tour-top" style={styles.top}>
           <View style={styles.progress} accessible accessibilityRole="progressbar" accessibilityLabel={stepLabel(index)} aria-valuemin={1} aria-valuemax={TOUR_STEPS.length} aria-valuenow={index + 1} aria-valuetext={stepLabel(index)} aria-live="polite" accessibilityLiveRegion="polite">
             <View style={styles.dots}>{TOUR_STEPS.map((name, at) => <View key={name} style={[styles.dot, at === index && styles.dotOn]} />)}</View>
             <Text testID="tour-step" style={styles.stepText}>Step {index + 1} of {TOUR_STEPS.length}</Text>
@@ -219,14 +224,14 @@ export default function Tour() {
           <Button testID="tour-skip" label="Skip" accessibilityLabel="Skip the tour" kind="link" compact onPress={() => leave()} />
         </View>
         {facts ? <View style={styles.body} {...swipe}>
-          <ScrollView key={step} style={styles.body} contentContainerStyle={styles.content}>{page()}</ScrollView>
+          <ScrollView key={step} style={styles.body}><View testID="tour-page" style={styles.content}>{page()}</View></ScrollView>
         </View> : <View style={styles.waiting}>
-          {loadError ? <>
+          {loadError ? <View testID="tour-load-error" style={styles.failed}>
             <Text accessibilityRole="alert" style={styles.loadError}>{loadError}</Text>
             <Button label="Try again" onPress={() => { setLoadError(null); setAttempt(n => n + 1); }} style={styles.retry} />
-          </> : <ActivityIndicator accessibilityLabel="Loading the tour" color={colors.muted} />}
+          </View> : <ActivityIndicator accessibilityLabel="Loading the tour" color={colors.muted} />}
         </View>}
-        {facts ? <View style={styles.bottom}>
+        {facts ? <View testID="tour-bottom" style={styles.bottom}>
           {index > 0 ? <Button testID="tour-back" label="Back" kind="secondary" onPress={() => go(-1)} style={styles.back} /> : null}
           <Button testID="tour-next" label={last ? "Done" : "Next"} onPress={() => { if (last) leave(); else go(1); }} style={styles.next} />
         </View> : null}
@@ -246,28 +251,35 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   dotOn: { width: 24, backgroundColor: colors.primary, opacity: 1 },
   stepText: { ...typography.caption, color: colors.muted },
   body: { flex: 1 },
-  content: { paddingBottom: space.lg },
+  // Everything that stacks on a page is space.stack (20) from its neighbors: the top bar, the title, cards, notes
+  // and the end of the page. Kept closer on purpose: a title with its own line of explanation, a label with the
+  // list it names, and the lines of text inside one card.
+  content: { paddingVertical: space.stack, gap: space.stack },
+  heading: { marginHorizontal: space.side, gap: space.xxs },
+  title: { ...typography.title, color: colors.ink },
+  description: { ...typography.caption, color: colors.muted },
   waiting: { flex: 1, alignItems: "center", justifyContent: "center", padding: space.lg },
   loadError: { ...typography.body, color: colors.ink, textAlign: "center" },
-  retry: { marginTop: space.md, minWidth: 200 },
+  failed: { alignItems: "center", gap: space.stack },
+  retry: { minWidth: 200 },
   bottom: { flexDirection: "row", gap: space.sm, paddingHorizontal: space.side, paddingVertical: space.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   back: { flex: 1 },
   next: { flex: 2 },
-  card: { backgroundColor: colors.groupedCard, marginHorizontal: space.side, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, overflow: "hidden", marginBottom: space.sm },
+  card: { backgroundColor: colors.groupedCard, marginHorizontal: space.side, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line, overflow: "hidden" },
   choice: { minHeight: 48, paddingHorizontal: space.md, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", gap: space.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   choiceLabel: { ...typography.body, color: colors.ink, flex: 1 },
   choiceOn: { ...typography.bodyStrong },
   lastRow: { borderBottomWidth: 0 },
-  note: { ...typography.caption, color: colors.muted, marginHorizontal: space.side, marginBottom: space.md },
-  error: { ...typography.caption, color: colors.red, marginHorizontal: space.side, marginBottom: space.xs },
-  example: { padding: space.md, gap: space.sm },
+  note: { ...typography.caption, color: colors.muted, marginHorizontal: space.side },
+  error: { ...typography.caption, color: colors.red, marginHorizontal: space.side },
+  example: { padding: space.md, gap: space.stack },
   exampleTag: { ...typography.label, color: colors.muted },
   bubble: { alignSelf: "flex-end", maxWidth: "90%", backgroundColor: colors.bubbleMine, borderRadius: radius.lg, paddingHorizontal: space.sm, paddingVertical: space.xs },
   bubbleText: { ...typography.body, color: colors.onPrimary },
   working: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm },
   workingText: { ...typography.caption, color: colors.muted, flex: 1 },
   stop: { width: 32, height: 32, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
-  points: { marginHorizontal: space.side, gap: space.md, marginTop: space.xs, marginBottom: space.md },
+  points: { marginHorizontal: space.side, gap: space.stack },
   point: { gap: space.xxs },
   pointTitle: { ...typography.bodyStrong, color: colors.ink },
   pointBody: { ...typography.body, color: colors.muted },
@@ -275,7 +287,8 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   calloutTag: { ...typography.label, color: colors.muted },
   calloutTitle: { ...typography.title, color: colors.ink },
   calloutBody: { ...typography.body, color: colors.muted },
-  section: { ...typography.label, marginHorizontal: space.side, marginTop: space.xs, marginBottom: space.xs, color: colors.muted },
+  group: { gap: space.xs },
+  section: { ...typography.label, marginHorizontal: space.side, color: colors.muted },
   row: { minHeight: 48, paddingHorizontal: space.md, paddingVertical: space.sm, flexDirection: "row", alignItems: "center", gap: space.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   rowCopy: { flex: 1, minWidth: 0 },
   rowLabel: { ...typography.body, color: colors.ink },
