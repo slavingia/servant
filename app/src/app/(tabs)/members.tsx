@@ -117,6 +117,8 @@ export default function Members() {
   // One line under the name: role or agent tier, the lifted token limit (owners only), presence.
   const describe = (person: Person, status: string) => [
     person.owner ? "Workspace owner" : person.agentTier ? roleLabel(person.agentTier) : "Member",
+    // The role they chose for themselves in the tour: it describes their work and decides nothing.
+    person.jobRole && person.jobRole.id !== "other" ? `Role: ${person.jobRole.label}` : null,
     owner && !person.owner && person.unlimitedTokens ? "No token limit" : null,
     status || null,
   ].filter(Boolean).join(" · ");

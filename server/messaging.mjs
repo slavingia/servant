@@ -1,4 +1,5 @@
 import { agentTierOf, TIER_TOKEN_LIMITS } from "./usage.mjs";
+import { jobRoleOf } from "./job-roles.mjs";
 import { ftsQuery, parseSearch, SEARCH_SCHEMA } from "./search.mjs";
 import { firstLink } from "./link-preview.mjs";
 import { featureForKind, featureOffMessage } from "./features.mjs";
@@ -730,7 +731,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
     const { lastSeenAt, online } = presence(uid);
     // photo is a version; the app fetches the image once per version.
     const photo = u && st.photoVersion.get(uid)?.updated_at;
-    return u ? { id: u.id, name: u.name, lastSeenAt, online, ...deepWorkFields(u), ...(photo ? { photo: String(photo) } : {}) } : { id: uid, name: "Former member" };
+    return u ? { id: u.id, name: u.name, lastSeenAt, online, ...deepWorkFields(u), ...(photo ? { photo: String(photo) } : {}), ...(jobRoleOf(u) ? { jobRole: jobRoleOf(u) } : {}) } : { id: uid, name: "Former member" };
   };
   // Every file kept with a message is stored here, so a picture's size is read once, as it arrives.
   function storeAttachment(seq, a) {

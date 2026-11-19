@@ -86,7 +86,8 @@ export default function Pair() {
   const signedIn = (a: Account) => {
     setAccount(a);
     // The pairing answer already says what this server uses; land on Home or the agent accordingly.
-    router.replace(landingHref(a.features ? normalizeFeatures(a.features) : ALL_FEATURES));
+    // Someone who has just joined starts with the tour (tour.tsx); leaving it lands where they would have.
+    router.replace(a.tourDue ? "/tour" : landingHref(a.features ? normalizeFeatures(a.features) : ALL_FEATURES));
   };
   const title = <Stack.Screen options={{ title: existing || claim ? "Signing in" : "Joining" }} />;
 

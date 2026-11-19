@@ -11,7 +11,12 @@ export type Account = {
   fileDrop?: boolean;
   deepWork?: boolean;
   banner?: { message: string };
-  user: { id: string; name: string; role: "owner" | "member" };
+  /** The onboarding tour is waiting: this person just joined and has not finished or skipped it (server/tour.mjs). Absent on a server without the tour. */
+  tourDue?: boolean;
+  /** This device closed the tour and the server has not confirmed it yet: it stays closed here, and the server is told again (lib/tour-seen.ts). */
+  tourClosed?: boolean;
+  /** `jobRole` is the role they chose for themselves (server/job-roles.mjs). It describes them; `role` is what decides access. */
+  user: { id: string; name: string; role: "owner" | "member"; jobRole?: { id: string; label: string } };
 };
 export type Accounts = { accounts: Account[]; activeId: string | null };
 export type AccountStorage = {
