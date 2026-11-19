@@ -18,7 +18,7 @@ const PREVIEWS: Record<string, [number, string]> = {
   "app/inbox.tsx": [2, "a case row's last message and next action; each opens its full conversation or task"],
   "app/inbox/[id].tsx": [1, "the next follow-up preview; View follow-ups opens the full task"],
   "components/Omnibar.tsx": [1, "a search result's snippet; the result opens in full"],
-  "app/saved.tsx": [2, "the source message and recording summary under a work log entry; Open message and Open recording show them in full"],
+  "app/saved.tsx": [2, "the source message and recording summary under a work log entry; Open message and Open note show them in full"],
   "components/SavedTaskRow.tsx": [1, "a saved message, with a control to show all of it"],
   "components/ForwardSheet.tsx": [1, "the message being forwarded"],
   "components/AgentSteps.tsx": [1, "a step's output; the chat has it in full"],

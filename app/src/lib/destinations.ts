@@ -3,7 +3,7 @@ import { anyTalk, type FeatureName, type Features } from "./features.ts";
 // Every place a person can go, once. The sidebar (wide windows), You (a phone has no sidebar) and search all read
 // this list, so a place has one name, one icon and one position everywhere, and a new place is added in one line.
 // Before it, each of the three kept its own list: "Saved" in the sidebar was "Saved messages" on You and in search,
-// search did not know To-dos, Recordings or Text shortcuts (now the wiki's Abbreviations page), and each new place was added at a different position.
+// search did not know To-dos, Notetaker (then Recordings) or Text shortcuts (now the wiki's Abbreviations page), and each new place was added at a different position.
 //
 // Three groups, in the order a day uses them: where people talk, your own work, and the team's.
 export type DestinationGroup = "talk" | "work" | "team";
@@ -37,7 +37,7 @@ export const DESTINATIONS: Destination[] = [
   { id: "inbox", label: "Cases", icon: "lock", path: "/inbox", group: "talk", needs: "secureInbox", sidebar: true, you: true, detail: "Conversations with the public, team notes and follow-ups", keywords: "cases casework follow-up task notes inbox support visitor guest live chat external contact customer public" },
   { id: "todos", label: "To-dos", icon: "check", path: "/todos", group: "work", sidebar: true, you: true, detail: "To-dos for you and your projects", keywords: "todo to-do task tasks checklist" },
   { id: "saved", label: "Saved", icon: "bookmark", path: "/saved", group: "work", sidebar: true, you: true, detail: "Messages you saved to follow up, and your work log", keywords: "save saved later bookmark todo to-do checklist follow up completed work log" },
-  { id: "recordings", label: "Recordings", icon: "mic", path: "/recordings", group: "work", sidebar: true, you: true, detail: "Voice memos and their notes", keywords: "record recording recordings voice memo memos audio transcript notes granola" },
+  { id: "recordings", label: "Notetaker", icon: "mic", path: "/recordings", group: "work", sidebar: true, you: true, detail: "Meeting and voice notes", keywords: "notetaker note taker meeting meetings record recording recordings voice memo memos audio transcript notes granola" },
   { id: "archive", label: "Archived", icon: "archive", path: "/archived-channels", group: "work", needs: "talk", sidebar: false, you: true, detail: "Channels and messages you archived", keywords: "archive archived restore channels messages" },
   { id: "members", label: "People", icon: "people", path: "/members", group: "team", needs: "people", sidebar: true, you: true, detail: "Everyone on your server", keywords: "people members directory" },
   { id: "entitlements", label: "Entitlements", icon: "key", path: "/entitlements", group: "team", sidebar: false, you: true, detail: "What your agent may reach, and the requests waiting on you", keywords: "entitlements access permissions approve approval request grant manager network hosts gate sandbox" },

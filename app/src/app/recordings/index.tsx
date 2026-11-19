@@ -13,7 +13,7 @@ import { shortTime } from "../../lib/time-label";
 import { space, typography, useTheme, createThemedStyles, radius } from "../../lib/theme";
 import { ServeLoader } from "../../components/ServeLoader";
 
-// Voice memos: record, stop, and get notes and next steps. The audio stays private to the person who made it.
+// Notetaker (voice memos): record, stop, and get notes and next steps. The audio stays private to the person who made it.
 export default function Recordings() {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -36,7 +36,7 @@ export default function Recordings() {
   const open = (r: RecordingSummary) => router.push({ pathname: "/recordings/[id]", params: { id: r.id } });
   const header = <View style={styles.header}>
     {recording ? <VoiceRecorder account={account} onMove={setAccount} onSaved={() => void load()} onClose={() => setRecording(false)} />
-      : <Button label="Record a voice memo" onPress={() => setRecording(true)} />}
+      : <Button label="Take notes" onPress={() => setRecording(true)} />}
     {error && list ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
   </View>;
 
@@ -49,7 +49,7 @@ export default function Recordings() {
       ListHeaderComponent={header}
       ListEmptyComponent={list === null
         ? (error ? <View style={styles.empty}><Text accessibilityRole="alert" style={styles.emptyBody}>{error}</Text><Button label="Try again" kind="secondary" onPress={() => void load()} /></View> : <ServeLoader style={{ marginTop: space.xl }} />)
-        : <View style={styles.empty}><Text accessibilityRole="header" style={styles.emptyTitle}>No recordings yet</Text></View>}
+        : <View style={styles.empty}><Text accessibilityRole="header" style={styles.emptyTitle}>No notes yet</Text></View>}
       renderItem={({ item }) => {
         const meta = [shortTime(item.createdAt), durationText(item.durationMs)].filter(Boolean).join(" · ");
         return <Pressable accessibilityRole="button" accessibilityLabel={`${titleOf(item)}. ${statusLabel(item)}. ${meta}`} onPress={() => open(item)} style={({ pressed }) => [styles.item, pressed && { backgroundColor: colors.surface }]}>

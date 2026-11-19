@@ -15,7 +15,7 @@ import { ServeLoader } from "../components/ServeLoader";
 // Filter the board by project or release, add your own, tag them, give them a due date, send them to the agent.
 // ?project= and ?release= open a filtered board (a project page links here).
 type Scope = "mine" | "all";
-const EMPTY = "No to-dos yet. Type one below, or record a voice memo and its follow-ups appear here.";
+const EMPTY = "No to-dos yet. Type one below, or take notes in Notetaker and the follow-ups appear here.";
 
 export default function Todos() {
   const { account } = useSession();

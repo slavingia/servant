@@ -51,7 +51,7 @@ function RecordingDetailContent() {
     try {
       const next = await api.recording(account, String(id));
       if (request === version.current) { setRecording(next); setError(null); }
-    } catch (e) { if (request === version.current) fail(e, "Couldn't open this recording"); }
+    } catch (e) { if (request === version.current) fail(e, "Couldn't open this note"); }
     finally { if (request === version.current) loading.current = false; }
   }, [account, id, fail]);
   // The notes may still be being written while this is open.
@@ -74,7 +74,7 @@ function RecordingDetailContent() {
 
   if (!account) return null;
   if (!recording) {
-    return <View style={styles.root}><Stack.Screen options={{ title: "Recording" }} />
+    return <View style={styles.root}><Stack.Screen options={{ title: "Note" }} />
       {error ? <View style={styles.content}><Text accessibilityRole="alert" style={styles.error}>{error}</Text><Button label="Try again" kind="secondary" onPress={() => void load()} /></View> : <ServeLoader style={{ marginTop: space.xxl }} />}
     </View>;
   }
@@ -104,7 +104,7 @@ function RecordingDetailContent() {
       await api.deleteRecording(account, recording.id);
       forgetRecording(recording.id, account);
       if (mounted.current) { if (router.canGoBack()) router.back(); else router.replace("/recordings"); }
-    } catch (e) { if (mounted.current) { fail(e, "Couldn't delete this recording"); setConfirming(false); } }
+    } catch (e) { if (mounted.current) { fail(e, "Couldn't delete this note"); setConfirming(false); } }
     finally { if (mounted.current) { setBusy(null); onBusyChange(false); } }
   };
 
@@ -153,8 +153,8 @@ function RecordingDetailContent() {
     </> : null}
 
     {!working ? <>
-      <Button label="Delete this recording" kind="danger" disabled={!!busy} onPress={() => setConfirming(true)} style={styles.footerAction} />
-      <ConfirmDialog visible={confirming} title="Delete this recording?" description={deleteDescription("recording", account?.recordsKept === true)} confirmLabel="Delete" onConfirm={() => void remove()} onCancel={() => setConfirming(false)} />
+      <Button label="Delete this note" kind="danger" disabled={!!busy} onPress={() => setConfirming(true)} style={styles.footerAction} />
+      <ConfirmDialog visible={confirming} title="Delete this note?" description={deleteDescription("recording", account?.recordsKept === true)} confirmLabel="Delete" onConfirm={() => void remove()} onCancel={() => setConfirming(false)} />
     </> : null}
   </ScrollView>;
 }
