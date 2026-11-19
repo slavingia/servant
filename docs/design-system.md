@@ -342,7 +342,7 @@ sidebar of a wide window, the **You** tab (a phone has no sidebar) and search
 all draw from that list, so a place is called the same thing everywhere and a
 new one is added in one line. There are three groups, in the order a day uses
 them: **Conversations** (Home, Agent, Direct messages, Cases), **Your work** (To-dos,
-Saved, Recordings, and Archived on You) and **Team** (People, Wiki, and Invite people and Agent usage on You). The sidebar
+Saved, Notetaker, and Archived on You) and **Team** (People, Wiki, and Invite people and Agent usage on You). The sidebar
 draws them as one list in that order, with no gap between groups (the groups
 are named for a screen reader); You gives each a heading.
 
