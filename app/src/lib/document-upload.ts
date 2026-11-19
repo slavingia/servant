@@ -20,12 +20,13 @@ async function call(post: UploadPost, path: string, body: unknown) {
 }
 
 /** Returns the server's upload ID once every byte has arrived. */
-export async function uploadDocument({ chatId, name, size, read, post, onProgress, signal }: {
-  chatId: string; name: string; size: number; read: ChunkReader; post: UploadPost; onProgress?: (fraction: number) => void; signal?: AbortSignal;
+export async function uploadDocument({ chatId, base: route, name, size, read, post, onProgress, onChunk, signal }: {
+  /** The chat the document is for, or `base`: another route that takes the same chunks (file drop). */
+  chatId?: string; base?: string; onChunk?: (result: any) => void; name: string; size: number; read: ChunkReader; post: UploadPost; onProgress?: (fraction: number) => void; signal?: AbortSignal;
 }): Promise<string> {
   if (!Number.isSafeInteger(size) || size <= 0) throw new UploadError("Couldn't read this file");
   if (size > MAX_DOCUMENT_BYTES) throw new UploadError("Choose documents under 100 MB each");
-  const base = `/v1/chats/${encodeURIComponent(chatId)}/uploads`;
+  const base = route ?? `/v1/chats/${encodeURIComponent(chatId ?? "")}/uploads`;
   const created = await call(post, base, { name, size });
   const id = String(created.id);
   const chunk = Math.min(Number(created.chunkBytes) || DOCUMENT_CHUNK_BYTES, DOCUMENT_CHUNK_BYTES);
@@ -40,6 +41,7 @@ export async function uploadDocument({ chatId, name, size, read, post, onProgres
       const result = await call(post, `${base}/${encodeURIComponent(id)}`, { offset, data: toBase64(bytes) });
       offset = Number(result.received);
       retries = 0;
+      onChunk?.(result);
     } catch (error) {
       // A dropped connection may have delivered the chunk; resume where the server is.
       const expected = (error as { expected?: number }).expected;

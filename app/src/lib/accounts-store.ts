@@ -7,6 +7,8 @@ export type Account = {
   features?: { channels: boolean; directMessages: boolean; secureInbox: boolean };
   theme?: { primaryColor: string };
   recordsKept?: boolean;
+  /** The owner of a server with a file drop folder (server/file-drop.mjs). */
+  fileDrop?: boolean;
   deepWork?: boolean;
   banner?: { message: string };
   user: { id: string; name: string; role: "owner" | "member" };

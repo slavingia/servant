@@ -245,6 +245,26 @@ Messages and agent chats can be official records (in a U.S. federal agency, fede
 
 Anyone can switch on **Deep work** for themselves: at the bottom of the sidebar, just above their name, or on the You tab on a phone. While it is on, their app hides channels, direct messages, the secure inbox and People (the directory, its invite and `/people`) on every device they use; Home stays, listing only their projects, and their agent chats stay. (On an instance with channels off there is no Home, and it opens on the Agent tab.) Everyone else sees **Deep work** as their status (People, the top of a direct message), and can still message them. Messages still arrive and count as unread, but nothing rings or buzzes: no push for a channel message, a mention, a direct message, a call or a meeting invite. Their own agent's pushes (a finished reply) still come through. Calls and meeting invites to them don't ring; the caller sees the status, and when the person switches Deep work off they get a short **Missed while in deep work** list, once. It stays on until they switch it off; there is no timer. The switch only hides: an instance's own `features` stay the operator's override and are never turned back on by it. On the server it is one field on the person (`deepWorkSince`), set with `PATCH /v1/people/me {"deepWork": true|false}`, read back in `GET /v1/me` as `deepWork`, and carried as `deepWork: true` on people and presence while it is on; older app builds ignore it and keep working.
 
+## File drop
+
+File drop sends a file from the owner's app straight into one folder on the server's own computer, for example the Desktop of the Mac the server runs on. It is off unless the server names that folder:
+
+```sh
+SERVANT_FILE_DROP_DIR=~/Desktop        # in the server's environment
+```
+
+or `"fileDrop": { "dir": "~/Desktop" }` in the server's `config.json`. The folder must already exist; the server never creates it. Keep the path in your own environment or `config.json`, never in the repository.
+
+When it is set, the owner sees **File drop** in the sidebar, on **You** and in search. In the browser or the Mac app, drag files anywhere onto that screen, or use **Choose files**; on a phone, use **Choose files**. Files go up one at a time, in chunks of 3 MB over the encrypted transport, up to 100 MB each, the same way documents attached to an agent chat do. Each row shows **Sending**, then **Saved**.
+
+- Only the owner can use it. Members are not shown the place and the server refuses them (`403`).
+- Nothing in the folder is ever replaced: a second `plan.pdf` is saved as `plan 2.pdf`, and the row says **Saved as plan 2.pdf**.
+- A file name can't leave the folder or start with a dot: `/`, `\` and `:` become `_`.
+- Unfinished uploads wait in `file-drop/` inside the server's data directory and are removed after a day.
+- Dropped files are not messages: they are not shown in any chat, not given to the agent and not part of records preservation.
+
+On the server it is `GET /v1/file-drop` (whether it is on), `POST /v1/file-drop {"name","size"}` and `POST /v1/file-drop/<id> {"offset","data"}`; the last chunk's answer carries `saved`, the name the file got. `GET /v1/me` says `fileDrop: true` to an owner when the folder is set; older apps ignore it.
+
 ## Notetaker
 
 Open **Notetaker** in the sidebar or **You → Notetaker** and choose **Take notes**, then **Start recording**. Stop recording and Servant uploads the audio, transcribes it, then writes notes and next steps. Each next step becomes a to-do you can edit, tag or send to the Agent. Notes and their recordings are private to the person who made them.

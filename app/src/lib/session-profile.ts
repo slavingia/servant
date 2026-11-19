@@ -13,6 +13,7 @@ export type ServerProfile = {
   deepWork?: unknown;
   session?: unknown;
   recordsKept?: unknown;
+  fileDrop?: unknown;
 };
 
 /** Reconcile one response against the latest saved account, retaining offline settings until it arrives. */
@@ -25,6 +26,7 @@ export function reconcileAccountProfile(latest: Account, profile: ServerProfile,
   const banner = bannerFromServer(profile.banner);
   const deepWork = keepDeepWork ? !!latest.deepWork : deepWorkFromServer(profile.deepWork);
   const recordsKept = profile.recordsKept === true;
-  if (user.id === latest.user.id && user.name === latest.user.name && user.role === latest.user.role && serverName === latest.serverName && latest.features && sameFeatures(latest.features, features) && latest.theme?.primaryColor === theme.primaryColor && !!latest.deepWork === deepWork && latest.banner?.message === banner?.message && !!latest.recordsKept === recordsKept) return latest;
-  return { ...latest, user, serverName, features, theme, deepWork, banner, recordsKept };
+  const fileDrop = profile.fileDrop === true;
+  if (user.id === latest.user.id && user.name === latest.user.name && user.role === latest.user.role && serverName === latest.serverName && latest.features && sameFeatures(latest.features, features) && latest.theme?.primaryColor === theme.primaryColor && !!latest.deepWork === deepWork && latest.banner?.message === banner?.message && !!latest.recordsKept === recordsKept && !!latest.fileDrop === fileDrop) return latest;
+  return { ...latest, user, serverName, features, theme, deepWork, banner, recordsKept, fileDrop };
 }
