@@ -20,6 +20,7 @@ import { WideBack } from "../components/WideBack";
 import { SessionExpiryGate } from "../components/SessionExpiryGate";
 import { ShareGate } from "../components/ShareGate";
 import { CodeRequestOpener } from "../components/CodeRequestOpener";
+import { TourGate } from "../components/TourGate";
 import { LaunchScreen } from "../components/LaunchScreen";
 import { useApplyUpdates } from "../lib/ota";
 import { useAppFonts } from "../lib/use-app-fonts";
@@ -164,6 +165,8 @@ function SessionNavigation() {
         <Stack.Screen name="code/index" options={{ title: "Code from Messages", ...childScreen }} />
         <Stack.Screen name="entitlements" options={{ title: "Entitlements", ...childScreen }} />
         <Stack.Screen name="file-drop" options={{ title: "File drop", ...sidebarScreen }} />
+        {/* The onboarding tour (tour.tsx): once after joining, and from You. It fills the screen and has its own Skip. */}
+        <Stack.Screen name="tour" options={{ headerShown: false, title: "Tour", animation: "none" }} />
         <Stack.Screen name="connections" options={{ title: "Connections", ...childScreen }} />
         <Stack.Screen name="leaderboard" options={{ title: "Agent usage", ...childScreen }} />
         <Stack.Screen name="invite" options={{ title: "Invite someone", ...childScreen }} />
@@ -174,6 +177,7 @@ function SessionNavigation() {
     {paired ? <SessionExpiryGate /> : null}
     {paired ? <ShareGate /> : null}
     {paired ? <CodeRequestOpener /> : null}
+    {paired ? <TourGate /> : null}
     </AppChrome>
     </>}
     </LiveProvider>

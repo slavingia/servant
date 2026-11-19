@@ -211,7 +211,8 @@ export default function Settings() {
               <AppIcon name="compose" size={18} color={colors.muted} />
             </Pressable>
           </View>
-          <Text style={styles.profileRole}>{account.serverName} · {owner ? "Workspace owner" : "Member"}</Text>
+          {/* The role they chose in the tour (server/job-roles.mjs) is words only; "Other" says nothing, so it isn't shown. */}
+          <Text testID="profile-line" style={styles.profileRole}>{[account.serverName, owner ? "Workspace owner" : "Member", account.user.jobRole && account.user.jobRole.id !== "other" ? account.user.jobRole.label : ""].filter(Boolean).join(" · ")}</Text>
         </View>
       </View>
       {photoMenu && hasPhoto ? <View style={[styles.group, styles.photoMenu]}>
@@ -262,6 +263,8 @@ export default function Settings() {
         <DeepWorkSwitch />
         <Row label="Notifications" onPress={() => router.push("/notifications")} />
         <Row label="Link a computer" onPress={() => router.push("/link-computer")} />
+        {/* The onboarding tour again (tour.tsx): your role, your access level, your daily limit and where data goes. */}
+        <Row label="Take the tour" onPress={() => router.push("/tour")} />
       </View>
 
       <Text accessibilityRole="header" style={styles.section}>Servers</Text>

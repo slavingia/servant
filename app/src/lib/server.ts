@@ -19,6 +19,7 @@ import { normalizeTheme } from './theme-colors.ts';
 import { noteSessionExpired } from './session-expiry';
 import { SESSION_EXPIRED, type SessionInfo } from './session-expiry-rules';
 import type { ConnectPart, ConnectTool, ConnectionStanding, ConnectionsPage } from "./connections.ts";
+import type { TourFacts } from "./tour.ts";
 export { accountId } from './accounts-store';
 export type { Account, Accounts } from './accounts-store';
 export type { SessionInfo } from './session-expiry-rules';
@@ -82,7 +83,7 @@ export type Leaderboard = { period: LeaderboardPeriod; since: number; totals: { 
 // deepWork: they switched Deep work on (deep-work.ts); absent while off.
 export type Presence = { userId: string; online: boolean; lastSeenAt: number | null; deepWork?: boolean };
 // photo: version of their profile photo, when they have one.
-export type Person = { /** Who decides this person's entitlement requests; owners have none. */ managerId?: string; email?: string | null; emailVerified?: boolean; agentTier?: number; tokenLimit?: number; vibeCoder?: boolean; unlimitedTokens?: boolean; id: string; name: string; agent?: boolean; owner?: boolean; online?: boolean; lastSeenAt?: number | null; deepWork?: boolean; photo?: string | null };
+export type Person = { /** The role they chose for themselves (server/job-roles.mjs): words beside their name, never access. */ jobRole?: { id: string; label: string }; /** Who decides this person's entitlement requests; owners have none. */ managerId?: string; email?: string | null; emailVerified?: boolean; agentTier?: number; tokenLimit?: number; vibeCoder?: boolean; unlimitedTokens?: boolean; id: string; name: string; agent?: boolean; owner?: boolean; online?: boolean; lastSeenAt?: number | null; deepWork?: boolean; photo?: string | null };
 export type EntitlementStanding = { entitlementId: string; userId: string; status: "requested" | "granted" | "once" | "used" | "denied" | "revoked"; note: string; requestedAt: number; /** "use": the agent asked by trying; `detail` is what it was about to do. */ via?: "use"; detail?: string; decidedBy?: string; decidedAt?: number; reason?: string; name?: string; decidedByName?: string };
 export type Entitlement = { /** Built in: on every server, asked for by use. */ native?: boolean; capability?: string; id: string; name: string; description: string; hosts: string[]; confirmation: string; mine: EntitlementStanding | null; people: EntitlementStanding[] };
 export type AgentAction = { seq: number; userId: string; name: string; chatId?: string; needs: string[]; verdict: "allowed" | "allowed-once" | "allowed-owner" | "denied" | "waiting"; detail: string; at: number };
@@ -317,7 +318,7 @@ export async function pair(invite: Invite, name?: string, terms: TermsAcceptance
   }
   if (!res.ok) throw await readError(res);
   const data = await res.json();
-  const account: Account = { token: data.token, serverUrl, serverKey: invite.serverKey, discovery: invite.discovery, serverName: data.server?.name || data.hub?.name || "Server", user: data.user, banner: bannerFromServer(data.banner), theme: normalizeTheme(data.theme), features: normalizeFeatures(data.features), deepWork: deepWorkFromServer(data.deepWork) };
+  const account: Account = { token: data.token, serverUrl, serverKey: invite.serverKey, discovery: invite.discovery, serverName: data.server?.name || data.hub?.name || "Server", user: data.user, banner: bannerFromServer(data.banner), theme: normalizeTheme(data.theme), features: normalizeFeatures(data.features), deepWork: deepWorkFromServer(data.deepWork), ...(data.tour?.due === true ? { tourDue: true } : {}) };
   await addAccount(account);
   return account;
 }
@@ -569,6 +570,10 @@ export const api = {
   setPhoto: (a: Account, data: string) => request(a, "/v1/people/me/photo", { method: "PUT", body: JSON.stringify({ data }) }).then(json<{ person: Person }>),
   rename: (a: Account, name: string) => request(a, "/v1/people/me", { method: "PATCH", body: JSON.stringify({ name }) }).then(json<{ user: Account["user"] }>),
   // Your deep work switch (deep-work.ts). Switching off answers with the calls that didn't ring while it was on.
+  // The onboarding tour (lib/tour.ts): what is true for this person here, the role they choose for themselves, and "seen".
+  tour: (a: Account) => request(a, "/v1/tour").then(json<TourFacts>),
+  setJobRole: (a: Account, jobRole: string | null) => request(a, "/v1/people/me", { method: "PATCH", body: JSON.stringify({ jobRole }) }).then(json<{ user: Account["user"] }>),
+  tourSeen: (a: Account) => request(a, "/v1/tour/seen", { method: "POST", body: "{}" }).then(json<{ tour: { due: boolean } }>),
   setDeepWork: (a: Account, deepWork: boolean) => request(a, "/v1/people/me", { method: "PATCH", body: JSON.stringify({ deepWork }) }).then(json<{ user: Account["user"]; deepWork: boolean }>),
   removePhoto: (a: Account) => request(a, "/v1/people/me/photo", { method: "DELETE" }).then(json<{ person: Person }>),
   conversations: (a: Account, m?: (a: Account) => void) =>
