@@ -16,6 +16,7 @@ import { followLive, warmConversations } from "./conversation-cache";
 import { warmChats } from "./chat-cache";
 import { applyReadNotes, noteRead, readNotes } from "./read-cache";
 import { isUnreachable } from "./unreachable";
+import { FIRST_WAIT_MS, nextWait, spread } from "./live-backoff";
 
 // What a screen can ask the connection to do. These never change while you stay signed in, so a
 // screen that only listens or refreshes (an open conversation, a thread) is not re-rendered when
@@ -198,7 +199,11 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     const connection = resume.current;
     let stopped = false;
     let ctrl: AbortController | null = null;
-    let delay = 1000;
+    // The wait before reconnecting (live-backoff.ts): it grows while connections fail or are cut short, and goes
+    // back to the start only after one has lasted.
+    let delay = FIRST_WAIT_MS;
+    let openedAt = 0;
+    let resumed = false;
     const disconnected = () => {
       setConnected(false);
       setPresenceState(current => current.identity !== identity ? current : reuseEqual(current, {
@@ -224,6 +229,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     const run = async () => {
       while (!stopped) {
         ctrl = new AbortController();
+        openedAt = 0;
         try {
           await listen(
             account,
@@ -236,7 +242,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
               if (e.event === "ready") {
                 setConnected(true);
                 setUnreachableFor("");
-                delay = 1000;
+                openedAt = Date.now();
                 refresh();
                 refreshAgent();
                 void refreshPresence();
@@ -283,16 +289,19 @@ export function LiveProvider({ children }: { children: ReactNode }) {
           }
         }
         if (stopped) return;
-        await new Promise((r) => setTimeout(r, delay));
-        delay = Math.min(delay * 2, 30000);
+        // Coming back to the app reconnects at once, once; that is a person's pace, not a retry loop.
+        if (resumed) { resumed = false; openedAt = 0; await new Promise((r) => setTimeout(r, 250)); continue; }
+        delay = nextWait(delay, openedAt ? Date.now() - openedAt : 0);
+        openedAt = 0;
+        await new Promise((r) => setTimeout(r, spread(delay)));
       }
     };
     run();
     // Phones drop long connections in the background; reconnect when the app comes back.
     const sub = AppState.addEventListener("change", (s) => {
       if (s === "active") {
+        resumed = true;
         ctrl?.abort();
-        delay = 250;
       }
     });
     return () => {
