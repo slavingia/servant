@@ -2,6 +2,7 @@ import { createElement, useCallback, useEffect, useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { Button } from "../components/Button";
+import { PrototypeReviewSheet } from "../components/PrototypeReviewSheet";
 import { ServeLoader } from "../components/ServeLoader";
 import { api, ServerError, type Project } from "../lib/server";
 import { useSession } from "../lib/session";
@@ -35,6 +36,8 @@ export default function AppPreviewScreen() {
   const [project, setProject] = useState<Project | null>(null);
   const [preview, setPreview] = useState<{ url: string; builtAt: string | null; commit: string | null } | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  // The sheet for sending this preview to someone outside the server (PrototypeReviewSheet).
+  const [sharing, setSharing] = useState(false);
   const [mode, setMode] = useState<PreviewMode>("use");
   const [size, setSize] = useState<keyof typeof SIZES>("phone");
   const [src, setSrc] = useState<string | null>(null);
@@ -135,7 +138,10 @@ export default function AppPreviewScreen() {
             placeholder={page} placeholderTextColor={colors.muted} style={styles.goInput} />
           <Button label="Go" kind="secondary" compact onPress={go} />
         </View>
+        {/* For a business owner or subject matter expert who isn't on the server: a link by email, comments back as to-dos. */}
+        <Button testID="preview-share" label="Share with a reviewer" kind="secondary" compact onPress={() => setSharing(true)} />
       </View>
+      {sharing && account ? <PrototypeReviewSheet account={account} projectId={String(id)} title={`${name} preview`} onClose={() => setSharing(false)} /> : null}
       <Text testID="preview-hint" style={styles.hint}>{hint}</Text>
       <ScrollView style={styles.stageScroll} contentContainerStyle={styles.stage}>
         <View testID="app-preview-frame" style={[styles.device, { width: dims.width, height: dims.height }]}>

@@ -17,6 +17,22 @@ The agent is asked to find the screen in the code, make the change (words in the
 
 **Go to** opens any page of the app by its path, such as `/refund-status` or a sample-account link like `/notices?persona=sample`.
 
+## Sharing it with someone outside the server
+
+**Share with a reviewer**, above the preview, sends the app to a business owner or subject matter expert who has no account, the same way a prototype is shared ([prototype-reviews.md](prototype-reviews.md)): they get a link by email, confirm a code sent to that address, and use the app in their browser with its sample data. Right-clicking anything (press and hold on a phone) leaves a comment there.
+
+- The project's **outside reviewers** (About, [prototype-reviews.md](prototype-reviews.md#outside-reviewers)) are offered with one press; any other allowed work address can be typed.
+- Anyone who can see the project can share its preview. Each person sees and ends their own shares, and gets the to-dos for them.
+- Each comment becomes a **to-do in the project** for the person who shared it, with who said it, which screen, the words under the pointer and a link to that screen, and an alert that opens To-dos. Nothing goes to the agent by itself: work on the app's code is started by a person, from the to-do.
+- A reviewer can comment but not edit: they get the commenting script a shared prototype gets, not the bridge with its Edit mode.
+- The link stops working when the share is ended, when the person who shared it can no longer see the project, or when the project has no preview on the server.
+
+What to know before sharing:
+
+- The preview's own address (`/a/<project id>/`) was already public to anyone who has it. The review page keeps that address out of sight until the code is confirmed, but a reviewer who has confirmed can copy it. Share only builds with sample data, as above.
+- An app moves between screens without loading a new page, so a comment is filed under the screen's path at that moment ("notices/2024"; the first screen is "First screen"). Comments are listed beside the app; unlike a prototype, no numbered pins are drawn on it, because an app scrolls inside itself and a spot on the page would drift.
+- Walked through in a browser with a one-page stand-in for an app, not a full Expo export.
+
 ## Putting an app on the server
 
 The server serves `<data>/app-previews/<project id>/` at `/a/<project id>/`. Export the app for the web with that base path:

@@ -92,7 +92,13 @@ try {
     upstreams: { owner: { url: `http://127.0.0.1:${agent.address().port}`, key: 'fixture-key' } }, emailVerification: { enabled: false, domains: ['example.gov'] } };
   fs.writeFileSync(path.join(scratch, 'config.json'), JSON.stringify(config));
   // The project prototypes are built in, with the sharer as an owner so they can name its outside reviewers.
-  fs.writeFileSync(path.join(scratch, 'projects.json'), JSON.stringify({ people: {}, projects: [{ id: 'prototypes', name: 'Prototypes', owners: ['usr_pat'], access: { merge: [], write: [], read: [] } }] }));
+  fs.writeFileSync(path.join(scratch, 'projects.json'), JSON.stringify({ people: {}, projects: [{ id: 'prototypes', name: 'Prototypes', owners: ['usr_pat'], access: { merge: [], write: [], read: [] } },
+    // A project with an app preview, and the reviewer its owners named for it.
+    { id: 'example-app', name: 'Example app', owners: ['usr_pat'], access: { merge: [], write: [], read: [] }, outsideReviewers: [{ email: 'ana.ruiz@example.gov', label: 'Product owner' }] }] }));
+  fs.mkdirSync(path.join(scratch, 'app-previews', 'example-app'), { recursive: true });
+  fs.writeFileSync(path.join(scratch, 'app-previews', 'example-app', 'index.html'), `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Example app</title>
+<style>body{font:16px/1.5 -apple-system,system-ui,sans-serif;margin:0;color:#1b1b1b}header{background:#162e51;color:#fff;padding:16px 20px;font-weight:700}main{padding:20px}button{font:inherit;font-weight:700;color:#fff;background:#005ea2;border:0;border-radius:6px;padding:12px 18px}</style></head>
+<body><header>Example app</header><main><h1>What do you need?</h1><p>You owe $40 for 2025.</p><button>Make a payment</button></main></body></html>`);
   server = await mod.startServer(config);
   fs.mkdirSync(path.join(scratch, 'prototypes', FOLDER), { recursive: true });
   fs.writeFileSync(path.join(scratch, 'prototypes', FOLDER, 'index.html'), PAGE);
@@ -309,6 +315,44 @@ try {
     for (let i = 0; i < 80 && mail.length === mailed; i++) await delay(250);
     assert.deepEqual(mail.slice(mailed).map(m => [m.to, m.subject]), [['sam.lee@example.gov', 'Pat Tester shared a prototype with you: Refund tracker']]);
     await againContext.close();
+  }
+  // 8. A project's app preview goes out the same way: the reviewer named on the project is one press away, uses
+  //    the app in their browser, and their comment becomes a to-do in the project.
+  if (openApp) {
+    const mailed = mail.length;
+    const { page: preview, context: previewContext } = await openApp(desktop, '/app-preview?id=example-app');
+    await preview.getByTestId('preview-share').click();
+    await preview.getByTestId('review-suggest-ana.ruiz@example.gov').waitFor();
+    assert.equal(await preview.locator('[data-testid^="review-auto-"]').count(), 0);
+    await shot(preview, 'app-share-desktop.png');
+    await preview.getByTestId('review-suggest-ana.ruiz@example.gov').click();
+    await preview.getByText("Hasn't opened it yet", { exact: true }).waitFor();
+    for (let i = 0; i < 80 && mail.length === mailed; i++) await delay(250);
+    const invite = mail.splice(mailed)[0];
+    assert.deepEqual([invite.to, invite.subject], ['ana.ruiz@example.gov', 'Pat Tester shared an app preview with you: Example app preview']);
+    assert.equal(await preview.locator('[data-testid^="review-auto-"]').count(), 0, 'no switch to start the agent: app comments wait for a person');
+    await previewContext.close();
+
+    const appContext = await browser.newContext({ viewport: desktop, reducedMotion: 'reduce' });
+    const visitor = watch(await appContext.newPage());
+    await visitor.goto(invite.text.match(/http:\/\/127\.0\.0\.1:\d+\/review\/[A-Za-z0-9_-]+/)[0]);
+    await visitor.getByRole('heading', { name: 'Pat Tester shared an app preview with you' }).waitFor();
+    await visitor.getByRole('button', { name: 'Email me a code' }).click();
+    for (let i = 0; i < 80 && mail.length === mailed; i++) await delay(250);
+    await visitor.getByLabel('Six-digit code').fill(mail.splice(mailed)[0].code);
+    await visitor.getByRole('button', { name: 'See the app' }).click();
+    const appFrame = visitor.frameLocator('#frame');
+    await appFrame.getByRole('button', { name: 'Make a payment' }).click({ button: 'right' });
+    await visitor.getByRole('dialog', { name: 'Leave a comment' }).waitFor();
+    await visitor.getByLabel('Comment', { exact: true }).fill('Call this "Pay my balance".');
+    await visitor.getByRole('button', { name: 'Save comment' }).click();
+    await visitor.getByText('1 comment', { exact: true }).waitFor();
+    await visitor.getByText(/First screen/).first().waitFor();
+    await shot(visitor, 'app-review-desktop.png');
+    await appContext.close();
+    const made = (await api('GET', '/v1/todos')).todos.find(t => t.text === 'Comment on Example app preview: Call this "Pay my balance".');
+    assert.ok(made, 'the comment is a to-do for the person who shared it');
+    assert.match(made.description, /ana\.ruiz@example\.gov commented on the app preview "Example app preview"\.[\s\S]*Where: On "Make a payment", the first screen/);
   }
   // The reviewer's next comment starts the agent with nobody pressing anything, and their page says it was sent on.
   await reviewer.getByRole('button', { name: 'Comment on this page' }).click();

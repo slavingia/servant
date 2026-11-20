@@ -98,7 +98,7 @@ addEventListener("beforeunload",function(e){if(dirty&&!busy){e.preventDefault();
 // shows the box to write it in, keeps it, and sends back the numbered pins to draw. The page is sandboxed, so it
 // can't reach this server: everything goes through postMessage to the page that framed it. Links inside the
 // prototype keep review mode on.
-const REVIEW = `<script data-servant-review>(function(){if(window.__servantReview)return;window.__servantReview=1;
+export const REVIEW = `<script data-servant-review>(function(){if(window.__servantReview)return;window.__servantReview=1;
 function send(m){m.servant="prototype-review";m.page=location.pathname;try{parent.postMessage(JSON.stringify(m),"*")}catch(x){}}
 function words(n){while(n&&n.nodeType===1&&n!==document.documentElement){var t=(n.getAttribute("aria-label")||n.getAttribute("alt")||n.textContent||"").replace(/\\s+/g," ").trim();if(t)return t.slice(0,120);n=n.parentElement}return ""}
 function at(e,p){var d=document.documentElement,b=document.body||d;var w=Math.max(d.scrollWidth,b.scrollWidth,1),h=Math.max(d.scrollHeight,b.scrollHeight,1);

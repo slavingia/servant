@@ -900,16 +900,20 @@ async function handleReview(req, res, url, cfg) {
   const state = readState();
   const chat = share && state.chats[share.chatId];
   const sharer = share && state.users[share.createdBy];
-  // A share only works while its chat, its prototype and the person who shared it are all still here.
-  const open = !!share && !!chat && !chat.deletedAt && chat.vibeFolder === share.folder && !!sharer && !isRemoved(sharer);
+  const ofApp = share?.kind === "app";
+  // A share only works while its chat, its prototype and the person who shared it are all still here. A share of a
+  // project's app works while the app is on the server and the person who shared it can still see the project.
+  const open = !!share && !!sharer && !isRemoved(sharer) && (ofApp
+    ? !!projectFor(sharer, share.projectId, state.users) && !!previewInfo(APP_PREVIEWS_DIR, share.projectId)
+    : !!chat && !chat.deletedAt && chat.vibeFolder === share.folder);
   if (parts.length === 2) {
     if (method !== "GET" && method !== "HEAD") { res.writeHead(405, { Allow: "GET, HEAD" }); res.end(); return true; }
     const nonce = crypto.randomBytes(16).toString("base64");
     res.writeHead(open ? 200 : 404, reviewPageHeaders(nonce));
-    res.end(method === "HEAD" ? undefined : reviewPage({ nonce, theme: cfg.theme, ended: !open, title: share?.title, sharedBy: sharer?.name, masked: share ? maskEmail(share.email) : "", serverName: cfg.name }));
+    res.end(method === "HEAD" ? undefined : reviewPage({ nonce, theme: cfg.theme, ended: !open, title: share?.title, sharedBy: sharer?.name, masked: share ? maskEmail(share.email) : "", serverName: cfg.name, app: ofApp }));
     return true;
   }
-  if (!open) return refuse(404, "not_found", "This link doesn't work. Ask for the prototype to be shared with you again");
+  if (!open) return refuse(404, "not_found", `This link doesn't work. Ask for the ${ofApp ? "app" : "prototype"} to be shared with you again`);
   const body = async () => {
     const chunks = []; let size = 0;
     for await (const chunk of req) { size += chunk.length; if (size > 16384) throw requestError(413, "too_large", "That is too long"); chunks.push(chunk); }
@@ -919,13 +923,14 @@ async function handleReview(req, res, url, cfg) {
   const bearer = String(req.headers.authorization || "").startsWith("Bearer ") ? String(req.headers.authorization).slice(7).trim() : "";
   // The reviewer is told when their comment was handed to the agent, and nothing about what came of it.
   const view = c => ({ id: c.id, page: c.page, x: c.x, y: c.y, anchor: c.anchor, text: c.text, createdAt: c.createdAt, ...(c.askedAt ? { asked: true } : {}) });
-  const opened = current => ({ prototype: `/p/${current.folder}/`, title: current.title, comments: reviews.comments({ shareId: current.id }).map(view) });
+  const what = ofApp ? "app preview" : "prototype";
+  const opened = current => ({ prototype: ofApp ? `/a/${current.projectId}/` : `/p/${current.folder}/`, ...(ofApp ? { app: true } : {}), title: current.title, comments: reviews.comments({ shareId: current.id }).map(view) });
   try {
     // The code always goes to the address the prototype was shared with. The visitor never chooses where it is sent.
     if (method === "POST" && parts[2] === "code") {
       const sent = await emailVerifier.start({ email: share.email, inviteKey: `review:${share.id}`, mail: (code, minutes) => ({
         subject: `Your code to see "${share.title}" is ${code}`,
-        text: `Your code to see the prototype "${share.title}" that ${sharer.name} shared with you is ${code}. It works for ${minutes} minutes. If you didn't ask for it, ignore this email.` }) }, settings);
+        text: `Your code to see the ${what} "${share.title}" that ${sharer.name} shared with you is ${code}. It works for ${minutes} minutes. If you didn't ask for it, ignore this email.` }) }, settings);
       return json(200, { challenge: sent.id, expiresInSeconds: 600 });
     }
     if (method === "POST" && parts[2] === "verify") {
@@ -941,7 +946,7 @@ async function handleReview(req, res, url, cfg) {
       if (method === "POST") {
         const given = await body();
         const comment = reviews.comment(current, given);
-        reviewCommented(current, comment, sharer, cfg);
+        if (ofApp) appCommented(current, comment, sharer, cfg); else reviewCommented(current, comment, sharer, cfg);
         return json(201, { comment: view(reviews.commentOf(comment.id, current.chatId) || comment) });
       }
     }
@@ -950,6 +955,20 @@ async function handleReview(req, res, url, cfg) {
     return refuse(error.status, error.code || "bad_request", error.message);
   }
   return refuse(404, "not_found", "No such route");
+}
+// A comment on a project's app preview from an outside reviewer: a to-do in that project for the person who shared
+// it, and an alert. Nothing goes to the agent by itself: work on the app is started from the to-do, by a person.
+function appCommented(share, comment, sharer, cfg) {
+  const where = `${comment.anchor ? `On "${comment.anchor}", ` : ""}${comment.page === "/" ? "the first screen" : comment.page}`;
+  const link = publicOrigin(cfg) ? `${publicOrigin(cfg)}/a/${share.projectId}/${comment.page === "/" ? "" : comment.page}` : "";
+  try {
+    const todo = todosStore?.create(sharer, { text: `Comment on ${share.title}: ${comment.text}`, projectId: share.projectId,
+      description: [`${share.email} commented on the app preview "${share.title}".`, "", comment.text, "", `Where: ${where}`, link ? `Page: ${link}` : null].filter(l => l !== null).join("\n") },
+      { source: { kind: "app-review", id: share.projectId, title: share.title } });
+    if (todo?.id) prototypeReviews().linkTodo(comment.id, todo.id);
+  } catch (error) { console.error("[servant] app review comment to-do", error.message); }
+  try { push?.enqueue({ kind: "note", eventId: id("rev"), to: [sharer.id], page: "todos", title: `Comment on ${share.title}`, body: `${share.email}: ${comment.text}` }); }
+  catch (error) { console.error("[servant] app review comment alert", error.message); }
 }
 /**
  * Hand a reviewer's comment to the agent, as a message in the prototype's own chat from the person who shared it.
@@ -1864,6 +1883,47 @@ async function handle(req, res, cfg) {
         const { project } = found(projects().read(), pid);
         if (!project.repo) return send(res, 200, { readme: null });
         return send(res, 200, { readme: await projectReadme(project.repo) });
+      }
+      // Share the project's app preview with an outside reviewer (docs/app-preview.md): the same emailed link and
+      // code as a prototype. Anyone who can see the project can share it; each person sees and ends their own shares.
+      if (parts[3] === "app-preview" && parts[4] === "shares" && (parts.length === 5 || parts.length === 6)) {
+        const { project } = found(projects().read(), pid);
+        const reviews = prototypeReviews();
+        const listing = person => {
+          const mine = reviews.forApp(pid, person.id);
+          const comments = reviews.comments({ shareIds: mine.map(share => share.id) });
+          const open = new Set(mine.filter(share => !share.endedAt).map(share => share.email));
+          return { suggested: outsideReviewers(project).filter(r => !open.has(r.email)), shares: mine.map(share => ({ id: share.id, email: share.email, createdAt: share.createdAt, ...(share.verifiedAt ? { verifiedAt: share.verifiedAt } : {}), ...(share.lastSeenAt ? { lastSeenAt: share.lastSeenAt } : {}), ...(share.endedAt ? { endedAt: share.endedAt } : {}),
+            comments: comments.filter(c => c.shareId === share.id).map(c => ({ id: c.id, page: c.page, x: c.x, y: c.y, anchor: c.anchor, text: c.text, createdAt: c.createdAt, ...(c.todoId ? { todoId: c.todoId } : {}) })) })) };
+        };
+        if (method === "GET" && parts.length === 5) return send(res, 200, listing(user));
+        if (method === "POST" && parts.length === 5) {
+          const body = await readAuthorizedBody(req);
+          const current = requireAuth(req).user;
+          const origin = publicOrigin(cfg), settings = emailSettings(cfg);
+          if (!previewInfo(APP_PREVIEWS_DIR, pid)) return fail(res, 404, "not_found", "This project has no app preview to share yet");
+          if (!origin) return fail(res, 400, "not_set_up", "This server has no public address yet, so there is no link to send. Ask an owner to set it up");
+          if (!settings.mailer?.command && !globalThis.__servantEmailSend) return fail(res, 400, "not_set_up", "This server can't send email yet, so the link can't be sent. Ask an owner to set up email");
+          const title = `${project.name} preview`;
+          let made;
+          try { made = reviews.shareApp({ projectId: pid, title, email: body.email, by: current.id, domains: reviewDomains(settings) }); }
+          catch (e) { if (!e.status) throw e; return fail(res, e.status, e.code, e.message); }
+          try {
+            await sendMail({ to: made.share.email, code: "", minutes: 0, subject: `${current.name} shared an app preview with you: ${title}`,
+              text: `${current.name} shared the app preview "${title}" with you on ${cfg.name} and would like your comments. It runs in your browser with sample data.\n\nOpen it here: ${origin}/review/${made.token}\n\nYou'll be asked to confirm this email address with a code. Then right-click anywhere on the app to leave a comment.\n\nIf you weren't expecting this, ignore this email.` }, settings);
+          } catch (error) {
+            reviews.endApp(made.share.id, pid, current.id);
+            console.error("[servant] app review share email failed:", error?.message || error);
+            return fail(res, 502, "email_send_failed", "Couldn't send the email. Try again, or ask an owner to check email setup");
+          }
+          return send(res, 201, listing(current));
+        }
+        if (method === "DELETE" && parts.length === 6) {
+          const current = requireAuth(req).user;
+          if (!reviews.endApp(parts[5], pid, current.id)) return fail(res, 404, "not_found", "That share has already ended");
+          return send(res, 200, listing(current));
+        }
+        return fail(res, 404, "not_found", "Not found");
       }
       if (method === "PATCH" && parts.length === 3) {
         const body = await readAuthorizedBody(req);
