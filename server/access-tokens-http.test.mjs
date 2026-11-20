@@ -83,7 +83,7 @@ test("until an owner turns it on there is no door at all, and no token can be ma
   const listed = await app("pat", "GET", "tokens");
   assert.deepEqual([listed.status, listed.body.enabled, listed.body.tokens], [200, false, []]);
   assert.deepEqual([(await app("pat", "POST", "tokens", { name: "Work laptop" })).status, (await app("pat", "POST", "tokens", { name: "Work laptop" })).body.error.code], [404, "feature_off"]);
-  config.accessTokens = { enabled: true, requestsPerMinute: 40 }; saveConfig();
+  config.accessTokens = { enabled: true, requestsPerMinute: 80 }; saveConfig();
   const guide = await shell(null, "GET", "");
   assert.equal(guide.status, 200);
   assert.match(guide.headers.get("content-type"), /^text\/markdown/);
@@ -322,7 +322,7 @@ test("a token stops when it is revoked, when its person leaves, and when it has 
   assert.equal((await app("pat", "DELETE", `tokens/${id}`)).status, 404);
   // Forty requests a minute on this server: the owner's token runs out and is told to wait.
   let limited = null;
-  for (let i = 0; i < 45 && !limited; i++) { const r = await shell(people.ana.token, "GET", "/me"); if (r.status === 429) limited = r; }
+  for (let i = 0; i < 85 && !limited; i++) { const r = await shell(people.ana.token, "GET", "/me"); if (r.status === 429) limited = r; }
   assert.deepEqual([limited.json.error.code, limited.headers.get("retry-after")], ["rate_limited", "60"]);
   // Sam is removed from the server: Sam's token goes with them.
   assert.equal((await shell(people.sam.token, "GET", "/me")).status, 200);
