@@ -52,9 +52,13 @@ def _turn_for(session_id, task_id):
     return None
 
 
-def ask(token, door, needs, detail, opener=None):
+def ask(token, door, needs, detail, opener=None, targets=None):
     """Servant's answer as (allowed, message). Any failure to ask or to understand the answer is a refusal."""
-    body = json.dumps({"token": token, "needs": needs, "detail": detail}).encode("utf-8")
+    question = {"token": token, "needs": needs, "detail": detail}
+    # Where the call points, so a grant for one project doesn't cover a path or repository outside it.
+    if isinstance(targets, dict):
+        question.update({key: targets[key] for key in ("paths", "repos") if targets.get(key)})
+    body = json.dumps(question).encode("utf-8")
     request = urllib.request.Request("http://127.0.0.1:%d/use" % door, data=body, headers={"Content-Type": "application/json"}, method="POST")
     try:
         with (opener or _opener).open(request, timeout=ASK_TIMEOUT) as response:
@@ -81,7 +85,7 @@ def check(tool_name, args, session_id="", task_id="", opener=None):
     if turn is None:
         # Not a turn Servant asked to be checked (the checks are off, or this isn't Servant's session).
         return None
-    allowed, message = ask(turn[0], turn[1], needs, hermes_capabilities.describe(tool_name, args), opener)
+    allowed, message = ask(turn[0], turn[1], needs, hermes_capabilities.describe(tool_name, args), opener, hermes_capabilities.targets(tool_name, args))
     return None if allowed else message
 
 

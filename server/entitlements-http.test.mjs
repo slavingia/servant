@@ -401,9 +401,14 @@ test("someone's own GitHub token is the access; the entitlement is still the per
 
 test("in a project's chat the agent's check is about that project: allowed there, still asked for elsewhere", async () => {
   const before = { ...config.agentCapabilities };
+  // The project's folder, a neighbour it must not reach, and a link inside the project that points at the neighbour.
+  const workspace = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "servant-project-folders-")));
+  const appFolder = path.join(workspace, "example-app"), neighbour = path.join(workspace, "other-project");
+  for (const folder of [path.join(appFolder, "src"), neighbour]) fs.mkdirSync(folder, { recursive: true });
+  fs.symlinkSync(neighbour, path.join(appFolder, "shortcut"));
   config.agentCapabilities = { mode: "ask", waitSeconds: 0 };
   fs.writeFileSync(path.join(directory, "projects.json"), JSON.stringify({ people: {}, projects: [
-    { id: "example-app", name: "Example app", owners: [people.owner.id], access: { merge: [], write: [], read: [] } },
+    { id: "example-app", name: "Example app", path: appFolder, repo: "example-org/example-app", owners: [people.owner.id], access: { merge: [], write: [], read: [] } },
     { id: "prototypes", name: "Prototypes", owners: [people.owner.id], access: { merge: [], write: [], read: [] } }] }));
   // Someone new, holding nothing, with a chat in each project, one in a project that no longer exists and one in none.
   const lee = "usr_lee";
@@ -413,9 +418,9 @@ test("in a project's chat the agent's check is about that project: allowed there
       state.chats[id] = { id, userId: lee, title: id, role: "member", createdAt: Date.now(), updatedAt: Date.now(), ...(projectId ? { projectId } : {}) };
     }
   });
-  const check = async (chatId, needs) => {
+  const check = async (chatId, needs, named = {}) => {
     const response = await fetch(`http://127.0.0.1:${mod.egressForTest().port}/use`, { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: mod.egressForTest().mint(lee, chatId), needs, detail: "Run: git push" }) });
+      body: JSON.stringify({ token: mod.egressForTest().mint(lee, chatId), needs, detail: "Run: git push", ...named }) });
     return response.json();
   };
   try {
@@ -444,8 +449,27 @@ test("in a project's chat the agent's check is about that project: allowed there
     // A different entitlement in the allowed project is asked about too.
     assert.equal((await check("chat_app", ["fs-write"])).verdict, "wait");
 
+    // The grant for Example app covers that project's folder and repository, and nothing the call names outside them.
+    for (const paths of [["src/a.ts"], [path.join(appFolder, "src", "new.ts")], ["src", "./README.md"], []]) {
+      assert.equal((await check("chat_app", ["github-write"], { paths })).verdict, "allow", `inside: ${paths}`);
+    }
+    for (const paths of [["../other-project/secret.txt"], [neighbour], ["/etc/hosts"], ["~/Desktop"], ["src/a.ts", "../../elsewhere"], ["shortcut/secret.txt"], ["src/../../other-project"]]) {
+      const out = await check("chat_app", ["github-write"], { paths });
+      assert.equal(out.verdict, "wait", `outside: ${paths}`);
+      assert.match(out.message, /to allow GitHub write for Lee Chen/, "asked about as the entitlement for every project");
+    }
+    assert.equal((await check("chat_app", ["github-write"], { repos: ["example-org/example-app"] })).verdict, "allow");
+    assert.equal((await check("chat_app", ["github-write"], { repos: ["Example-Org/Example-App"] })).verdict, "allow", "a repository's name is not case-sensitive");
+    for (const repos of [["example-org/other"], ["example-org/example-app", "someone/else"]]) {
+      assert.equal((await check("chat_app", ["github-write"], { repos })).verdict, "wait", `another repository: ${repos}`);
+    }
+    // What the bridge sends is read strictly: anything that isn't a short list of strings names nothing.
+    assert.equal((await check("chat_app", ["github-write"], { paths: "../x", repos: { a: 1 } })).verdict, "allow");
+    // A project with no folder or repository set has no such rule: the chat's project alone decides.
+    assert.match((await check("chat_site", ["github-write"], { paths: ["/etc/hosts"], repos: ["x/y"] })).message, /GitHub write · Prototypes/);
+
     // Every one of those checks is in the action record with the chat it came from.
     const actions = (await api("owner", "GET", "entitlements/actions")).body.actions.filter(a => a.userId === lee);
     assert.ok(actions.some(a => a.chatId === "chat_app" && a.verdict === "allowed") && actions.some(a => a.chatId === "chat_site" && a.verdict === "waiting"));
-  } finally { config.agentCapabilities = before; }
+  } finally { config.agentCapabilities = before; fs.rmSync(workspace, { recursive: true, force: true }); }
 });

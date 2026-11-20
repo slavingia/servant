@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
-from hermes_capabilities import FS_READ as R, FS_WRITE as W, GH_READ as GR, GH_WRITE as GW, command_needs, describe, in_order, tool_needs
+from hermes_capabilities import FS_READ as R, FS_WRITE as W, GH_READ as GR, GH_WRITE as GW, command_needs, describe, in_order, targets, tool_needs
 
 
 class CommandNeeds(unittest.TestCase):
@@ -44,6 +44,42 @@ class CommandNeeds(unittest.TestCase):
         # A read-only name with an output redirection still writes.
         self.assertIn(W, command_needs("git log > log.txt"))
         self.assertIn(W, command_needs("gh pr view 1 > pr.txt"))
+
+
+class Targets(unittest.TestCase):
+    def named(self, command):
+        found = targets("terminal", {"command": command})
+        return found["paths"], found["repos"]
+
+    def test_file_tools_name_their_path_exactly(self):
+        self.assertEqual(targets("read_file", {"path": "/etc/hosts"}), {"paths": ["/etc/hosts"], "repos": []})
+        self.assertEqual(targets("write_file", {"file_path": "src/a.ts"}), {"paths": ["src/a.ts"], "repos": []})
+        self.assertEqual(targets("search_files", {"pattern": "x", "path": "../elsewhere"}), {"paths": ["../elsewhere"], "repos": []})
+        self.assertEqual(targets("web_search", {"query": "x"}), {"paths": [], "repos": []})
+        self.assertEqual(targets("read_file", None), {"paths": [], "repos": []})
+
+    def test_a_command_names_the_places_its_words_show(self):
+        self.assertEqual(self.named("ls -la"), ([], []))
+        self.assertEqual(self.named("cat ../other/secret.txt && cd /Users/you/elsewhere"), (["../other/secret.txt", "/Users/you/elsewhere"], []))
+        self.assertEqual(self.named("git -C ../servant status"), (["../servant"], []))
+        self.assertEqual(self.named("cd app && ls ~/Desktop"), (["app", "~/Desktop"], []))
+        self.assertEqual(self.named("cp src/a.ts src/../../outside/a.ts"), (["src/../../outside/a.ts"], []))
+        self.assertEqual(self.named("grep -rn TODO src"), ([], []), "a plain relative path stays where the command runs")
+        self.assertEqual(self.named("curl https://example.gov/x/../y"), ([], []), "a web address is not a path")
+        self.assertEqual(targets("terminal", {"command": "ls", "workdir": "/tmp/elsewhere"})["paths"], ["/tmp/elsewhere"])
+
+    def test_a_command_names_the_repositories_it_addresses(self):
+        for command in ("gh pr list --repo example-org/other", "gh pr view 3 -R example-org/other", "gh pr list --repo=example-org/other", "gh api repos/example-org/other/issues",
+                        "git clone https://github.com/example-org/other.git", "git push git@github.com:example-org/other.git main", "curl https://api.github.com/repos/example-org/other/pulls"):
+            self.assertEqual(self.named(command)[1], ["example-org/other"], command)
+        self.assertEqual(self.named("gh pr list")[1], [], "no repository named: the one the folder belongs to")
+        self.assertEqual(self.named("gh pr list -R not-a-repo")[1], [])
+
+    def test_the_lists_are_short_and_never_fail(self):
+        many = " ".join("/tmp/f%d" % i for i in range(60))
+        self.assertEqual(len(self.named("cat " + many)[0]), 20)
+        self.assertEqual(self.named("cat 'unterminated /etc/hosts"), ([], []), "a command that can't be read names nothing here; it is already asked about as a write")
+        self.assertEqual(targets("terminal", {"command": None}), {"paths": [], "repos": []})
 
 
 class ToolNeeds(unittest.TestCase):
@@ -120,7 +156,16 @@ class Guard(unittest.TestCase):
         self.assertIsNone(self.guard.check("terminal", {"command": "git commit -am x && git push"}, session_id="sess"))
         self.assertEqual(self.asked, [("/use", {"token": "tok", "needs": [GW, W], "detail": "Run: git commit -am x && git push"})])
         self.assertIsNone(self.guard.check("read_file", {"path": "README.md"}, task_id="sess"), "a tool call may carry the session as its task id")
-        self.assertEqual(self.asked[1][1], {"token": "tok", "needs": [R], "detail": "Read README.md"})
+        self.assertEqual(self.asked[1][1], {"token": "tok", "needs": [R], "detail": "Read README.md", "paths": ["README.md"]})
+
+    def test_servant_is_told_where_the_call_points_so_one_projects_grant_does_not_cover_another(self):
+        self.bind("sess", "tok")
+        self.guard.check("terminal", {"command": "cat ../other/notes.md && gh pr list --repo example-org/other"}, session_id="sess")
+        self.assertEqual(self.asked[0][1]["paths"], ["../other/notes.md"])
+        self.assertEqual(self.asked[0][1]["repos"], ["example-org/other"])
+        self.guard.check("terminal", {"command": "ls -la"}, session_id="sess")
+        self.assertNotIn("paths", self.asked[1][1], "a call that names nowhere sends no list")
+        self.assertNotIn("repos", self.asked[1][1])
 
     def test_anything_but_allow_stops_the_call_with_servants_words(self):
         self.bind("deny", "tok-deny")
