@@ -52,6 +52,7 @@ test('the report becomes an issue: the reporter\'s words are fenced data, mentio
   assert.match(body, /- via: `shake'x`/);
   assert.match(body, /Report fb_1/);
   assert.doesNotMatch(issueFor({ id: 'fb_2', text: 'plain', context: {} }).body, /screenshot was attached/);
+  assert.match(issueFor({ id: 'fb_3', text: 'slow list', context: { kind: 'slow', via: 'access token' } }).body, /- kind: `slow`\n- via: `access token`/);
   assert.match(issueFor({ id: 'fb_2', text: 'plain', context: {}, images: [{}] }).body, /screenshot was attached/);
 });
 test('filing an issue: created once per report, label falls back, bad repos refused, errors surface for retry', async () => {

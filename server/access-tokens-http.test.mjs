@@ -242,6 +242,33 @@ test("a message to your own agent, and its answer read back", async () => {
   assert.deepEqual([(await shell(people.sam.token, "POST", "/agent", { text: "Hi" })).status, (await shell(people.sam.token, "POST", "/agent", { text: "Hi" })).json.error.code], [429, "usage_limit"]);
 });
 
+test("a report of what broke, was slow or got in the way joins the feedback queue as its own person's", async () => {
+  const sent = await shell(people.pat.token, "POST", "/feedback", { kind: "slow", text: "GET /prototypes took 40 seconds twice this morning", where: "sharing the refund prototype", requestId: "report-0001" });
+  assert.equal(sent.status, 202, JSON.stringify(sent.json));
+  assert.deepEqual([sent.json.report.kind, sent.json.report.status, sent.json.read], ["slow", "queued", "/api/v1/feedback"]);
+  // The same request sent again (an answer lost on the way) is the same report, not a second one.
+  assert.equal((await shell(people.pat.token, "POST", "/feedback", { kind: "slow", text: "GET /prototypes took 40 seconds twice this morning", requestId: "report-0001" })).json.report.id, sent.json.report.id);
+  assert.equal((await shell(people.pat.token, "POST", "/feedback", { text: "The share answer has no link when the email fails" })).status, 202, "kind and requestId are optional");
+  // Pat reads back their own, newest first; nobody else sees them, the owner included.
+  const mine = (await shell(people.pat.token, "GET", "/feedback")).json.reports;
+  assert.deepEqual(mine.map(r => [r.kind, r.status]).sort(), [["", "queued"], ["slow", "queued"]]);
+  assert.deepEqual((await shell(people.ana.token, "GET", "/feedback")).json.reports, []);
+  // It is the queue the app's own feedback uses, with where it came from kept beside the words.
+  const inApp = (await app("pat", "GET", "feedback")).body.reports.find(r => r.id === sent.json.report.id);
+  assert.deepEqual([inApp.text, inApp.context.kind, inApp.context.screen, inApp.context.via], ["GET /prototypes took 40 seconds twice this morning", "slow", "sharing the refund prototype", "access token"]);
+  // What is refused, and why.
+  const refused = async (body, code) => { const r = await shell(people.pat.token, "POST", "/feedback", body); assert.deepEqual([r.status >= 400, r.json.error.code], [true, code], JSON.stringify(body)); return r.json.error.message; };
+  assert.match(await refused({ kind: "angry", text: "x" }, "bad_request"), /bug, friction, slow, confusing, idea/);
+  await refused({ text: " " }, "invalid_feedback");
+  await refused({ text: "x".repeat(4001) }, "invalid_feedback");
+  await refused({ text: "ok", where: 7 }, "bad_request");
+  await refused({ text: "My token is ghp_" + "a".repeat(36) }, "secret_in_chat");
+  assert.equal((await shell("", "POST", "/feedback", { text: "no token" })).status, 401);
+  // Five an hour for each person, the same limit as in the app.
+  for (let i = 0; i < 3; i++) assert.equal((await shell(people.pat.token, "POST", "/feedback", { text: `Report ${i}` })).status, 202);
+  assert.equal(await refused({ text: "One too many" }, "rate_limited"), "You can send five reports per hour. Please try again later.");
+});
+
 test("a token stops when it is revoked, when its person leaves, and when it has used up its minute", async () => {
   const id = (await app("pat", "GET", "tokens")).body.tokens[0].id;
   assert.equal((await app("sam", "DELETE", `tokens/${id}`)).status, 404, "only your own");
