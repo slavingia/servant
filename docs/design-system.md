@@ -148,8 +148,9 @@ thin decorative separators need not look like form boundaries.
 
 ### Space and shape
 
-Spacing tokens are `xxs: 4`, `xs: 8`, `sm: 12`, `md: 16`, `side: 16`, `lg: 24`,
-`xl: 32`, and `xxl: 48`. Screens have 16-point side gutters. Related content uses
+Spacing tokens are `xxs: 4`, `xs: 8`, `sm: 12`, `md: 16`, `side: 16`, `stack: 20`,
+`lg: 24`, `xl: 32`, and `xxl: 48`. Screens have 16-point side gutters. `stack` is the gap between things stacked one
+above another on a page; the onboarding tour uses it throughout. Related content uses
 4–12 points; larger separations use 24–32 points. Radius tokens are `sm: 6`,
 `md: 10`, `lg: 12`, `xl: 24`, and `pill: 999`. People avatars are circles; agent
 avatars, buttons, and reaction chips use small rounded corners. Unread badges and

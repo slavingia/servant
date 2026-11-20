@@ -7,7 +7,10 @@
 // SERVANT_E2E_BROWSER=chrome uses installed Chrome. SERVANT_E2E_MODULES=<a package.json> finds Playwright somewhere
 // other than desktop/. SERVANT_TOUR_E2E_APP=<another checkout's app directory> with SERVANT_TOUR_E2E_BEFORE=1
 // captures that checkout after joining and its You page, for a "before" picture. Captures go to after/ and before/
-// there. SERVANT_E2E_DEBUG=<folder> saves what each page showed if a step fails. No live data is used.
+// there. SERVANT_TOUR_E2E_SHOTS=<folder> saves the captures somewhere else. SERVANT_TOUR_E2E_GAPS=<file> writes the
+// measured gap between everything stacked on each page, as JSON. With SERVANT_TOUR_E2E_APP and without
+// SERVANT_TOUR_E2E_BEFORE the whole walk runs against that checkout: its gaps are measured, not checked.
+// SERVANT_E2E_DEBUG=<folder> saves what each page showed if a step fails. No live data is used.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -32,7 +35,10 @@ const run = promisify(execFile);
 const before = process.env.SERVANT_TOUR_E2E_BEFORE === '1';
 const appDir = process.env.SERVANT_TOUR_E2E_APP || path.join(repository, 'app');
 const scratch = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'servant-tour-e2e-'));
-const shots = path.join(repository, 'docs/captures/onboarding-tour', before ? 'before' : 'after');
+const shots = process.env.SERVANT_TOUR_E2E_SHOTS ? path.resolve(process.env.SERVANT_TOUR_E2E_SHOTS) : path.join(repository, 'docs/captures/onboarding-tour', before ? 'before' : 'after');
+// Another checkout is pictured and measured, not held to this one's spacing.
+const checksGaps = !process.env.SERVANT_TOUR_E2E_APP;
+const measured = {};
 fs.mkdirSync(shots, { recursive: true });
 const data = path.join(scratch, 'data');
 fs.mkdirSync(data, { mode: 0o700 });
@@ -157,6 +163,33 @@ try {
   const says = (page, text) => page.getByText(text, { exact: true }).first().waitFor();
   const TITLES = ["What's your role?", 'You stay in charge', 'Your access level', 'Your daily limit', 'Where your data goes', 'Try asking @agent'];
   const PAGES = ['role', 'in-charge', 'access', 'limit', 'data', 'try'];
+  // The gap, in CSS pixels, between each pair of things stacked one above the other on a tour page: the top bar and
+  // the title, the blocks of the page, the end of the page, and what is stacked inside a block. Read from where the
+  // browser drew them.
+  const stackGaps = page => page.evaluate(() => {
+    const find = id => [...document.querySelectorAll(`[data-testid="${id}"]`)];
+    const name = el => (el.innerText || el.getAttribute('aria-label') || el.getAttribute('data-testid') || '').trim().split('\n')[0].slice(0, 48);
+    const px = n => Math.round(n * 10) / 10;
+    const between = (kind, list) => list.slice(1).map((el, at) => ({ kind, above: name(list[at]), below: name(el), px: px(el.getBoundingClientRect().top - list[at].getBoundingClientRect().bottom) }));
+    const content = find('tour-page')[0], blocks = [...content.children];
+    const edge = (kind, above, below, gap) => ({ kind, above, below, px: px(gap) });
+    return [
+      edge('page', 'Top bar', name(blocks[0]), blocks[0].getBoundingClientRect().top - find('tour-top')[0].getBoundingClientRect().bottom),
+      ...between('page', blocks),
+      edge('page', name(blocks.at(-1)), 'End of the page', content.parentElement.getBoundingClientRect().bottom - blocks.at(-1).getBoundingClientRect().bottom),
+      ...between('title', [...blocks[0].children]),
+      ...find('tour-section').flatMap(el => between('label', [...el.children])),
+      ...find('tour-points').flatMap(el => between('points', [...el.children])),
+      ...find('tour-example').flatMap(el => between('example', [...el.children])),
+    ];
+  });
+  // 20 between everything stacked (space.stack in the app's theme). Closer on purpose: a title and its own line of
+  // explanation (4), and a label and the list it names (8).
+  const GAP = { page: 20, points: 20, example: 20, failed: 20, title: 4, label: 8 };
+  const checkGaps = (name, gaps) => {
+    measured[name] = gaps;
+    if (checksGaps) for (const gap of gaps) assert.ok(Math.abs(gap.px - GAP[gap.kind]) <= 0.5, `${name}: "${gap.above}" to "${gap.below}" is ${gap.px}, not ${GAP[gap.kind]}`);
+  };
   /** Walks the six pages from the first, capturing each as `<prefix>-<n>-<page>.png`; `check(page, n)` asserts on a page. */
   const walk = async (page, prefix, { role, check = async () => {} } = {}) => {
     for (let n = 0; n < 6; n++) {
@@ -167,6 +200,7 @@ try {
         await page.getByRole('radio', { name: role, exact: true, checked: true }).waitFor();
       }
       await check(page, n);
+      checkGaps(`${prefix || 'tour'}-${n + 1}-${PAGES[n]}`, await stackGaps(page));
       if (prefix) await shot(page, `${prefix}-${n + 1}-${PAGES[n]}.png`);
       if (n < 5) await next(page);
     }
@@ -195,9 +229,11 @@ try {
     const kaiCode = await invite('', 'member');
     const joining = await newPage(null, phone, { at: `/pair?code=${encodeURIComponent(kaiCode)}&key=${serverKey}&server=${encodeURIComponent(apiUrl)}` });
     await joining.getByRole('button', { name: 'Agree and join', exact: true }).waitFor();
+    await shot(joining, 'kai-phone-light-0-join-terms.png');
     for (const box of await joining.getByRole('checkbox').all()) await box.click();
     await joining.getByRole('button', { name: 'Agree and join', exact: true }).click();
     await joining.getByLabel('Your name').fill('Kai Moss');
+    await shot(joining, 'kai-phone-light-0-join-name.png');
     await joining.getByRole('button', { name: 'Join workspace', exact: true }).click();
     await heading(joining, TITLES[0]);
     assert.equal(new URL(joining.url()).pathname, '/tour', 'joining goes straight to the tour');
@@ -288,6 +324,20 @@ try {
     await member.getByTestId('tour-skip').click();
     await says(member, 'Take the tour');
     assert.equal(new URL(member.url()).pathname, '/you', 'Skip goes back to where the tour was opened');
+    // With no connection the tour says so, and Try again loads it once the connection is back.
+    await member.context().setOffline(true);
+    await member.getByText('Take the tour', { exact: true }).click();
+    await says(member, "Couldn't load the tour. Check your connection and try again.");
+    checkGaps('pat-phone-light-9-could-not-load', await member.getByTestId('tour-load-error').evaluate(el => {
+      const [words, button] = [...el.children].map(child => child.getBoundingClientRect());
+      return [{ kind: 'failed', above: "Couldn't load the tour", below: 'Try again', px: Math.round((button.top - words.bottom) * 10) / 10 }];
+    }));
+    await shot(member, 'pat-phone-light-9-could-not-load.png');
+    await member.context().setOffline(false);
+    await member.getByRole('button', { name: 'Try again', exact: true }).click();
+    await heading(member, TITLES[0]);
+    await member.getByTestId('tour-skip').click();
+    await says(member, 'Take the tour');
 
     // ---- Sam, the same level with a 5M limit, in dark. ----
     const limited = await newPage(sam, phone, { scheme: 'dark' });
@@ -342,6 +392,12 @@ try {
         await owner.goto(`${webUrl}/members`);
         await owner.getByText(/Software engineer · Role: Designer/).first().waitFor();
         await shot(owner, 'ana-desktop-light-7-people.png');
+        // The same People on a phone, from an app that has saved that the tour was seen.
+        const { tourDue: _due, ...seen } = ana;
+        const narrow = await newPage(seen, phone);
+        await narrow.getByRole('tab', { name: /People/ }).first().click();
+        await narrow.getByText(/Software engineer · Role: Designer/).locator('visible=true').first().waitFor();
+        await shot(narrow, 'ana-phone-light-7-people.png');
       }
     }
 
@@ -362,6 +418,7 @@ try {
     configure();
 
     assert.deepEqual(pageErrors, [], 'no page errors');
+    if (process.env.SERVANT_TOUR_E2E_GAPS) fs.writeFileSync(path.resolve(process.env.SERVANT_TOUR_E2E_GAPS), JSON.stringify(measured, null, 2) + '\n');
     console.log(`onboarding-tour-e2e: OK, captures saved in ${path.relative(repository, shots)}`);
   }
 } catch (error) {

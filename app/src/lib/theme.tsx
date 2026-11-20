@@ -8,7 +8,8 @@ export type { ColorScheme, ThemeColors } from "./theme-colors";
 export { APP_ICON_COLOR, onBrandTint } from "./theme-colors";
 
 // Shared type, space and shape stay constant across appearances.
-export const space = { xxs: 4, xs: 8, sm: 12, md: 16, side: 16, lg: 24, xl: 32, xxl: 48 };
+// `stack` is the gap between things stacked one above another on a page (the onboarding tour uses it throughout).
+export const space = { xxs: 4, xs: 8, sm: 12, md: 16, side: 16, stack: 20, lg: 24, xl: 32, xxl: 48 };
 export const radius = { sm: 6, md: 10, lg: 12, xl: 24, pill: 999 };
 
 // A link is always underlined in a browser and the Mac app, where the pointer gives no other sign of one.
