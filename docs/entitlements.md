@@ -30,7 +30,7 @@ The fifth, **Social media**, is for a person rather than their agent: holding it
 The four above are **asked for by use**. Nobody fills in a form: the first time someone's agent is about to do one of these things, the agent stops, the person's manager is told ("Pat Tester's agent needs GitHub write"), and in Entitlements the manager sees what the agent was about to do ("Run: git push origin main") with three answers:
 
 - **Allow once**: that one action goes ahead. The next one asks again.
-- **Allow always**: the person holds the entitlement from now on, until someone takes it back.
+- **Allow always**: the person holds the entitlement from now on, until someone takes it back, or until it runs out on a server that gives standing grants a lifetime (below).
 - **Decline**: the agent is told no and passes that on. It is not asked about again until the person asks for it themselves in Entitlements.
 
 While it waits, the reply's progress line says so ("Waiting for Ana Ruiz to allow GitHub write"). The agent waits a while for the answer (`waitSeconds`, 120 by default) and carries on by itself if it comes in time. If it doesn't, the agent tells the person it is waiting on their manager, and the request stays open; once it is answered, the person asks the agent to try again. Every step is in the entitlement's history: the request with what the agent was about to do, who allowed it and how, and when a single allowance was used.
@@ -88,6 +88,8 @@ In the app, **People** has an **Org chart** view beside Name and Last seen: each
 5. **Their manager or an owner can take it back** at any time. The hosts close at once.
 
 Nobody can be given an entitlement they did not ask for, themselves or through their own agent's use of it.
+
+**Standing grants can run out.** Set `"entitlementGrantDays": 90` in `config.json` (a whole number of days, 1 to 3650) and every grant, of a built-in entitlement or the server's own, lasts that many days from the day it was granted. After that it is marked `expired`: it opens no hosts, the agent's next use of a built-in one waits for the manager again, and a manager whose own grant ran out can no longer pass it on. Nothing is deleted: the standing stays on record, the history gains an `expired` line written by the server, and the person asks again for a new decision and a new lifetime. While a grant lasts, `GET /v1/entitlements` gives its `expiresAt`. Unset or `0`, grants last until someone takes them back, as before. The setting applies to grants already made, counted from the day each was granted.
 
 When a person is removed from the server, everything they held or were waiting on is revoked. Changing an entitlement's hosts applies at once to everyone who holds it. Retiring an entitlement closes it for everyone.
 

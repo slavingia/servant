@@ -64,7 +64,7 @@ import { jobRoleOf, validJobRole } from "./job-roles.mjs";
 import { tourFacts } from "./tour.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { createEgressProxy, createEgressStore, egressSettings } from "./egress.mjs";
-import { capabilitySettings, createEntitlements, NATIVE, SOCIAL_ENTITLEMENT } from "./entitlements.mjs";
+import { capabilitySettings, createEntitlements, grantDaysSetting, NATIVE, SOCIAL_ENTITLEMENT } from "./entitlements.mjs";
 import { checkGithubToken, cleanValues, createConnections, createTextStream, publicTool, readConnectMarkers, redactor, stripConnectMarkers, tokenInChatMessage, tokenInText, toolCatalog } from "./connections.mjs";
 import { AUTO_WORK_PER_HOUR, commentRequest, createPrototypeReviews, maskEmail, reviewDomains } from "./prototype-reviews.mjs";
 import { reviewPage, reviewPageHeaders } from "./prototype-review-page.mjs";
@@ -187,6 +187,8 @@ export function loadConfig() {
     agentAccess: cfg.agentAccess === "limited" ? "limited" : "full",
     // The agent's way out to the network (docs/agent-egress.md). Off unless mode is "ask".
     agentEgress: egressSettings(cfg.agentEgress),
+    // How many days an "allow always" lasts before it must be asked for again (docs/entitlements.md). 0: until taken back.
+    entitlementGrantDays: grantDaysSetting(cfg.entitlementGrantDays),
     // Built-in entitlements checked before the agent reads or changes files or GitHub (docs/entitlements.md). Off unless mode is "ask".
     agentCapabilities: capabilitySettings(cfg.agentCapabilities),
     // Personal connections (docs/connections.md): an owner's own tool types ("types"), and `"verify": false` to save a GitHub token without asking GitHub whose it is.
@@ -1033,6 +1035,7 @@ const entitlementStore = () => entitlementDb ??= createEntitlements(path.join(DA
   known: userId => { const u = readState().users[userId]; return !!u && !isRemoved(u); },
   isOwner: userId => readState().users[userId]?.role === "owner",
   manages: (by, userId) => { const state = readState(); return managerOf(state, state.users[userId])?.id === by; },
+  grantDays: () => loadConfig().entitlementGrantDays,
 });
 // Everyone but an owner has a manager, who decides their entitlement requests: whoever was chosen for them, else
 // whoever invited them, else the server's first owner. Someone who has left is skipped.

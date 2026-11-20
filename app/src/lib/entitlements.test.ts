@@ -14,12 +14,14 @@ test("where you stand, in one line", () => {
   assert.equal(standingLine(standing("denied", { reason: "Not on the team" }), "Jo Park"), "Declined: Not on the team");
   assert.equal(standingLine(standing("denied"), "Jo Park"), "Declined");
   assert.equal(standingLine(standing("revoked"), "Jo Park"), "Taken back");
+  assert.equal(standingLine(standing("expired"), "Jo Park"), "Expired. Ask again to keep using it");
 });
 
 test("you can ask when you never did, or after a no", () => {
   assert.equal(canAsk(null), true);
   assert.equal(canAsk(standing("denied")), true);
   assert.equal(canAsk(standing("revoked")), true);
+  assert.equal(canAsk(standing("expired")), true, "a grant that ran out is asked for again");
   assert.equal(canAsk(standing("requested")), false);
   assert.equal(canAsk(standing("granted")), false);
   assert.equal(askLabel(null), "Ask for this");

@@ -71,7 +71,11 @@ export function cleanHosts(value) {
  * owner, and `manages(by, userId)` whether `by` is that person's manager. Owners make, edit and retire
  * entitlements and can decide for anyone; a manager decides for the people they manage.
  */
-export function createEntitlements(file, { clock = Date.now, known = () => true, isOwner = () => false, manages = () => false } = {}) {
+/** `"entitlementGrantDays"` in config.json: how many days an "allow always" lasts before it has to be asked for again. 0 (the default) or anything else that isn't a whole number of days from 1 to 3650: it lasts until someone takes it back. */
+export const grantDaysSetting = raw => (Number.isInteger(raw) && raw >= 1 && raw <= 3650 ? raw : 0);
+const DAY_MS = 24 * 60 * 60_000;
+
+export function createEntitlements(file, { clock = Date.now, known = () => true, isOwner = () => false, manages = () => false, grantDays = () => 0 } = {}) {
   const db = new DatabaseSync(file);
   db.exec("PRAGMA busy_timeout=5000");
   db.exec(`PRAGMA journal_mode=WAL;
@@ -102,7 +106,10 @@ export function createEntitlements(file, { clock = Date.now, known = () => true,
     db.prepare("INSERT INTO history(entitlement_id,user_id,action,by,at,detail) VALUES (?,?,?,?,?,?)").run(entitlementId, userId ?? null, action, String(by), clock(), JSON.stringify(detail));
   const shape = r => r && ({ id: r.id, name: r.name, description: r.description, hosts: JSON.parse(r.hosts), confirmation: r.confirmation || DEFAULT_CONFIRMATION,
     createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at, ...(r.capability ? { native: true, capability: r.capability, ...(r.capability === SOCIAL_ENTITLEMENT.capability ? { byRequest: true } : {}) } : {}), ...(r.retired_at ? { retiredAt: r.retired_at } : {}) });
+  // How long a standing grant lasts, in milliseconds; 0 when grants don't run out.
+  const lifetime = () => grantDaysSetting(grantDays()) * DAY_MS;
   const grantShape = r => r && ({ entitlementId: r.entitlement_id, userId: r.user_id, status: r.status, note: r.note, requestedAt: r.requested_at,
+    ...(r.status === "granted" && r.decided_at && lifetime() ? { expiresAt: r.decided_at + lifetime() } : {}),
     ...(r.via === "use" ? { via: "use", ...(r.detail ? { detail: r.detail } : {}) } : {}),
     ...(r.decided_by ? { decidedBy: r.decided_by, decidedAt: r.decided_at } : {}), ...(r.reason ? { reason: r.reason } : {}) });
   const row = id => db.prepare("SELECT * FROM entitlements WHERE id=?").get(String(id));
@@ -110,12 +117,27 @@ export function createEntitlements(file, { clock = Date.now, known = () => true,
   const grantRow = (id, userId) => db.prepare("SELECT * FROM grants WHERE entitlement_id=? AND user_id=?").get(String(id), String(userId));
   // Built-in ones first, then the server's own, each A to Z.
   const all = () => db.prepare("SELECT * FROM entitlements WHERE retired_at IS NULL ORDER BY capability IS NULL, name COLLATE NOCASE").all().map(shape);
+  // Standing grants run out when the server sets a lifetime for them. One that has is marked "expired" (kept, like
+  // every other standing), the history says so, and from then on it opens nothing: the person asks again and their
+  // manager decides again. Checked before every read and decision, so there is no window in which it still counts.
+  const expire = () => {
+    const life = lifetime();
+    if (!life) return;
+    const due = db.prepare("SELECT entitlement_id, user_id, decided_at FROM grants WHERE status='granted' AND decided_at IS NOT NULL AND decided_at<=?").all(clock() - life);
+    if (!due.length) return;
+    tx(() => {
+      for (const g of due) {
+        db.prepare("UPDATE grants SET status='expired' WHERE entitlement_id=? AND user_id=? AND status='granted'").run(g.entitlement_id, g.user_id);
+        note(g.entitlement_id, g.user_id, "expired", "server", { grantedAt: g.decided_at, days: life / DAY_MS });
+      }
+    });
+  };
   /** May `by` decide what `userId` holds? Owners for anyone (themselves included); a manager for the people they manage. */
   const decides = (by, userId) => !!by && known(by) && (isOwner(by) || (String(by) !== String(userId) && manages(by, userId)));
   // Holding a built-in "write" also counts as holding its "read".
   const holds = (id, userId) => grantRow(id, userId)?.status === "granted" || NATIVE.some(n => n.covers && nativeFor(n.covers)?.id === id && grantRow(n.id, userId)?.status === "granted");
 
-  return {
+  const store = {
     list: all,
     get: id => { const r = row(id); return r && !r.retired_at ? shape(r) : null; },
     decides,
@@ -285,6 +307,8 @@ export function createEntitlements(file, { clock = Date.now, known = () => true,
       .map(h => ({ action: h.action, ...(h.user_id ? { userId: h.user_id } : {}), by: h.by, at: h.at, detail: JSON.parse(h.detail) })),
     /** Whether this person holds an entitlement right now (a built-in "write" counts as its "read"). */
     holds: (id, userId) => known(userId) && holds(id, userId),
-    close: () => db.close(),
   };
+  // Every question to the store sees grants that have run out as run out.
+  const fresh = Object.fromEntries(Object.entries(store).map(([name, method]) => [name, (...args) => { expire(); return method(...args); }]));
+  return { ...fresh, close: () => db.close() };
 }
