@@ -274,3 +274,62 @@ test("a project names its outside reviewers once, and sharing a prototype offers
   assert.equal((await api("ana", "PATCH", "projects/prototypes", { outsideReviewers: [] })).status, 200);
   assert.deepEqual(await offered(), []);
 });
+
+test("a project's app preview is shared the same way; comments come back to the person who shared it, and nothing goes to the agent", async () => {
+  mail.splice(0); pushes.splice(0);
+  fs.writeFileSync(path.join(directory, "projects.json"), JSON.stringify({ people: {}, projects: [
+    { id: "example-app", name: "Example app", owners: [people.ana.id], access: { merge: [], write: [], read: [people.pat.id] }, outsideReviewers: [{ email: "jo.park@example.gov", label: "Product owner" }] }] }));
+  const shares = who => api(who, "GET", "projects/example-app/app-preview/shares");
+  assert.equal((await shares("sam")).status, 404, "not someone outside the project");
+  assert.deepEqual((await shares("pat")).body, { suggested: [{ email: "jo.park@example.gov", label: "Product owner" }], shares: [] });
+  const none = await api("pat", "POST", "projects/example-app/app-preview/shares", { email: "jo.park@example.gov" });
+  assert.deepEqual([none.status, none.body.error.message], [404, "This project has no app preview to share yet"]);
+  fs.mkdirSync(path.join(directory, "app-previews", "example-app"), { recursive: true });
+  fs.writeFileSync(path.join(directory, "app-previews", "example-app", "index.html"), "<html><head></head><body><h1>Example app</h1><button>Make a payment</button></body></html>");
+  assert.equal((await api("pat", "POST", "projects/example-app/app-preview/shares", { email: "jo.park@example.com" })).body.error.code, "email_not_allowed");
+
+  const shared = await api("pat", "POST", "projects/example-app/app-preview/shares", { email: "jo.park@example.gov" });
+  assert.deepEqual([shared.status, shared.body.suggested, shared.body.shares.map(s => [s.email, s.comments.length])], [201, [], [["jo.park@example.gov", 0]]]);
+  const [invite] = mail.splice(0);
+  assert.deepEqual([invite.to, invite.subject], ["jo.park@example.gov", "Pat Tester shared an app preview with you: Example app preview"]);
+  const link = linkIn(invite);
+  assert.match((await visit(link)).text, /Pat Tester shared an app preview with you/);
+  const asked = await visit(`${link}/code`, { method: "POST" });
+  const [codeMail] = mail.splice(0);
+  assert.match(codeMail.text, /^Your code to see the app preview "Example app preview" that Pat Tester shared with you is \d{6}\./);
+  const verified = await visit(`${link}/verify`, { method: "POST", body: { challenge: asked.json.challenge, code: codeMail.code } });
+  assert.deepEqual([verified.status, verified.json.prototype, verified.json.app], [200, "/a/example-app/", true]);
+  // A reviewer's copy of the app listens for right-clicks and can't edit; the team's own copy still has its bridge.
+  const reviewing = (await visit("/a/example-app/?review=1")).text, own = (await visit("/a/example-app/")).text;
+  assert.deepEqual([reviewing.includes("data-servant-review"), reviewing.includes("data-servant-bridge"), own.includes("data-servant-bridge"), own.includes("data-servant-review")], [true, false, true, false]);
+
+  const session = verified.json.session;
+  const made = await visit(`${link}/comments`, { method: "POST", session, body: { page: "/a/example-app/notices/2024?tab=1", x: 0.5, y: 0.3, anchor: "Make a payment", text: "Call this Pay my balance" } });
+  assert.deepEqual([made.status, made.json.comment.page, made.json.comment.asked], [201, "notices/2024", undefined]);
+  const home = await visit(`${link}/comments`, { method: "POST", session, body: { page: "/a/example-app/", x: 0, y: 0, text: "Where is the sign-in?" } });
+  assert.equal(home.json.comment.page, "/");
+  // The sharer is told, with nothing to route by (the alert opens the app). Nothing is filed in To-dos.
+  assert.deepEqual((await waitFor(pushes, 2)).map(p => [p.to, p.title, p.body, p.page, p.chatId]), [["push-pat", "Comment on Example app preview", "jo.park@example.gov: Call this Pay my balance", undefined, undefined], ["push-pat", "Comment on Example app preview", "jo.park@example.gov: Where is the sign-in?", undefined, undefined]]);
+  assert.equal((await api("pat", "GET", "todos")).body.todos.some(t => /Example app/.test(t.text)), false);
+  // The comments come back to the sharer's own list, where one they have dealt with is set aside.
+  assert.equal((await api("ana", "POST", `projects/example-app/app-preview/comments/${made.json.comment.id}/set-aside`, {})).status, 404, "not someone else's to set aside");
+  assert.equal((await api("pat", "POST", `projects/example-app/app-preview/comments/${made.json.comment.id}/set-aside`, {})).status, 200);
+  assert.equal((await api("pat", "POST", `projects/example-app/app-preview/comments/${made.json.comment.id}/set-aside`, {})).status, 404, "once");
+  assert.deepEqual((await shares("pat")).body.shares[0].comments.map(c => [c.page, !!c.setAsideAt, "todoId" in c]), [["notices/2024", true, false], ["/", false, false]]);
+  // Each person keeps their own shares of a project's app; one person's are not another's to see or end.
+  const mine = (await shares("pat")).body.shares;
+  assert.deepEqual(mine.map(s => s.comments.map(c => c.page)), [["notices/2024", "/"]]);
+  assert.deepEqual((await shares("ana")).body.shares, []);
+  assert.equal((await api("ana", "DELETE", `projects/example-app/app-preview/shares/${mine[0].id}`)).status, 404);
+  // It is not a prototype's share: the chat routes don't reach it.
+  assert.equal((await api("pat", "PATCH", `chats/cht_work/prototype/shares/${mine[0].id}`, { autoWork: true })).status, 404);
+  assert.equal((await api("pat", "POST", `chats/cht_work/prototype/comments/${made.json.comment.id}/work`, {})).status, 404);
+  // The link stops when the sharer can no longer see the project, and when they end it.
+  fs.writeFileSync(path.join(directory, "projects.json"), JSON.stringify({ people: {}, projects: [{ id: "example-app", name: "Example app", owners: [people.ana.id], access: { merge: [], write: [], read: [] } }] }));
+  assert.equal((await visit(link)).status, 404);
+  assert.equal((await visit(`${link}/comments`, { session })).status, 404);
+  fs.writeFileSync(path.join(directory, "projects.json"), JSON.stringify({ people: {}, projects: [{ id: "example-app", name: "Example app", owners: [people.ana.id], access: { merge: [], write: [], read: [people.pat.id] } }] }));
+  assert.equal((await visit(link)).status, 200);
+  assert.equal((await api("pat", "DELETE", `projects/example-app/app-preview/shares/${mine[0].id}`)).status, 200);
+  assert.equal((await visit(link)).status, 404);
+});

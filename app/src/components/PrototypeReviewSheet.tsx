@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useMemo } from "react";
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Button } from "./Button";
 import { api, ServerError, type Account, type OutsideReviewer, type PrototypeShare } from "../lib/server";
@@ -10,7 +10,13 @@ import { createThemedStyles, radius, space, typography, useTheme } from "../lib/
 // the business owner gets a link, confirms a code sent to that address, sees the prototype and right-clicks to
 // comment. Each comment becomes a to-do for the person who shared it. This sheet sends links, shows who has opened
 // theirs and what they said, and ends a share.
-export function PrototypeReviewSheet({ account, chatId, title, onClose }: { account: Account; chatId: string; title: string; onClose: () => void }) {
+// The same sheet shares a project's app preview (`projectId` instead of `chatId`): its comments become to-dos in
+// the project, and nothing there goes to the agent by itself, so it has no switch for that.
+export function PrototypeReviewSheet({ account, chatId = "", projectId, title, onClose }: { account: Account; chatId?: string; projectId?: string; title: string; onClose: () => void }) {
+  const ofApp = !!projectId;
+  const calls = useMemo(() => projectId
+    ? { list: () => api.appPreviewShares(account, projectId), share: (to: string) => api.shareAppPreview(account, projectId, to), end: (id: string) => api.endAppPreviewShare(account, projectId, id) }
+    : { list: () => api.prototypeShares(account, chatId), share: (to: string) => api.sharePrototype(account, chatId, to), end: (id: string) => api.endPrototypeShare(account, chatId, id) }, [account, chatId, projectId]);
   const styles = useStyles();
   const { colors } = useTheme();
   const [shares, setShares] = useState<PrototypeShare[] | null>(null);
@@ -23,17 +29,17 @@ export function PrototypeReviewSheet({ account, chatId, title, onClose }: { acco
 
   const failed = (e: unknown, fallback: string) => e instanceof ServerError ? e.message : fallback;
   const load = useCallback(() => {
-    api.prototypeShares(account, chatId).then(r => { setShares(r.shares); setSuggested(r.suggested ?? []); }, e => { setShares([]); setError(failed(e, "Couldn't load who this is shared with. Close and try again")); });
-  }, [account, chatId]);
+    calls.list().then(r => { setShares(r.shares); setSuggested(r.suggested ?? []); }, e => { setShares([]); setError(failed(e, "Couldn't load who this is shared with. Close and try again")); });
+  }, [calls]);
   useEffect(load, [load]);
 
   const send = async () => {
     const to = email.trim();
     if (busy) return;
-    if (!looksLikeEmail(to)) { setError("Enter the business owner's work email"); return; }
+    if (!looksLikeEmail(to)) { setError(ofApp ? "Enter the reviewer's work email" : "Enter the business owner's work email"); return; }
     setBusy("send"); setError(null); setSent(null);
     try {
-      const next = await api.sharePrototype(account, chatId, to);
+      const next = await calls.share(to);
       setShares(next.shares); setSuggested(next.suggested ?? []);
       setSent(to); setEmail("");
     } catch (e) { setError(failed(e, "Couldn't send the link. Try again")); }
@@ -46,7 +52,7 @@ export function PrototypeReviewSheet({ account, chatId, title, onClose }: { acco
     const done: string[] = [];
     try {
       for (const person of people) {
-        const next = await api.sharePrototype(account, chatId, person.email);
+        const next = await calls.share(person.email);
         setShares(next.shares); setSuggested(next.suggested ?? []);
         done.push(person.email);
       }
@@ -56,7 +62,7 @@ export function PrototypeReviewSheet({ account, chatId, title, onClose }: { acco
   const end = async (share: PrototypeShare) => {
     if (busy) return;
     setBusy(share.id); setError(null); setSent(null);
-    try { setShares((await api.endPrototypeShare(account, chatId, share.id)).shares); }
+    try { const next = await calls.end(share.id); setShares(next.shares); setSuggested(next.suggested ?? []); }
     catch (e) { setError(failed(e, "Couldn't end that share. Try again")); }
     finally { setBusy(null); }
   };
@@ -73,8 +79,10 @@ export function PrototypeReviewSheet({ account, chatId, title, onClose }: { acco
     <View style={styles.scrim}>
       <View testID="prototype-review-sheet" accessibilityViewIsModal style={styles.dialog}>
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
-          <Text accessibilityRole="header" style={styles.title}>Share with a business owner</Text>
-          <Text style={styles.body}>{`They get a link to "${title}" by email. After confirming a code sent to that address, they can look at the prototype and right-click anywhere on it to leave a comment. Each comment comes to this chat, for you to decide what to do with.`}</Text>
+          <Text accessibilityRole="header" style={styles.title}>{ofApp ? "Share with a reviewer" : "Share with a business owner"}</Text>
+          <Text style={styles.body}>{ofApp
+            ? `They get a link to "${title}" by email. After confirming a code sent to that address, they can use the app in their browser, with its sample data, and right-click anywhere on it to leave a comment. Each comment comes back to this screen, for you to decide what to do with.`
+            : `They get a link to "${title}" by email. After confirming a code sent to that address, they can look at the prototype and right-click anywhere on it to leave a comment. Each comment comes to this chat, for you to decide what to do with.`}</Text>
           <Text style={styles.label}>Their work email</Text>
           <TextInput testID="review-email" accessibilityLabel="Their work email" value={email} onChangeText={value => { setEmail(value); setError(null); }} editable={busy !== "send"}
             keyboardType="email-address" autoCapitalize="none" autoCorrect={false} autoComplete="email" maxLength={254} onSubmitEditing={() => void send()} returnKeyType="send"
@@ -106,7 +114,7 @@ export function PrototypeReviewSheet({ account, chatId, title, onClose }: { acco
                   {share.endedAt ? null : <Button testID={`review-end-${share.id}`} label="End" accessibilityLabel={`End sharing with ${share.email}`} kind="danger" compact busy={busy === share.id} disabled={!!busy} onPress={() => void end(share)} />}
                 </View>
                 {/* For someone you trust to steer the work: their comments go straight to Agent. Off unless you say so. */}
-                {share.endedAt ? null : <View style={styles.auto}>
+                {share.endedAt || ofApp ? null : <View style={styles.auto}>
                   <View style={styles.rowCopy}>
                     <Text style={styles.autoLabel}>{AUTO_WORK_LABEL}</Text>
                     <Text style={styles.meta}>{AUTO_WORK_HINT}</Text>

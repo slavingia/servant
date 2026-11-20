@@ -10,6 +10,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { mimeFor } from "./ota.mjs";
+import { REVIEW } from "./prototypes.mjs";
 
 export const PREVIEW_ID = /^[a-z0-9][a-z0-9-]{1,40}$/;
 const TYPES = { html: "text/html; charset=utf-8", js: "text/javascript; charset=utf-8", css: "text/css; charset=utf-8", json: "application/json", svg: "image/svg+xml", txt: "text/plain; charset=utf-8", ico: "image/x-icon", wasm: "application/wasm" };
@@ -141,7 +142,9 @@ export function serveAppPreview(req, res, url, { dir, ip = "" }) {
   const html = /\.html?$/i.test(real);
   if (html) {
     const text = body.toString("utf8");
-    const bridge = BRIDGE.replace("<script data-servant-bridge>", `<script data-servant-bridge data-base="/a/${pid}">`);
+    // An outside reviewer (?review=1, docs/prototype-reviews.md) gets the review script a shared prototype gets
+    // instead of the bridge: right-click to comment, reported to the review page around the frame. They can't edit.
+    const bridge = url.searchParams.get("review") === "1" ? REVIEW : BRIDGE.replace("<script data-servant-bridge>", `<script data-servant-bridge data-base="/a/${pid}">`);
     const withShim = /<head[^>]*>/i.test(text) ? text.replace(/<head[^>]*>/i, m => m + SHIM) : SHIM + text;
     body = Buffer.from(/<\/body>/i.test(withShim) ? withShim.replace(/<\/body>(?![\s\S]*<\/body>)/i, () => `${bridge}</body>`) : withShim + bridge);
   }

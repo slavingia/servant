@@ -33,7 +33,7 @@ They see only their own comments, not other reviewers', and nothing else on the 
 
 A project's owners can name the business owners and subject matter experts they keep going back to, once: in the project's **About**, under **Outside reviewers**, one a line, a work email and then a few words on their role ("jo.park@example.gov, Product owner"). Up to ten, at addresses a prototype could be shared to.
 
-Naming someone sends them nothing and opens nothing. It only saves retyping: when anyone shares a prototype, the people named on the Prototypes project are offered with one press. Each of them still gets a link only when someone presses Send, and confirms a code each time. Everyone who can see the project can see the list.
+Naming someone sends them nothing and opens nothing. It only saves retyping: when anyone shares a prototype, the people named on the Prototypes project are offered with one press, and when anyone shares a project's app preview ([app-preview.md](app-preview.md#sharing-it-with-someone-outside-the-server)), the people named on that project are. Each of them still gets a link only when someone presses Send, and confirms a code each time. Everyone who can see the project can see the list.
 
 Prototypes are all built in one project (`prototypesProject`, "prototypes" unless set), so its list is the one the share sheet offers. A server whose `projects.json` has no such project offers nobody; the email box still works.
 
