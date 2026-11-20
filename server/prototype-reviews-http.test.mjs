@@ -235,3 +235,37 @@ test("a comment can be handed to the agent in the prototype's chat: by the share
   assert.equal((await comments()).find(c => c.id === third.json.comment.id).askedAt, undefined, "and it can be handed over later");
   mod.mutateStateForTest(state => { state.users[people.pat.id].agentTier = 2; });
 });
+
+test("a project names its outside reviewers once, and sharing a prototype offers the ones without a link yet", async () => {
+  // The project prototypes are built in. Only its owners name reviewers, and only at addresses a prototype can go to.
+  mail.splice(0);
+  assert.deepEqual((await api("pat", "GET", "chats/cht_work/prototype/shares")).body.suggested, [], "a server with no Prototypes project offers nobody");
+  fs.writeFileSync(path.join(directory, "projects.json"), JSON.stringify({ people: {}, projects: [{ id: "prototypes", name: "Prototypes", owners: [people.ana.id], access: { merge: [], write: [], read: [] } }] }));
+  const there = await api("ana", "GET", "projects/prototypes");
+  assert.deepEqual([there.status, there.body.project.outsideReviewers], [200, []]);
+  const refuse = async (who, list) => { const r = await api(who, "PATCH", "projects/prototypes", { outsideReviewers: list }); return [r.status, r.body.error?.code]; };
+  assert.deepEqual(await refuse("pat", [{ email: "jo.park@example.gov" }]), [404, "not_found"], "not someone outside the project");
+  assert.deepEqual(await refuse("ana", [{ email: "jo.park@example.com" }]), [403, "email_not_allowed"]);
+  assert.deepEqual(await refuse("ana", [{ email: "nope" }]), [400, "email_invalid"]);
+  assert.deepEqual(await refuse("ana", "jo.park@example.gov"), [400, "bad_request"]);
+  assert.deepEqual(await refuse("ana", Array.from({ length: 11 }, (_, i) => ({ email: `p${i}@example.gov` }))), [413, "bad_request"]);
+  const saved = await api("ana", "PATCH", "projects/prototypes", { outsideReviewers: [{ email: " Jo.Park@Example.gov ", label: "  Product   owner " }, "sam.lee@example.gov", { email: "jo.park@example.gov", label: "Again" }] });
+  assert.deepEqual([saved.status, saved.body.project.outsideReviewers], [200, [{ email: "jo.park@example.gov", label: "Product owner" }, { email: "sam.lee@example.gov", label: "" }]]);
+  assert.equal(mail.length, 0, "naming someone sends nothing");
+
+  // A new prototype: both are offered. Sharing with one takes them off the list; ending that share puts them back.
+  const NEXT = "proto-00112233445566778a";
+  fs.mkdirSync(path.join(directory, "prototypes", NEXT), { recursive: true });
+  fs.writeFileSync(path.join(directory, "prototypes", NEXT, "index.html"), "<html><body><h1>Office finder</h1></body></html>");
+  mod.mutateStateForTest(state => { state.chats.cht_next = { id: "cht_next", userId: people.pat.id, title: "Office finder", role: "owner", mode: "vibe", vibeFolder: NEXT, hosted: "server", createdAt: Date.now(), updatedAt: Date.now(), startedAt: Date.now() }; });
+  const offered = async () => (await api("pat", "GET", "chats/cht_next/prototype/shares")).body.suggested;
+  assert.deepEqual(await offered(), [{ email: "jo.park@example.gov", label: "Product owner" }, { email: "sam.lee@example.gov", label: "" }]);
+  const shared = await api("pat", "POST", "chats/cht_next/prototype/shares", { email: "jo.park@example.gov" });
+  assert.deepEqual([shared.status, shared.body.suggested.map(r => r.email)], [201, ["sam.lee@example.gov"]]);
+  assert.equal(mail.splice(0).length, 1);
+  await api("pat", "DELETE", `chats/cht_next/prototype/shares/${shared.body.shares[0].id}`);
+  assert.deepEqual((await offered()).map(r => r.email), ["jo.park@example.gov", "sam.lee@example.gov"]);
+  // Emptying the list offers nobody.
+  assert.equal((await api("ana", "PATCH", "projects/prototypes", { outsideReviewers: [] })).status, 200);
+  assert.deepEqual(await offered(), []);
+});

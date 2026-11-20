@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Button } from "./Button";
-import { api, ServerError, type Account, type PrototypeShare } from "../lib/server";
-import { AUTO_WORK_HINT, AUTO_WORK_LABEL, commentAsked, commentWhere, looksLikeEmail, orderShares, shareLine } from "../lib/prototype-reviews";
+import { api, ServerError, type Account, type OutsideReviewer, type PrototypeShare } from "../lib/server";
+import { AUTO_WORK_HINT, AUTO_WORK_LABEL, commentAsked, commentWhere, looksLikeEmail, orderShares, outsideReviewerLine, shareLine } from "../lib/prototype-reviews";
 import { Toggle } from "./Toggle";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
 
@@ -14,6 +14,8 @@ export function PrototypeReviewSheet({ account, chatId, title, onClose }: { acco
   const styles = useStyles();
   const { colors } = useTheme();
   const [shares, setShares] = useState<PrototypeShare[] | null>(null);
+  // The project's outside reviewers who have no link to this prototype yet: one press each, no retyping.
+  const [suggested, setSuggested] = useState<OutsideReviewer[]>([]);
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -21,7 +23,7 @@ export function PrototypeReviewSheet({ account, chatId, title, onClose }: { acco
 
   const failed = (e: unknown, fallback: string) => e instanceof ServerError ? e.message : fallback;
   const load = useCallback(() => {
-    api.prototypeShares(account, chatId).then(r => setShares(r.shares), e => { setShares([]); setError(failed(e, "Couldn't load who this is shared with. Close and try again")); });
+    api.prototypeShares(account, chatId).then(r => { setShares(r.shares); setSuggested(r.suggested ?? []); }, e => { setShares([]); setError(failed(e, "Couldn't load who this is shared with. Close and try again")); });
   }, [account, chatId]);
   useEffect(load, [load]);
 
@@ -31,10 +33,25 @@ export function PrototypeReviewSheet({ account, chatId, title, onClose }: { acco
     if (!looksLikeEmail(to)) { setError("Enter the business owner's work email"); return; }
     setBusy("send"); setError(null); setSent(null);
     try {
-      setShares((await api.sharePrototype(account, chatId, to)).shares);
+      const next = await api.sharePrototype(account, chatId, to);
+      setShares(next.shares); setSuggested(next.suggested ?? []);
       setSent(to); setEmail("");
     } catch (e) { setError(failed(e, "Couldn't send the link. Try again")); }
     finally { setBusy(null); }
+  };
+  // Send to the project's reviewers: one of them, or everyone still on the list, one after another.
+  const sendTo = async (people: OutsideReviewer[], key: string) => {
+    if (busy || !people.length) return;
+    setBusy(key); setError(null); setSent(null);
+    const done: string[] = [];
+    try {
+      for (const person of people) {
+        const next = await api.sharePrototype(account, chatId, person.email);
+        setShares(next.shares); setSuggested(next.suggested ?? []);
+        done.push(person.email);
+      }
+    } catch (e) { setError(failed(e, "Couldn't send the link. Try again")); }
+    finally { if (done.length) setSent(done.join(", ")); setBusy(null); }
   };
   const end = async (share: PrototypeShare) => {
     if (busy) return;
@@ -65,6 +82,16 @@ export function PrototypeReviewSheet({ account, chatId, title, onClose }: { acco
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           {sent ? <Text testID="review-sent" accessibilityLiveRegion="polite" style={styles.sent}>{`Sent to ${sent}.`}</Text> : null}
           <Button testID="review-send" label="Send link" busy={busy === "send"} onPress={() => void send()} />
+          {suggested.length ? <View testID="review-suggested">
+            <Text accessibilityRole="header" style={styles.section}>This project&apos;s reviewers</Text>
+            <View style={styles.list}>
+              {suggested.map(person => <View key={person.email} style={[styles.row, styles.rowHead]}>
+                <View style={styles.rowCopy}><Text style={styles.name}>{outsideReviewerLine(person)}</Text></View>
+                <Button testID={`review-suggest-${person.email}`} label="Send" accessibilityLabel={`Send the link to ${person.email}`} kind="secondary" compact busy={busy === `to:${person.email}`} disabled={!!busy} onPress={() => void sendTo([person], `to:${person.email}`)} />
+              </View>)}
+            </View>
+            {suggested.length > 1 ? <Button testID="review-suggest-all" label={`Send to all ${suggested.length}`} kind="secondary" busy={busy === "all"} disabled={!!busy} onPress={() => void sendTo(suggested, "all")} style={styles.all} /> : null}
+          </View> : null}
 
           {shares === null ? <ActivityIndicator color={colors.blue} style={styles.spinner} /> : null}
           {shares && shares.length ? <View>
@@ -118,6 +145,7 @@ const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create
   rowCopy: { flex: 1, minWidth: 0 },
   name: { ...typography.bodyStrong, color: colors.ink },
   meta: { ...typography.caption, color: colors.muted },
+  all: { marginTop: space.sm },
   auto: { flexDirection: "row", alignItems: "center", gap: space.sm },
   autoLabel: { ...typography.label, color: colors.ink },
   comment: { paddingLeft: space.sm, borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colors.line, gap: space.xxs },

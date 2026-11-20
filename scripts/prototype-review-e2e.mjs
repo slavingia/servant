@@ -91,6 +91,8 @@ try {
   const config = { host: '127.0.0.1', port, name: 'Example team', agentName: 'Agent', publicUrl: base, discoveryUrl: '', adminKey: '',
     upstreams: { owner: { url: `http://127.0.0.1:${agent.address().port}`, key: 'fixture-key' } }, emailVerification: { enabled: false, domains: ['example.gov'] } };
   fs.writeFileSync(path.join(scratch, 'config.json'), JSON.stringify(config));
+  // The project prototypes are built in, with the sharer as an owner so they can name its outside reviewers.
+  fs.writeFileSync(path.join(scratch, 'projects.json'), JSON.stringify({ people: {}, projects: [{ id: 'prototypes', name: 'Prototypes', owners: ['usr_pat'], access: { merge: [], write: [], read: [] } }] }));
   server = await mod.startServer(config);
   fs.mkdirSync(path.join(scratch, 'prototypes', FOLDER), { recursive: true });
   fs.writeFileSync(path.join(scratch, 'prototypes', FOLDER, 'index.html'), PAGE);
@@ -127,7 +129,7 @@ try {
     }
     const account = { token: pat.token, user: { id: pat.id, name: pat.name, role: 'member' }, server: { name: 'Example team' }, serverUrl: base, serverKey: serverIdentity(scratch).publicKey, serverName: 'Example team' };
     // The sharer's own chat, signed in, at a given size.
-    openApp = async viewport => {
+    openApp = async (viewport, route = '/chat/cht_proto') => {
       const context = await browser.newContext({ viewport, reducedMotion: 'reduce' });
       const id = accountId(account);
       await context.addInitScript(({ saved, key, indexKey, id }) => {
@@ -138,7 +140,7 @@ try {
         } catch { /* the sandboxed prototype frame */ }
       }, { saved: account, key: accountStorageKey(id), indexKey: ACCOUNTS_KEY, id });
       const page = watch(await context.newPage());
-      await page.goto(`${webUrl}/chat/cht_proto`);
+      await page.goto(`${webUrl}${route}`);
       return { page, context };
     };
     const { page: app, context } = await openApp(phone);
@@ -280,6 +282,34 @@ try {
     await api('POST', `/v1/chats/cht_proto/prototype/comments/${shares[0].comments[0].id}/work`, {});
     await api('PATCH', `/v1/chats/cht_proto/prototype/shares/${shares[0].id}`, { autoWork: true });
   }
+  // 7. Outside reviewers are named once on the project; sharing a prototype then offers the ones without a link.
+  if (openApp) {
+    const mailed = mail.length;
+    const { page: about, context: aboutContext } = await openApp(desktop, '/project?id=prototypes&tab=about');
+    const field = about.getByTestId('project-outside-reviewers');
+    await field.waitFor();
+    await field.fill('jo.park@example.gov, Product owner\nsam.lee@example.gov, Subject matter expert');
+    await field.blur();
+    for (let i = 0; i < 80 && !(await api('GET', '/v1/projects/prototypes')).project.outsideReviewers.length; i++) await delay(250);
+    assert.deepEqual((await api('GET', '/v1/projects/prototypes')).project.outsideReviewers, [{ email: 'jo.park@example.gov', label: 'Product owner' }, { email: 'sam.lee@example.gov', label: 'Subject matter expert' }]);
+    await field.scrollIntoViewIfNeeded();
+    await shot(about, 'project-outside-reviewers-desktop.png');
+    await aboutContext.close();
+    assert.equal(mail.length, mailed, 'naming a reviewer sends nothing');
+
+    const { page: again, context: againContext } = await openApp(phone);
+    await again.getByTestId('open-options').click();
+    await again.getByTestId('share-prototype').click();
+    await again.getByTestId('review-suggested').waitFor();
+    assert.equal(await again.getByTestId('review-suggested').innerText().then(text => text.includes('jo.park@example.gov')), false, 'Jo already has a link, so only Sam is offered');
+    await again.getByTestId('review-suggest-sam.lee@example.gov').scrollIntoViewIfNeeded();
+    await shot(again, 'share-suggested-phone.png');
+    await again.getByTestId('review-suggest-sam.lee@example.gov').click();
+    await again.getByTestId('review-suggested').waitFor({ state: 'detached' });
+    for (let i = 0; i < 80 && mail.length === mailed; i++) await delay(250);
+    assert.deepEqual(mail.slice(mailed).map(m => [m.to, m.subject]), [['sam.lee@example.gov', 'Pat Tester shared a prototype with you: Refund tracker']]);
+    await againContext.close();
+  }
   // The reviewer's next comment starts the agent with nobody pressing anything, and their page says it was sent on.
   await reviewer.getByRole('button', { name: 'Comment on this page' }).click();
   await reviewer.getByLabel('Comment', { exact: true }).fill('Add when the refund will arrive.');
@@ -287,7 +317,7 @@ try {
   await reviewer.getByText('3 comments', { exact: true }).waitFor();
   await reviewer.getByText(/Sent to the team’s agent/).first().waitFor();
   await shot(reviewer, 'review-sent-on-desktop.png');
-  const after = (await api('GET', '/v1/chats/cht_proto/prototype/shares')).shares[0];
+  const after = (await api('GET', '/v1/chats/cht_proto/prototype/shares')).shares.find(share => share.email === 'jo.park@example.gov');
   assert.deepEqual(after.comments.map(c => c.askedBy ?? null), ['you', null, 'auto'], 'the one handed over, the one still waiting, and the one that started by itself');
   assert.equal((await turns()).length, 2);
   assert.equal((await api('GET', '/v1/todos')).todos.filter(t => t.text.startsWith('Comment on Refund tracker')).length, 3, 'each is still a to-do');
