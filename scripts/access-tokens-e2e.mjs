@@ -127,7 +127,7 @@ try {
     assert.match(guide, /^# Example team: using Servant from a shell/);
     fs.writeFileSync(path.join(shots, 'shell.txt'), [`$ curl -s -H "Authorization: Bearer $SERVANT_TOKEN" ${'https://team.example.gov'}/api/v1/me`, JSON.stringify(await curl(`${base}/api/v1/me`)), '',
       `$ curl -s -H "Authorization: Bearer $SERVANT_TOKEN" "https://team.example.gov/api/v1/prototypes?q=refund"`, JSON.stringify({ prototypes: found.prototypes.map(({ url, updatedAt, ...rest }) => rest) }), '',
-      `$ curl -s -X POST -H "Authorization: Bearer $SERVANT_TOKEN" -H "Content-Type: application/json" -d '{"emails":["jo.park@example.gov","sam.lee@example.gov"]}' https://team.example.gov/api/v1/prototypes/cht_proto/shares`, JSON.stringify(sent), ''].join('\n'));
+      `$ curl -s -X POST -H "Authorization: Bearer $SERVANT_TOKEN" -H "Content-Type: application/json" -d '{"emails":["jo.park@example.gov","sam.lee@example.gov"]}' https://team.example.gov/api/v1/prototypes/cht_proto/shares`, JSON.stringify(sent).replace(/http:\/\/127\.0\.0\.1:\d+/g, 'https://team.example.gov').replace(/\/review\/[A-Za-z0-9_-]+/g, '/review/<link>'), ''].join('\n'));
 
     // The app shows it was used; revoking it stops the shell at once.
     await page.reload();
