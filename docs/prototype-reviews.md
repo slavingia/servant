@@ -6,7 +6,9 @@ Two people, two places. The person who built the prototype lives in its chat: th
 
 ## For the person sharing
 
-In the prototyping chat, open **•••** and choose **Share with a business owner**. Type their work email and press **Send link**.
+In the prototyping chat, choose **Share** in the bar above the prototype's preview, or open **•••** at the top of the chat and choose **Share with a business owner**. Type their work email and press **Send link**.
+
+The action is in the chat, not in the prototype. On a phone, **Full screen** opens the prototype in the phone's own browser sheet, and the menu there (⋮ on Android) is the browser's: it lists nothing of Servant's. Close the sheet to get back to the chat and its Share.
 
 - **This project's reviewers** lists the outside reviewers named on the Prototypes project who have no link to this prototype yet, each with **Send**, and **Send to all** when there is more than one. See [Outside reviewers](#outside-reviewers).
 - The address must be on the server's allowed email domains (`emailVerification.domains` in `config.json`). A server with none set accepts only `.gov` and `.mil` addresses.
