@@ -48,10 +48,12 @@ function Social({ account }: { account: Account }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const wide = useWideLayout();
-  const [tab, setTab] = useState<Tab>("reply");
+  const [picked, setTab] = useState<Tab>("reply");
   const [show, setShow] = useState<Show>("all");
   const [view, setView] = useState<"list" | "calendar">("list");
   const [home, setHome] = useState<SocialHome | null>(null);
+  // No X account: the one tab is the team's own posts.
+  const tab: Tab = home?.connected === false ? "schedule" : picked;
   const [posts, setPosts] = useState<{ show: Show; list: SocialPost[]; hasMore: boolean } | null>(null);
   const [schedule, setSchedule] = useState<SocialReply[] | null>(null);
   const [month, setMonth] = useState(() => { const now = new Date(); return { year: now.getFullYear(), month: now.getMonth() }; });
@@ -130,8 +132,10 @@ function Social({ account }: { account: Account }) {
   };
 
   const list = posts?.show === show ? posts.list : null;
+  // With no X account there are no posts to answer: the screen is the team's own posts.
+  const connected = home?.connected !== false;
   const tabs = <View accessibilityRole="tablist" accessibilityLabel="Social" style={styles.tabs}>
-    {([["reply", "To reply", home?.counts.open], ["schedule", "Scheduled", home?.counts.scheduled]] as const).map(([id, label, count]) =>
+    {(connected ? [["reply", "To reply", home?.counts.open], ["schedule", "Scheduled", home?.counts.scheduled]] as const : [["schedule", "Posts", home?.counts.scheduled]] as const).map(([id, label, count]) =>
       <Pressable key={id} testID={`social-tab-${id}`} accessibilityRole="tab" accessibilityLabel={count ? `${label}, ${count}` : label} accessibilityState={{ selected: tab === id }} aria-selected={tab === id} onPress={() => setTab(id)} style={[styles.tab, tab === id && styles.tabOn]}>
         <Text style={[styles.tabText, tab === id && styles.tabTextOn]}>{count ? `${label} · ${count}` : label}</Text>
       </Pressable>)}
@@ -147,7 +151,7 @@ function Social({ account }: { account: Account }) {
     {home ? <View style={styles.status}>
       <Text testID="social-connection" style={[styles.caption, !!home.error && styles.problem]}>{connectionLine(home)}</Text>
       <ButtonGroup>
-        <Button testID="social-check" label="Check now" kind="link" compact busy={checking} onPress={() => void check()} />
+        {connected ? <Button testID="social-check" label="Check now" kind="link" compact busy={checking} onPress={() => void check()} /> : null}
         <Button testID="social-guide" label="Guide" accessibilityLabel="Open the social media guide in the wiki" kind="link" compact onPress={() => router.push({ pathname: "/wiki", params: { page: home.guidePageId } })} />
       </ButtonGroup>
     </View> : null}
@@ -178,10 +182,10 @@ function Social({ account }: { account: Account }) {
       </View> : null}
       {!schedule && !error ? <ServeLoader accessibilityLabel="Loading the schedule" style={styles.loading} /> : null}
       {schedule && home ? view === "list"
-        ? <ScheduleList account={account} replies={schedule} canApprove={home.canApprove} onChanged={() => void load()} />
-        : <ScheduleCalendar account={account} replies={schedule} year={month.year} month={month.month} wide={wide} canApprove={home.canApprove} onMonth={setMonth} onChanged={() => void load()} /> : null}
+        ? <ScheduleList account={account} replies={schedule} canApprove={home.canApprove} connected={connected} onChanged={() => void load()} />
+        : <ScheduleCalendar account={account} replies={schedule} year={month.year} month={month.month} wide={wide} canApprove={home.canApprove} connected={connected} onMonth={setMonth} onChanged={() => void load()} /> : null}
     </>}
-    <Text style={styles.foot}>{home ? `Approved replies go out at least ${home.spacingMinutes === 1 ? "1 minute" : `${home.spacingMinutes} minutes`} apart.${home.searches.length ? ` Searching X for: ${home.searches.join(", ")}.` : ""}` : ""}</Text>
+    <Text style={styles.foot}>{home && connected ? `Approved replies go out at least ${home.spacingMinutes === 1 ? "1 minute" : `${home.spacingMinutes} minutes`} apart.${home.searches.length ? ` Searching X for: ${home.searches.join(", ")}.` : ""}` : ""}</Text>
     <View style={{ height: space.xxl, backgroundColor: colors.background }} />
   </ScrollView>;
 }

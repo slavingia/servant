@@ -34,6 +34,12 @@ You need an X developer app with read and write access for the account, and its 
 
 `"features": { "social": false }` hides it again without touching anything it kept.
 
+### Without an X account
+
+`"features": { "social": true }` with no `x` values shows **Social** as a place to write posts and nothing more: people write a post by hand or from a note with Agent, edit it, and someone who holds the Social media entitlement approves it. The screen says "No X account is connected, so nothing is posted", there are no posts to reply to, and an approved post shows as **Approved** with a **Copy** button so it can be taken to wherever it goes.
+
+One thing to know before connecting an account later: a post approved while there was no account is an approved post. Once the four values are added it goes out like any other. Cancel the ones that should not be posted first.
+
 Drafts are written by the restricted member agent (`upstreams.member`, [member-security.md](member-security.md)). Without it, people can still write and approve replies by hand; only **Draft reply** is refused.
 
 ## Who can do what

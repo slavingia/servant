@@ -30,6 +30,8 @@ const require = createRequire(path.join(repository, 'desktop/package.json'));
 const { chromium } = require('playwright');
 const run = promisify(execFile);
 const before = process.env.SERVANT_SOCIAL_E2E_BEFORE === '1';
+// SERVANT_SOCIAL_E2E_NO_X=1: a server with no X account that asked for social media, to write and approve posts only.
+const noX = process.env.SERVANT_SOCIAL_E2E_NO_X === '1';
 const appDir = process.env.SERVANT_SOCIAL_E2E_APP || path.join(repository, 'app');
 const scratch = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'servant-social-e2e-'));
 const shots = path.join(repository, 'docs/shots/social');
@@ -116,7 +118,7 @@ try {
   const apiUrl = `http://127.0.0.1:${port}`;
   fs.writeFileSync(path.join(data, 'config.json'), JSON.stringify({ name: 'Example team', publicUrl: apiUrl, discovery: 'off', discoveryUrl: '', defaultAgentTier: 1,
     upstreams: { member: { url: agentUrl, key: 'stand-in-key' } },
-    ...(before ? {} : { social: { x: { apiKey: 'stand-in', apiSecret: 'stand-in', accessToken: 'stand-in', accessTokenSecret: 'stand-in', api: xUrl }, searches: ['"Example Org" -is:retweet'], spacingMinutes: 2, pollMinutes: 1 } }) }));
+    ...(before ? {} : noX ? { features: { social: true } } : { social: { x: { apiKey: 'stand-in', apiSecret: 'stand-in', accessToken: 'stand-in', accessTokenSecret: 'stand-in', api: xUrl }, searches: ['"Example Org" -is:retweet'], spacingMinutes: 2, pollMinutes: 1 } }) }));
   const env = {
     ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(SERVANT_|HERMES_|API_SERVER_KEY$)/.test(key))),
     SERVANT_DATA_DIR: data, SERVANT_PORT: String(port), SERVANT_HOST: '127.0.0.1', SERVANT_PUBLIC_URL: apiUrl, SERVANT_DISCOVERY_URL: '', SERVANT_SOCIAL_TICK_MS: '1000',
@@ -187,6 +189,28 @@ try {
     await you.getByText('Wiki', { exact: true }).first().waitFor();
     await shot(you, 'before-you-phone.png');
     console.log(`social-e2e: before captures saved in ${path.relative(repository, shots)}`);
+  } else if (noX) {
+    // No X account: one tab, a line that says nothing is posted, and an approved post to copy.
+    const entitlementId = (await api('GET', '/v1/social', undefined, jo.token)).entitlementId;
+    await api('POST', `/v1/entitlements/${entitlementId}/request`, { confirmed: true, note: 'I write our posts' }, jo.token);
+    await api('POST', `/v1/entitlements/${entitlementId}/people/${jo.user.id}`, { decision: 'grant' }, ana.token);
+    const made = await api('POST', '/v1/social/replies', { text: 'Our downtown office is closed this Monday. Renew online any time.' }, jo.token);
+    await api('POST', `/v1/social/replies/${made.reply.id}/approve`, {}, jo.token);
+    await api('POST', '/v1/social/replies', { text: 'Walk-ins are welcome on Fridays from 9 to 4.' }, pat.token);
+    for (const [viewport, name] of [[desktop, 'no-x-desktop.png'], [phone, 'no-x-phone.png']]) {
+      const page = await newPage(jo, viewport);
+      await page.getByTestId(`social-entry-${made.reply.id}`).waitFor();
+      assert.equal(await text(page, 'social-connection'), 'No X account is connected, so nothing is posted. Write and approve posts here, then copy them to where they go.');
+      assert.equal(await page.getByTestId('social-tab-reply').count(), 0, 'no posts to reply to without an account');
+      assert.equal(await page.getByTestId('social-check').count(), 0);
+      assert.match(await text(page, `social-entry-${made.reply.id}`), /Approved/);
+      await page.getByTestId('social-own-drafts').waitFor();
+      await page.getByTestId(`social-copy-${made.reply.id}`).waitFor();
+      await shot(page, name);
+    }
+    await delay(2500);
+    assert.equal((await api('GET', '/v1/social', undefined, jo.token)).counts.scheduled, 1, 'approved, and still not sent anywhere');
+    console.log(`social-e2e: no-account captures saved in ${path.relative(repository, shots)}`);
   } else {
     // Jo asks for Social media and Ana grants it, the way any entitlement is.
     const entitlementId = (await api('GET', '/v1/social', undefined, jo.token)).entitlementId;
