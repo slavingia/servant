@@ -78,7 +78,7 @@ export default function NewMessage() {
           ) : (
             <View style={styles.empty}>
               <Text accessibilityRole={error ? "alert" : undefined} style={styles.emptyText}>{error ?? (people.length ? "No matches" : "No teammates yet")}</Text>
-              {error ? <Button label="Try again" kind="secondary" onPress={() => { setError(null); setPeople(null); loadPeople(); }} style={{ marginTop: space.md }} /> : !people.length && account.user.role === "owner" ? <Button label="Invite a teammate" kind="secondary" onPress={() => router.push("/invite")} style={{ marginTop: space.md }} /> : null}
+              {error ? <Button label="Try again" kind="secondary" onPress={() => { setError(null); setPeople(null); loadPeople(); }} style={{ marginTop: space.md }} /> : !people.length ? <Button label="Invite a teammate" kind="secondary" onPress={() => router.push("/invite")} style={{ marginTop: space.md }} /> : null}
             </View>
           )
         }

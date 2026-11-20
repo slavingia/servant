@@ -2068,6 +2068,14 @@ async function handle(req, res, cfg) {
     const status = mine.usedAt ? "used" : mine.expiresAt < now() ? "expired" : "live";
     return send(res, 200, { link: { status, createdAt: mine.createdAt, expiresAt: mine.expiresAt, ...(mine.usedAt ? { usedAt: mine.usedAt, device: mine.usedDevice || "Computer" } : {}) } });
   }
+  // Anyone on the server can hand out the team's join link: it lets people join as a member, the same link an
+  // owner shares. Replacing it (which stops the old link working) and managing devices stay with owners.
+  if (method === "POST" && parts[1] === "invites" && parts.length === 2 && user.role !== "owner") {
+    const body = await readBody(req);
+    if (body.fresh === true) return fail(res, 403, "forbidden", "Only an owner can replace the invite link. Share this one, or ask an owner for a new one");
+    const { code, expiresAt } = mutateAuthenticated(req, state => makeJoinLink(state, {}));
+    return send(res, 200, { code, link: pairLink(code, cfg), webLink: joinWebLink(code, cfg), expiresAt });
+  }
   if (parts[1] === "invites" || parts[1] === "devices") {
     if (user.role !== "owner") return fail(res, 403, "forbidden", "Only the owner can do that");
     if (method === "POST" && parts[1] === "invites" && parts.length === 2) {

@@ -216,9 +216,10 @@ export default function Members() {
             {people ? <Text style={styles.count}>{`${people.length} ${people.length === 1 ? "member" : "members"}`}</Text> : null}
           </View>
           <Text aria-hidden={!reconnecting} accessibilityLiveRegion="polite" style={[styles.status, { opacity: reconnecting ? 1 : 0 }]}>Reconnecting…</Text>
-          {owner ? <Pressable accessibilityRole="button" accessibilityLabel="Invite people" onPress={() => router.push("/invite")} style={styles.compose}>
+          {/* Anyone can invite: everyone shares the same team link (only an owner can replace it). */}
+          <Pressable accessibilityRole="button" accessibilityLabel="Invite people" onPress={() => router.push("/invite")} style={styles.compose}>
             <AppIcon name="addPerson" size={22} color={colors.ink} />
-          </Pressable> : null}
+          </Pressable>
         </View>
         {people && people.length > 1 ? <View accessibilityRole="tablist" accessibilityLabel="Sort people" style={styles.sorts}>
           {PEOPLE_SORTS.map(option => <Pressable key={option.value} accessibilityRole="tab" accessibilityState={{ selected: sort === option.value }} aria-selected={sort === option.value} onPress={() => setSort(option.value)} style={({ pressed }) => [styles.sort, sort === option.value && styles.selectedSort, pressed && { opacity: 0.7 }]}>

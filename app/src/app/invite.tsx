@@ -122,7 +122,7 @@ export default function Invite() {
       <View style={styles.details}>
         <Text style={styles.detailHeading}>Who can join?</Text>
         <Text style={styles.detail}>Anyone with this link can join. They'll have a limited agent with no access to your files, accounts, or shell.</Text>
-        <Button label="Replace invite link" kind="link" disabled={busy || copying} onPress={() => { setReplaceError(null); setReplaceOpen(true); }} style={{ alignSelf: "flex-start", marginLeft: -space.side, marginTop: space.xs }} />
+        {account.user.role === "owner" ? <Button label="Replace invite link" kind="link" disabled={busy || copying} onPress={() => { setReplaceError(null); setReplaceOpen(true); }} style={{ alignSelf: "flex-start", marginLeft: -space.side, marginTop: space.xs }} /> : null}
       </View>
     </ScrollView>
     <ConfirmDialog visible={replaceOpen} title="Replace invite link?" description="The current link will stop working. People who already joined will keep their access." confirmLabel="Replace link" onConfirm={() => load(true)} onCancel={() => setReplaceOpen(false)} busy={busy} error={replaceError} />

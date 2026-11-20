@@ -1628,13 +1628,19 @@ test("owner gets the owner agent and can invite and revoke", async () => {
   assert.match(sent.text, /Running a command/);
 
   const memberToken = await pair("member", "Eve");
-  assert.equal((await api("POST", "/v1/invites", { token: memberToken, body: { name: "x" } })).status, 403);
 
   const inv = await api("POST", "/v1/invites", { token: ownerToken, body: {} });
   assert.equal(inv.status, 200);
   assert.match(inv.json.link, /^servant:\/\/pair\?code=/);
   assert.equal((await api("POST", "/v1/invites", { token: ownerToken, body: {} })).json.code, inv.json.code);
+  // A member gets the same team link to share, but can't replace it.
+  const theirs = await api("POST", "/v1/invites", { token: memberToken, body: {} });
+  assert.equal(theirs.status, 200);
+  assert.equal(theirs.json.code, inv.json.code);
+  assert.equal((await api("POST", "/v1/invites", { token: memberToken, body: { fresh: true } })).status, 403);
+  assert.equal((await api("POST", "/v1/invites", { token: ownerToken, body: {} })).json.code, inv.json.code);
   assert.notEqual((await api("POST", "/v1/invites", { token: ownerToken, body: { fresh: true } })).json.code, inv.json.code);
+  assert.equal((await api("GET", "/v1/devices", { token: memberToken })).status, 403);
 
   const devices = (await api("GET", "/v1/devices", { token: ownerToken })).json.devices;
   const eve = devices.find((d) => d.user.name === "Eve");
