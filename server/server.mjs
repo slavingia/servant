@@ -66,7 +66,7 @@ import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { createEgressProxy, createEgressStore, egressSettings } from "./egress.mjs";
 import { capabilitySettings, createEntitlements, NATIVE, SOCIAL_ENTITLEMENT } from "./entitlements.mjs";
 import { checkGithubToken, cleanValues, createConnections, createTextStream, publicTool, readConnectMarkers, redactor, stripConnectMarkers, tokenInChatMessage, tokenInText, toolCatalog } from "./connections.mjs";
-import { createPrototypeReviews, maskEmail, reviewDomains } from "./prototype-reviews.mjs";
+import { AUTO_WORK_PER_HOUR, commentRequest, createPrototypeReviews, maskEmail, reviewDomains } from "./prototype-reviews.mjs";
 import { reviewPage, reviewPageHeaders } from "./prototype-review-page.mjs";
 import { createCodeRequests } from "./code-requests.mjs";
 import { supportsDurableRuns, supportsEntitlementChecks, supportsSteer, runDurableHermes } from "./hermes-runs.mjs";
@@ -79,7 +79,7 @@ import { draftWikiPage } from "./wiki-draft.mjs";
 import { createSocial, socialSettings, SOCIAL_LIMITS } from "./social.mjs";
 import { createSocialRunner } from "./social-run.mjs";
 import { addLesson, cleanInstruction, readLesson, readSocialDraft, socialDraftMessages, socialLessonMessages, socialPostMessages, SOCIAL_GUIDE, SOCIAL_GUIDE_KIND } from "./social-draft.mjs";
-import { MAX_ITEMS, MAX_PARTS, MAX_PEOPLE, MAX_PROJECTS, MAX_RELEASES, VIBE_PROJECT, accessOf, configureProjects, accessibleProjects, cleanDate, cleanDescription, cleanLevel, cleanLogin, cleanName, cleanNotes, cleanPath, cleanReleaseName, cleanRepo, cleanRules, cleanReviewers, cleanStage, cleanStages, cleanTitle, ownsCell, cleanUrl, cleanWorkflow, createProjectFiles, createProjectStore, expandPath, migrateFolders, needsMigration, newItem, newPart, newProject, newRelease, patchCell, cleanPartTitle, releaseReady, setItemDone, projectInstructions, projectPeople, projectSharedWith, projectView, removeAccess, setAccess, validProjectId, vibeFolder, vibePreview } from "./projects.mjs";
+import { cleanOutsideReviewers, outsideReviewers, MAX_ITEMS, MAX_PARTS, MAX_PEOPLE, MAX_PROJECTS, MAX_RELEASES, VIBE_PROJECT, accessOf, configureProjects, accessibleProjects, cleanDate, cleanDescription, cleanLevel, cleanLogin, cleanName, cleanNotes, cleanPath, cleanReleaseName, cleanRepo, cleanRules, cleanReviewers, cleanStage, cleanStages, cleanTitle, ownsCell, cleanUrl, cleanWorkflow, createProjectFiles, createProjectStore, expandPath, migrateFolders, needsMigration, newItem, newPart, newProject, newRelease, patchCell, cleanPartTitle, releaseReady, setItemDone, projectInstructions, projectPeople, projectSharedWith, projectView, removeAccess, setAccess, validProjectId, vibeFolder, vibePreview } from "./projects.mjs";
 import { validTermsAcceptance } from "./terms.mjs";
 import { autoTitle, cleanChatTitle } from "./chat-title.mjs";
 import { cleanGuessRequest, guessAbbreviations, learnAbbreviations, LEARN_SOURCE } from "./lexicon-guess.mjs";
@@ -921,16 +921,20 @@ async function handleReview(req, res, url, cfg) {
   const state = readState();
   const chat = share && state.chats[share.chatId];
   const sharer = share && state.users[share.createdBy];
-  // A share only works while its chat, its prototype and the person who shared it are all still here.
-  const open = !!share && !!chat && !chat.deletedAt && chat.vibeFolder === share.folder && !!sharer && !isRemoved(sharer);
+  const ofApp = share?.kind === "app";
+  // A share only works while its chat, its prototype and the person who shared it are all still here. A share of a
+  // project's app works while the app is on the server and the person who shared it can still see the project.
+  const open = !!share && !!sharer && !isRemoved(sharer) && (ofApp
+    ? !!projectFor(sharer, share.projectId, state.users) && !!previewInfo(APP_PREVIEWS_DIR, share.projectId)
+    : !!chat && !chat.deletedAt && chat.vibeFolder === share.folder);
   if (parts.length === 2) {
     if (method !== "GET" && method !== "HEAD") { res.writeHead(405, { Allow: "GET, HEAD" }); res.end(); return true; }
     const nonce = crypto.randomBytes(16).toString("base64");
     res.writeHead(open ? 200 : 404, reviewPageHeaders(nonce));
-    res.end(method === "HEAD" ? undefined : reviewPage({ nonce, theme: cfg.theme, ended: !open, title: share?.title, sharedBy: sharer?.name, masked: share ? maskEmail(share.email) : "", serverName: cfg.name }));
+    res.end(method === "HEAD" ? undefined : reviewPage({ nonce, theme: cfg.theme, ended: !open, title: share?.title, sharedBy: sharer?.name, masked: share ? maskEmail(share.email) : "", serverName: cfg.name, app: ofApp }));
     return true;
   }
-  if (!open) return refuse(404, "not_found", "This link doesn't work. Ask for the prototype to be shared with you again");
+  if (!open) return refuse(404, "not_found", `This link doesn't work. Ask for the ${ofApp ? "app" : "prototype"} to be shared with you again`);
   const body = async () => {
     const chunks = []; let size = 0;
     for await (const chunk of req) { size += chunk.length; if (size > 16384) throw requestError(413, "too_large", "That is too long"); chunks.push(chunk); }
@@ -938,14 +942,16 @@ async function handleReview(req, res, url, cfg) {
   };
   const settings = { ...emailSettings(cfg), domains: reviewDomains(emailSettings(cfg)) };
   const bearer = String(req.headers.authorization || "").startsWith("Bearer ") ? String(req.headers.authorization).slice(7).trim() : "";
-  const view = c => ({ id: c.id, page: c.page, x: c.x, y: c.y, anchor: c.anchor, text: c.text, createdAt: c.createdAt });
-  const opened = current => ({ prototype: `/p/${current.folder}/`, title: current.title, comments: reviews.comments({ shareId: current.id }).map(view) });
+  // The reviewer is told when their comment was handed to the agent, and nothing about what came of it.
+  const view = c => ({ id: c.id, page: c.page, x: c.x, y: c.y, anchor: c.anchor, text: c.text, createdAt: c.createdAt, ...(c.askedAt ? { asked: true } : {}) });
+  const what = ofApp ? "app preview" : "prototype";
+  const opened = current => ({ prototype: ofApp ? `/a/${current.projectId}/` : `/p/${current.folder}/`, ...(ofApp ? { app: true } : {}), title: current.title, comments: reviews.comments({ shareId: current.id }).map(view) });
   try {
     // The code always goes to the address the prototype was shared with. The visitor never chooses where it is sent.
     if (method === "POST" && parts[2] === "code") {
       const sent = await emailVerifier.start({ email: share.email, inviteKey: `review:${share.id}`, mail: (code, minutes) => ({
         subject: `Your code to see "${share.title}" is ${code}`,
-        text: `Your code to see the prototype "${share.title}" that ${sharer.name} shared with you is ${code}. It works for ${minutes} minutes. If you didn't ask for it, ignore this email.` }) }, settings);
+        text: `Your code to see the ${what} "${share.title}" that ${sharer.name} shared with you is ${code}. It works for ${minutes} minutes. If you didn't ask for it, ignore this email.` }) }, settings);
       return json(200, { challenge: sent.id, expiresInSeconds: 600 });
     }
     if (method === "POST" && parts[2] === "verify") {
@@ -961,8 +967,8 @@ async function handleReview(req, res, url, cfg) {
       if (method === "POST") {
         const given = await body();
         const comment = reviews.comment(current, given);
-        reviewCommented(current, comment, sharer, cfg);
-        return json(201, { comment: view(comment) });
+        if (ofApp) appCommented(current, comment, sharer); else reviewCommented(current, comment, sharer, cfg);
+        return json(201, { comment: view(reviews.commentOf(comment.id, current.chatId) || comment) });
       }
     }
   } catch (error) {
@@ -971,18 +977,53 @@ async function handleReview(req, res, url, cfg) {
   }
   return refuse(404, "not_found", "No such route");
 }
-// A comment arrived: it becomes a to-do for the person who shared the prototype (who can hand it to the agent from
-// there), and they are told. Neither step can lose the comment, which is already saved.
-function reviewCommented(share, comment, sharer, cfg) {
-  const where = `${comment.anchor ? `On "${comment.anchor}", ` : ""}${comment.page}`;
-  const link = publicOrigin(cfg) ? `${publicOrigin(cfg)}/p/${share.folder}/${comment.page === "index.html" ? "" : comment.page}` : "";
+// A comment on a project's app preview from an outside reviewer. An app preview has no chat of its own, so the comment
+// comes back to the preview screen of the person who shared it, who decides what to do with it there, and they are
+// told. Nothing is filed as a to-do and nothing goes to the agent by itself. The comment is already saved.
+function appCommented(share, comment, sharer) {
+  try { push?.enqueue({ kind: "note", eventId: id("rev"), to: [sharer.id], projectId: share.projectId, title: `Comment on ${share.title}`, body: `${share.email}: ${comment.text}` }); }
+  catch (error) { console.error("[servant] app review comment alert", error.message); }
+}
+/**
+ * Hand a reviewer's comment to the agent, as a message in the prototype's own chat from the person who shared it.
+ * `by` is "auto" (the sharer switched that on for this reviewer) or the sharer's id (they pressed the button).
+ * A comment is handed over once. Returns { turn } or { refused: why }, and never throws for an ordinary refusal.
+ */
+function askAgentAboutComment(share, comment, sharer, by, cfg) {
+  const reviews = prototypeReviews();
+  const state = readState();
+  const chat = state.chats[share.chatId];
+  if (!chat || chat.deletedAt || chat.userId !== sharer.id || !chat.hermesSessionId) return { refused: "This prototype's chat can't take a message right now" };
+  if (noAgent(sharer) || usageStore().overLimit(sharer)) return { refused: limitText(sharer) };
+  // The turn runs as the sharer, from a device of theirs that is still signed in, like any message they send.
+  const device = Object.values(state.devices).find(d => d.userId === sharer.id && !d.revokedAt);
+  if (!device) return { refused: "You have no signed-in device for the agent to work from" };
+  if (!agentTurns) return { refused: "The agent isn't running" };
+  if (!reviews.claimForAgent(comment.id, by)) return { refused: "The agent was already asked to work on this comment" };
   try {
-    const todo = todosStore?.create(sharer, { text: `Comment on ${share.title}: ${comment.text}`,
-      description: [`${share.email} commented on the prototype "${share.title}".`, "", comment.text, "", `Where: ${where}`, link ? `Page: ${link}` : null, `Prototype files: prototypes/${share.folder}`].filter(l => l !== null).join("\n") },
-      { source: { kind: "prototype-review", id: share.chatId, title: share.title } });
-    if (todo?.id) prototypeReviews().linkTodo(comment.id, todo.id);
-  } catch (error) { console.error("[servant] review comment to-do", error.message); }
-  try { push?.enqueue({ kind: "note", eventId: id("rev"), to: [sharer.id], page: "todos", title: `Comment on ${share.title}`, body: `${share.email}: ${comment.text}` }); }
+    const link = publicOrigin(cfg) ? `${publicOrigin(cfg)}/p/${share.folder}/${comment.page === "index.html" ? "" : comment.page}` : "";
+    const turn = agentTurns.enqueue({ chat, user: sharer, device, text: commentRequest({ share, comment, link }).slice(0, INLINE_MESSAGE_CHARS), attachments: [], requestId: `review-${comment.id}` });
+    reviews.linkTurn(comment.id, turn.id);
+    mutateState(s => { const active = s.chats[chat.id]; if (active) { active.updatedAt = now(); delete active.archivedAt; } });
+    if (privateTimer) void agentTurns.processNext();
+    return { turn };
+  } catch (error) {
+    reviews.releaseClaim(comment.id);
+    if (!error?.status) console.error("[servant] review comment to agent", error?.message || error);
+    return { refused: error?.status ? error.message : "The agent couldn't be asked. Try again" };
+  }
+}
+// A comment arrived: it shows in the prototype's own chat, where the person who shared it reads it and decides what
+// to do (answer the reviewer themselves, change the prototype, hand it to the agent, or nothing), and they are told.
+// When they switched it on for this reviewer, the agent starts on it straight away. Nothing is filed anywhere else:
+// the chat is the one place a prototype's work happens. The comment itself is already saved.
+function reviewCommented(share, comment, sharer, cfg) {
+  // A reviewer can't run up the sharer's agent use: past a number of comments an hour, the rest wait for the sharer.
+  let started = false;
+  if (share.autoWork && prototypeReviews().autoWorkedSince(share.id, now() - 3_600_000) < AUTO_WORK_PER_HOUR) {
+    try { started = !!askAgentAboutComment(share, comment, sharer, "auto", cfg).turn; } catch (error) { console.error("[servant] review comment auto-work", error?.message || error); }
+  }
+  try { push?.enqueue({ kind: "note", eventId: id("rev"), to: [sharer.id], chatId: share.chatId, title: started ? `Agent is working on a comment on ${share.title}` : `Comment on ${share.title}`, body: `${share.email}: ${comment.text}` }); }
   catch (error) { console.error("[servant] review comment alert", error.message); }
 }
 // One-time codes an automation asks its own person for (docs/code-requests.md). Memory only: a restart forgets them.
@@ -1942,10 +1983,61 @@ async function handle(req, res, cfg) {
         if (!project.repo) return send(res, 200, { readme: null });
         return send(res, 200, { readme: await projectReadme(project.repo) });
       }
+      // Share the project's app preview with an outside reviewer (docs/app-preview.md): the same emailed link and
+      // code as a prototype. Anyone who can see the project can share it; each person sees and ends their own shares.
+      // The person who shared the preview has dealt with one of its comments: it leaves their waiting list.
+      if (parts[3] === "app-preview" && parts[4] === "comments" && parts[6] === "set-aside" && parts.length === 7 && method === "POST") {
+        await readAuthorizedBody(req);
+        const current = requireAuth(req).user;
+        found(projects().read(), pid);
+        if (!prototypeReviews().setAsideApp(parts[5], pid, current.id)) return fail(res, 404, "not_found", "That comment is no longer waiting");
+        return send(res, 200, { ok: true });
+      }
+      if (parts[3] === "app-preview" && parts[4] === "shares" && (parts.length === 5 || parts.length === 6)) {
+        const { project } = found(projects().read(), pid);
+        const reviews = prototypeReviews();
+        const listing = person => {
+          const mine = reviews.forApp(pid, person.id);
+          const comments = reviews.comments({ shareIds: mine.map(share => share.id) });
+          const open = new Set(mine.filter(share => !share.endedAt).map(share => share.email));
+          return { suggested: outsideReviewers(project).filter(r => !open.has(r.email)), shares: mine.map(share => ({ id: share.id, email: share.email, createdAt: share.createdAt, ...(share.verifiedAt ? { verifiedAt: share.verifiedAt } : {}), ...(share.lastSeenAt ? { lastSeenAt: share.lastSeenAt } : {}), ...(share.endedAt ? { endedAt: share.endedAt } : {}),
+            comments: comments.filter(c => c.shareId === share.id).map(c => ({ id: c.id, page: c.page, x: c.x, y: c.y, anchor: c.anchor, text: c.text, createdAt: c.createdAt, ...(c.setAsideAt ? { setAsideAt: c.setAsideAt } : {}) })) })) };
+        };
+        if (method === "GET" && parts.length === 5) return send(res, 200, listing(user));
+        if (method === "POST" && parts.length === 5) {
+          const body = await readAuthorizedBody(req);
+          const current = requireAuth(req).user;
+          const origin = publicOrigin(cfg), settings = emailSettings(cfg);
+          if (!previewInfo(APP_PREVIEWS_DIR, pid)) return fail(res, 404, "not_found", "This project has no app preview to share yet");
+          if (!origin) return fail(res, 400, "not_set_up", "This server has no public address yet, so there is no link to send. Ask an owner to set it up");
+          if (!settings.mailer?.command && !globalThis.__servantEmailSend) return fail(res, 400, "not_set_up", "This server can't send email yet, so the link can't be sent. Ask an owner to set up email");
+          const title = `${project.name} preview`;
+          let made;
+          try { made = reviews.shareApp({ projectId: pid, title, email: body.email, by: current.id, domains: reviewDomains(settings) }); }
+          catch (e) { if (!e.status) throw e; return fail(res, e.status, e.code, e.message); }
+          try {
+            await sendMail({ to: made.share.email, code: "", minutes: 0, subject: `${current.name} shared an app preview with you: ${title}`,
+              text: `${current.name} shared the app preview "${title}" with you on ${cfg.name} and would like your comments. It runs in your browser with sample data.\n\nOpen it here: ${origin}/review/${made.token}\n\nYou'll be asked to confirm this email address with a code. Then right-click anywhere on the app to leave a comment.\n\nIf you weren't expecting this, ignore this email.` }, settings);
+          } catch (error) {
+            reviews.endApp(made.share.id, pid, current.id);
+            console.error("[servant] app review share email failed:", error?.message || error);
+            return fail(res, 502, "email_send_failed", "Couldn't send the email. Try again, or ask an owner to check email setup");
+          }
+          return send(res, 201, listing(current));
+        }
+        if (method === "DELETE" && parts.length === 6) {
+          const current = requireAuth(req).user;
+          if (!reviews.endApp(parts[5], pid, current.id)) return fail(res, 404, "not_found", "That share has already ended");
+          return send(res, 200, listing(current));
+        }
+        return fail(res, 404, "not_found", "Not found");
+      }
       if (method === "PATCH" && parts.length === 3) {
         const body = await readAuthorizedBody(req);
         // Notes are for anyone who can write; the rest is the owners' call.
-        const settings = { name: cleanName, description: cleanDescription, repo: cleanRepo, path: cleanPath, pages: cleanUrl, workflow: cleanWorkflow, rules: cleanRules, stages: cleanStages, reviewers: cleanReviewers };
+        const settings = { name: cleanName, description: cleanDescription, repo: cleanRepo, path: cleanPath, pages: cleanUrl, workflow: cleanWorkflow, rules: cleanRules, stages: cleanStages, reviewers: cleanReviewers,
+          // Outside reviewers must be at addresses a prototype could be shared to (prototype-reviews.mjs).
+          outsideReviewers: value => cleanOutsideReviewers(value, reviewDomains(emailSettings(cfg))) };
         const changing = Object.keys(settings).filter(k => body[k] !== undefined);
         projects().mutate(data => {
           const p = within(data, pid, changing.length ? "edit" : "write");
@@ -2589,14 +2681,41 @@ async function handle(req, res, cfg) {
   }
   // Share the prototype with a business owner (docs/prototype-reviews.md): they get a link by email, confirm a code
   // sent to that address, and can then see it and comment on it. Only the chat's own person shares, lists or ends.
+  // Hand one reviewer's comment to the agent, in this chat (docs/prototype-reviews.md). Only the chat's own person.
+  // The sharer dealt with a comment themselves: it leaves the chat's waiting list and stays on record.
+  if (parts[3] === "prototype" && parts[4] === "comments" && parts[6] === "set-aside" && parts.length === 7 && method === "POST") {
+    await readAuthorizedBody(req);
+    const current = requireAuth(req).user;
+    if (chat.userId !== current.id) return fail(res, 403, "forbidden", "Only the person who made this prototype can set its comments aside");
+    const reviews = prototypeReviews();
+    if (!reviews.commentOf(parts[5], chat.id)) return fail(res, 404, "not_found", "That comment is no longer here");
+    reviews.setAside(parts[5], chat.id);
+    return send(res, 200, { comment: (({ id, setAsideAt }) => ({ id, setAsideAt }))(reviews.commentOf(parts[5], chat.id)) });
+  }
+  if (parts[3] === "prototype" && parts[4] === "comments" && parts[6] === "work" && parts.length === 7 && method === "POST") {
+    await readAuthorizedBody(req);
+    const current = requireAuth(req).user;
+    if (chat.userId !== current.id) return fail(res, 403, "forbidden", "Only the person who made this prototype can ask the agent to work on its comments");
+    const reviews = prototypeReviews();
+    const comment = reviews.commentOf(parts[5], chat.id);
+    const share = comment && reviews.get(comment.shareId);
+    if (!comment || !share) return fail(res, 404, "not_found", "That comment is no longer here");
+    const asked = askAgentAboutComment(share, comment, current, current.id, cfg);
+    if (asked.refused) return fail(res, 409, "not_asked", asked.refused);
+    return send(res, 200, { comment: (({ id, askedAt, askedBy, turnId }) => ({ id, askedAt, askedBy, turnId }))(reviews.commentOf(comment.id, chat.id)), turn: asked.turn });
+  }
   if (parts[3] === "prototype" && parts[4] === "shares" && (parts.length === 5 || parts.length === 6)) {
     if (chat.userId !== user.id) return fail(res, 403, "forbidden", "Only the person who made this prototype can share it");
     if (chat.mode !== "vibe" || chat.hosted !== "server" || !chat.vibeFolder) return fail(res, 404, "not_found", "This chat has no prototype to share");
     const reviews = prototypeReviews();
     const listing = () => {
       const comments = reviews.comments({ chatId: chat.id });
-      return { shares: reviews.forChat(chat.id).map(s => ({ id: s.id, email: s.email, createdAt: s.createdAt, ...(s.verifiedAt ? { verifiedAt: s.verifiedAt } : {}), ...(s.lastSeenAt ? { lastSeenAt: s.lastSeenAt } : {}), ...(s.endedAt ? { endedAt: s.endedAt } : {}),
-        comments: comments.filter(c => c.shareId === s.id).map(c => ({ id: c.id, page: c.page, x: c.x, y: c.y, anchor: c.anchor, text: c.text, createdAt: c.createdAt, ...(c.todoId ? { todoId: c.todoId } : {}) })) })) };
+      // The outside reviewers named on the project prototypes are built in, who don't have an open link to this one yet.
+      const open = new Set(reviews.forChat(chat.id).filter(s => !s.endedAt).map(s => s.email));
+      const suggested = outsideReviewers(vibeProject()).filter(r => !open.has(r.email));
+      return { suggested, shares: reviews.forChat(chat.id).map(s => ({ id: s.id, email: s.email, createdAt: s.createdAt, ...(s.verifiedAt ? { verifiedAt: s.verifiedAt } : {}), ...(s.lastSeenAt ? { lastSeenAt: s.lastSeenAt } : {}), ...(s.endedAt ? { endedAt: s.endedAt } : {}), autoWork: s.autoWork,
+        comments: comments.filter(c => c.shareId === s.id).map(c => ({ id: c.id, page: c.page, x: c.x, y: c.y, anchor: c.anchor, text: c.text, createdAt: c.createdAt,
+          ...(c.askedAt ? { askedAt: c.askedAt, askedBy: c.askedBy === "auto" ? "auto" : "you", turnId: c.turnId } : {}), ...(c.setAsideAt ? { setAsideAt: c.setAsideAt } : {}) })) })) };
     };
     if (method === "GET" && parts.length === 5) return send(res, 200, listing());
     if (method === "POST" && parts.length === 5) {
@@ -2605,7 +2724,7 @@ async function handle(req, res, cfg) {
       if (!origin) return fail(res, 400, "not_set_up", "This server has no public address yet, so there is no link to send. Ask an owner to set it up");
       if (!settings.mailer?.command && !globalThis.__servantEmailSend) return fail(res, 400, "not_set_up", "This server can't send email yet, so the link can't be sent. Ask an owner to set up email");
       let made;
-      try { made = reviews.share({ chatId: chat.id, folder: chat.vibeFolder, title: chat.title, email: body.email, by: user.id, domains: reviewDomains(settings) }); }
+      try { made = reviews.share({ chatId: chat.id, folder: chat.vibeFolder, title: chat.title, email: body.email, by: user.id, domains: reviewDomains(settings), autoWork: body.autoWork === true }); }
       catch (e) { if (!e.status) throw e; return fail(res, e.status, e.code, e.message); }
       try {
         await sendMail({ to: made.share.email, code: "", minutes: 0, subject: `${user.name} shared a prototype with you: ${made.share.title}`,
@@ -2617,6 +2736,13 @@ async function handle(req, res, cfg) {
         return fail(res, 502, "email_send_failed", "Couldn't send the email. Try again, or ask an owner to check email setup");
       }
       return send(res, 201, listing());
+    }
+    // Whether the agent starts on this reviewer's comments as they arrive. Off unless the sharer turns it on.
+    if (method === "PATCH" && parts.length === 6) {
+      const body = await readAuthorizedBody(req);
+      if (typeof body?.autoWork !== "boolean") return fail(res, 400, "bad_request", "autoWork is true or false");
+      if (!reviews.setAutoWork(parts[5], chat.id, body.autoWork)) return fail(res, 404, "not_found", "That share has ended");
+      return send(res, 200, listing());
     }
     if (method === "DELETE" && parts.length === 6) {
       requireAuth(req);
@@ -3194,8 +3320,16 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
       // A visitor wrote to the secure inbox: the team hears as it would for a direct message, and not at all in deep work.
       if (event.kind === "case") return normalizeFeatures((fixedCfg || loadConfig()).features).secureInbox && !inDeepWork(user) ? inbox().notificationFor(user, event.caseId, event.sequence) : null;
       // An entitlement request, decision or refusal: only for the people it names.
-      // A short note to named people that opens a page of the app (a comment on a shared prototype opens To-dos).
-      if (event.kind === "note") return Array.isArray(event.to) && event.to.includes(user.id) && ["todos", "entitlements"].includes(event.page) ? { kind: "agent", title: event.title, body: event.body, page: event.page } : null;
+      // A short note to named people that opens a page of the app, or one of their own agent chats (a comment on a
+      // prototype they shared opens that prototype's chat).
+      if (event.kind === "note") {
+        if (!Array.isArray(event.to) || !event.to.includes(user.id)) return null;
+        if (["todos", "entitlements"].includes(event.page)) return { kind: "agent", title: event.title, body: event.body, page: event.page };
+        // A comment on an app preview they shared: it opens the app, with nowhere more exact to send them.
+        if (typeof event.projectId === "string") return projectFor(user, event.projectId) ? { kind: "agent", title: event.title, body: event.body } : null;
+        const chat = typeof event.chatId === "string" ? readState().chats[event.chatId] : null;
+        return chat && !chat.deletedAt && chat.userId === user.id ? { kind: "agent", title: event.title, body: event.body, chatId: chat.id } : null;
+      }
       if (event.kind === "entitlement") return Array.isArray(event.to) && event.to.includes(user.id) ? { kind: "agent", title: event.title, body: event.body, page: "entitlements" } : null;
       // A code request: only its own person, never after it expires, and never the code itself (there is none yet). The
       // separate worker process that sends alerts cannot see the requests held in the API's memory, so the alert is built

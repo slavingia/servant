@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { commentBy, commentCount, commentWhere, looksLikeEmail, numberedComments, orderShares, pageOf, pinsOn, shareLine, shareStatus } from "./prototype-reviews.ts";
+import { commentBy, commentCount, commentWhere, looksLikeEmail, numberedComments, orderShares, pageOf, pinsOn, shareLine, shareStatus, commentAsked, waitingComments, waitingLine, outsideReviewerLine, outsideReviewerText, parseOutsideReviewers } from "./prototype-reviews.ts";
 
 const share = (extra = {}) => ({ id: "rev_1", email: "jo@example.gov", createdAt: 10, comments: [], ...extra });
 const comment = { id: "cmt_1", page: "index.html", anchor: "Pay now", text: "Say Pay in full", createdAt: 20 };
@@ -42,4 +42,22 @@ test("the builder's preview numbers every reviewer's comments in the order they 
   assert.equal(pageOf("/p/proto-0123456789abcdef01/"), "index.html");
   assert.equal(pageOf("/p/proto-0123456789abcdef01/plans/compare.html?review=1"), "plans/compare.html");
   assert.equal(pageOf("/p/proto-0123456789abcdef01/plans/"), "plans/index.html");
+});
+
+test("comments wait above the message box until they are handed to Agent, and say how that happened", () => {
+  const share = (email: string, comments: { id: string; createdAt: number; askedAt?: number; askedBy?: "you" | "auto"; setAsideAt?: number }[]) => ({ id: email, email, createdAt: 1, comments: comments.map(c => ({ page: "index.html", anchor: "", text: c.id, ...c })) });
+  const all = numberedComments([share("jo@example.gov", [{ id: "a", createdAt: 1, askedAt: 5, askedBy: "you" }, { id: "c", createdAt: 3 }]), share("sam@example.gov", [{ id: "b", createdAt: 2, askedAt: 2, askedBy: "auto" }, { id: "d", createdAt: 4 }, { id: "e", createdAt: 5, setAsideAt: 6 }])]);
+  assert.deepEqual(waitingComments(all).map(c => [c.id, c.n, c.email]), [["c", 3, "jo@example.gov"], ["d", 4, "sam@example.gov"]], "they keep the number their pin has");
+  assert.deepEqual(all.map(commentAsked), ["You asked Agent to work on it", "Agent started on it by itself", null, null, "You set it aside"]);
+  assert.deepEqual([waitingLine(1), waitingLine(3)], ["1 comment from a reviewer", "3 comments from reviewers"]);
+});
+
+test("outside reviewers are typed one a line, an address then their role", () => {
+  const typed = " Jo.Park@Example.gov, Product owner \nsam.lee@example.gov\n\nana.ruiz@example.gov   Subject   matter expert\njo.park@example.gov again";
+  const list = parseOutsideReviewers(typed);
+  assert.deepEqual(list, [{ email: "jo.park@example.gov", label: "Product owner" }, { email: "sam.lee@example.gov", label: "" }, { email: "ana.ruiz@example.gov", label: "Subject matter expert" }]);
+  assert.equal(outsideReviewerText(list), "jo.park@example.gov, Product owner\nsam.lee@example.gov\nana.ruiz@example.gov, Subject matter expert");
+  assert.deepEqual(parseOutsideReviewers(outsideReviewerText(list)), list, "what is shown reads back as the same list");
+  assert.deepEqual([outsideReviewerText(undefined), parseOutsideReviewers("  \n")], ["", []]);
+  assert.deepEqual(list.map(outsideReviewerLine), ["jo.park@example.gov · Product owner", "sam.lee@example.gov", "ana.ruiz@example.gov · Subject matter expert"]);
 });
