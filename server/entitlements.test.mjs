@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { capabilitySettings, createEntitlements, DEFAULT_CONFIRMATION, NATIVE, ONCE_WINDOW_MS, SOCIAL_ENTITLEMENT } from "./entitlements.mjs";
+import { capabilitySettings, createEntitlements, DEFAULT_CONFIRMATION, grantDaysSetting, NATIVE, ONCE_WINDOW_MS, SOCIAL_ENTITLEMENT } from "./entitlements.mjs";
 
 // Ana (owner) manages Jo; Jo manages Pat and Sam.
 function setup() {
@@ -218,4 +218,64 @@ test("the agent action log keeps every line, newest first, and can't be changed"
   assert.throws(() => raw.exec("UPDATE actions SET verdict='allowed'"), /append-only/);
   raw.close();
   done();
+});
+
+test("a standing grant runs out after the server's number of days, opens nothing from then on, and is asked for again", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "servant-entitlements-expiry-"));
+  const file = path.join(dir, "entitlements.db");
+  const roles = new Map([["usr_ana", "owner"], ["usr_jo", "member"], ["usr_pat", "member"]]);
+  const managerOf = { usr_jo: "usr_ana", usr_pat: "usr_jo" };
+  const time = { now: 1_800_000_000_000 }, DAY = 86_400_000;
+  let days = 30;
+  const store = createEntitlements(file, { clock: () => time.now, known: id => roles.has(id), isOwner: id => roles.get(id) === "owner", manages: (by, id) => managerOf[id] === by, grantDays: () => days });
+  try {
+    const github = store.create({ name: "GitHub", hosts: ["github.com"] }, "usr_ana");
+    for (const who of ["usr_jo", "usr_pat"]) store.request(github.id, who, { confirmed: true });
+    store.decide(github.id, "usr_jo", { decision: "grant", by: "usr_ana" });
+    time.now += 10 * DAY;
+    store.decide(github.id, "usr_pat", { decision: "grant", by: "usr_jo" });
+    // While it lasts, the grant says when it runs out.
+    assert.equal(store.grant(github.id, "usr_jo").expiresAt, 1_800_000_000_000 + 30 * DAY);
+    assert.equal(store.allows("usr_pat", "github.com"), true);
+
+    // Day 30: Jo's has run out, Pat's (granted on day 10) has not. Jo's opens nothing and Jo can no longer pass it on.
+    time.now = 1_800_000_000_000 + 30 * DAY;
+    assert.deepEqual([store.grant(github.id, "usr_jo").status, store.grant(github.id, "usr_pat").status], ["expired", "granted"]);
+    assert.deepEqual([store.allows("usr_jo", "github.com"), store.holds(github.id, "usr_jo"), store.allows("usr_pat", "github.com")], [false, false, true]);
+    assert.equal(store.grant(github.id, "usr_jo").expiresAt, undefined);
+    assert.deepEqual(store.held("usr_jo").map(e => e.name), []);
+    roles.set("usr_sam", "member"); managerOf.usr_sam = "usr_jo";
+    store.request(github.id, "usr_sam", { confirmed: true });
+    fails(() => store.decide(github.id, "usr_sam", { decision: "grant", by: "usr_jo" }), 403, "not_held");
+    // It is on the record, once, by the server, and nothing was deleted.
+    const expired = store.history(github.id).filter(h => h.action === "expired");
+    assert.deepEqual(expired.map(h => [h.userId, h.by, h.detail.days]), [["usr_jo", "server", 30]]);
+    store.list(); store.list();
+    assert.equal(store.history(github.id).filter(h => h.action === "expired").length, 1, "marked once, however often it is read");
+
+    // Asking again is a new request, decided again, with a new lifetime from that day.
+    fails(() => store.decide(github.id, "usr_jo", { decision: "revoke", by: "usr_ana" }), 409, "conflict");
+    assert.equal(store.request(github.id, "usr_jo", { confirmed: true }).fresh, true);
+    store.decide(github.id, "usr_jo", { decision: "grant", by: "usr_ana" });
+    assert.deepEqual([store.grant(github.id, "usr_jo").status, store.grant(github.id, "usr_jo").expiresAt, store.allows("usr_jo", "github.com")], ["granted", time.now + 30 * DAY, true]);
+
+    // A built-in entitlement runs out the same way: the agent's next use waits for the manager again.
+    const read = NATIVE.find(n => n.capability === "fs-read");
+    assert.equal(store.use("usr_pat", read.capability, "read a file").verdict, "wait");
+    store.decide(read.id, "usr_pat", { decision: "grant", by: "usr_ana" });
+    assert.equal(store.use("usr_pat", read.capability, "read a file").verdict, "allow");
+    time.now += 31 * DAY;
+    assert.deepEqual([store.use("usr_pat", read.capability, "read a file again").verdict, store.grant(read.id, "usr_pat").status], ["wait", "requested"]);
+
+    // Without a lifetime (the default) nothing runs out, and a grant carries no end date.
+    days = 0;
+    store.decide(read.id, "usr_pat", { decision: "grant", by: "usr_ana" });
+    time.now += 5000 * DAY;
+    assert.deepEqual([store.grant(read.id, "usr_pat").status, store.grant(read.id, "usr_pat").expiresAt], ["granted", undefined]);
+  } finally { store.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("the lifetime setting takes whole days from 1 to 3650; anything else means grants don't run out", () => {
+  assert.deepEqual([90, 1, 3650].map(grantDaysSetting), [90, 1, 3650]);
+  assert.deepEqual([0, -1, 1.5, 3651, "30", null, undefined, true].map(grantDaysSetting), [0, 0, 0, 0, 0, 0, 0, 0]);
 });

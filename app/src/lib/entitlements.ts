@@ -13,11 +13,13 @@ export function standingLine(mine: EntitlementStanding | null, managerName: stri
     case "requested": return `Waiting for ${who}`;
     case "denied": return mine.reason ? `Declined: ${mine.reason}` : "Declined";
     case "revoked": return mine.reason ? `Taken back: ${mine.reason}` : "Taken back";
+    // The server gives standing grants a lifetime (entitlementGrantDays); this one ran out.
+    case "expired": return "Expired. Ask again to keep using it";
   }
 }
 
-/** You can ask when you never did, or after a refusal or a revocation. */
-export const canAsk = (mine: EntitlementStanding | null) => !mine || mine.status === "denied" || mine.status === "revoked" || mine.status === "used";
+/** You can ask when you never did, or after a refusal, a revocation or an expiry. */
+export const canAsk = (mine: EntitlementStanding | null) => !mine || mine.status === "denied" || mine.status === "revoked" || mine.status === "expired" || mine.status === "used";
 export const askLabel = (mine: EntitlementStanding | null) => (mine && mine.status !== "used" ? "Ask again" : "Ask for this");
 
 /** A request, for the person deciding it: who wants what, and whether they asked or their agent did by trying. */
