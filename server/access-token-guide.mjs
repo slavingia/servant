@@ -27,6 +27,8 @@ Every answer is JSON. An error has \`error.code\` and \`error.message\`; the mes
 | \`GET /me\` | Who the token acts as. |
 | \`GET /prototypes?q=words\` | Prototypes you can see: yours, ones shared with everyone, and all of them if you own the server. Each has \`id\`, \`title\`, \`by\`, \`url\`, \`canShare\` and, when you can share it, who it is shared with. |
 | \`POST /prototypes/<id>/shares\` | Body \`{ "emails": ["name@example.gov"] }\` or \`{ "people": [{ "name": "Jo Park", "email": "jo.park@example.gov" }] }\` (one to ten). Sends each person a link to review the prototype; they need no account. Each result has \`sent\`, the \`link\`, and a \`message\` ready to paste into a chat or an email of your own. Add \`"invite": true\` (server owners only, names required) to also invite each person onto the server: it is still one link, which opens on the prototype straight away; once they type the code emailed to them on that page, it offers to join the team (once, for a week). Their comments arrive in the chat of the person who made the prototype. |
+| \`GET /work?q=words\` | Everything you are working on with the agent, in one list. Each has a \`kind\`: \`prototype\`, \`app\` (a project's app preview on the server) or \`chat\` (a chat of yours whose work is in a project's folder or repository). \`canShare\` says whether it can go to a reviewer; when it can't, \`why\` says what to do. |
+| \`POST /work/<id>/shares\` | The same body and answer as sharing a prototype, for a prototype or an app preview. |
 | \`POST /agent\` | Body \`{ "text": "…" }\` starts a new chat with your agent; add \`"chatId"\` to continue one of yours. Answers at once with \`chatId\` and \`turnId\`; the agent works in the background. |
 | \`GET /agent/<chatId>\` | \`working\` (true while the agent is busy), \`needsApproval\`, and the messages so far with the agent's \`reply\` to each. |
 | \`POST /feedback\` | Body \`{ "kind": "bug", "text": "what happened", "where": "what you were doing" }\`. Tells the people who run Servant that something broke, was slow, got in the way or was confusing. \`kind\` is \`bug\`, \`friction\`, \`slow\`, \`confusing\` or \`idea\`. Up to 4,000 characters, five reports an hour. |
@@ -59,6 +61,17 @@ you expected. Leave out tokens, people's details and the content of the work its
 \`\`\`powershell
 $body = @{ kind = "confusing"; where = "sharing a prototype"; text = "POST /prototypes/<id>/shares answered 400 with no error for the second address. Expected each result to say why it was not sent." } | ConvertTo-Json
 Invoke-RestMethod "$Servant/feedback" -Method Post -Headers $Headers -ContentType "application/json" -Body $body
+Find anything you are working on by a word in its title or project, and send it for review. If the user names
+something \`GET /prototypes\` does not have, look here before saying it does not exist:
+
+\`\`\`powershell
+$found = Invoke-RestMethod "$Servant/work?q=permit" -Headers $Headers
+$found.work | Format-Table kind, id, title, project, canShare
+$one = $found.work | Where-Object canShare | Select-Object -First 1
+if ($one) {
+  $body = @{ people = @(@{ name = "Jo Park"; email = "jo.park@example.gov" }) } | ConvertTo-Json -Depth 4
+  (Invoke-RestMethod "$Servant/work/$($one.id)/shares" -Method Post -Headers $Headers -ContentType "application/json" -Body $body).results | ForEach-Object { $_.message }
+} else { $found.work | ForEach-Object { "$($_.title): $($_.why)" } }
 \`\`\`
 
 Ask your agent something and wait for the answer:

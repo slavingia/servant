@@ -83,7 +83,7 @@ test("until an owner turns it on there is no door at all, and no token can be ma
   const listed = await app("pat", "GET", "tokens");
   assert.deepEqual([listed.status, listed.body.enabled, listed.body.tokens], [200, false, []]);
   assert.deepEqual([(await app("pat", "POST", "tokens", { name: "Work laptop" })).status, (await app("pat", "POST", "tokens", { name: "Work laptop" })).body.error.code], [404, "feature_off"]);
-  config.accessTokens = { enabled: true, requestsPerMinute: 40 }; saveConfig();
+  config.accessTokens = { enabled: true, requestsPerMinute: 80 }; saveConfig();
   const guide = await shell(null, "GET", "");
   assert.equal(guide.status, 200);
   assert.match(guide.headers.get("content-type"), /^text\/markdown/);
@@ -217,6 +217,50 @@ test("see prototypes and send one for review; a server owner can do it for the p
   assert.deepEqual(mail.map(m => m.subject), ["Pat Tester shared a prototype with you: Refund tracker"]);
 });
 
+test("everything you are working on is in one list: prototypes, a project's app preview to send, and chats with why they can't be sent", async () => {
+  fs.writeFileSync(path.join(directory, "projects.json"), JSON.stringify({ people: {}, projects: [
+    { id: "example-app", name: "Example app", owners: [people.ana.id], access: { merge: [], write: [], read: [people.pat.id] } },
+    { id: "permits", name: "Permits", owners: [people.ana.id], access: { merge: [], write: [], read: [people.pat.id] } }] }));
+  mod.mutateStateForTest(state => { state.chats.cht_plain.projectId = "permits"; state.chats.cht_plain.title = "Permit claim page edits"; });
+  const list = async (who, q = "") => (await shell(people[who].token, "GET", `/work${q}`)).json.work;
+  // Before the app is on the server: Pat's prototype, and the chat about a page that lives in the project's repository.
+  assert.deepEqual((await list("pat")).map(w => [w.kind, w.id, w.title, w.project ?? null, w.canShare]).sort(), [["chat", "cht_plain", "Permit claim page edits", "Permits", false], ["prototype", "cht_proto", "Refund tracker", null, true]]);
+  const chat = (await list("pat", "?q=permit"))[0];
+  assert.match(chat.why, /Nothing from this chat is on the server for a reviewer to open/);
+  const refused = await shell(people.pat.token, "POST", "/work/cht_plain/shares", { emails: ["jo.park@example.gov"] });
+  assert.deepEqual([refused.status, refused.json.error.code, refused.json.error.message], [409, "nothing_to_open", chat.why], "said plainly, not a bare 404");
+  assert.equal((await shell(people.pat.token, "POST", "/work/example-app/shares", { emails: ["jo.park@example.gov"] })).status, 404, "no app preview on the server yet");
+
+  fs.mkdirSync(path.join(directory, "app-previews", "example-app"), { recursive: true });
+  fs.writeFileSync(path.join(directory, "app-previews", "example-app", "index.html"), "<html><head></head><body><h1>Example app</h1></body></html>");
+  const app = (await list("pat", "?q=example"))[0];
+  assert.deepEqual([app.kind, app.id, app.title, app.project, app.url, app.canShare, app.sharedWith], ["app", "example-app", "Example app preview", "Example app", "https://team.example.gov/a/example-app/", true, []]);
+  // Someone outside the project sees neither the app nor Pat's chat, and can't send the app.
+  assert.deepEqual(await list("sam"), []);
+  assert.equal((await shell(people.sam.token, "POST", "/work/example-app/shares", { emails: ["jo.park@example.gov"] })).status, 404);
+  // The owner sees Pat's prototype and the app, but not Pat's private chat.
+  assert.deepEqual((await list("ana")).map(w => w.kind).sort(), ["app", "prototype"]);
+
+  mail.length = 0;
+  const sent = await shell(people.pat.token, "POST", "/work/example-app/shares", { people: [{ name: "Jo Park", email: "Jo.Park@example.gov" }, { name: "Sam Lee", email: "sam@example.com" }] });
+  assert.equal(sent.status, 201, JSON.stringify(sent.json));
+  assert.deepEqual(sent.json.work, { id: "example-app", kind: "app", title: "Example app preview" });
+  assert.deepEqual(sent.json.results.map(r => [r.email, r.sent, r.error ?? null]), [["jo.park@example.gov", true, null], ["sam@example.com", false, "Use an email that ends in @example.gov"]]);
+  const link = sent.json.results[0].link;
+  assert.match(link, /^https:\/\/team\.example\.gov\/review\/[A-Za-z0-9_-]{32}$/);
+  assert.equal(sent.json.results[0].message, `Hi Jo, I've shared the app preview "Example app preview" with you for review: ${link}\n\nIt opens straight away. To leave a comment, confirm your email (jo.park@example.gov) with the code that page offers to send you, then right-click anywhere on the app.\n\n${mod.servantFootnote("Example team", false)}`);
+  assert.deepEqual([mail.length, mail[0].to, mail[0].subject, mail[0].text.startsWith("Hi Jo Park,\n\nPat Tester shared the app preview"), mail[0].text.includes(link)], [1, "jo.park@example.gov", "Pat Tester shared an app preview with you: Example app preview", true, true]);
+  // The link opens the app's review page, and the share is Pat's own, in the app and in the list.
+  assert.equal((await fetch(`${base}/review/${link.split("/").pop()}`)).status, 200);
+  assert.deepEqual((await list("pat", "?q=example"))[0].sharedWith, [{ email: "jo.park@example.gov", opened: false, comments: 0 }]);
+  assert.deepEqual((await list("ana", "?q=example"))[0].sharedWith, [], "each person sees their own shares of an app");
+  assert.equal((await shell(people.pat.token, "POST", "/work/example-app/shares", { invite: true, people: [{ name: "Jo Park", email: "jo.park@example.gov" }] })).status, 400, "an invitation goes with a prototype");
+  // A prototype goes out through the same address as before, and through this one.
+  const proto = await shell(people.pat.token, "POST", "/work/cht_proto/shares", { emails: ["jo.park@example.gov"] });
+  assert.deepEqual([proto.status, proto.json.work], [201, { kind: "prototype", id: "cht_proto", title: "Refund tracker", by: "Pat Tester" }]);
+  assert.equal((await shell(people.pat.token, "POST", "/work/cht_nothing/shares", { emails: ["jo.park@example.gov"] })).status, 404);
+});
+
 test("a message to your own agent, and its answer read back", async () => {
   assert.equal((await shell(people.pat.token, "POST", "/agent", { text: " " })).status, 400);
   assert.equal((await shell(people.pat.token, "POST", "/agent", ["text"])).status, 400);
@@ -278,7 +322,7 @@ test("a token stops when it is revoked, when its person leaves, and when it has 
   assert.equal((await app("pat", "DELETE", `tokens/${id}`)).status, 404);
   // Forty requests a minute on this server: the owner's token runs out and is told to wait.
   let limited = null;
-  for (let i = 0; i < 45 && !limited; i++) { const r = await shell(people.ana.token, "GET", "/me"); if (r.status === 429) limited = r; }
+  for (let i = 0; i < 85 && !limited; i++) { const r = await shell(people.ana.token, "GET", "/me"); if (r.status === 429) limited = r; }
   assert.deepEqual([limited.json.error.code, limited.headers.get("retry-after")], ["rate_limited", "60"]);
   // Sam is removed from the server: Sam's token goes with them.
   assert.equal((await shell(people.sam.token, "GET", "/me")).status, 200);
