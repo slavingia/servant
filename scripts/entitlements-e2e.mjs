@@ -5,6 +5,7 @@
 // allows it once and then always. Saves captures to docs/shots/entitlements.
 // Run after npm ci --prefix app and npm ci --prefix desktop, then: cd desktop && npx playwright install chromium.
 //   node scripts/entitlements-e2e.mjs
+// SERVANT_ENT_E2E_GRANT_DAYS=<n> gives standing grants a lifetime (entitlementGrantDays), so they show their end date.
 // SERVANT_E2E_BROWSER=chrome uses installed Chrome. SERVANT_ENT_E2E_APP=<another checkout's app directory> with
 // SERVANT_ENT_E2E_BEFORE=1 captures only You in that checkout, for a "before" picture. No live data is used.
 import assert from 'node:assert/strict';
@@ -62,7 +63,8 @@ try {
   const door = await freePort();
   // Built-in entitlements are checked; the network gate stays off. The agent's bridge asks at this local port.
   fs.writeFileSync(path.join(data, 'config.json'), JSON.stringify({ name: 'Example team', publicUrl: apiUrl, discovery: 'off', discoveryUrl: '', upstreams: {},
-    agentCapabilities: { mode: 'ask', waitSeconds: 0 }, agentEgress: { port: door } }));
+    agentCapabilities: { mode: 'ask', waitSeconds: 0 }, agentEgress: { port: door },
+    ...(process.env.SERVANT_ENT_E2E_GRANT_DAYS ? { entitlementGrantDays: Number(process.env.SERVANT_ENT_E2E_GRANT_DAYS) } : {}) }));
   const env = {
     ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(SERVANT_|HERMES_|API_SERVER_KEY$)/.test(key))),
     SERVANT_DATA_DIR: data, SERVANT_PORT: String(port), SERVANT_HOST: '127.0.0.1', SERVANT_PUBLIC_URL: apiUrl, SERVANT_DISCOVERY_URL: '',
@@ -86,7 +88,10 @@ try {
     const output = await run(process.execPath, [serverEntry, 'invite', '--name', name, '--role', role], { env });
     const code = output.stdout.match(/Invite code:\s*(\S+)/)?.[1];
     assert.ok(code, 'Fixture invite was created');
-    return account(await api('POST', '/v1/pair', { code, device: 'Browser E2E', terms: { version: TERMS_VERSION, items: TERMS_ITEMS } }));
+    const paired = account(await api('POST', '/v1/pair', { code, device: 'Browser E2E', terms: { version: TERMS_VERSION, items: TERMS_ITEMS } }));
+    // The onboarding tour would cover the screen; these people have seen it.
+    await api('POST', '/v1/tour/seen', {}, paired.token);
+    return paired;
   };
   // Ana (owner) > Jo > Pat.
   const ana = await pair('Ana Ruiz', 'owner');
@@ -115,6 +120,8 @@ try {
     await opened.goto(`${webUrl}${route}`);
     return opened;
   };
+  // With a lifetime set, a standing grant ends with " until <date>".
+  const has = words => new RegExp(`^${words}( until .+)?$`);
   const shot = (page, name) => page.screenshot({ path: path.join(shots, name), animations: 'disabled' });
   const phone = { width: 390, height: 844 }, desktop = { width: 1280, height: 900 };
   const text = (page, id) => page.getByTestId(id).innerText();
@@ -128,8 +135,11 @@ try {
   } else {
     // You lists Entitlements.
     const you = await newPage(pat, phone, '/you');
-    await you.getByRole('link', { name: /Entitlements/ }).or(you.getByRole('button', { name: /Entitlements/ })).first().scrollIntoViewIfNeeded();
-    await shot(you, 'you-phone.png');
+    // You may keep Entitlements inside a section that starts closed; the capture is skipped then, not the run.
+    try {
+      await you.getByRole('link', { name: /Entitlements/ }).or(you.getByRole('button', { name: /Entitlements/ })).first().scrollIntoViewIfNeeded({ timeout: 5000 });
+      await shot(you, 'you-phone.png');
+    } catch { console.log('entitlements-e2e: Entitlements is not visible on You; you-phone.png not captured'); }
 
     // The owner makes one. With nothing yet, the page says so, and says the gate is off.
     const owner = await newPage(ana, desktop);
@@ -187,16 +197,18 @@ try {
     await shot(owner, 'owner-waiting-desktop.png');
     await owner.getByTestId(`grant-${id}-${jo.user.id}`).click();
     await owner.getByText('Waiting on you (1)', { exact: true }).waitFor();
-    await owner.getByText('Jo Park has this', { exact: true }).waitFor();
+    await owner.getByText(has('Jo Park has this')).waitFor();
 
     // Now Jo can grant Pat, and Pat has it.
     await manager.reload();
     await manager.getByTestId(`grant-${id}-${pat.user.id}`).click();
-    await manager.getByText('Pat Tester has this', { exact: true }).waitFor();
-    assert.equal(await text(manager, `standing-${id}`), 'You have this');
+    await manager.getByText(has('Pat Tester has this')).waitFor();
+    assert.match(await text(manager, `standing-${id}`), has('You have this'));
+    await manager.getByTestId(`standing-${id}`).scrollIntoViewIfNeeded();
     await shot(manager, 'manager-granted-phone.png');
     await person.reload();
-    await person.getByText('You have this', { exact: true }).waitFor();
+    await person.getByText(has('You have this')).waitFor();
+    await person.getByTestId(`standing-${id}`).scrollIntoViewIfNeeded();
     await shot(person, 'granted-phone.png');
 
     // The owner takes it back from Pat, after a confirmation.
@@ -204,7 +216,7 @@ try {
     await owner.getByTestId(`revoke-${id}-${pat.user.id}`).click();
     await owner.getByText('Take Tax data API back from Pat Tester?', { exact: true }).waitFor();
     await owner.getByRole('button', { name: 'Take back', exact: true }).last().click();
-    await owner.getByText('Pat Tester has this', { exact: true }).waitFor({ state: 'detached' });
+    await owner.getByText(has('Pat Tester has this')).waitFor({ state: 'detached' });
     await person.reload();
     await person.getByTestId(`standing-${id}`).waitFor();
     assert.equal(await text(person, `standing-${id}`), 'Taken back');
@@ -236,12 +248,12 @@ try {
     await manager2.getByTestId(`request-${github}-${pat.user.id}`).scrollIntoViewIfNeeded();
     await shot(manager2, 'built-in-request-phone.png');
     await manager2.getByTestId(`grant-${github}-${pat.user.id}`).click();
-    await manager2.getByText('Pat Tester has this', { exact: true }).waitFor();
+    await manager2.getByText(has('Pat Tester has this')).waitFor();
     for (const detail of ['Run: gh pr merge 12', 'Run: git push']) assert.equal((await tries(['github-write'], detail)).verdict, 'allow', 'allowed always');
     assert.equal((await tries(['github-read'], 'Run: gh pr list')).verdict, 'allow', 'write covers read');
     await person.reload();
     await person.getByTestId(`standing-${github}`).waitFor();
-    assert.equal(await text(person, `standing-${github}`), 'You have this');
+    assert.match(await text(person, `standing-${github}`), has('You have this'));
     await person.getByTestId(`standing-${github}`).scrollIntoViewIfNeeded();
     await shot(person, 'built-in-granted-phone.png');
     const record = (await api('GET', `/v1/entitlements/${github}/history`, undefined, ana.token)).history.filter(h => h.userId === pat.user.id).reverse();

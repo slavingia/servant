@@ -1,12 +1,20 @@
 // The Entitlements screen's words and rules (docs/entitlements.md). The server decides; this says what to show.
 import type { AgentAction, Entitlement, EntitlementStanding } from "./server.ts";
+import { localFormat } from "./local-format.ts";
+
+/** " until Nov 2" for a standing grant with a lifetime (entitlementGrantDays), with the year when it isn't this one; "" otherwise. */
+export function untilWords(expiresAt: number | undefined, now = Date.now()): string {
+  if (!expiresAt) return "";
+  const end = new Date(expiresAt);
+  return ` until ${localFormat(end.getFullYear() === new Date(now).getFullYear() ? "monthDay" : "monthDayYear", end, now)}`;
+}
 
 /** One line about where you stand on an entitlement. */
-export function standingLine(mine: EntitlementStanding | null, managerName: string | null): string {
+export function standingLine(mine: EntitlementStanding | null, managerName: string | null, now = Date.now()): string {
   if (!mine) return "";
   const who = managerName || "an owner";
   switch (mine.status) {
-    case "granted": return "You have this";
+    case "granted": return `You have this${untilWords(mine.expiresAt, now)}`;
     // Allowed for one action: the agent's next try goes ahead, the one after asks again.
     case "once": return "Allowed once";
     case "used": return "";

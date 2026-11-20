@@ -7,7 +7,7 @@ import { CheckBox } from "../components/CheckBox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { api, ServerError, type AgentAction, type Entitlement, type EntitlementsPage, type EntitlementStanding } from "../lib/server";
 import { useSession } from "../lib/session";
-import { actionLine, askLabel, canAsk, checksLine, holders, hostsLine, parseHosts, reachedLine, refusedLine, requestLine, standingLine, waitingOnYou } from "../lib/entitlements";
+import { actionLine, askLabel, canAsk, checksLine, holders, hostsLine, parseHosts, reachedLine, refusedLine, requestLine, standingLine, untilWords, waitingOnYou } from "../lib/entitlements";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
 
 // Entitlements (docs/entitlements.md): the named access a person's agent may use. Everyone sees the list and asks
@@ -152,7 +152,7 @@ export default function EntitlementsScreen() {
               {standing ? <Text testID={`standing-${entitlement.id}`} style={[styles.standing, entitlement.mine?.status === "granted" && styles.granted]}>{standing}</Text> : null}
               {/* The people you decide for who hold it, each with a way to take it back. */}
               {held.map(person => <View key={person.userId} style={styles.holder}>
-                <Text style={styles.holderName}>{`${person.name} has this`}</Text>
+                <Text style={styles.holderName}>{`${person.name} has this${untilWords(person.expiresAt)}`}</Text>
                 <Button testID={`revoke-${entitlement.id}-${person.userId}`} label="Take back" accessibilityLabel={`Take ${entitlement.name} back from ${person.name}`} kind="danger" compact disabled={!!busy} onPress={() => { setDangerError(null); setDanger({ kind: "revoke", entitlement, person }); }} />
               </View>)}
               <View style={styles.actions}>

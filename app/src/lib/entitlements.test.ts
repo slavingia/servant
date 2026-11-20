@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { actionLine, askLabel, canAsk, checksLine, holders, hostsLine, parseHosts, reachedLine, refusedLine, requestLine, standingLine, waitingOnYou } from "./entitlements.ts";
+import { actionLine, askLabel, canAsk, checksLine, holders, hostsLine, parseHosts, reachedLine, refusedLine, requestLine, standingLine, untilWords, waitingOnYou } from "./entitlements.ts";
 import type { Entitlement, EntitlementStanding } from "./server.ts";
 
 const standing = (status: EntitlementStanding["status"], extra: Partial<EntitlementStanding> = {}): EntitlementStanding => ({ entitlementId: "ent_1", userId: "usr_pat", status, note: "", requestedAt: 1, ...extra });
@@ -71,4 +71,13 @@ test("a line of the agent action log says how it ended and what it needed", () =
 test("a reached host says who, where, how many and when", () => {
   assert.equal(reachedLine({ name: "Pat Tester", host: "api.example.gov", connections: 3, day: "2026-11-17" }), "Pat Tester · api.example.gov · 3 connections on 2026-11-17");
   assert.equal(reachedLine({ name: "The agent itself", host: "models.example.gov", connections: 1, day: "2026-11-17" }), "The agent itself · models.example.gov · 1 connection on 2026-11-17");
+});
+
+test("a standing grant with a lifetime says when it ends", () => {
+  const now = new Date(2026, 10, 20, 12).getTime();
+  assert.equal(untilWords(undefined, now), "");
+  assert.equal(untilWords(new Date(2027, 1, 18, 12).getTime(), now), " until Feb 18, 2027");
+  assert.equal(untilWords(new Date(2026, 11, 20, 12).getTime(), now), " until Dec 20");
+  assert.equal(standingLine(standing("granted", { expiresAt: new Date(2026, 11, 20, 12).getTime() }), "Jo Park", now), "You have this until Dec 20");
+  assert.equal(standingLine(standing("granted"), "Jo Park", now), "You have this");
 });
