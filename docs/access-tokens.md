@@ -99,6 +99,7 @@ Use the server's `https://` address. A token sent to an `http://` address crosse
 A page the agent built in a project's repository (a folder with an `index.html`) lives on the computer the project is on. A reviewer's link has nothing to open. `POST /api/v1/work` with the project and the folder copies that one folder to where the server serves prototypes, and from then on it is a prototype of yours: it has an address, a chat where reviewers' comments arrive, and it is sent with `POST /api/v1/work/<id>/shares` like any other.
 
 - **Who:** someone in the project, for themselves. Each person who publishes a folder gets their own copy.
+- **One folder, never the whole project.** The folder must be named and must be inside the project; a request with no folder is refused, even when the project's own folder has an `index.html`.
 - **What is copied:** plain files in that folder and the folders inside it. Never anything whose name starts with a dot (`.git`, `.env`), `node_modules`, or links, so nothing outside the folder comes along. A folder that is hidden, that is not inside the project, or that is a link leading out of it is refused.
 - **Limits:** 2,000 files, 200 MB in all, 25 MB a file. The folder needs an `index.html`.
 - **It is a copy as of now.** It does not follow the repository. Publish the same folder again to replace the copy; its address, its chat and the reviewers' links stay the same. Changes the agent makes in the prototype's chat change the copy, not the repository, and the next publish replaces them.

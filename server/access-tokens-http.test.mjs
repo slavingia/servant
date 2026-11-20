@@ -280,6 +280,8 @@ test("a folder of a project is put on the server, sent for review, and replaced 
   await refused("pat", { project: "permits", folder: "missing" }, 404, "not_found");
   await refused("pat", { project: "permits", folder: "../outside" }, 400, "bad_request");
   await refused("pat", { project: "permits", folder: ".git" }, 400, "bad_request");
+  fs.writeFileSync(path.join(repo, "index.html"), "<h1>The whole repository</h1>");
+  for (const whole of [{ project: "permits" }, { project: "permits", folder: "" }, { project: "permits", folder: "/" }, { project: "permits", folder: "./" }]) assert.match(await refused("pat", whole, 400, "bad_request"), /A whole project can't be published/);
   assert.match(await refused("pat", { project: "permits", folder: "notes" }, 409, "no_index"), /no index\.html/);
   assert.match(await refused("pat", { project: "example-app", folder: "permit-claim" }, 409, "no_project_folder"), /no folder on the server's computer/);
 

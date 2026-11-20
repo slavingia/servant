@@ -1195,6 +1195,8 @@ async function handleTokenApi(req, res, url, parts, cfg) {
       if (!project) return fail(res, 404, "not_found", "No such project of yours. Send project: the id or name of a project you are in");
       if (given.title !== undefined && typeof given.title !== "string") return fail(res, 400, "bad_request", "title is a few words");
       const folder = cleanFolder(given.folder);
+      // One named folder, never the project as a whole: a repository holds far more than the page someone means to show.
+      if (!folder) return fail(res, 400, "bad_request", "Send folder: the one folder inside the project that holds the page, such as pages/permit-claim. A whole project can't be published");
       const from = sourceOf(project.path ? path.resolve(expandPath(project.path)) : "", folder);
       const asked = String(given.title ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
       const existing = Object.values(state.chats).find(c => isPrototype(c) && c.userId === user.id && c.published?.projectId === project.id && c.published.folder === folder);
