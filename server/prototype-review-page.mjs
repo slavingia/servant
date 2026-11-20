@@ -27,6 +27,15 @@ html,body{height:100%}
 body{display:flex;flex-direction:column}
 .viewer{display:contents}
 main.gate{width:100%;max-width:480px;margin:0 auto;padding:48px 24px}
+.corner{position:absolute;z-index:3;right:16px;bottom:16px;width:min(360px,calc(100% - 32px));max-height:calc(100% - 32px);overflow:auto;padding:16px;border:1px solid var(--borderStrong);border-radius:12px;background:var(--background);box-shadow:0 8px 30px rgba(0,0,0,.25)}
+.corner[hidden]{display:none}
+.corner h2{margin:0;font-size:18px;line-height:24px}
+.corner p{margin:0}
+.cornerHead{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.cornerHead button{width:auto;min-height:44px;flex:none}
+.reopen{position:absolute;z-index:3;right:16px;bottom:16px;width:auto;min-height:44px;border-radius:22px;box-shadow:0 4px 18px rgba(0,0,0,.22)}
+.reopen[hidden]{display:none}
+.bar[hidden]{display:none}
 .code{font-size:24px;letter-spacing:6px;text-align:center}
 .stack>*+*{margin-top:12px}
 .work{flex:1;min-height:0;display:flex;position:relative}
@@ -34,6 +43,8 @@ main.gate{width:100%;max-width:480px;margin:0 auto;padding:48px 24px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .bar{position:absolute;z-index:3;left:0;right:0;bottom:16px;margin:0 auto;width:fit-content;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:4px 12px;max-width:calc(100% - 16px);padding:6px 8px 6px 16px;border:1px solid var(--borderStrong);border-radius:28px;background:var(--background);box-shadow:0 4px 18px rgba(0,0,0,.22)}
 .bar p{margin:0}
+.bar a.join{display:inline-flex;align-items:center;min-height:44px;padding:0 12px;color:var(--blue);font-weight:600;text-decoration:underline}
+.bar a.join[hidden]{display:none}
 .bar .touch{display:none}
 @media (hover:none){.bar .touch{display:inline}.bar .mouse{display:none}}
 .bar button{min-height:44px;border-radius:22px;width:auto}
@@ -59,8 +70,8 @@ main.gate{width:100%;max-width:480px;margin:0 auto;padding:48px 24px}
 const SCRIPT = `(function(){
 var B=location.pathname.replace(/\\/+$/,""),KEY="servant-review:"+B;
 var $=function(id){return document.getElementById(id)};
-var gate=$("gate"),viewer=$("viewer"),err=$("error"),sendBtn=$("send"),codeBox=$("codeBox"),codeIn=$("code"),checkBtn=$("check");var seeLabel=checkBtn.textContent;
-var panel=$("panel");var frame=$("frame"),list=$("list"),count=$("count"),empty=$("empty"),composer=$("composer"),text=$("text"),onWhat=$("onWhat"),save=$("save"),cancel=$("cancel"),cerr=$("cerr");
+var hideBtn=$("hide"),reopen=$("reopen"),bar=$("bar");var gate=$("gate"),viewer=$("viewer"),err=$("error"),sendBtn=$("send"),codeBox=$("codeBox"),codeIn=$("code"),checkBtn=$("check");var seeLabel=checkBtn.textContent;
+var panel=$("panel"),joinLink=$("join");var frame=$("frame"),list=$("list"),count=$("count"),empty=$("empty"),composer=$("composer"),text=$("text"),onWhat=$("onWhat"),save=$("save"),cancel=$("cancel"),cerr=$("cerr");
 var session=null,challenge=null,proto=null,isApp=false,comments=[],pending=null,page="";
 try{session=sessionStorage.getItem(KEY)}catch(x){}
 function say(el,m){el.textContent=m||""}
@@ -70,8 +81,12 @@ function busy(b,on,label){b.disabled=on;if(label)b.textContent=label}
 sendBtn.addEventListener("click",function(){say(err,"");busy(sendBtn,true,"Sending…");api("POST","/code").then(function(j){challenge=j.challenge;codeBox.hidden=false;busy(sendBtn,false,"Send another code");codeIn.focus()},function(e){say(err,e.message);busy(sendBtn,false,"Email me a code")})});
 function check(){var c=codeIn.value.replace(/\\s/g,"");if(!challenge){say(err,"Ask for a code first");return}if(!/^\\d{6}$/.test(c)){say(err,"Enter the six digits from the email");return}
 say(err,"");busy(checkBtn,true,"Checking…");api("POST","/verify",{challenge:challenge,code:c}).then(function(j){session=j.session;try{sessionStorage.setItem(KEY,session)}catch(x){}open(j)},function(e){say(err,e.message);busy(checkBtn,false,seeLabel)})}
+function showGate(on){gate.hidden=!on;reopen.hidden=on}
+hideBtn.addEventListener("click",function(){showGate(false);reopen.focus()});reopen.addEventListener("click",function(){showGate(true);sendBtn.focus()});
 checkBtn.addEventListener("click",check);codeIn.addEventListener("keydown",function(e){if(e.key==="Enter")check()});
-function open(j){proto=j.prototype;isApp=!!j.app;comments=j.comments||[];gate.hidden=true;viewer.hidden=false;document.body.classList.add("open");frame.src=proto+"?review=1";draw()}
+function open(j){if(j.join&&/^(https?:|servant:)/.test(j.join)){joinLink.href=j.join;joinLink.textContent="Join "+(j.team||"the team");joinLink.hidden=false}else{joinLink.hidden=true}comments=j.comments||[];gate.hidden=true;reopen.hidden=true;bar.hidden=false;draw()}
+// The prototype is on screen as soon as the link is opened. The code is for commenting, and for joining when invited.
+proto=viewer.getAttribute("data-prototype");isApp=viewer.hasAttribute("data-app");document.body.classList.add("open");frame.src=proto+"?review=1";
 function relative(p){var i=p.indexOf(proto);p=i===0?p.slice(proto.length):p;if(isApp){p=p.replace(/^\\/+|\\/+$/g,"");return p||"/"}return p===""||/\\/$/.test(p)?p+"index.html":p}
 function pins(){if(isApp)return;var out=[];comments.forEach(function(c,i){if(c.page===page)out.push({id:c.id,n:i+1,x:c.x,y:c.y})});try{frame.contentWindow.postMessage(JSON.stringify({servant:"prototype-pins",pins:out}),"*")}catch(x){}}
 function showPanel(on){panel.hidden=!on;count.setAttribute("aria-expanded",String(on))}
@@ -83,7 +98,7 @@ addEventListener("message",function(e){if(e.source!==frame.contentWindow)return;
 if(typeof d.page==="string")page=relative(d.page);
 if(d.type==="ready")pins();
 else if(d.type==="pin")draw(d.id);
-else if(d.type==="at")ask(d)});
+else if(d.type==="at"){if(session)ask(d);else{showGate(true);say(err,"Confirm your email with a code to leave a comment");sendBtn.focus()}}});
 var spot={left:0,top:0};
 function place(){var r=frame.getBoundingClientRect(),host=composer.parentElement.getBoundingClientRect();var left=r.left-host.left+spot.left+12,top=r.top-host.top+spot.top+12;
 left=Math.max(8,Math.min(left,host.width-composer.offsetWidth-8));top=Math.max(8,Math.min(top,host.height-composer.offsetHeight-8));composer.style.left=left+"px";composer.style.top=top+"px"}
@@ -100,42 +115,45 @@ composer.addEventListener("keydown",function(e){if(e.key==="Escape")closeCompose
 save.addEventListener("click",function(){if(!pending)return;var words=text.value.trim();if(!words){note("Write your comment first");return}
 busy(save,true,"Saving…");api("POST","/comments",{page:pending.page,x:pending.x,y:pending.y,anchor:pending.anchor,text:words}).then(function(j){comments.push(j.comment);busy(save,false,"Save comment");closeComposer();draw()},
 function(e){busy(save,false,"Save comment");if(e.status===401){try{sessionStorage.removeItem(KEY)}catch(x){}location.reload();return}note(e.message)})});
-if(session){api("GET","/comments").then(open,function(){session=null;try{sessionStorage.removeItem(KEY)}catch(x){}gate.hidden=false})}else gate.hidden=false;
+if(session){api("GET","/comments").then(open,function(){session=null;try{sessionStorage.removeItem(KEY)}catch(x){}showGate(true)})}else showGate(true);
 })();`;
 
 /**
  * The page for one share. `ended` shows a plain message instead (a link that was replaced or ended, or never
  * existed: the page says the same thing for all three, so a guess learns nothing).
  */
-export function reviewPage({ nonce, theme, title = "", sharedBy = "", masked = "", serverName = "Servant", ended = false, app = false }) {
+export function reviewPage({ nonce, theme, title = "", sharedBy = "", masked = "", serverName = "Servant", ended = false, app = false, prototype = "", invited = false }) {
   // The same page shows a prototype or a project's app preview; only the words differ.
-  const [a, the, see] = app ? ["an app preview", "the app", "See the app"] : ["a prototype", "the prototype", "See the prototype"];
+  const the = app ? "the app" : "the prototype";
   const head = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow">
 <title>${ended ? "This link doesn't work" : `Review: ${esc(title)}`}</title><style nonce="${nonce}">${pageStyle(theme)}${CSS}</style></head><body>`;
   if (ended) {
     return `${head}<main class="gate"><h1>This link doesn't work</h1><p>It may have been replaced by a newer one, or the person who shared it ended it. Ask them to share it with you again.</p></main></body></html>`;
   }
   return `${head}
-<main class="gate stack" id="gate" hidden>
-  <h1>${esc(sharedBy)} shared ${a} with you</h1>
-  <p><strong>${esc(title)}</strong>, from ${esc(serverName)}. They'd like your comments on it.</p>
-  <p>To see it, confirm that <strong>${esc(masked)}</strong> is you. We'll email a six-digit code to that address.</p>
-  <button class="primary full" id="send" type="button">Email me a code</button>
-  <div id="codeBox" class="stack" hidden>
-    <label for="code">Six-digit code</label>
-    <input class="code" id="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" aria-describedby="error">
-    <button class="primary full" id="check" type="button">${see}</button>
-  </div>
-  <p class="notice error" id="error" role="alert"></p>
-  <p class="small muted">Your comments go to ${esc(sharedBy)}, with this email address. Nothing else about you is kept.</p>
-</main>
-<div id="viewer" class="viewer" hidden>
+<div id="viewer" class="viewer" data-prototype="${esc(prototype)}"${app ? ' data-app="1"' : ""}>
   <div class="work">
     <h1 class="sr">${esc(title)}</h1>
     <iframe id="frame" title="${app ? "App preview" : "Prototype"}: ${esc(title)}" sandbox="allow-scripts allow-forms allow-popups allow-modals"></iframe>
-    <div class="bar" role="group" aria-label="Comments">
+    <aside class="corner stack" id="gate" aria-label="${invited ? `Join ${esc(serverName)}` : "Leave comments"}" hidden>
+      <div class="cornerHead"><h2>${invited ? `Do more with ${esc(serverName)}` : `${esc(sharedBy)} would like your comments`}</h2><button class="secondary" id="hide" type="button" aria-label="Hide this box">Hide</button></div>
+      <p>${invited
+        ? `${esc(sharedBy)} shared this with you, and you are invited to join ${esc(serverName)}. Have a look around. To comment on ${the}, or to join and do more, we'll email you a code to type here.`
+        : `${esc(sharedBy)} shared this with you. Have a look around. To leave a comment, we'll email you a code to type here.`}</p>
+      <p class="small muted">The code goes to <strong>${esc(masked)}</strong>.</p>
+      <button class="primary full" id="send" type="button">Email me a code</button>
+      <div id="codeBox" class="stack" hidden>
+        <label for="code">Six-digit code</label>
+        <input class="code" id="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" aria-describedby="error">
+        <button class="primary full" id="check" type="button">${invited ? "Confirm and continue" : "Confirm"}</button>
+      </div>
+      <p class="notice error" id="error" role="alert"></p>
+    </aside>
+    <button class="secondary reopen" id="reopen" type="button" hidden>${invited ? `Comment or join ${esc(serverName)}` : "Leave a comment"}</button>
+    <div class="bar" role="group" aria-label="Comments" id="bar" hidden>
       <p class="small muted"><span class="mouse">Right-click anywhere to comment</span><span class="touch">Press and hold anywhere to comment</span></p>
       <button class="secondary" id="add" type="button">Comment on this page</button>
+      <a class="join" id="join" target="_blank" rel="noopener" hidden></a>
       <button class="secondary" id="count" type="button" aria-expanded="false" aria-controls="panel">No comments</button>
     </div>
     <aside class="panel" id="panel" aria-label="Your comments" hidden>

@@ -106,6 +106,10 @@ export function createPrototypeReviews(file, { clock = Date.now } = {}) {
   for (const [name, type] of [["turn_id", "TEXT"], ["asked_at", "INTEGER"], ["asked_by", "TEXT"], ["set_aside_at", "INTEGER"]]) if (!columns("comments").includes(name)) db.exec(`ALTER TABLE comments ADD COLUMN ${name} ${type}`);
   // Added with app preview reviews (docs/app-preview.md): a share is of a chat's prototype, or of a project's app.
   if (!columns("shares").includes("project_id")) db.exec("ALTER TABLE shares ADD COLUMN project_id TEXT");
+  // Added with invites from a review (docs/access-tokens.md): a server owner who shares a prototype can invite the
+  // person onto the server too. The invite's code is kept with the share so the review page can offer it, and only
+  // there, after the person has confirmed the address is theirs. It is never part of a share's view.
+  if (!columns("shares").includes("join_code")) db.exec("ALTER TABLE shares ADD COLUMN join_code TEXT");
   const shareView = r => r && ({ id: r.id, kind: r.project_id ? "app" : "prototype", ...(r.project_id ? { projectId: r.project_id } : {}), chatId: r.chat_id, folder: r.folder, title: r.title, email: r.email, createdBy: r.created_by, createdAt: r.created_at,
     ...(r.verified_at ? { verifiedAt: r.verified_at } : {}), ...(r.last_seen_at ? { lastSeenAt: r.last_seen_at } : {}), ...(r.ended_at ? { endedAt: r.ended_at } : {}), autoWork: !!r.auto_work });
   const commentView = r => ({ id: r.id, shareId: r.share_id, chatId: r.chat_id, email: r.email, page: r.page, x: r.x, y: r.y, anchor: r.anchor, text: r.text, createdAt: r.created_at, ...(r.todo_id ? { todoId: r.todo_id } : {}),
@@ -118,7 +122,7 @@ export function createPrototypeReviews(file, { clock = Date.now } = {}) {
      * old one, so a link that went astray can be replaced. Returns the share and the secret for its link, which is
      * only ever in the email.
      */
-    share({ chatId, folder, title, email, by, domains, autoWork = false }) {
+    share({ chatId, folder, title, email, by, domains, autoWork = false, joinCode = "" }) {
       const clean = normalizeEmail(email);
       if (!clean) throw fault(400, "email_invalid", "Enter the business owner's work email");
       if (!emailAllowed(clean, domains)) throw fault(403, "email_not_allowed", `Use an email that ends in ${domains.map(d => (d.includes(".") ? "@" + d : "." + d)).join(" or ")}`);
@@ -132,7 +136,7 @@ export function createPrototypeReviews(file, { clock = Date.now } = {}) {
           db.prepare("DELETE FROM sessions WHERE share_id=?").run(old.id);
         }
         const id = newId("rev"), token = crypto.randomBytes(24).toString("base64url");
-        db.prepare("INSERT INTO shares(id,token_hash,chat_id,folder,title,email,created_by,created_at,auto_work) VALUES (?,?,?,?,?,?,?,?,?)").run(id, hash(token), String(chatId), String(folder), line(title, 120) || "Prototype", clean, String(by), now, autoWork === true ? 1 : 0);
+        db.prepare("INSERT INTO shares(id,token_hash,chat_id,folder,title,email,created_by,created_at,auto_work,join_code) VALUES (?,?,?,?,?,?,?,?,?,?)").run(id, hash(token), String(chatId), String(folder), line(title, 120) || "Prototype", clean, String(by), now, autoWork === true ? 1 : 0, joinCode ? String(joinCode) : null);
         db.exec("COMMIT");
         return { share: shareView(db.prepare("SELECT * FROM shares WHERE id=?").get(id)), token };
       } catch (error) { db.exec("ROLLBACK"); throw error; }
@@ -235,6 +239,8 @@ export function createPrototypeReviews(file, { clock = Date.now } = {}) {
     linkTurn(commentId, turnId) { db.prepare("UPDATE comments SET turn_id=? WHERE id=?").run(String(turnId), String(commentId)); },
     /** How many of a share's comments the agent started on by itself since a moment. */
     autoWorkedSince(shareId, since) { return db.prepare("SELECT count(*) AS n FROM comments WHERE share_id=? AND asked_by='auto' AND asked_at>=?").get(String(shareId), since).n; },
+    /** The invite kept with a share for the review page to offer, or "" when there is none. */
+    joinCode(shareId) { return db.prepare("SELECT join_code FROM shares WHERE id=?").get(String(shareId))?.join_code || ""; },
     /** Remember which to-do a comment became. */
     linkTodo(commentId, todoId) { db.prepare("UPDATE comments SET todo_id=? WHERE id=?").run(String(todoId), String(commentId)); },
     /** Every comment on a chat's prototype, oldest first; or only one share's (what that reviewer sees: their own). */
