@@ -29,6 +29,31 @@ The main architectural changes are:
 - **Alert delivery:** push credentials for more than one app, code-request alerts from the separate push worker, live in-app code prompts and visible unrouted alerts ([notifications](../notifications.md), [code requests](../code-requests.md)).
 - **Smaller product surface:** meetings, guest meetings, Loops, Agent feed, Surveys and unused WebRTC/call code were removed. Voice memo recordings remain.
 
+### What this diagram is, and where each item is implemented
+
+This diagram is a summary of what changed in the repository during that window. It was drawn from the commits; it is not a screen in the app and it is not produced from a runtime log, so it can't drift from what an agent did: it never claimed to record that. What an agent did is recorded by the server itself, in two places that are written as part of allowing or refusing the action:
+
+- the **agent action log** (`actions` in `entitlements.db`): one line per checked tool call, written before the call is answered; a call that can't be recorded is refused (`agentUse` in `server/server.mjs`, [entitlements.md](../entitlements.md#built-in-entitlements)). Updates and deletes are refused by the database.
+- the **gate's record** (`attempts` and `reached` in the gate's database): every host an agent's command asked for, allowed or refused ([agent-egress.md](../agent-egress.md)).
+
+Each box in the diagram, with the code that implements it and the tests that exercise it:
+
+| Item | Code | Tests | Guide |
+| --- | --- | --- | --- |
+| App preview | `server/app-preview.mjs`, `app/src/app/app-preview.tsx` | `server/app-preview.test.mjs`, `scripts/app-preview-e2e.mjs` | [app-preview.md](../app-preview.md) |
+| Prototype reviews | `server/prototype-reviews.mjs`, `server/prototype-review-page.mjs` | `server/prototype-reviews.test.mjs`, `server/prototype-reviews-http.test.mjs`, `scripts/prototype-review-e2e.mjs` | [prototype-reviews.md](../prototype-reviews.md) |
+| Built-in entitlements (allow once, allow always, decline) | `server/entitlements.mjs`, `agentUse` in `server/server.mjs` | `server/entitlements.test.mjs`, `scripts/entitlements-e2e.mjs`, `scripts/test-agent-capabilities.py` | [entitlements.md](../entitlements.md) |
+| Append-only agent action log and recorded gate connections | `logAction` in `server/entitlements.mjs`; `attempts` and `reached` in `server/egress.mjs` | `server/entitlements.test.mjs` ("the agent action log keeps every line"), `server/egress.test.mjs` | [entitlements.md](../entitlements.md), [agent-egress.md](../agent-egress.md) |
+| Sandbox closes server keys and databases to the agent | `scripts/run-agent-sandboxed.sh` | `server/sandbox.test.mjs` | [agent-egress.md](../agent-egress.md#what-the-sandbox-isolates) |
+| Multi-app push credentials | `server/push.mjs`, `server/push-transport.mjs` | `server/push.test.mjs`, `server/push-transport.test.mjs` | [notifications.md](../notifications.md) |
+| Code requests: push worker and live in-app prompt | `server/code-requests.mjs` | `server/code-requests.test.mjs`, `server/code-requests-http.test.mjs`, `server/code-requests-worker.test.mjs`, `server/code-requests-identity.test.mjs` | [code-requests.md](../code-requests.md) |
+| Server listener retries until its port is free | `listenWhenFree` in `server/egress.mjs`, called where the gate starts in `server/server.mjs` | `server/egress.test.mjs` | [agent-egress.md](../agent-egress.md) |
+| Unrouted alerts are shown | `app/src/lib/notification-accounts.ts` | `app/src/lib/notification-accounts.test.ts` | [notifications.md](../notifications.md) |
+| Voice memos keep transcription, notes and next-step to-dos | `server/recordings.mjs`, `server/transcription.mjs` | `server/recordings.test.mjs` | [features.md](../features.md#notetaker) |
+| Meetings, guest meetings, Loops, Agent feed and Surveys removed | routes removed from `server/server.mjs` | `server/features.test.mjs` (asserts the old meetings API answers 404) | |
+
+The chat reliability and layout items are spread across the app's chat screens and their tests in `app/src/lib/`; they are not listed one by one here.
+
 ## 3. Agent governance and network gate
 
 ![Agent governance and network gate](03-agent-governance.png)
@@ -39,7 +64,7 @@ File and GitHub actions require the matching built-in entitlement or a manager d
 
 ![App preview and prototype review](04-preview-and-review.png)
 
-Preview builds run sandboxed with sample data and report interactions to the surrounding Servant screen. A prototype reviewer confirms an emailed code before commenting; comments become to-dos and appear as pins in the builder's preview.
+Preview builds run sandboxed with sample data and report interactions to the surrounding Servant screen. A prototype reviewer confirms an emailed code before commenting; comments go to the prototype's chat for the person who shared it and appear as pins in the builder's preview. A reviewer's words are treated as untrusted when handed to the agent ([prototype-reviews.md](../prototype-reviews.md#when-the-agent-starts-by-itself)).
 
 ## 5. Code-request delivery
 
