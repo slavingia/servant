@@ -33,6 +33,15 @@ export const NATIVE = [
  */
 export const SOCIAL_ENTITLEMENT = { id: "native-social", capability: "social", name: "Social media", description: "This person may approve replies and posts that go out from the team's social media account", hosts: [] };
 const nativeFor = capability => NATIVE.find(n => n.capability === capability) || null;
+/**
+ * A built-in entitlement for one project: "Filesystem write · Example app". It is an entitlement of its own (asked
+ * for, decided, taken back, expiring and recorded like any other), so a person can be allowed to change files or
+ * GitHub for one project and not another. The same entitlement without a project still means every project.
+ * `project` is { id, name } from the server's projects; the id is the part after "@" in the entitlement's id.
+ */
+const PROJECT_ID = /^[a-z0-9][a-z0-9-]{0,47}$/;
+export const scopedId = (nativeId, projectId) => `${nativeId}@${projectId}`;
+const scopeOf = capability => { const at = String(capability || "").indexOf("@"); return at < 0 ? { base: capability, projectId: "" } : { base: capability.slice(0, at), projectId: capability.slice(at + 1) }; };
 /** How long the hosts of a built-in entitlement stay open after an "allow once" is used, so the one action can finish. */
 export const ONCE_WINDOW_MS = 10 * 60_000;
 
@@ -105,7 +114,7 @@ export function createEntitlements(file, { clock = Date.now, known = () => true,
   const note = (entitlementId, userId, action, by, detail = {}) =>
     db.prepare("INSERT INTO history(entitlement_id,user_id,action,by,at,detail) VALUES (?,?,?,?,?,?)").run(entitlementId, userId ?? null, action, String(by), clock(), JSON.stringify(detail));
   const shape = r => r && ({ id: r.id, name: r.name, description: r.description, hosts: JSON.parse(r.hosts), confirmation: r.confirmation || DEFAULT_CONFIRMATION,
-    createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at, ...(r.capability ? { native: true, capability: r.capability, ...(r.capability === SOCIAL_ENTITLEMENT.capability ? { byRequest: true } : {}) } : {}), ...(r.retired_at ? { retiredAt: r.retired_at } : {}) });
+    createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at, ...(r.capability ? { native: true, capability: scopeOf(r.capability).base, ...(scopeOf(r.capability).projectId ? { projectId: scopeOf(r.capability).projectId } : {}), ...(r.capability === SOCIAL_ENTITLEMENT.capability ? { byRequest: true } : {}) } : {}), ...(r.retired_at ? { retiredAt: r.retired_at } : {}) });
   // How long a standing grant lasts, in milliseconds; 0 when grants don't run out.
   const lifetime = () => grantDaysSetting(grantDays()) * DAY_MS;
   const grantShape = r => r && ({ entitlementId: r.entitlement_id, userId: r.user_id, status: r.status, note: r.note, requestedAt: r.requested_at,
@@ -134,8 +143,29 @@ export function createEntitlements(file, { clock = Date.now, known = () => true,
   };
   /** May `by` decide what `userId` holds? Owners for anyone (themselves included); a manager for the people they manage. */
   const decides = (by, userId) => !!by && known(by) && (isOwner(by) || (String(by) !== String(userId) && manages(by, userId)));
-  // Holding a built-in "write" also counts as holding its "read".
-  const holds = (id, userId) => grantRow(id, userId)?.status === "granted" || NATIVE.some(n => n.covers && nativeFor(n.covers)?.id === id && grantRow(n.id, userId)?.status === "granted");
+  const granted = (id, userId) => grantRow(id, userId)?.status === "granted";
+  // Holding a built-in "write" also counts as holding its "read". Holding a built-in entitlement for every project
+  // counts for each project; holding it for one project counts for that project only.
+  const holds = (id, userId) => {
+    if (granted(id, userId)) return true;
+    const entitlement = row(id);
+    const { base, projectId } = scopeOf(entitlement?.capability);
+    const native = nativeFor(base);
+    if (!native) return false;
+    const reach = n => granted(n.id, userId) || (!!projectId && granted(scopedId(n.id, projectId), userId));
+    // The same entitlement for every project, or its "write" (for every project, or for this one).
+    return (!!projectId && granted(native.id, userId)) || NATIVE.some(n => n.covers === base && reach(n));
+  };
+  // The entitlement a built-in capability stands for in one project, made the first time it is needed.
+  const forProject = (native, project) => {
+    if (!project) return native.id;
+    if (!PROJECT_ID.test(String(project.id || ""))) throw fault(400, "bad_request", "No such project");
+    const id = scopedId(native.id, project.id);
+    const name = cleanEntitlementName(`${native.name} · ${line(project.name, 40) || project.id}`);
+    db.prepare("INSERT OR IGNORE INTO entitlements(id,name,description,hosts,confirmation,created_by,created_at,updated_at,capability) VALUES (?,?,?,?,?,?,?,?,?)")
+      .run(id, name, `${native.description}, in the project ${line(project.name, 40) || project.id} only`, JSON.stringify(native.hosts), "", "server", clock(), clock(), `${native.capability}@${project.id}`);
+    return id;
+  };
 
   const store = {
     list: all,
@@ -233,10 +263,20 @@ export function createEntitlements(file, { clock = Date.now, known = () => true,
      * With `consume: false` an "allow once" is reported but left in place, so an action that needs several
      * entitlements doesn't spend one before it is known the others are allowed too.
      */
-    use(userId, capability, detail = "", { consume = true } = {}) {
-      const native = nativeFor(capability);
-      if (!native) throw fault(400, "bad_request", "No such built-in entitlement");
+    use(userId, capability, detail = "", { consume = true, project = null } = {}) {
+      const builtIn = nativeFor(capability);
+      if (!builtIn) throw fault(400, "bad_request", "No such built-in entitlement");
       return tx(() => {
+        // In a project's chat the question is about that project: what is asked for, allowed, used up or refused
+        // is the entitlement for that project. Outside a project it is the one for every project, as before.
+        if (project && !PROJECT_ID.test(String(project.id || ""))) throw fault(400, "bad_request", "No such project");
+        // Already covered by something wider (the same entitlement for every project, or a "write"): allowed, and
+        // no entitlement for this project is made just to say so.
+        if (project && known(userId) && !row(scopedId(builtIn.id, project.id))) {
+          const reach = n => granted(n.id, userId) || granted(scopedId(n.id, project.id), userId);
+          if (granted(builtIn.id, userId) || NATIVE.some(n => n.covers === builtIn.capability && reach(n))) return { verdict: "allow", entitlement: live(builtIn.id) };
+        }
+        const native = { id: forProject(builtIn, project) };
         const entitlement = live(native.id);
         if (!known(userId)) return { verdict: "deny", entitlement };
         if (holds(native.id, userId)) return { verdict: "allow", entitlement };

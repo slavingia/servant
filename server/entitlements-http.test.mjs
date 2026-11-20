@@ -398,3 +398,54 @@ test("someone's own GitHub token is the access; the entitlement is still the per
     assert.match(push.message, /GitHub write/);
   } finally { delete globalThis.__servantConnectionCheck; }
 });
+
+test("in a project's chat the agent's check is about that project: allowed there, still asked for elsewhere", async () => {
+  const before = { ...config.agentCapabilities };
+  config.agentCapabilities = { mode: "ask", waitSeconds: 0 };
+  fs.writeFileSync(path.join(directory, "projects.json"), JSON.stringify({ people: {}, projects: [
+    { id: "example-app", name: "Example app", owners: [people.owner.id], access: { merge: [], write: [], read: [] } },
+    { id: "prototypes", name: "Prototypes", owners: [people.owner.id], access: { merge: [], write: [], read: [] } }] }));
+  // Someone new, holding nothing, with a chat in each project, one in a project that no longer exists and one in none.
+  const lee = "usr_lee";
+  mod.mutateStateForTest(state => {
+    state.users[lee] = { id: lee, name: "Lee Chen", role: "member", createdAt: Date.now(), agentTier: 3 };
+    for (const [id, projectId] of [["chat_app", "example-app"], ["chat_site", "prototypes"], ["chat_gone", "retired-project"], ["chat_none", undefined]]) {
+      state.chats[id] = { id, userId: lee, title: id, role: "member", createdAt: Date.now(), updatedAt: Date.now(), ...(projectId ? { projectId } : {}) };
+    }
+  });
+  const check = async (chatId, needs) => {
+    const response = await fetch(`http://127.0.0.1:${mod.egressForTest().port}/use`, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: mod.egressForTest().mint(lee, chatId), needs, detail: "Run: git push" }) });
+    return response.json();
+  };
+  try {
+    // Asked in the Example app chat: the request names that project.
+    const held = await check("chat_app", ["github-write"]);
+    assert.equal(held.verdict, "wait");
+    assert.match(held.message, /has been asked to allow GitHub write · Example app for Lee Chen/);
+    const listed = (await api("owner", "GET", "entitlements")).body.entitlements.find(e => e.id === "native-github-write@example-app");
+    assert.deepEqual([listed.name, listed.native, listed.capability, listed.projectId], ["GitHub write · Example app", true, "github-write", "example-app"]);
+
+    // The owner allows it always, for that project.
+    const decided = await api("owner", "POST", `entitlements/${encodeURIComponent("native-github-write@example-app")}/people/${lee}`, { decision: "grant" });
+    assert.equal(decided.status, 200, JSON.stringify(decided.body));
+    assert.equal((await check("chat_app", ["github-write"])).verdict, "allow");
+    assert.equal((await check("chat_app", ["github-read"])).verdict, "allow", "write covers read in the same project");
+
+    // The same person's agent in another project's chat, or outside any project, is still asked about.
+    const elsewhere = await check("chat_site", ["github-write"]);
+    assert.equal(elsewhere.verdict, "wait");
+    assert.match(elsewhere.message, /GitHub write · Prototypes/);
+    for (const chat of ["chat_none", "chat_gone"]) {
+      const outside = await check(chat, ["github-write"]);
+      assert.equal(outside.verdict, "wait", chat);
+      assert.match(outside.message, /to allow GitHub write for Lee Chen/, `${chat}: the entitlement for every project`);
+    }
+    // A different entitlement in the allowed project is asked about too.
+    assert.equal((await check("chat_app", ["fs-write"])).verdict, "wait");
+
+    // Every one of those checks is in the action record with the chat it came from.
+    const actions = (await api("owner", "GET", "entitlements/actions")).body.actions.filter(a => a.userId === lee);
+    assert.ok(actions.some(a => a.chatId === "chat_app" && a.verdict === "allowed") && actions.some(a => a.chatId === "chat_site" && a.verdict === "waiting"));
+  } finally { config.agentCapabilities = before; }
+});

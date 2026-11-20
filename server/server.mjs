@@ -1219,6 +1219,12 @@ async function requireEntitlementChecks(cfg, up, user) {
  * agent is not held back. Every checked call is written to the agent action log first; one that can't be recorded is
  * refused. Answers { verdict: "allow" | "deny" | "wait", message } for the agent to read.
  */
+/** The project a chat's work belongs to, as { id, name }, or null. A project that no longer exists scopes nothing. */
+function agentProject(chat) {
+  if (!chat?.projectId || !validProjectId(chat.projectId)) return null;
+  const found = projects().byId(chat.projectId);
+  return found ? { id: found.id, name: found.name } : null;
+}
 async function agentUse(body, config = loadConfig) {
   const who = egressStore().whose(body?.token);
   const state = readState();
@@ -1239,12 +1245,15 @@ async function agentUse(body, config = loadConfig) {
     return { status: 200, answer };
   };
   if (person.role === "owner") return logged("allowed-owner", { verdict: "allow" });
+  // Work in a project's chat is asked about, allowed and recorded for that project: holding "Filesystem write" for
+  // one project says nothing about another. A chat outside any project uses the entitlement for every project.
+  const project = agentProject(state.chats[who.chatId]);
   const until = Date.now() + capabilitySettings(config().agentCapabilities).waitSeconds * 1000;
   let told = false;
   for (;;) {
     // Look at everything the action needs before spending anything: a single allowance for one entitlement is not
     // used up while another is still waiting. Whatever is missing is asked for together.
-    const looked = needs.map(capability => ({ capability, ...store.use(person.id, capability, detail, { consume: false }) }));
+    const looked = needs.map(capability => ({ capability, ...store.use(person.id, capability, detail, { consume: false, project }) }));
     const manager = managerOf(readState(), person);
     const refused = looked.find(r => r.verdict === "deny");
     if (refused) return logged("denied", { verdict: "deny", capability: refused.capability, message: `Servant blocked this: ${person.name} asked for ${refused.entitlement.name} and was declined. Tell them so, and don't look for another way to do it. They can ask again in Servant under Entitlements.` });
@@ -1253,7 +1262,7 @@ async function agentUse(body, config = loadConfig) {
     // The person watching the reply sees why it has stopped, not "Working".
     if (missing.length && !told) { told = true; try { agentTurns?.noteForChat(who.chatId, `Waiting for ${manager?.name || "an owner"} to allow ${missing.map(r => r.entitlement.name).join(" and ")}`); } catch { /* the wait still happens */ } }
     if (!missing.length) {
-      const used = needs.map(capability => store.use(person.id, capability, detail));
+      const used = needs.map(capability => store.use(person.id, capability, detail, { project }));
       // Something changed between looking and using (taken back in that instant): look again.
       if (used.some(r => r.verdict !== "allow")) continue;
       return logged(used.some(r => r.once) ? "allowed-once" : "allowed", { verdict: "allow" });
@@ -1297,7 +1306,7 @@ function entitlementView(entitlement, viewer, users) {
   const person = userId => ({ id: userId, name: users[userId]?.name || (userId === "server" ? "Servant" : "Former member") });
   const people = store.grants(entitlement.id).filter(g => g.userId !== viewer.id && store.decides(viewer.id, g.userId));
   return { id: entitlement.id, name: entitlement.name, description: entitlement.description, hosts: entitlement.hosts, confirmation: entitlement.confirmation,
-    ...(entitlement.native ? { native: true, capability: entitlement.capability, ...(entitlement.byRequest ? { byRequest: true } : {}) } : {}),
+    ...(entitlement.native ? { native: true, capability: entitlement.capability, ...(entitlement.projectId ? { projectId: entitlement.projectId } : {}), ...(entitlement.byRequest ? { byRequest: true } : {}) } : {}),
     mine: store.grant(entitlement.id, viewer.id), people: people.map(g => ({ ...g, name: person(g.userId).name, ...(g.decidedBy ? { decidedByName: person(g.decidedBy).name } : {}) })) };
 }
 // The agent was refused a host: tell whoever can do something about it, once (egress.mjs repeats at most daily).
@@ -2447,6 +2456,8 @@ async function handle(req, res, cfg) {
   // their own standing; a manager also sees their reports'; owners see everyone's and make, edit and retire them.
   if (parts[1] === "entitlements") {
     const store = entitlementStore();
+    // An entitlement for one project has "@" in its id ("native-fs-write@example-app"), which apps send encoded.
+    if (parts[2]?.includes("%")) { try { parts[2] = decodeURIComponent(parts[2]); } catch { return fail(res, 404, "not_found", "No such entitlement"); } }
     const guard = fn => { try { return fn(); } catch (error) { if (!error.status) throw error; return fail(res, error.status, error.code, error.message), undefined; } };
     const users = readState().users;
     if (method === "GET" && parts.length === 2) {
