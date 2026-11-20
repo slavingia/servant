@@ -7,14 +7,15 @@ import { commentBy, waitingLine, type PinnedComment } from "../lib/prototype-rev
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
 
 // What reviewers said about this chat's prototype, waiting above the message box until the person whose chat it is
-// decides (docs/prototype-reviews.md). "Ask Agent to work on this" sends the comment to Agent as a message in this
-// chat; from then on it is in the conversation like any other, and leaves this list. The newest shows; the rest
+// decides (docs/prototype-reviews.md). The chat is the one place a prototype's work happens, so comments come here
+// and nowhere else. "Ask Agent to work on this" sends the comment to Agent as a message in this chat; "Set aside" is
+// for one the person dealt with themselves. Either way it leaves this list. The newest shows; the rest
 // open from the line above it.
 export function ReviewComments({ account, chatId, comments, onAsked }: {
   account: Account; chatId: string;
   /** The comments nobody has handed to Agent yet, oldest first. */
   comments: readonly PinnedComment[];
-  /** A comment was handed over: the chat has a new message and the list is out of date. */
+  /** A comment was handed over or set aside: the list is out of date, and the chat may have a new message. */
   onAsked: (commentId: string) => void;
 }) {
   const styles = useStyles();
@@ -28,6 +29,13 @@ export function ReviewComments({ account, chatId, comments, onAsked }: {
     setBusy(comment.id); setError("");
     try { await api.workOnPrototypeComment(account, chatId, comment.id); onAsked(comment.id); }
     catch (reason) { setError(reason instanceof ServerError ? reason.message : "Couldn't ask Agent. Try again."); }
+    finally { setBusy(null); }
+  };
+  const aside = async (comment: PinnedComment) => {
+    if (busy) return;
+    setBusy(`aside:${comment.id}`); setError("");
+    try { await api.setPrototypeCommentAside(account, chatId, comment.id); onAsked(comment.id); }
+    catch (reason) { setError(reason instanceof ServerError ? reason.message : "Couldn't set that aside. Try again."); }
     finally { setBusy(null); }
   };
   const shown = open ? comments : comments.slice(-1);
@@ -44,6 +52,7 @@ export function ReviewComments({ account, chatId, comments, onAsked }: {
       <Text selectable style={styles.text}>{comment.text}</Text>
       <View style={styles.actions}>
         <Button testID={`review-work-${comment.id}`} label="Ask Agent to work on this" accessibilityLabel={`Ask Agent to work on ${comment.email}'s comment: ${comment.text.slice(0, 80)}`} kind="secondary" compact busy={busy === comment.id} disabled={!!busy} onPress={() => void ask(comment)} />
+        <Button testID={`review-aside-${comment.id}`} label="Set aside" accessibilityLabel={`Set aside ${comment.email}'s comment: ${comment.text.slice(0, 80)}`} kind="link" compact busy={busy === `aside:${comment.id}`} disabled={!!busy} onPress={() => void aside(comment)} />
       </View>
     </View>)}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
@@ -58,6 +67,6 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   comment: { gap: space.xxs, paddingLeft: space.sm, borderLeftWidth: 2, borderLeftColor: colors.line },
   by: { ...typography.caption, color: colors.muted },
   text: { ...typography.body, color: colors.ink },
-  actions: { flexDirection: "row" },
+  actions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: space.sm },
   error: { ...typography.caption, color: colors.red },
 }));

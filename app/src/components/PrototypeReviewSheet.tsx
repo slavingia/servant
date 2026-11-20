@@ -57,7 +57,7 @@ export function PrototypeReviewSheet({ account, chatId, title, onClose }: { acco
       <View testID="prototype-review-sheet" accessibilityViewIsModal style={styles.dialog}>
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
           <Text accessibilityRole="header" style={styles.title}>Share with a business owner</Text>
-          <Text style={styles.body}>{`They get a link to "${title}" by email. After confirming a code sent to that address, they can look at the prototype and right-click anywhere on it to leave a comment. Each comment shows in this chat and becomes a to-do for you.`}</Text>
+          <Text style={styles.body}>{`They get a link to "${title}" by email. After confirming a code sent to that address, they can look at the prototype and right-click anywhere on it to leave a comment. Each comment comes to this chat, for you to decide what to do with.`}</Text>
           <Text style={styles.label}>Their work email</Text>
           <TextInput testID="review-email" accessibilityLabel="Their work email" value={email} onChangeText={value => { setEmail(value); setError(null); }} editable={busy !== "send"}
             keyboardType="email-address" autoCapitalize="none" autoCorrect={false} autoComplete="email" maxLength={254} onSubmitEditing={() => void send()} returnKeyType="send"

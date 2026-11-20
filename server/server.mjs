@@ -980,24 +980,17 @@ function askAgentAboutComment(share, comment, sharer, by, cfg) {
     return { refused: error?.status ? error.message : "The agent couldn't be asked. Try again" };
   }
 }
-// A comment arrived: it becomes a to-do for the person who shared the prototype, it shows in the prototype's chat
-// (where they can hand it to the agent), and they are told. When they switched it on for this reviewer, the agent
-// starts on it straight away. No step can lose the comment, which is already saved.
+// A comment arrived: it shows in the prototype's own chat, where the person who shared it reads it and decides what
+// to do (answer the reviewer themselves, change the prototype, hand it to the agent, or nothing), and they are told.
+// When they switched it on for this reviewer, the agent starts on it straight away. Nothing is filed anywhere else:
+// the chat is the one place a prototype's work happens. The comment itself is already saved.
 function reviewCommented(share, comment, sharer, cfg) {
-  const where = `${comment.anchor ? `On "${comment.anchor}", ` : ""}${comment.page}`;
-  const link = publicOrigin(cfg) ? `${publicOrigin(cfg)}/p/${share.folder}/${comment.page === "index.html" ? "" : comment.page}` : "";
-  try {
-    const todo = todosStore?.create(sharer, { text: `Comment on ${share.title}: ${comment.text}`,
-      description: [`${share.email} commented on the prototype "${share.title}".`, "", comment.text, "", `Where: ${where}`, link ? `Page: ${link}` : null, `Prototype files: prototypes/${share.folder}`].filter(l => l !== null).join("\n") },
-      { source: { kind: "prototype-review", id: share.chatId, title: share.title } });
-    if (todo?.id) prototypeReviews().linkTodo(comment.id, todo.id);
-  } catch (error) { console.error("[servant] review comment to-do", error.message); }
   // A reviewer can't run up the sharer's agent use: past a number of comments an hour, the rest wait for the sharer.
   let started = false;
   if (share.autoWork && prototypeReviews().autoWorkedSince(share.id, now() - 3_600_000) < AUTO_WORK_PER_HOUR) {
     try { started = !!askAgentAboutComment(share, comment, sharer, "auto", cfg).turn; } catch (error) { console.error("[servant] review comment auto-work", error?.message || error); }
   }
-  try { push?.enqueue({ kind: "note", eventId: id("rev"), to: [sharer.id], page: "todos", title: started ? `Agent is working on a comment on ${share.title}` : `Comment on ${share.title}`, body: `${share.email}: ${comment.text}` }); }
+  try { push?.enqueue({ kind: "note", eventId: id("rev"), to: [sharer.id], chatId: share.chatId, title: started ? `Agent is working on a comment on ${share.title}` : `Comment on ${share.title}`, body: `${share.email}: ${comment.text}` }); }
   catch (error) { console.error("[servant] review comment alert", error.message); }
 }
 // One-time codes an automation asks its own person for (docs/code-requests.md). Memory only: a restart forgets them.
@@ -2513,6 +2506,16 @@ async function handle(req, res, cfg) {
   // Share the prototype with a business owner (docs/prototype-reviews.md): they get a link by email, confirm a code
   // sent to that address, and can then see it and comment on it. Only the chat's own person shares, lists or ends.
   // Hand one reviewer's comment to the agent, in this chat (docs/prototype-reviews.md). Only the chat's own person.
+  // The sharer dealt with a comment themselves: it leaves the chat's waiting list and stays on record.
+  if (parts[3] === "prototype" && parts[4] === "comments" && parts[6] === "set-aside" && parts.length === 7 && method === "POST") {
+    await readAuthorizedBody(req);
+    const current = requireAuth(req).user;
+    if (chat.userId !== current.id) return fail(res, 403, "forbidden", "Only the person who made this prototype can set its comments aside");
+    const reviews = prototypeReviews();
+    if (!reviews.commentOf(parts[5], chat.id)) return fail(res, 404, "not_found", "That comment is no longer here");
+    reviews.setAside(parts[5], chat.id);
+    return send(res, 200, { comment: (({ id, setAsideAt }) => ({ id, setAsideAt }))(reviews.commentOf(parts[5], chat.id)) });
+  }
   if (parts[3] === "prototype" && parts[4] === "comments" && parts[6] === "work" && parts.length === 7 && method === "POST") {
     await readAuthorizedBody(req);
     const current = requireAuth(req).user;
@@ -2532,8 +2535,8 @@ async function handle(req, res, cfg) {
     const listing = () => {
       const comments = reviews.comments({ chatId: chat.id });
       return { shares: reviews.forChat(chat.id).map(s => ({ id: s.id, email: s.email, createdAt: s.createdAt, ...(s.verifiedAt ? { verifiedAt: s.verifiedAt } : {}), ...(s.lastSeenAt ? { lastSeenAt: s.lastSeenAt } : {}), ...(s.endedAt ? { endedAt: s.endedAt } : {}), autoWork: s.autoWork,
-        comments: comments.filter(c => c.shareId === s.id).map(c => ({ id: c.id, page: c.page, x: c.x, y: c.y, anchor: c.anchor, text: c.text, createdAt: c.createdAt, ...(c.todoId ? { todoId: c.todoId } : {}),
-          ...(c.askedAt ? { askedAt: c.askedAt, askedBy: c.askedBy === "auto" ? "auto" : "you", turnId: c.turnId } : {}) })) })) };
+        comments: comments.filter(c => c.shareId === s.id).map(c => ({ id: c.id, page: c.page, x: c.x, y: c.y, anchor: c.anchor, text: c.text, createdAt: c.createdAt,
+          ...(c.askedAt ? { askedAt: c.askedAt, askedBy: c.askedBy === "auto" ? "auto" : "you", turnId: c.turnId } : {}), ...(c.setAsideAt ? { setAsideAt: c.setAsideAt } : {}) })) })) };
     };
     if (method === "GET" && parts.length === 5) return send(res, 200, listing());
     if (method === "POST" && parts.length === 5) {
@@ -3138,8 +3141,14 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
       // A visitor wrote to the secure inbox: the team hears as it would for a direct message, and not at all in deep work.
       if (event.kind === "case") return normalizeFeatures((fixedCfg || loadConfig()).features).secureInbox && !inDeepWork(user) ? inbox().notificationFor(user, event.caseId, event.sequence) : null;
       // An entitlement request, decision or refusal: only for the people it names.
-      // A short note to named people that opens a page of the app (a comment on a shared prototype opens To-dos).
-      if (event.kind === "note") return Array.isArray(event.to) && event.to.includes(user.id) && ["todos", "entitlements"].includes(event.page) ? { kind: "agent", title: event.title, body: event.body, page: event.page } : null;
+      // A short note to named people that opens a page of the app, or one of their own agent chats (a comment on a
+      // prototype they shared opens that prototype's chat).
+      if (event.kind === "note") {
+        if (!Array.isArray(event.to) || !event.to.includes(user.id)) return null;
+        if (["todos", "entitlements"].includes(event.page)) return { kind: "agent", title: event.title, body: event.body, page: event.page };
+        const chat = typeof event.chatId === "string" ? readState().chats[event.chatId] : null;
+        return chat && !chat.deletedAt && chat.userId === user.id ? { kind: "agent", title: event.title, body: event.body, chatId: chat.id } : null;
+      }
       if (event.kind === "entitlement") return Array.isArray(event.to) && event.to.includes(user.id) ? { kind: "agent", title: event.title, body: event.body, page: "entitlements" } : null;
       // A code request: only its own person, never after it expires, and never the code itself (there is none yet). The
       // separate worker process that sends alerts cannot see the requests held in the API's memory, so the alert is built

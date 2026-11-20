@@ -33,9 +33,9 @@ export function pageOf(pathname: string): string {
 export const pinsOn = (comments: readonly PinnedComment[], page: string) =>
   comments.filter(c => c.page === page && typeof c.x === "number" && typeof c.y === "number").map(c => ({ id: c.id, n: c.n, x: c.x as number, y: c.y as number }));
 /** The comments nobody has handed to the agent yet, oldest first: what waits above the chat's message box. */
-export const waitingComments = (comments: readonly PinnedComment[]) => comments.filter(comment => !comment.askedAt);
+export const waitingComments = (comments: readonly PinnedComment[]) => comments.filter(comment => !comment.askedAt && !comment.setAsideAt);
 /** Where a comment stands with the agent, for the share sheet: "Agent was asked" or "Agent started on it by itself"; nothing while it waits. */
-export const commentAsked = (comment: Pick<PrototypeComment, "askedAt" | "askedBy">) => !comment.askedAt ? null : comment.askedBy === "auto" ? "Agent started on it by itself" : "You asked Agent to work on it";
+export const commentAsked = (comment: Pick<PrototypeComment, "askedAt" | "askedBy" | "setAsideAt">) => comment.askedAt ? (comment.askedBy === "auto" ? "Agent started on it by itself" : "You asked Agent to work on it") : comment.setAsideAt ? "You set it aside" : null;
 /** The line above the waiting comments: "1 comment from a reviewer", "3 comments from reviewers". */
 export const waitingLine = (n: number) => (n === 1 ? "1 comment from a reviewer" : `${n} comments from reviewers`);
 export const AUTO_WORK_LABEL = "Agent starts on their comments by itself";
