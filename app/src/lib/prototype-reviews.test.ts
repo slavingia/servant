@@ -51,3 +51,11 @@ test("comments wait above the message box until they are handed to Agent, and sa
   assert.deepEqual(all.map(commentAsked), ["You asked Agent to work on it", "Agent started on it by itself", null, null, "You set it aside"]);
   assert.deepEqual([waitingLine(1), waitingLine(3)], ["1 comment from a reviewer", "3 comments from reviewers"]);
 });
+
+test("sharing is offered beside the prototype as well as under the chat's options, and only in your own chat", async () => {
+  const fs = await import("node:fs"), path = await import("node:path");
+  const screen = fs.readFileSync(path.join(import.meta.dirname, "../app/chat/[id].tsx"), "utf8");
+  assert.match(screen, /\{onShare && !editing \? <Pressable testID="preview-share-prototype" accessibilityRole="button" accessibilityLabel="Share with a business owner" onPress=\{onShare\}/, "in the preview's bar");
+  assert.match(screen, /onShare=\{readOnly \? undefined : \(\) => setReviewing\(true\)\}/, "not in someone else's chat");
+  assert.match(screen, /onReview=\{previewUrl && !readOnly \?/, "and still under the options");
+});

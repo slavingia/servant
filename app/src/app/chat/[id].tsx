@@ -265,7 +265,7 @@ export const canSplitPreview = Platform.OS === "web" || !!NativeWebView;
 // sandboxed, so it hands its changes (words before and after, styles per element) to us and we save it through the signed-in API.
 export const editUrl = (url: string, version: number, editing: boolean, reviewing = false) => `${url}${url.includes("?") ? "&" : "?"}v=${version}${editing ? "&edit=1" : reviewing ? "&review=1" : ""}`;
 
-function PreviewPane({ url, version, stacked, onSave, comments = [] }: { /** What business owners said about this prototype, numbered (prototype-reviews.ts). */ comments?: PinnedComment[]; url: string; version: number; stacked: boolean; onSave?: (path: string, changes: PrototypeChanges) => Promise<{ missed?: string[] }> }) {
+function PreviewPane({ url, version, stacked, onSave, onShare, comments = [] }: { /** Share this prototype with a business owner: only in a prototyping chat of your own. */ onShare?: () => void; /** What business owners said about this prototype, numbered (prototype-reviews.ts). */ comments?: PinnedComment[]; url: string; version: number; stacked: boolean; onSave?: (path: string, changes: PrototypeChanges) => Promise<{ missed?: string[] }> }) {
   const styles = useStyles();
   const [editing, setEditing] = useState(false);
   // Comments: the prototype shows a numbered pin where each was made; pressing one shows what was said.
@@ -308,6 +308,11 @@ function PreviewPane({ url, version, stacked, onSave, comments = [] }: { /** Wha
       <Text accessibilityRole="header" style={[styles.turnLabel, styles.turnCopy]}>{editing ? "Editing" : "Preview"}</Text>
       {comments.length && !editing ? <Pressable testID="preview-comments" accessibilityRole="button" accessibilityState={{ selected: shown }} aria-pressed={shown} accessibilityLabel={shown ? "Hide comments" : `Show ${commentCount(comments.length)} on the prototype`} onPress={() => { setReviewing(v => !v); setPicked(null); }} style={styles.previewBarLink}>
         <Text style={styles.headerLinkText}>{shown ? "Hide comments" : commentCount(comments.length)}</Text>
+      </Pressable> : null}
+      {/* Sharing sits with the prototype, not only under the chat's options: on a phone the prototype's own menu
+          (the browser's, once it is opened full screen) is the first place people look, and it can't list this. */}
+      {onShare && !editing ? <Pressable testID="preview-share-prototype" accessibilityRole="button" accessibilityLabel="Share with a business owner" onPress={onShare} style={styles.previewBarLink}>
+        <Text style={styles.headerLinkText}>Share</Text>
       </Pressable> : null}
       {onSave ? <Pressable testID="edit-preview" accessibilityRole="button" accessibilityLabel={editing ? "Done editing" : "Edit the words and styles"} onPress={() => setEditing(e => !e)} style={styles.previewBarLink}>
         <Text style={styles.headerLinkText}>{editing ? "Done" : "Edit"}</Text>
@@ -1180,7 +1185,7 @@ function ChatConversation({ account }: { account: Account }) {
           holdToQueue={busy || activeAgentTurn(turn)} onStop={stoppable ? () => { void stop(); } : undefined} /> : null}
       </ConversationKeyboardView>
       </View>
-      {previewOpen && previewUrl && canSplitPreview ? <PreviewPane url={previewUrl} version={0} stacked={stacked} onSave={savePrototype} comments={reviewComments} /> : null}
+      {previewOpen && previewUrl && canSplitPreview ? <PreviewPane url={previewUrl} version={0} stacked={stacked} onSave={savePrototype} onShare={readOnly ? undefined : () => setReviewing(true)} comments={reviewComments} /> : null}
       </View>
     </View>
     </MediaGalleryProvider>

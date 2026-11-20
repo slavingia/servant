@@ -271,6 +271,15 @@ try {
     assert.equal((await turns()).length, 1, 'only the one that was handed over');
     await context.close();
 
+    // Sharing is also beside the prototype itself, in the preview's bar, on a phone-size window as well.
+    const { page: bar, context: barContext } = await openApp(phone);
+    await bar.getByTestId('preview-share-prototype').click();
+    await bar.getByTestId('prototype-review-sheet').waitFor();
+    await bar.getByTestId('review-done').click();
+    await bar.getByTestId('preview-pane').scrollIntoViewIfNeeded();
+    await shot(bar, 'preview-share-phone.png');
+    await barContext.close();
+
     // 6. For a reviewer the sharer trusts to steer the work: a switch on the share sheet, off until it is turned on.
     const { page: sheet, context: sheetContext } = await openApp(phone);
     await sheet.getByTestId('review-comments').waitFor();
