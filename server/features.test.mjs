@@ -67,7 +67,8 @@ async function refused(route, feature, options) {
   assert.equal(response.status, 404, `${options?.method || 'GET'} ${route} -> ${response.status}: ${JSON.stringify(result)}`);
   assert.deepEqual(result.error, { code: 'feature_off', message: featureOffMessage(feature) }, `${route}`);
 }
-const me = (who = 'owner') => api('/v1/me', { who }).then(r => r.features);
+// Social media is on only once an X account is set up (social-http.test.mjs); none of these servers has one.
+const me = (who = 'owner') => api('/v1/me', { who }).then(r => { assert.equal(r.features.social, false); const { social, ...flags } = r.features; return flags; });
 const conversations = (who = 'owner') => api('/v1/conversations', { who }).then(r => r.conversations);
 const post = (id, text, who = 'owner') => api(`/v1/conversations/${id}/messages`, { who, method: 'POST', body: { text } }).then(r => r.message);
 

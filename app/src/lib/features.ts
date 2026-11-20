@@ -7,21 +7,25 @@ import { createContext, useContext } from "react";
 // `people` (the People directory and invites) is not a server flag: the server never turns it off, only Deep work does.
 // `home` (the Home tab) is not a server flag either: it follows channels, and Deep work keeps it (Home then lists only projects).
 export type FeatureName = "channels" | "directMessages" | "secureInbox" | "people" | "home";
-export type Features = Record<FeatureName, boolean>;
+/**
+ * `social` (social media, server/social.mjs) is the one flag that is off unless the server says exactly `true`: it
+ * needs an X account set up, so a server that says nothing, or one from before it existed, does not have it.
+ */
+export type Features = Record<FeatureName, boolean> & { social?: boolean };
 export const FEATURE_NAMES: FeatureName[] = ["channels", "directMessages", "secureInbox", "people", "home"];
 /** The flags the server sends and an account stores; `people` is always on there and `home` follows channels. */
-export type ServerFeatures = Omit<Features, "people" | "home">;
-const SERVER_FEATURE_NAMES = FEATURE_NAMES.filter((name): name is keyof ServerFeatures => name !== "people" && name !== "home");
+export type ServerFeatures = Omit<Record<FeatureName, boolean>, "people" | "home"> & { social?: boolean };
+const SERVER_FEATURE_NAMES = FEATURE_NAMES.filter((name): name is Exclude<FeatureName, "people" | "home"> => name !== "people" && name !== "home");
 export const ALL_FEATURES: Features = { channels: true, directMessages: true, secureInbox: true, people: true, home: true };
 
 export function normalizeFeatures(raw: unknown): Features {
   const given = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
-  return { channels: given.channels !== false, directMessages: given.directMessages !== false, secureInbox: given.secureInbox !== false, people: true, home: given.channels !== false };
+  return { channels: given.channels !== false, directMessages: given.directMessages !== false, secureInbox: given.secureInbox !== false, people: true, home: given.channels !== false, ...(given.social === true ? { social: true } : {}) };
 }
 
-export const sameFeatures = (a: ServerFeatures, b: ServerFeatures) => SERVER_FEATURE_NAMES.every(name => a[name] === b[name]);
+export const sameFeatures = (a: ServerFeatures, b: ServerFeatures) => SERVER_FEATURE_NAMES.every(name => a[name] === b[name]) && !!a.social === !!b.social;
 
-/** Deep work (deep-work.ts) hides channels, direct messages, the secure inbox and People on top of the server's flags, and keeps Home for projects. It only hides: a flag the server has off stays off. */
+/** Deep work (deep-work.ts) hides channels, direct messages, the secure inbox, social media and People on top of the server's flags, and keeps Home for projects. It only hides: a flag the server has off stays off. */
 export const withDeepWork = (features: Features, on: boolean): Features => on ? { channels: false, directMessages: false, secureInbox: false, people: false, home: features.home } : features;
 
 export type TabName = "channels" | "messages" | "agent" | "members" | "you";

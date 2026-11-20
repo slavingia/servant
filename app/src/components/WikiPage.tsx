@@ -5,7 +5,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { MessageText } from "./MessageText";
 import { ServerError, type Account } from "../lib/server";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
-import { wikiAskPlaceholder, wikiChange, wikiEditedLine, type WikiDraft, type WikiPage as Page } from "../lib/wiki";
+import { wikiAskPlaceholder, wikiChange, wikiEditedLine, wikiMarkNote, type WikiDraft, type WikiPage as Page } from "../lib/wiki";
 import { wikiApi } from "../lib/wiki-api";
 import { ServeLoader } from "./ServeLoader";
 
@@ -116,6 +116,8 @@ export function WikiPage({ account, id, header, fresh = false, onSaved, onDelete
     </View> : null}
     <Text testID="wiki-title" accessibilityRole="header" style={styles.title}>{shown.title}</Text>
     {draft ? null : <Text style={styles.meta}>{wikiEditedLine(page)}</Text>}
+    {/* A page a part of Servant reads says so, so nobody changes it without knowing what follows. */}
+    {wikiMarkNote(page.kind) ? <View testID="wiki-mark-note" style={styles.markNote}><Text style={styles.markText}>{wikiMarkNote(page.kind)}</Text></View> : null}
     {shown.body.trim()
       ? <View testID="wiki-body" style={styles.body}><MessageText text={shown.body} /></View>
       : <Text style={styles.empty}>{draft ? "Agent's draft is an empty page." : "This page is empty. Tell Agent below what it should say."}</Text>}
@@ -151,6 +153,8 @@ const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create
   error: { ...typography.body, color: colors.red },
   draftNote: { gap: space.sm, padding: space.sm, borderRadius: radius.md, backgroundColor: colors.blueSoft },
   draftText: { ...typography.bodyStrong, color: colors.ink },
+  markNote: { padding: space.sm, borderRadius: radius.md, backgroundColor: colors.surface },
+  markText: { ...typography.caption, color: colors.ink },
   ask: { gap: space.xs, marginTop: space.lg, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   askLabel: { ...typography.label, color: colors.muted },
   askInput: { ...controls.input, ...controls.inputMultiline, minHeight: 88 },

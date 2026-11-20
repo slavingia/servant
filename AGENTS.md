@@ -60,7 +60,7 @@ Do not weaken these without an explicit decision recorded in the docs. If a chan
 - **The agent is reachable only from the server.** The Hermes API listens on localhost; members get the restricted profile in `config/` ([docs/member-security.md](docs/member-security.md)).
 - **No prompt text in `usage.db`.** Usage stores only the token counts the agent reports and topic labels, never request or reply text.
 - **Notifications carry only what [docs/notifications.md](docs/notifications.md) says:** a title and body (sender, conversation or chat title or case reference, up to 240 characters of text, or none when the person turns off **Show sender and message**) plus opaque routing ids. Provider payloads are allowlisted; nothing else leaves the server. A reply email to a visitor of the secure inbox carries the team's name and that visitor's own return link, and nothing from the conversation; it goes only to an address the visitor confirmed with a code ([docs/secure-inbox.md](docs/secure-inbox.md#reply-emails)).
-- **Feature flags only hide.** Turning a `features` flag off (channels, direct messages, secure inbox) or switching on Deep work never deletes data.
+- **Feature flags only hide.** Turning a `features` flag off (channels, direct messages, secure inbox, social media) or switching on Deep work never deletes data.
 
 ## Records preservation invariants
 

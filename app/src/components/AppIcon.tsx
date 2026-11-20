@@ -63,6 +63,8 @@ const paths = {
   external: "M14 4h6v6 M20 4l-9 9 M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5",
   // A shield with a tick: kept safe.
   shield: "M12 3 4 6v6c0 4.5 3.2 7.8 8 9 4.8-1.2 8-4.5 8-9V6l-8-3Z m-3 9 2 2 4-4",
+  // A megaphone: social media.
+  megaphone: "M3 10v4a1 1 0 0 0 1 1h3l9 4V5L7 9H4a1 1 0 0 0-1 1Z M7 15l1.5 5h3L10 16 M19.5 9.5a4 4 0 0 1 0 5",
   // A plug: a tool connected with your own login.
   plug: "M9 3v5 M15 3v5 M6 8h12v3a6 6 0 0 1-12 0V8Z M12 17v4",
 } as const;

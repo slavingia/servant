@@ -16,7 +16,7 @@ Two rules sit behind it.
 
 ## Built-in entitlements
 
-Four entitlements are on every server and can't be retired or renamed:
+Five entitlements are on every server and can't be retired or renamed. Four are for what the agent does:
 
 | Entitlement | What it lets the agent do for the person |
 | --- | --- |
@@ -25,7 +25,9 @@ Four entitlements are on every server and can't be retired or renamed:
 | **GitHub read** | Read repositories, issues and pull requests. |
 | **GitHub write** | Push, open and merge pull requests, change issues. Covers reading. |
 
-They are **asked for by use**. Nobody fills in a form: the first time someone's agent is about to do one of these things, the agent stops, the person's manager is told ("Pat Tester's agent needs GitHub write"), and in Entitlements the manager sees what the agent was about to do ("Run: git push origin main") with three answers:
+The fifth, **Social media**, is for a person rather than their agent: holding it lets someone approve what goes out from the team's social media account ([social.md](social.md)). It is asked for and granted by hand like any entitlement you make yourself, opens no hosts, and is listed only on a server that has social media set up.
+
+The four above are **asked for by use**. Nobody fills in a form: the first time someone's agent is about to do one of these things, the agent stops, the person's manager is told ("Pat Tester's agent needs GitHub write"), and in Entitlements the manager sees what the agent was about to do ("Run: git push origin main") with three answers:
 
 - **Allow once**: that one action goes ahead. The next one asks again.
 - **Allow always**: the person holds the entitlement from now on, until someone takes it back.

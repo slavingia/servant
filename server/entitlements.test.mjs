@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { capabilitySettings, createEntitlements, DEFAULT_CONFIRMATION, NATIVE, ONCE_WINDOW_MS } from "./entitlements.mjs";
+import { capabilitySettings, createEntitlements, DEFAULT_CONFIRMATION, NATIVE, ONCE_WINDOW_MS, SOCIAL_ENTITLEMENT } from "./entitlements.mjs";
 
 // Ana (owner) manages Jo; Jo manages Pat and Sam.
 function setup() {
@@ -118,7 +118,7 @@ test("editing, retiring and a person leaving close access without deleting anyth
 
 test("built-in entitlements are on every server, can't be retired or renamed, and are asked for by use", () => {
   const { store, file, done } = setup();
-  assert.deepEqual(store.list().map(e => [e.name, e.capability]), [["Filesystem read", "fs-read"], ["Filesystem write", "fs-write"], ["GitHub read", "github-read"], ["GitHub write", "github-write"]]);
+  assert.deepEqual(store.list().map(e => [e.name, e.capability]), [["Filesystem read", "fs-read"], ["Filesystem write", "fs-write"], ["GitHub read", "github-read"], ["GitHub write", "github-write"], ["Social media", "social"]]);
   assert.deepEqual(NATIVE.map(n => n.capability).sort(), ["fs-read", "fs-write", "github-read", "github-write"]);
   const github = store.get("native-github-write");
   assert.deepEqual(github.hosts, ["github.com", "*.github.com", "*.githubusercontent.com"]);
@@ -126,7 +126,7 @@ test("built-in entitlements are on every server, can't be retired or renamed, an
   fails(() => store.update(github.id, { name: "Git" }, "usr_ana"), 400);
   assert.deepEqual(store.update(github.id, { hosts: ["github.com"], name: "GitHub write" }, "usr_ana").hosts, ["github.com"], "an owner can still say which hosts it opens");
   store.create({ name: "Jira", hosts: ["jira.example.gov"] }, "usr_ana");
-  assert.deepEqual(store.list().map(e => e.name), ["Filesystem read", "Filesystem write", "GitHub read", "GitHub write", "Jira"], "built-in ones first");
+  assert.deepEqual(store.list().map(e => e.name), ["Filesystem read", "Filesystem write", "GitHub read", "GitHub write", "Social media", "Jira"], "built-in ones first");
   fails(() => store.use("usr_pat", "sudo"), 400);
 
   // The first use files a request with what the agent was about to do; repeats change nothing but that line.
@@ -140,7 +140,13 @@ test("built-in entitlements are on every server, can't be retired or renamed, an
   assert.equal(store.use("usr_gone", "fs-read").verdict, "deny", "someone who isn't on the server is refused");
   // Reopening the file adds no second copy and keeps the request.
   const reopened = createEntitlements(file);
-  assert.equal(reopened.list().filter(e => e.native).length, 4);
+  assert.equal(reopened.list().filter(e => e.native).length, 5, "the four asked for by use, and Social media");
+  // Social media is built in but asked for by hand: it opens no hosts, the agent can't use it, and there is no "once".
+  const socialMedia = reopened.get(SOCIAL_ENTITLEMENT.id);
+  assert.deepEqual([socialMedia.name, socialMedia.native, socialMedia.byRequest, socialMedia.hosts], ["Social media", true, true, []]);
+  fails(() => reopened.use("usr_pat", "social"), 400, "bad_request");
+  fails(() => reopened.update(socialMedia.id, { name: "Posting" }, "usr_ana"), 400, "bad_request");
+  fails(() => reopened.retire(socialMedia.id, "usr_ana"), 400, "bad_request");
   assert.equal(reopened.grant(github.id, "usr_pat").status, "requested");
   reopened.close();
   done();

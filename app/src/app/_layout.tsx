@@ -144,6 +144,7 @@ function SessionNavigation() {
         <Stack.Screen name="new-message" options={{ title: "New message", ...sidebarScreen }} />
         <Stack.Screen name="inbox" options={{ title: "Cases", ...sidebarScreen }} />
         <Stack.Screen name="inbox/[id]" options={{ title: "Conversation", ...childScreen }} />
+        <Stack.Screen name="social" options={{ title: "Social", ...sidebarScreen }} />
         <Stack.Screen name="browse" options={{ headerShown: false }} />
         <Stack.Screen name="archived-channels" options={{ title: "Archived", ...sidebarScreen }} />
         <Stack.Screen name="channel-info" options={{ title: "Details", ...childScreen }} />

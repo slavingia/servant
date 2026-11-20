@@ -18,7 +18,7 @@ export type Destination = {
   path: string;
   group: DestinationGroup;
   /** A server feature without which the place would be a dead link; "talk" means channels or direct messages. */
-  needs?: FeatureName | "talk";
+  needs?: FeatureName | "talk" | "social";
   /** Only for the owner. */
   owner?: true;
   /** Only where the server has a file drop folder and says so to this person (server/file-drop.mjs). */
@@ -37,6 +37,7 @@ export const DESTINATIONS: Destination[] = [
   { id: "agent", label: "Agent", icon: "sparkles", path: "/agent", group: "talk", sidebar: true, you: false, detail: "Your private agent chats", keywords: "assistant ai help ask" },
   { id: "messages", label: "Chats", icon: "chat", path: "/messages", group: "talk", needs: "directMessages", sidebar: true, you: false, detail: "Direct and group conversations", keywords: "chats dm dms direct messages" },
   { id: "inbox", label: "Cases", icon: "lock", path: "/inbox", group: "talk", needs: "secureInbox", sidebar: true, you: true, detail: "Conversations with the public, team notes and follow-ups", keywords: "cases casework follow-up task notes inbox support visitor guest live chat external contact customer public" },
+  { id: "social", label: "Social", icon: "megaphone", path: "/social", group: "talk", needs: "social", sidebar: true, you: true, detail: "Posts about you on X, the replies waiting for approval and what is scheduled", keywords: "social media x twitter tweet tweets mentions reply replies post posts schedule scheduled calendar approve comms communications" },
   { id: "todos", label: "To-dos", icon: "check", path: "/todos", group: "work", sidebar: true, you: true, detail: "To-dos for you and your projects", keywords: "todo to-do task tasks checklist" },
   { id: "saved", label: "Saved", icon: "bookmark", path: "/saved", group: "work", sidebar: true, you: true, detail: "Messages you saved to follow up, and your work log", keywords: "save saved later bookmark todo to-do checklist follow up completed work log" },
   { id: "recordings", label: "Notetaker", icon: "mic", path: "/recordings", group: "work", sidebar: true, you: true, detail: "Meeting and voice notes", keywords: "notetaker note taker meeting meetings record recording recordings voice memo memos audio transcript notes granola" },
@@ -56,7 +57,7 @@ export type Viewer = { features: Features; owner: boolean; fileDrop?: boolean };
 export const reachable = (place: Destination, viewer: Viewer) =>
   (!place.owner || viewer.owner)
   && (!place.fileDrop || viewer.fileDrop === true)
-  && (!place.needs || (place.needs === "talk" ? anyTalk(viewer.features) : viewer.features[place.needs]));
+  && (!place.needs || (place.needs === "talk" ? anyTalk(viewer.features) : viewer.features[place.needs] === true));
 
 /** The places for the sidebar or for You, grouped and in order; a group with nothing in it is left out. */
 export function destinationGroups(where: "sidebar" | "you", viewer: Viewer): { group: DestinationGroup; title: string; places: Destination[] }[] {

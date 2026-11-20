@@ -71,7 +71,8 @@ test("the sidebar marks the place that is open, including the screens under it",
 
 test("search finds every place by its name", () => {
   for (const place of DESTINATIONS) {
-    const found = omnibarShortcuts(place.label, true, ALL_FEATURES, true);
+    // A server with everything, social media included (it is the one place that is off until it is set up).
+    const found = omnibarShortcuts(place.label, true, { ...ALL_FEATURES, social: true }, true);
     assert.ok(found.some(item => item.path === place.path), `"${place.label}" finds ${place.path}`);
   }
   assert.ok(omnibarShortcuts("to-dos", false, ALL_FEATURES, false).some(item => item.path === "/todos"), "To-dos was not in search at all");

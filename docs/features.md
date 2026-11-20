@@ -190,6 +190,10 @@ The **Conversation** tab sends replies and files to the visitor. **Team**, **Fol
 The public browser page trusts the owner's HTTPS page on first use and pins its key. Visitor return links are private credentials. An email address is optional; once a visitor confirms it with a code, the server emails them a link back each time the team replies, and nothing from the conversation. See [secure inbox](secure-inbox.md) for setup, security boundaries, limits, and verification.
 
 
+## Social media
+
+**Social** (in the sidebar and on You, once an owner has given the server an X account's keys) lists the posts on X that mention your account or match your searches. Agent drafts a reply to each from a marked page of the wiki, the **Social media guide**; anyone can fix a draft in place; someone who holds the **Social media** entitlement approves it, and it goes out at the next opening, a few minutes from the one before. When an approved reply differs from Agent's draft, what the change teaches is added to the guide, so the next draft starts closer. **Scheduled** shows what is approved as a list or a calendar; on a wide window the choice sits at the top right. Nothing is posted without a person's approval, and a stranger's post is only ever shown to the restricted agent, which has no tools. See [social media](social.md).
+
 ## Features an instance doesn't use
 
 An instance can turn off channels, direct messages and the secure inbox and keep only the agent, people, projects and the rest. In the server's `config.json`:

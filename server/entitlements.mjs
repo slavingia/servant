@@ -27,6 +27,11 @@ export const NATIVE = [
   { id: "native-github-read", capability: "github-read", name: "GitHub read", description: "The agent may read repositories, issues and pull requests on GitHub for this person", hosts: GITHUB_HOSTS },
   { id: "native-github-write", capability: "github-write", name: "GitHub write", description: "The agent may push, open and merge pull requests, and change issues on GitHub for this person. Covers reading", hosts: GITHUB_HOSTS, covers: "github-read" },
 ];
+/**
+ * Social media (docs/social.md): built in like the four above, but asked for by hand like any other, and it opens
+ * no hosts. Holding it lets a person approve what the team's account posts; the server posts, never the agent.
+ */
+export const SOCIAL_ENTITLEMENT = { id: "native-social", capability: "social", name: "Social media", description: "This person may approve replies and posts that go out from the team's social media account", hosts: [] };
 const nativeFor = capability => NATIVE.find(n => n.capability === capability) || null;
 /** How long the hosts of a built-in entitlement stay open after an "allow once" is used, so the one action can finish. */
 export const ONCE_WINDOW_MS = 10 * 60_000;
@@ -83,7 +88,7 @@ export function createEntitlements(file, { clock = Date.now, known = () => true,
   const columns = table => db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
   if (!columns("entitlements").includes("capability")) db.exec("ALTER TABLE entitlements ADD COLUMN capability TEXT");
   for (const [name, type] of [["via", "TEXT"], ["detail", "TEXT"], ["used_at", "INTEGER"]]) if (!columns("grants").includes(name)) db.exec(`ALTER TABLE grants ADD COLUMN ${name} ${type}`);
-  for (const n of NATIVE) {
+  for (const n of [...NATIVE, SOCIAL_ENTITLEMENT]) {
     db.prepare("INSERT OR IGNORE INTO entitlements(id,name,description,hosts,confirmation,created_by,created_at,updated_at,capability) VALUES (?,?,?,?,?,?,?,?,?)")
       .run(n.id, n.name, n.description, JSON.stringify(n.hosts), "", "server", clock(), clock(), n.capability);
   }
@@ -96,7 +101,7 @@ export function createEntitlements(file, { clock = Date.now, known = () => true,
   const note = (entitlementId, userId, action, by, detail = {}) =>
     db.prepare("INSERT INTO history(entitlement_id,user_id,action,by,at,detail) VALUES (?,?,?,?,?,?)").run(entitlementId, userId ?? null, action, String(by), clock(), JSON.stringify(detail));
   const shape = r => r && ({ id: r.id, name: r.name, description: r.description, hosts: JSON.parse(r.hosts), confirmation: r.confirmation || DEFAULT_CONFIRMATION,
-    createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at, ...(r.capability ? { native: true, capability: r.capability } : {}), ...(r.retired_at ? { retiredAt: r.retired_at } : {}) });
+    createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at, ...(r.capability ? { native: true, capability: r.capability, ...(r.capability === SOCIAL_ENTITLEMENT.capability ? { byRequest: true } : {}) } : {}), ...(r.retired_at ? { retiredAt: r.retired_at } : {}) });
   const grantShape = r => r && ({ entitlementId: r.entitlement_id, userId: r.user_id, status: r.status, note: r.note, requestedAt: r.requested_at,
     ...(r.via === "use" ? { via: "use", ...(r.detail ? { detail: r.detail } : {}) } : {}),
     ...(r.decided_by ? { decidedBy: r.decided_by, decidedAt: r.decided_at } : {}), ...(r.reason ? { reason: r.reason } : {}) });
@@ -187,7 +192,7 @@ export function createEntitlements(file, { clock = Date.now, known = () => true,
         // Access is handed down, never made up: a manager passes on only what they were granted themselves.
         if ((decision === "grant" || decision === "once") && !isOwner(by) && !holds(id, by)) throw fault(403, "not_held", `You can only grant what you hold yourself. Ask for ${entitlement.name} first, or leave this one to an owner`);
         // "Allow once" is for a built-in entitlement the agent asked for by use: that one action goes ahead, the next asks again.
-        if (decision === "once" && !entitlement.native) throw fault(400, "bad_request", "Only a built-in entitlement can be allowed once");
+        if (decision === "once" && (!entitlement.native || entitlement.byRequest)) throw fault(400, "bad_request", "Only a built-in entitlement can be allowed once");
         if (decision === "revoke" ? existing.status !== "granted" : existing.status !== "requested") {
           throw fault(409, "conflict", decision === "revoke" ? "That person doesn't hold this entitlement" : "That request was already answered");
         }
@@ -278,6 +283,8 @@ export function createEntitlements(file, { clock = Date.now, known = () => true,
     },
     history: (id, limit = 200) => db.prepare("SELECT * FROM history WHERE entitlement_id=? ORDER BY seq DESC LIMIT ?").all(String(id), Math.max(1, Math.min(1000, limit)))
       .map(h => ({ action: h.action, ...(h.user_id ? { userId: h.user_id } : {}), by: h.by, at: h.at, detail: JSON.parse(h.detail) })),
+    /** Whether this person holds an entitlement right now (a built-in "write" counts as its "read"). */
+    holds: (id, userId) => known(userId) && holds(id, userId),
     close: () => db.close(),
   };
 }
