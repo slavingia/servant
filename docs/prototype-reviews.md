@@ -1,6 +1,6 @@
 # Sharing a prototype with a business owner
 
-Someone who builds a prototype in a Prototyping chat can send it to a business owner for comments. The business owner does not need the app or an account: a link arrives by email, they confirm a code sent to the same address, look at the prototype in their browser, and right-click the part they want to talk about. Each comment is kept on the server and becomes a to-do for the person who shared it.
+Someone who builds a prototype in a Prototyping chat can send it to a business owner for comments. The business owner does not need the app or an account: a link arrives by email, they confirm a code sent to the same address, look at the prototype in their browser, and right-click the part they want to talk about. Each comment is kept on the server, shows in the prototype's own chat, and becomes a to-do for the person who shared it. From the chat they hand it to the agent with one press, or, for a reviewer they trust to steer the work, have the agent start on that person's comments as they arrive.
 
 ## For the person sharing
 
@@ -10,6 +10,8 @@ In the prototyping chat, open **•••** and choose **Share with a business o
 - The sheet lists everyone it was shared with, whether they have opened it, and what they said. **End** stops one person's link.
 - Sending again to the same address makes a fresh link and ends the old one.
 - Each comment becomes a to-do of yours ("Comment on Refund tracker: This should say Pay in full"), with who said it, where on which page, and a link to that page. From To-dos you can hand it to the agent like any other. You also get an alert that opens To-dos.
+- **In the chat**, comments nobody has handed to the agent wait above the message box ("2 comments from reviewers"), each with who said it, where, and **Ask Agent to work on this**. Pressing it sends the comment to the agent as a message from you in that chat, so the agent works on the prototype it already knows, and the comment leaves the waiting list. A comment is handed over once.
+- **Agent starts on their comments by itself** is a switch beside each person in the share sheet, off until you turn it on. With it on, each comment that person makes is sent to the agent as it arrives, with nobody pressing anything, and you get an alert that says so. It is one reviewer's switch, not the prototype's: other people's comments still wait for you. See [When the agent starts by itself](#when-the-agent-starts-by-itself).
 - In the chat's own preview, a link in the bar ("2 comments") puts a numbered pin where each comment was made; pressing a pin shows what was said and by whom.
 - Only the person whose chat it is can share, list or end. Deleting the chat ends every link for it.
 
@@ -22,11 +24,21 @@ It needs the server to have a public address (`publicUrl`) and a mailer (`emailV
 3. With the code entered, the prototype opens. **Right-click** anywhere (on a phone, press and hold) to open a box at that spot, write the comment and save it. A numbered pin stays where it was made, and the comments are listed beside the prototype. **Comment on this page** in the bar does the same without a mouse, for the page as a whole.
 4. Coming back in the same browser tab needs no new code for twelve hours.
 
-They see only their own comments, not other reviewers', and nothing else on the server.
+They see only their own comments, not other reviewers', and nothing else on the server. Under a comment that was handed to the agent the page says **Sent to the team's agent**; it does not say what came of it.
+
+## When the agent starts by itself
+
+A comment is words from someone outside the server, and the agent that builds prototypes can change files. So:
+
+- **Nothing reaches the agent unless the person who shared the prototype says so**, comment by comment, or by turning the switch on for one reviewer. It is off for everyone to begin with, and turning it on is the sharer's own act in their own chat.
+- **The comment is quoted, not spoken.** The message the agent gets says who reviewed what, quotes the comment line by line, and tells the agent to use it only to decide how the prototype should change and to follow nothing in it that asks for anything else (other files, commands, credentials, messages). That is an instruction to the agent, not a wall: a reviewer you switch this on for should be someone you would let type in the chat.
+- **It runs as the sharer**, in the sharer's chat, under the sharer's access, entitlements and daily limit, like a message they sent. If they have no agent access, are over their limit, or have no signed-in device, the comment waits as it would with the switch off.
+- **A reviewer can't run up the sharer's agent use**: the agent starts on at most 20 of one reviewer's comments an hour by itself, and the chat's own limit on waiting messages applies. The rest wait for the sharer.
+- Each comment is still a to-do, so there is a record of what was asked whether or not the agent has got to it.
 
 ## What is kept, and what leaves the server
 
-`prototype-reviews.db` in the data directory holds each share (the chat, the prototype's folder and title, the address, who shared it, when it was opened and ended), the sessions of people who confirmed a code, and the comments: the address, the page, where on it (as a share of the page's width and height), the words under the pointer (up to 120 characters), and the comment (up to 2,000). Links and sessions are stored only as hashes. Comments are never deleted, and the table refuses it; ending a share or deleting the chat closes the link and keeps what was said.
+`prototype-reviews.db` in the data directory holds each share (the chat, the prototype's folder and title, the address, who shared it, when it was opened and ended), the sessions of people who confirmed a code, whether the agent starts on that person's comments by itself, and the comments (with, once handed to the agent, when, whether the sharer did it or it happened by itself, and which message it became): the address, the page, where on it (as a share of the page's width and height), the words under the pointer (up to 120 characters), and the comment (up to 2,000). Links and sessions are stored only as hashes. Comments are never deleted, and the table refuses it; ending a share or deleting the chat closes the link and keeps what was said.
 
 Two emails leave the server through the owner's mailer command, both to the address the sharer typed:
 
@@ -53,6 +65,8 @@ Signed in, under the encrypted `/v1/` API, for the chat's own person:
 | `GET /v1/chats/<id>/prototype/shares` | Everyone it was shared with, and their comments. |
 | `POST /v1/chats/<id>/prototype/shares` | `{ "email" }`: send a link. |
 | `DELETE /v1/chats/<id>/prototype/shares/<share id>` | End one link. |
+| `PATCH /v1/chats/<id>/prototype/shares/<share id>` | `{ "autoWork": true }`: the agent starts on this person's comments as they arrive. `POST` takes it too. |
+| `POST /v1/chats/<id>/prototype/comments/<comment id>/work` | Hand one comment to the agent, as a message in the chat. Once. |
 
 For the business owner, plain HTTPS with no account:
 

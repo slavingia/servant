@@ -70,7 +70,7 @@ function relative(p){var i=p.indexOf(proto);p=i===0?p.slice(proto.length):p;retu
 function pins(){var out=[];comments.forEach(function(c,i){if(c.page===page)out.push({id:c.id,n:i+1,x:c.x,y:c.y})});try{frame.contentWindow.postMessage(JSON.stringify({servant:"prototype-pins",pins:out}),"*")}catch(x){}}
 function draw(on){say(count,comments.length===1?"1 comment":comments.length+" comments");empty.hidden=comments.length>0;while(list.firstChild)list.removeChild(list.firstChild);
 comments.forEach(function(c,i){var li=document.createElement("li");li.setAttribute("data-on",String(c.id===on));var n=document.createElement("span");n.className="pin";n.textContent=String(i+1);n.setAttribute("aria-hidden","true");
-var w=document.createElement("p");w.className="words";w.textContent=c.text;var where=document.createElement("p");where.className="where";where.textContent=(c.anchor?"On \\u201c"+c.anchor+"\\u201d \\u00b7 ":"")+c.page;
+var w=document.createElement("p");w.className="words";w.textContent=c.text;var where=document.createElement("p");where.className="where";where.textContent=(c.anchor?"On \\u201c"+c.anchor+"\\u201d \\u00b7 ":"")+c.page+(c.asked?" \\u00b7 Sent to the team\\u2019s agent":"");
 var head=document.createElement("div");head.appendChild(n);var lab=document.createElement("strong");lab.textContent="Comment "+(i+1);head.appendChild(lab);li.appendChild(head);li.appendChild(w);li.appendChild(where);list.appendChild(li);if(c.id===on)li.scrollIntoView({block:"nearest"})});pins()}
 addEventListener("message",function(e){if(e.source!==frame.contentWindow)return;var d=e.data;try{d=typeof d==="string"?JSON.parse(d):d}catch(x){return}if(!d||d.servant!=="prototype-review")return;
 if(typeof d.page==="string")page=relative(d.page);

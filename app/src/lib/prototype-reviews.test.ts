@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { commentBy, commentCount, commentWhere, looksLikeEmail, numberedComments, orderShares, pageOf, pinsOn, shareLine, shareStatus } from "./prototype-reviews.ts";
+import { commentBy, commentCount, commentWhere, looksLikeEmail, numberedComments, orderShares, pageOf, pinsOn, shareLine, shareStatus, commentAsked, waitingComments, waitingLine } from "./prototype-reviews.ts";
 
 const share = (extra = {}) => ({ id: "rev_1", email: "jo@example.gov", createdAt: 10, comments: [], ...extra });
 const comment = { id: "cmt_1", page: "index.html", anchor: "Pay now", text: "Say Pay in full", createdAt: 20 };
@@ -42,4 +42,12 @@ test("the builder's preview numbers every reviewer's comments in the order they 
   assert.equal(pageOf("/p/proto-0123456789abcdef01/"), "index.html");
   assert.equal(pageOf("/p/proto-0123456789abcdef01/plans/compare.html?review=1"), "plans/compare.html");
   assert.equal(pageOf("/p/proto-0123456789abcdef01/plans/"), "plans/index.html");
+});
+
+test("comments wait above the message box until they are handed to Agent, and say how that happened", () => {
+  const share = (email: string, comments: { id: string; createdAt: number; askedAt?: number; askedBy?: "you" | "auto" }[]) => ({ id: email, email, createdAt: 1, comments: comments.map(c => ({ page: "index.html", anchor: "", text: c.id, ...c })) });
+  const all = numberedComments([share("jo@example.gov", [{ id: "a", createdAt: 1, askedAt: 5, askedBy: "you" }, { id: "c", createdAt: 3 }]), share("sam@example.gov", [{ id: "b", createdAt: 2, askedAt: 2, askedBy: "auto" }, { id: "d", createdAt: 4 }])]);
+  assert.deepEqual(waitingComments(all).map(c => [c.id, c.n, c.email]), [["c", 3, "jo@example.gov"], ["d", 4, "sam@example.gov"]], "they keep the number their pin has");
+  assert.deepEqual(all.map(commentAsked), ["You asked Agent to work on it", "Agent started on it by itself", null, null]);
+  assert.deepEqual([waitingLine(1), waitingLine(3)], ["1 comment from a reviewer", "3 comments from reviewers"]);
 });
