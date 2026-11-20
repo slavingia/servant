@@ -17,6 +17,7 @@
 import { joinPage } from "./join-page.mjs";
 import { newFolder, removePrototype, savePrototypePage, servePrototype } from "./prototypes.mjs";
 import { previewInfo, serveAppPreview } from "./app-preview.mjs";
+import { cleanFolder, publishFolder, sourceOf } from "./publish-folder.mjs";
 import { privacyPage } from "./privacy-page.mjs";
 import { landingPage, supportPage } from "./public-page.mjs";
 import { termsPage } from "./terms-page.mjs";
@@ -1144,7 +1145,9 @@ async function handleTokenApi(req, res, url, parts, cfg) {
   const canShare = chat => chat.userId === user.id || user.role === "owner";
   const prototypeView = chat => {
     const shares = canShare(chat) ? prototypeReviews().forChat(chat.id).filter(share => !share.endedAt).map(share => ({ email: share.email, opened: !!share.verifiedAt, comments: prototypeReviews().comments({ shareId: share.id }).length })) : undefined;
-    return { id: chat.id, title: chat.title, by: users[chat.userId].name, mine: chat.userId === user.id, url: prototypePreview(chat), updatedAt: chat.updatedAt, canShare: canShare(chat), ...(shares ? { sharedWith: shares } : {}) };
+    // A copy of a folder in a project (POST /api/v1/work) says where it came from and when it was last copied.
+    const from = chat.published ? { from: { project: chat.published.projectId, folder: chat.published.folder, publishedAt: chat.published.at } } : {};
+    return { id: chat.id, title: chat.title, by: users[chat.userId].name, mine: chat.userId === user.id, url: prototypePreview(chat), updatedAt: chat.updatedAt, canShare: canShare(chat), ...from, ...(shares ? { sharedWith: shares } : {}) };
   };
   // The projects this person is in, and each one's app preview when the server has one (docs/app-preview.md).
   const myProjects = () => { const data = projects().read(); return accessibleProjects(data, user, users).map(found => found.project); };
@@ -1178,8 +1181,50 @@ async function handleTokenApi(req, res, url, parts, cfg) {
       const q = (url.searchParams.get("q") || "").toLowerCase().trim();
       const found = [...Object.values(state.chats).filter(chat => isPrototype(chat) && canSee(chat)).map(chat => ({ kind: "prototype", ...prototypeView(chat) })), ...myProjects().map(appView).filter(Boolean),
         ...Object.values(state.chats).filter(isPlainChat).map(chatView)]
-        .filter(w => !q || `${w.title} ${w.by} ${w.project || ""}`.toLowerCase().includes(q)).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 100);
+        .filter(w => !q || `${w.title} ${w.by} ${w.project || ""} ${w.from ? `${w.from.project} ${w.from.folder}` : ""}`.toLowerCase().includes(q)).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 100);
       return send(res, 200, { work: found });
+    }
+    // Put a folder of a project on the server so it can be sent for review (publish-folder.mjs). The page lives in the
+    // project's repository, where no reviewer's link can reach; this copies that one folder to where prototypes are
+    // served. It becomes a prototype of the person's own, with a chat for the comments. Asking again for the same
+    // folder replaces the copy and keeps the same links.
+    if (method === "POST" && parts[2] === "work" && parts.length === 3) {
+      const given = await body();
+      const named = typeof given.project === "string" ? given.project.trim().toLowerCase() : "";
+      const project = named ? myProjects().find(p => p.id === named || String(p.name).toLowerCase() === named) : null;
+      if (!project) return fail(res, 404, "not_found", "No such project of yours. Send project: the id or name of a project you are in");
+      if (given.title !== undefined && typeof given.title !== "string") return fail(res, 400, "bad_request", "title is a few words");
+      const folder = cleanFolder(given.folder);
+      // One named folder, never the project as a whole: a repository holds far more than the page someone means to show.
+      if (!folder) return fail(res, 400, "bad_request", "Send folder: the one folder inside the project that holds the page, such as pages/permit-claim. A whole project can't be published");
+      const from = sourceOf(project.path ? path.resolve(expandPath(project.path)) : "", folder);
+      const asked = String(given.title ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
+      const existing = Object.values(state.chats).find(c => isPrototype(c) && c.userId === user.id && c.published?.projectId === project.id && c.published.folder === folder);
+      const keep = recordsPreservationEnabled(cfg.recordsPreservation);
+      let chat = existing, copied;
+      if (chat) copied = publishFolder({ from, dir: PROTOTYPES_DIR, name: chat.vibeFolder, keep });
+      else {
+        // The chat is where reviewers' comments arrive, so it is a real chat with the person's agent.
+        const up = upstreamFor(user, cfg);
+        if (!up) return fail(res, 503, "agent_unavailable", "The agent isn't set up on this server yet, so there is no chat for reviewers' comments to arrive in");
+        const chatId = id("cht"), hermesSessionId = `servant_${user.id}_${chatId}`;
+        const made = await hermes(up, "POST", "/api/sessions", { id: hermesSessionId, title: `Servant · ${user.name} · ${chatId.slice(-6)}` });
+        if (!made.ok) return fail(res, 502, "agent_error", `The agent didn't start a chat (${made.status}). Try again in a moment`);
+        chat = { id: chatId, userId: user.id, role: agentLane(user, cfg) === "researcher" ? "researcher" : user.role, hermesSessionId, title: asked || folder.split("/").pop() || project.name, shared: false,
+          ...(vibeProject() ? { projectId: VIBE_PROJECT } : {}), mode: "vibe", vibeFolder: newFolder(), hosted: "server", createdAt: now(), updatedAt: now() };
+        try { copied = publishFolder({ from, dir: PROTOTYPES_DIR, name: chat.vibeFolder, keep }); }
+        catch (error) { void hermes(up, "DELETE", `/api/sessions/${encodeURIComponent(hermesSessionId)}`).catch(() => {}); throw error; }
+      }
+      mutateState(s => {
+        if (!existing) s.chats[chat.id] = chat;
+        const kept = s.chats[chat.id];
+        if (!kept) return;
+        kept.published = { projectId: project.id, folder, at: now(), by: user.id };
+        kept.updatedAt = now();
+        if (existing && asked) kept.title = asked;
+      });
+      const fresh = readState();
+      return send(res, existing ? 200 : 201, { work: { kind: "prototype", ...prototypeView(fresh.chats[chat.id]) }, files: copied.files, replaced: !!existing, share: `/api/v1/work/${chat.id}/shares` });
     }
     // Send a prototype to one or more work addresses for review. Each gets the same emailed link and code as from the app.
     const isShares = method === "POST" && parts[4] === "shares" && parts.length === 5;
