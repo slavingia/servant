@@ -367,6 +367,16 @@ class HermesContractTests(unittest.IsolatedAsyncioTestCase):
         for name in ("MEMORY.md", "USER.md"):
             self.assertEqual((memory_directory / name).read_text(), sentinel)
 
+    def test_member_agent_carries_the_profile_fallback_and_stays_restricted(self):
+        # A member's agent falls back like the owner's when the main model's sign-in lapses,
+        # and the fallback changes nothing about its tools or memory.
+        chain = [{"provider": "anthropic", "model": "contract-fallback"}]
+        with patch("gateway.run._resolve_runtime_agent_kwargs", return_value={"provider": "openai", "api_key": "contract-only", "base_url": "http://127.0.0.1:1/v1"}), patch("gateway.run._resolve_gateway_model", return_value="gpt-4o"), patch("gateway.run._load_gateway_config", return_value=CONFIG), patch("gateway.run.GatewayRunner._load_fallback_model", return_value=chain):
+            agent = make_member_agent(self.adapter, {"session_id": "member_fb", "gateway_session_key": "servant:fb"})
+        self.assertEqual(getattr(agent, "_fallback_chain", None), chain)
+        self.assertEqual(agent.tools, [])
+        self.assertIsNone(agent._memory_store)
+
 
 class EgressNamingTest(unittest.TestCase):
     """With the network gate on, each session's commands carry that session's token to the gate (hermes_egress.py)."""

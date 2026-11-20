@@ -172,6 +172,17 @@ def assert_member_agent(agent):
         raise RuntimeError("Restricted member agent unexpectedly exposes tools or persistent memory")
 
 
+def _fallback_chain():
+    # The profile's fallback_providers (for example a service account that doesn't
+    # expire like a person's sign-in). A fallback swaps only the model and its
+    # credentials; the tool and memory checks below still run on the agent.
+    try:
+        from gateway.run import GatewayRunner
+        return GatewayRunner._load_fallback_model() or None
+    except Exception:
+        return None
+
+
 def make_member_agent(adapter, kwargs):
     from run_agent import AIAgent
     from gateway.run import _resolve_runtime_agent_kwargs, _resolve_gateway_model, _load_gateway_config
@@ -201,6 +212,8 @@ def make_member_agent(adapter, kwargs):
         selected["skip_background_review"] = True
     if "memory_manager" in params:
         selected["memory_manager"] = None
+    if "fallback_model" in params and "fallback_model" not in selected:
+        selected["fallback_model"] = _fallback_chain()
     agent = MemberAgent(**selected)
     assert_member_agent(agent)
     return agent
@@ -235,6 +248,8 @@ def make_researcher_agent(adapter, kwargs):
         selected["skip_background_review"] = True
     if "memory_manager" in params:
         selected["memory_manager"] = None
+    if "fallback_model" in params and "fallback_model" not in selected:
+        selected["fallback_model"] = _fallback_chain()
     agent = ResearcherAgent(**selected)
     assert_researcher_agent(agent)
     return agent
