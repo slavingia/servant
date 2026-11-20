@@ -53,6 +53,24 @@ Turn the check on in the server's `config.json` and restart:
 
 It is off by default. It needs a bridge that can ask before a tool call (`server/hermes_guard.py` and `server/hermes_capabilities.py` beside `server/hermes_bridge.py`); the server checks that the bridge says it can, and refuses to hand a turn to one that can't rather than let the agent act unasked. If the bridge can't reach the server to ask, the tool call is stopped.
 
+### How a tool call is decided
+
+The agent's bridge asks Servant before each tool call that touches files or GitHub (`POST /use` on the local listener, `agentUse` in `server/server.mjs`). The request names the **principal** (whose turn it is, from the turn's own token), the **resource** (the chat's project and the paths and repositories the call names) and the **action** (the built-in entitlements it needs: Filesystem read or write, GitHub read or write). The first matching row decides:
+
+| Step | When | Answer |
+| --- | --- | --- |
+| 1 | The token belongs to nobody, or to someone removed from the server | Deny |
+| 2 | Checks are off (`agentCapabilities.mode` not `"ask"`), or the call needs no built-in entitlement | Allow, not logged |
+| 3 | The person is an owner and owners aren't checked (`owners` not `"ask"`) | Allow, logged as `allowed-owner` |
+| 4 | Resource: the chat is in a project and every path and repository the call names is inside that project's folder and repository | Asked about as that project's entitlement (`native-fs-write@example-app`) |
+| 5 | Resource: no project, or the call names anything outside it | Asked about as the every-project entitlement |
+| 6 | Any needed entitlement was declined for the person | Deny, logged as `denied` |
+| 7 | The person holds every needed one (granted, not taken back, not expired) for that scope, or for every project; write covers read | Allow, logged as `allowed` |
+| 8 | An "allow once" is waiting for each one still missing | Allow and use it up, logged as `allowed-once` |
+| 9 | Anything else | Ask the manager (or the other owners), wait up to `waitSeconds`, then go back to step 6; still unanswered: Wait, logged as `waiting`; the agent stops |
+
+Nothing is allowed because of a role alone except step 3, which a server can switch off. With checks on, a person who holds nothing is asked about everything (denied by default). Each line is written to the action log before the answer goes back, and a line that can't be written turns the answer into Deny.
+
 ### The agent action log
 
 With the check on, every tool call that was checked is written down before it is answered: whose agent, in which chat, what it was about to do (one line, up to 300 characters), which built-in entitlements that needed, and how it ended: allowed, allowed once, allowed because the person is an owner, declined, or still waiting. An owner's own agent is not asked about, but its actions are logged the same way. If the line can't be written, the action is refused.
@@ -71,7 +89,8 @@ It holds command lines and file paths, which can be sensitive in themselves; it 
 ### Limits of the built-in ones
 
 - This is a check on what the agent is about to do, made inside the agent. It is not a wall around the files: a program the agent was allowed to run can do more than its command line shows. Filesystem write is the entitlement that says "this person's agent may run arbitrary commands", and should be allowed with that in mind.
-- "Read" and "write" are for all of GitHub the server's credentials reach and all files the server's user can reach, not one repository or folder.
+- Without a project, "read" and "write" are for all of GitHub the server's credentials reach and all files the server's user can reach. A project's grant narrows that to its folder and repository as far as the agent's calls show it (above).
+- Deleting is part of write: there is no separate "delete" entitlement, so whoever may change files or push may also remove them.
 - Only the full agent is checked. The restricted member and researcher agents have no file tools or shell to check.
 
 ## Managers
