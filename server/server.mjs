@@ -1066,6 +1066,8 @@ function reviewCommented(share, comment, sharer, cfg) {
  * or an email that invites them to review a prototype. With `joining`, it also says what joining would add.
  */
 export const servantFootnote = (team, joining) => `What is Servant? It is where ${team} works: secure team messaging with an AI agent that builds and changes prototypes like this one. Reviewing needs no account or install; your comments go straight to the person who built it.${joining ? " If you join, you can ask the agent for changes yourself, build prototypes of your own and talk with the team, in a browser or the phone and Mac apps." : ""}`;
+// What a report sent with an access token can be about (POST /api/v1/feedback).
+const FEEDBACK_KINDS = ["bug", "friction", "slow", "confusing", "idea"];
 // The access level called "Business owner" (usage.mjs AGENT_TIERS): where someone invited to review a prototype starts.
 const BUSINESS_OWNER_TIER = 2;
 async function sharePrototype(chat, email, asker, cfg, { autoWork = false, name = "", joinCode = "" } = {}) {
@@ -1167,6 +1169,24 @@ async function handleTokenApi(req, res, url, parts, cfg) {
         } catch (error) { if (!error?.status) throw error; results.push({ email: String(person.email).slice(0, 254), ...(name ? { name } : {}), sent: false, error: error.message }); }
       }
       return send(res, results.some(r => r.sent) ? 201 : 400, { prototype: { id: chat.id, title: chat.title, by: users[chat.userId].name }, results });
+    }
+    // A report to the people who run Servant, from a person or from a coding agent working for them: something broke,
+    // was slow, got in the way or was confusing. It joins the same queue as feedback sent from the app (feedback.mjs)
+    // and becomes an issue for a person to read. The words are only ever data; nothing here hands them to an agent.
+    if (parts[2] === "feedback" && parts.length === 3) {
+      if (method === "GET") return send(res, 200, { reports: feedback.list(user.id).map(({ id, text, context, status, result, createdAt }) => ({ id, kind: context.kind || "", text, status, result, createdAt })) });
+      if (method === "POST") {
+        const given = await body();
+        const kind = given.kind === undefined ? "" : String(given.kind);
+        if (kind && !FEEDBACK_KINDS.includes(kind)) return fail(res, 400, "bad_request", `kind is one of: ${FEEDBACK_KINDS.join(", ")}`);
+        if (given.where !== undefined && typeof given.where !== "string") return fail(res, 400, "bad_request", "where is a few words: what you were doing, or which request");
+        const typed = typeof given.text === "string" ? tokenRefusal(given.text) : "";
+        if (typed) return fail(res, 400, "secret_in_chat", typed);
+        // Sending the same requestId again answers with the first report, so a retry after a lost answer files nothing twice.
+        const requestId = given.requestId === undefined ? `tok_${crypto.randomUUID()}` : String(given.requestId);
+        const report = feedback.submit(user.id, { text: given.text, requestId, context: { kind, screen: given.where, via: "access token" } });
+        return send(res, 202, { report: { id: report.id, kind: report.context.kind || "", text: report.text, status: report.status, createdAt: report.createdAt }, read: "/api/v1/feedback" });
+      }
     }
     // A message to your own agent: a new chat, or one more message in a chat of yours. The answer is read back below.
     if (method === "POST" && parts[2] === "agent" && parts.length === 3) {

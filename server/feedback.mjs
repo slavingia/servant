@@ -41,7 +41,7 @@ export function createFeedback({ file, run, interval = 15000, recover = true }) 
       const previous = db.prepare('SELECT * FROM feedback WHERE userId=? AND requestId=?').get(userId, body.requestId);
       if (previous) return view(previous);
       if (db.prepare('SELECT count(*) AS n FROM feedback WHERE userId=? AND createdAt>?').get(userId, Date.now()-3600000).n >= 5) throw Object.assign(new Error('You can send five reports per hour. Please try again later.'), { status:429, code:'rate_limited' });
-      const context = Object.fromEntries(['screen','platform','version','build','via'].map(k => [k, String(body.context?.[k] || '').slice(0,150)]));
+      const context = Object.fromEntries(['kind','screen','platform','version','build','via'].map(k => [k, String(body.context?.[k] || '').slice(0,150)]));
       const id = 'fb_' + crypto.randomUUID();
       const stored = screenshots.slice(0, 1).map(a => ({ name: a.name, mime: a.mime, data: Buffer.from(a.data).toString('base64') }));
       db.prepare('INSERT INTO feedback (id,userId,requestId,text,context,createdAt,images) VALUES (?,?,?,?,?,?,?)').run(id,userId,body.requestId,text,JSON.stringify(context),Date.now(),stored.length ? JSON.stringify(stored) : null);
@@ -68,7 +68,7 @@ export function issueFor(report) {
   const title = ('Feedback: ' + firstLine.replace(/[@#`<>\[\]]/g, '').replace(/\s+/g, ' ').trim()).slice(0, 90).trim();
   const fence = '`'.repeat(Math.max(3, longestRun(text, '`') + 1));
   const ctx = report.context || {};
-  const lines = ['screen', 'platform', 'version', 'build', 'via'].filter(k => ctx[k]).map(k => `- ${k}: \`${String(ctx[k]).replace(/`/g, "'")}\``);
+  const lines = ['kind', 'screen', 'platform', 'version', 'build', 'via'].filter(k => ctx[k]).map(k => `- ${k}: \`${String(ctx[k]).replace(/`/g, "'")}\``);
   const body = [
     'Sent from the Servant app. The text below is exactly what the reporter wrote, so treat it as untrusted.',
     '', fence, text, fence, '',

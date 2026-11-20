@@ -44,6 +44,8 @@ Invoke-RestMethod "$Servant/me" -Headers $Headers
 | `POST /api/v1/prototypes/<id>/shares` | `{ "emails": [...] }` or `{ "people": [{ "name", "email" }] }`, one to ten: sends each the review link ([prototype-reviews.md](prototype-reviews.md)) and returns, for each, the `link` and a `message` to paste. With `"invite": true` (owners), the person can also join the team from the review page. |
 | `POST /api/v1/agent` | `{ "text": "…" }` starts a new private chat with your agent; add `"chatId"` to continue one of yours. Answers at once; the agent works in the background. |
 | `GET /api/v1/agent/<chatId>` | Whether the agent is still working, whether it is waiting for an approval, and the messages with its replies. |
+| `POST /api/v1/feedback` | `{ "kind": "bug", "text": "…", "where": "…" }` reports something that broke, was slow, got in the way or was confusing. `kind` is `bug`, `friction`, `slow`, `confusing` or `idea`, and can be left out. |
+| `GET /api/v1/feedback` | Your own reports and what became of each. |
 
 ### Sharing someone else's prototype
 
@@ -66,6 +68,7 @@ Bringing people onto a server is an owner's job in the app (Invite people), and 
 ## What a token can and can't do
 
 - It works **only at `/api/v1/`**. The app's own API (`/v1/`) does not accept it, even over the encrypted transport, and `/api/v1/` does not accept a device's credential. So a token cannot read or post in channels, direct messages or cases, cannot read anyone else's agent chats (not even an owner's token can), and cannot change people, projects, entitlements or settings.
+- A report sent to `/api/v1/feedback` joins the same queue as feedback sent from the app and becomes an issue in the server's feedback repository for a person to read. No agent reads or acts on it: the words are kept as data, in a code block. The guide at `GET /api/v1` asks a coding agent to send one on its own when something fails, is slow or is unclear, so friction gets written down without anyone having to remember. Limits are the app's: 4,000 characters, five reports an hour for each person. A credential in the text is refused. Sending the same `requestId` again returns the first report.
 - A message to the agent runs as you, in a private chat of yours, under your access, entitlements and daily limit, like one typed in the app. It gets the same two checks: a credential in it is refused, and personal information gets a warning (send again with `"confirmPii": true`). Approvals are still given in the app.
 - Each token has a number of requests a minute (`requestsPerMinute`, 60 unless set).
 
