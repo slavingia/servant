@@ -194,3 +194,42 @@ test("a post of the team's own is drafted from a note or written by hand, and ap
   assert.equal((await api("POST", "/v1/social/replies", other, { text: "Hello." })).status, 201);
   assert.equal((await api("GET", "/v1/social/replies/x", other)).status, 404);
 });
+
+test("a picture is attached to a post or made by the asker's own agent, shown back, and held back from X", async () => {
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const post = (await api("POST", "/v1/social/replies", member, { text: "Offices are closed on Monday." })).body.reply;
+  const image = `/v1/social/replies/${post.id}/image`;
+  assert.equal((await api("GET", image, member)).status, 404);
+  // Anyone on the server can attach one, as anyone can edit the words.
+  const attached = await api("PUT", image, other, { attachments: [{ name: "closed.png", data: png }] });
+  assert.deepEqual([attached.status, attached.body.reply.image.name, attached.body.reply.image.mime, attached.body.reply.image.byAgent], [200, "closed.png", "image/png", false]);
+  assert.deepEqual((({ name, mime, data }) => [name, mime, data])((await api("GET", image, other)).body), ["closed.png", "image/png", png]);
+  assert.equal((await api("GET", "/v1/social", member)).body.ownDrafts.find(r => r.id === post.id).image.name, "closed.png");
+  for (const bad of [{ attachments: [] }, { attachments: [{ name: "notes.txt", data: Buffer.from("just words").toString("base64") }] }, { attachments: [{ name: "a.png", data: png }, { name: "b.png", data: png }] }, {}]) {
+    const refused = await api("PUT", image, member, bad);
+    assert.deepEqual([refused.status, refused.body.error.code], [400, "attachments"], JSON.stringify(bad).slice(0, 60));
+  }
+  assert.equal((await api("PUT", image, null, { attachments: [{ name: "closed.png", data: png }] })).status, 401);
+  // This server has an X account, and Servant can't send a picture there yet: approving says so, and nothing goes out.
+  const held = await api("POST", `/v1/social/replies/${post.id}/approve`, member, {});
+  assert.deepEqual([held.status, held.body.error.code], [409, "image_not_posted"]);
+  const off = await api("DELETE", image, member);
+  assert.deepEqual([off.status, off.body.reply.image ?? null], [200, null]);
+
+  // Made by the asker's own agent from a few words. What it is asked is the description; what comes back is used only if it is an image.
+  const asked = [];
+  globalThis.__servantSocialImage = async (prompt, user) => { asked.push([prompt, user.name]); return `Here it is.\n\n![closed sign](data:image/png;base64,${png})`; };
+  const made = await api("PUT", image, member, { prompt: "  a closed sign on an office door,\n flat illustration " });
+  assert.deepEqual([made.status, made.body.reply.image.byAgent, made.body.reply.image.prompt, made.body.reply.image.name], [200, true, "a closed sign on an office door, flat illustration", "agent-image.png"]);
+  assert.deepEqual(asked, [["a closed sign on an office door, flat illustration", "Jo Park"]]);
+  assert.equal((await api("GET", image, member)).body.data, png);
+  // An agent that can't make pictures says why; the post keeps the picture it had.
+  globalThis.__servantSocialImage = async () => "I couldn't make the image because image generation isn't set up here.";
+  const none = await api("PUT", image, member, { prompt: "a dog" });
+  assert.deepEqual([none.status, none.body.error.code], [502, "no_image"]);
+  assert.match(none.body.error.message, /It said: I couldn't make the image because image generation isn't set up here\./);
+  assert.equal((await api("GET", "/v1/social", member)).body.ownDrafts.find(r => r.id === post.id).image.byAgent, true);
+  // Someone with no agent access can attach a picture but not ask for one.
+  assert.equal((await api("PUT", image, other, { prompt: "a cat" })).status, 429);
+  delete globalThis.__servantSocialImage;
+});

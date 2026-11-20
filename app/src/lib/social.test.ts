@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { agoLabel, cellLabel, connectionLine, dayKey, lengthLine, monthGrid, monthRange, parseWhen, replyBadge, replyLine, replyTarget, scheduleDays, socialDayLabel, socialWhen, sourceLine, stepMonth, undrafted, whenChoices, xLength, type SocialPost, type SocialReply } from "./social.ts";
+import { agoLabel, cellLabel, connectionLine, pictureLine, dayKey, lengthLine, monthGrid, monthRange, parseWhen, replyBadge, replyLine, replyTarget, scheduleDays, socialDayLabel, socialWhen, sourceLine, stepMonth, undrafted, whenChoices, xLength, type SocialPost, type SocialReply } from "./social.ts";
 import { DESTINATIONS, destinationGroups, reachable } from "./destinations.ts";
 import { ALL_FEATURES, normalizeFeatures, sameFeatures, withDeepWork } from "./features.ts";
 import { wikiMarkLabel, wikiMarkNote, wikiRows, type WikiPageSummary } from "./wiki.ts";
@@ -108,6 +108,7 @@ test("a time is chosen from three quick ones or typed", () => {
 
 test("the connection line and the posts left to draft", () => {
   assert.equal(connectionLine({ account: null, error: null, syncedAt: null }, NOW), "Connecting to X…");
+  assert.deepEqual([pictureLine({ id: "i", name: "closed.png", mime: "image/png", size: 9, byAgent: false }), pictureLine({ id: "i", name: "agent-image.png", mime: "image/png", size: 9, byAgent: true, prompt: "a closed sign" }), pictureLine({ id: "i", name: "agent-image.png", mime: "image/png", size: 9, byAgent: true })], ["closed.png", "Made by Agent from: a closed sign", "Made by Agent"]);
   // A server with no X account says so, and an approved post is never described as about to go out.
   assert.equal(connectionLine({ account: null, error: null, syncedAt: null, connected: false }, NOW), "No X account is connected, so nothing is posted. Write and approve posts here, then copy them to where they go.");
   assert.equal(replyBadge({ status: "scheduled" }, false), "Approved");

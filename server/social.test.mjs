@@ -209,6 +209,43 @@ test("the runner reads mentions and searches from where it left off, and posts w
   done();
 });
 
+test("a post carries one picture: a new one needs a new approval, nothing is deleted, and it never goes to X without it", async () => {
+  const { store, time, done } = fresh();
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+  const made = store.write(null, "Offices are closed on Monday.", "usr_pat");
+  assert.equal(made.image, undefined);
+  assert.equal(store.image(made.id), null);
+  const withImage = store.setImage(made.id, { name: "closed.png", mime: "image/png", data: png }, "usr_pat");
+  assert.deepEqual(withImage.image && [withImage.image.name, withImage.image.mime, withImage.image.size, withImage.image.byAgent], ["closed.png", "image/png", png.length, false]);
+  assert.deepEqual(store.image(made.id).data, png);
+  fails(() => store.setImage(made.id, { name: "x.svg", mime: "image/svg+xml", data: png }, "usr_pat"), 400, "attachments");
+  fails(() => store.setImage(made.id, { name: "big.png", mime: "image/png", data: Buffer.alloc(5 * 1024 * 1024 + 1) }, "usr_pat"), 413, "too_large");
+  fails(() => store.setImage("nothing", { name: "a.png", mime: "image/png", data: png }, "usr_pat"), 404, "not_found");
+  // Approved, then given another picture by the agent: it is a draft again, and says where the picture came from.
+  store.approve(made.id, "usr_ana");
+  const again = store.setImage(made.id, { name: "agent-image.png", mime: "image/png", data: png }, "usr_pat", { source: "agent", prompt: "a closed sign on an office door" });
+  assert.deepEqual([again.status, again.approvedByName ?? null, again.image.byAgent, again.image.prompt, again.image.id !== withImage.image.id], ["draft", null, true, "a closed sign on an office door", true]);
+  // Taking it off needs a new approval too, and both pictures are still kept.
+  store.approve(made.id, "usr_ana");
+  const off = store.clearImage(made.id, "usr_pat");
+  assert.deepEqual([off.status, off.image ?? null, store.image(made.id)], ["draft", null, null]);
+  // Approved with a picture and due: the runner does not send the words alone.
+  store.setImage(made.id, { name: "closed.png", mime: "image/png", data: png }, "usr_pat");
+  store.approve(made.id, "usr_ana");
+  time.now += 10 * MIN;
+  const sent = [];
+  const answer = (status, body) => ({ ok: status < 400, status, headers: new Headers(), json: async () => body });
+  const runner = createSocialRunner({ store, settings: () => socialSettings({ x: { ...KEYS, api: "http://x.test" } }, {}), clock: () => time.now, log: () => {}, fetch: async (address, init) => { if (init.method === "POST") sent.push(init.body); return answer(201, { data: { id: "1" } }); } });
+  assert.deepEqual(await runner.postDue(), { id: made.id, ok: false });
+  assert.deepEqual([sent, store.reply(made.id).status], [[], "failed"]);
+  assert.match(store.reply(made.id).error, /can't post a picture to X yet/);
+  // Once posted or discarded, the picture can't change.
+  const other = store.write(null, "Hello.", "usr_pat");
+  store.discard(other.id, "usr_pat");
+  fails(() => store.setImage(other.id, { name: "a.png", mime: "image/png", data: png }, "usr_pat"), 409, "conflict");
+  done();
+});
+
 test("the agent's answer is a reply, or advice to skip, and never longer than X allows", () => {
   assert.deepEqual(readSocialDraft("  \"Thanks for asking. The form is online.\"  "), { text: "Thanks for asking. The form is online." });
   assert.deepEqual(readSocialDraft("```\nHello there.\n```"), { text: "Hello there." });

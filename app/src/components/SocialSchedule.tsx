@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { Button, ButtonGroup } from "./Button";
+import { SocialPicture } from "./SocialPicture";
 import type { Account } from "../lib/server";
 import { cellLabel, monthGrid, monthTitle, replyBadge, replyLine, replyTarget, replyTime, scheduleDays, socialDayLabel, stepMonth, type CalendarCell, type SocialReply } from "../lib/social";
 import { socialApi } from "../lib/social-api";
@@ -41,6 +42,7 @@ function Entry({ account, reply, canApprove, connected, onChanged }: { account: 
       <Text style={styles.target}>{target}<Text style={[styles.badge, reply.status === "failed" && styles.failed]}>{`  ${replyBadge(reply, connected)}`}</Text></Text>
       {reply.post ? <Text style={styles.quote}>{reply.post.text}</Text> : null}
       <Text selectable style={styles.words}>{reply.text}</Text>
+      {reply.image ? <SocialPicture account={account} reply={reply} label={target} /> : null}
       <Text style={[styles.meta, reply.status === "failed" && styles.failed]}>{replyLine(reply, undefined, connected)}</Text>
       {reply.lesson ? <Text testID={`social-lesson-${reply.id}`} style={styles.meta}>{`The guide learned from the edit: ${reply.lesson}`}</Text> : null}
       <ButtonGroup>
