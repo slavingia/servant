@@ -54,6 +54,27 @@ HTTPS stays encrypted from the agent to the site: the proxy sees the host name a
 
 The gate without the sandbox does nothing: a command can ignore the proxy variables. The sandbox without the gate leaves the agent with no network at all, which is the safe way for it to fail.
 
+## What the sandbox isolates
+
+The sandbox is the operating system's, not Servant's code. On a Mac the wrapper starts the agent with `sandbox-exec` and a profile it builds from the settings above; on Linux it is a systemd scope (`IPAddressDeny`/`IPAddressAllow`, with `InaccessiblePaths=` in the agent's unit for files). The kernel applies the rules to the command and to every process it starts, so a child or grandchild can't shed them. `server/sandbox.test.mjs` tries each of these from inside the real Mac sandbox (`cd server && node --test sandbox.test.mjs`).
+
+| | Enforced by the OS | What the test shows |
+| --- | --- | --- |
+| **Network** | Yes | Only the gate's port answers. Another local service is refused, for the command and for a process two shells down. A port named in `SERVANT_SANDBOX_LOCAL_PORTS` opens, and only that one. |
+| **Files** | Yes, for the folders the operator closes | A closed folder can't be read, listed, written, deleted from, copied out of or hard-linked out of: by its path, through a link from outside, by a `..` detour through an open folder, or from a child of a child. A folder opened again inside it still works. A database's `-wal`, `-shm` and `-journal` files are closed with it. |
+| **Processes** | Yes, in that every process the agent starts is inside the same sandbox | The same refusals apply two processes down. |
+| **Credentials** | Only as files | Keys and databases in a closed folder are out of reach. See what is not isolated, below. |
+
+The agent can run terminal commands inside the sandbox when the person's entitlements allow it; those commands are what the rules above hold.
+
+What it does **not** isolate, so nobody assumes it does (the same test file states these as facts):
+
+- **The environment.** The wrapper passes the agent's environment variables through. Anything secret in them can be read by a command the agent runs. Keep secrets out of the agent's environment; a person's own tool tokens are handed to their own commands on purpose ([connections.md](connections.md)).
+- **The rest of the disk.** Only the folders named in `SERVANT_SANDBOX_DENY_PATHS` are closed. Everything else the Mac user can read, the agent's commands can read.
+- **An older hard link.** The rules go by path. A second name for a closed file, made outside the sandbox before it started and kept outside the closed folder, still reads. A sandboxed command can't make one.
+- **Other processes of the same user.** Signals and inspection of the user's other processes are not restricted by this profile.
+- **Linux files.** The wrapper refuses to start with the path settings on Linux; closing folders there is done in the systemd unit and is not covered by the test.
+
 ## Limits
 
 Say these out loud before relying on it.
