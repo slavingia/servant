@@ -13,6 +13,7 @@ import { isDesktop } from './desktop';
 import { createAccountsStore, createLegacyAccountsStore, accountId, type Account, type AccountStorage } from './accounts-store';
 import type { SourceDevice } from './message-device';
 import { normalizeFeatures } from './features.ts';
+import type { AccessToken, AccessTokensPage } from './access-tokens.ts';
 import { deepWorkFromServer } from './deep-work.ts';
 import { bannerFromServer } from './banner.ts';
 import { normalizeTheme } from './theme-colors.ts';
@@ -495,6 +496,10 @@ export const api = {
   endAppPreviewShare: (a: Account, projectId: string, shareId: string) => request(a, `/v1/projects/${encodeURIComponent(projectId)}/app-preview/shares/${encodeURIComponent(shareId)}`, { method: "DELETE" }).then(json<{ shares: PrototypeShare[]; suggested?: OutsideReviewer[] }>),
   /** You dealt with a reviewer's comment on the app preview: it leaves your waiting list. */
   setAppPreviewCommentAside: (a: Account, projectId: string, commentId: string) => request(a, `/v1/projects/${encodeURIComponent(projectId)}/app-preview/comments/${encodeURIComponent(commentId)}/set-aside`, { method: "POST", body: "{}" }).then(json<{ ok: boolean }>),
+  // Personal access tokens (docs/access-tokens.md): your own, made and revoked here. A token is returned once.
+  accessTokens: (a: Account) => request(a, "/v1/tokens").then(json<AccessTokensPage>),
+  createAccessToken: (a: Account, name: string, days: number) => request(a, "/v1/tokens", { method: "POST", body: JSON.stringify({ name, days }) }).then(json<{ token: string; record: AccessToken }>),
+  revokeAccessToken: (a: Account, id: string) => request(a, `/v1/tokens/${encodeURIComponent(id)}`, { method: "DELETE" }).then(json<{ tokens: AccessToken[] }>),
   /** Whether the agent starts on one reviewer's comments as they arrive. */
   setPrototypeShareAutoWork: (a: Account, id: string, shareId: string, autoWork: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/shares/${encodeURIComponent(shareId)}`, { method: "PATCH", body: JSON.stringify({ autoWork }) }).then(json<{ shares: PrototypeShare[] }>),
   /** You dealt with a comment yourself: it leaves the chat's waiting list. */

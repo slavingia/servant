@@ -1,0 +1,8 @@
+$ curl -s -H "Authorization: Bearer $SERVANT_TOKEN" https://team.example.gov/api/v1/me
+{"name":"Pat Tester","role":"member","server":"Example team"}
+
+$ curl -s -H "Authorization: Bearer $SERVANT_TOKEN" "https://team.example.gov/api/v1/prototypes?q=refund"
+{"prototypes":[{"id":"cht_proto","title":"Refund tracker","by":"Pat Tester","mine":true,"canShare":true,"sharedWith":[]}]}
+
+$ curl -s -X POST -H "Authorization: Bearer $SERVANT_TOKEN" -H "Content-Type: application/json" -d '{"emails":["jo.park@example.gov","sam.lee@example.gov"]}' https://team.example.gov/api/v1/prototypes/cht_proto/shares
+{"prototype":{"id":"cht_proto","title":"Refund tracker","by":"Pat Tester"},"results":[{"email":"jo.park@example.gov","sent":true},{"email":"sam.lee@example.gov","sent":true}]}

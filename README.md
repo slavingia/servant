@@ -113,6 +113,7 @@ Open the invite link, or in the Mac app choose **Paste an invite link**. On a ph
 - [Sharing a prototype with a business owner](docs/prototype-reviews.md): a link by email, a code to confirm, right-click to comment, comments arrive in the prototype's chat
 - [Entitlements](docs/entitlements.md) and the [agent's network gate](docs/agent-egress.md): who may have the agent work with what, and a sandbox that refuses everything else
 - [The onboarding tour](docs/onboarding-tour.md): a new person chooses their role and sees their access level, their daily limit in dollars and where their data goes
+- [Access tokens](docs/access-tokens.md): use Servant from a script or a shell where nothing can be installed, with a token you make and can revoke
 - [Connections](docs/connections.md): each person's own GitHub or Jira token, so the agent works as them, with only their access
 - [Code requests](docs/code-requests.md): automation running as you asks your phone for a one-time sign-in code instead of stopping
 - [Records preservation](docs/records-management.md) and the [business information filter](docs/business-info-filter.md)
