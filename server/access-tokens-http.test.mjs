@@ -83,7 +83,7 @@ test("until an owner turns it on there is no door at all, and no token can be ma
   const listed = await app("pat", "GET", "tokens");
   assert.deepEqual([listed.status, listed.body.enabled, listed.body.tokens], [200, false, []]);
   assert.deepEqual([(await app("pat", "POST", "tokens", { name: "Work laptop" })).status, (await app("pat", "POST", "tokens", { name: "Work laptop" })).body.error.code], [404, "feature_off"]);
-  config.accessTokens = { enabled: true, requestsPerMinute: 80 }; saveConfig();
+  config.accessTokens = { enabled: true, requestsPerMinute: 120 }; saveConfig();
   const guide = await shell(null, "GET", "");
   assert.equal(guide.status, 200);
   assert.match(guide.headers.get("content-type"), /^text\/markdown/);
@@ -261,6 +261,60 @@ test("everything you are working on is in one list: prototypes, a project's app 
   assert.equal((await shell(people.pat.token, "POST", "/work/cht_nothing/shares", { emails: ["jo.park@example.gov"] })).status, 404);
 });
 
+test("a folder of a project is put on the server, sent for review, and replaced when published again", async () => {
+  const repo = path.join(directory, "permits-repo");
+  const write = (file, text) => { fs.mkdirSync(path.dirname(path.join(repo, file)), { recursive: true }); fs.writeFileSync(path.join(repo, file), text); };
+  write("permit-claim/index.html", "<html><body><h1>Claim a permit</h1></body></html>");
+  write("permit-claim/css/site.css", "body{}");
+  write("permit-claim/.env", "SECRET=1");
+  write(".git/config", "[core]");
+  write("notes/readme.md", "no page here");
+  fs.writeFileSync(path.join(directory, "projects.json"), JSON.stringify({ people: {}, projects: [
+    { id: "example-app", name: "Example app", owners: [people.ana.id], access: { merge: [], write: [], read: [people.pat.id] } },
+    { id: "permits", name: "Permits", path: repo, owners: [people.ana.id], access: { merge: [], write: [], read: [people.pat.id] } }] }));
+  const publish = (who, body) => shell(people[who].token, "POST", "/work", body);
+  // What is refused, and why.
+  const refused = async (who, body, status, code) => { const r = await publish(who, body); assert.deepEqual([r.status, r.json.error.code], [status, code], JSON.stringify(body)); return r.json.error.message; };
+  await refused("sam", { project: "permits", folder: "permit-claim" }, 404, "not_found");
+  await refused("pat", { project: "nothing", folder: "permit-claim" }, 404, "not_found");
+  await refused("pat", { project: "permits", folder: "missing" }, 404, "not_found");
+  await refused("pat", { project: "permits", folder: "../outside" }, 400, "bad_request");
+  await refused("pat", { project: "permits", folder: ".git" }, 400, "bad_request");
+  assert.match(await refused("pat", { project: "permits", folder: "notes" }, 409, "no_index"), /no index\.html/);
+  assert.match(await refused("pat", { project: "example-app", folder: "permit-claim" }, 409, "no_project_folder"), /no folder on the server's computer/);
+
+  const made = await publish("pat", { project: "Permits", folder: "/permit-claim/" });
+  assert.equal(made.status, 201, JSON.stringify(made.json));
+  const work = made.json.work;
+  assert.deepEqual([work.kind, work.title, work.by, work.mine, work.canShare, work.from.project, work.from.folder, made.json.files, made.json.replaced, made.json.share], ["prototype", "permit-claim", "Pat Tester", true, true, "permits", "permit-claim", 2, false, `/api/v1/work/${work.id}/shares`]);
+  assert.match(work.url, /^https:\/\/team\.example\.gov\/p\/proto-[0-9a-f]{18}\/$/);
+  // The server serves the copy: the page and its files, and nothing hidden.
+  const served = file => fetch(`${base}${new URL(work.url).pathname}${file}`);
+  assert.match(await (await served("")).text(), /Claim a permit/);
+  assert.equal((await served("css/site.css")).status, 200);
+  assert.equal((await served(".env")).status, 404);
+  // It is found by the folder's name, it is an ordinary prototype of Pat's with a chat for the comments, and it goes out for review.
+  assert.deepEqual((await shell(people.pat.token, "GET", "/work?q=permit-claim")).json.work.map(w => w.id), [work.id]);
+  assert.equal((await app("pat", "GET", `chats/${work.id}`)).status, 200);
+  const sent = await shell(people.pat.token, "POST", `/work/${work.id}/shares`, { people: [{ name: "Jo Park", email: "jo.park@example.gov" }] });
+  assert.equal(sent.status, 201, JSON.stringify(sent.json));
+  assert.match(sent.json.results[0].message, /^Hi Jo, I've shared the prototype "permit-claim" with you for review: https:\/\/team\.example\.gov\/review\//);
+
+  // The page changes in the repository; publishing again replaces the copy, and the address and the reviewer's link stay.
+  write("permit-claim/index.html", "<html><body><h1>Claim a permit, second draft</h1></body></html>");
+  fs.rmSync(path.join(repo, "permit-claim/css"), { recursive: true });
+  assert.match(await (await served("")).text(), /Claim a permit<\/h1>/, "a copy: it does not follow the repository by itself");
+  const again = await publish("pat", { project: "permits", folder: "permit-claim", title: "Permit claim page" });
+  assert.deepEqual([again.status, again.json.work.id, again.json.work.url, again.json.work.title, again.json.files, again.json.replaced], [200, work.id, work.url, "Permit claim page", 1, true]);
+  assert.match(await (await served("")).text(), /second draft/);
+  assert.equal((await served("css/site.css")).status, 404);
+  assert.equal((await fetch(`${base}/review/${sent.json.results[0].link.split("/").pop()}`)).status, 200);
+  assert.deepEqual(again.json.work.sharedWith.map(s => s.email), ["jo.park@example.gov"]);
+  // The owner publishing the same folder gets a copy of their own; Pat's is not replaced by someone else.
+  const owners = await publish("ana", { project: "permits", folder: "permit-claim" });
+  assert.deepEqual([owners.status, owners.json.work.id !== work.id, owners.json.work.by], [201, true, "Ana Ruiz"]);
+});
+
 test("a message to your own agent, and its answer read back", async () => {
   assert.equal((await shell(people.pat.token, "POST", "/agent", { text: " " })).status, 400);
   assert.equal((await shell(people.pat.token, "POST", "/agent", ["text"])).status, 400);
@@ -322,7 +376,7 @@ test("a token stops when it is revoked, when its person leaves, and when it has 
   assert.equal((await app("pat", "DELETE", `tokens/${id}`)).status, 404);
   // Forty requests a minute on this server: the owner's token runs out and is told to wait.
   let limited = null;
-  for (let i = 0; i < 85 && !limited; i++) { const r = await shell(people.ana.token, "GET", "/me"); if (r.status === 429) limited = r; }
+  for (let i = 0; i < 125 && !limited; i++) { const r = await shell(people.ana.token, "GET", "/me"); if (r.status === 429) limited = r; }
   assert.deepEqual([limited.json.error.code, limited.headers.get("retry-after")], ["rate_limited", "60"]);
   // Sam is removed from the server: Sam's token goes with them.
   assert.equal((await shell(people.sam.token, "GET", "/me")).status, 200);
