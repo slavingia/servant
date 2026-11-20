@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import { SafeAreaInsetsContext, useSafeAreaInsets } from "react-native-safe-area-context";
+import { usePathname } from "expo-router";
 import { useSession } from "../lib/session";
 import { isDesktop } from "../lib/desktop";
 import { useWideLayout } from "../lib/layout";
@@ -25,6 +26,8 @@ export function AppChrome({ enabled, children }: { enabled: boolean; children: R
   const insets = useSafeAreaInsets();
   const { account } = useSession();
   const wide = useWideLayout();
+  // The You page sits on the grouped gray; the strip above it matches so no white band shows.
+  const grouped = usePathname() === "/you";
   const [barHeight, setBarHeight] = useState(insets.top + 64);
   const contentInsets = useMemo(() => enabled ? { ...insets, top: 0 } : insets, [enabled, insets]);
 
@@ -51,7 +54,7 @@ export function AppChrome({ enabled, children }: { enabled: boolean; children: R
         {/* Only the topmost bar pads for the status bar. */}
         <ServerBanner topInset={unreachable ? 0 : insets.top} />
         {/* Phones have no search bar: a white status bar area, then each page's own title. */}
-        {hasBanner ? null : <View style={[styles.statusArea, { height: insets.top }]} />}
+        {hasBanner ? null : <View style={[styles.statusArea, grouped && styles.statusAreaGrouped, { height: insets.top }]} />}
       </View> : null}
       <ChromeHeightContext.Provider value={enabled ? barHeight : 0}>
         {/* The fixed bar has already consumed the top inset. Keep the bottom
@@ -74,6 +77,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   signedInRoot: { backgroundColor: colors.background },
   header: { flexShrink: 0 },
   statusArea: { backgroundColor: colors.background },
+  statusAreaGrouped: { backgroundColor: colors.groupedBackground },
   titlebar: { position: "absolute", top: 0, left: 0, right: 0, height: 28, zIndex: 10 },
   content: { flex: 1, minHeight: 0, minWidth: 0 },
   fullBleedContent: { backgroundColor: colors.background },
