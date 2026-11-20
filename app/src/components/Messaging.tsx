@@ -1080,7 +1080,9 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   // asks, a forwarded quote) shows whole lines instead of one and a half.
   input: { ...typography.body, minHeight: 44, maxHeight: 144, paddingHorizontal: space.sm, paddingTop: space.sm, paddingBottom: space.xs, color: colors.ink, backgroundColor: colors.background, ...(Platform.OS === "web" ? { fieldSizing: "content" } : {}) } as object,
   // The colored copy behind the box, and the box made see-through over it (caret stays visible).
-  inputMirror: { position: "absolute", top: 0, left: 0, right: 0, color: colors.ink, backgroundColor: colors.background, overflow: "hidden" },
+  // The blue copy lies over the box (it is positioned, the box is not), so it must let clicks through: on the
+  // web it otherwise took every click and hid the caret once a mention was typed (#82).
+  inputMirror: { position: "absolute", top: 0, left: 0, right: 0, color: colors.ink, backgroundColor: colors.background, overflow: "hidden", pointerEvents: "none" },
   // The composer's border already shows focus; the browser's own ring would draw a line inside it.
   // Not "transparent": on Android that is the integer 0, which React Native reads as "no color set",
   // so the real text drew in the default dark color over the blue copy (doubled, bolder text).
