@@ -13,11 +13,12 @@ export function normalizeFeatures(raw) {
 }
 
 /**
- * Social media (docs/social.md) is the one part that is off until it is set up: it shows only when the server
- * has an X account's keys (`configured`) and `"features": { "social": false }` has not hidden it. Apps treat a
- * server that says nothing as not having it.
+ * Social media (docs/social.md) is the one part that is off until it is set up: it shows when the server has an X
+ * account's keys (`configured`) and `"features": { "social": false }` has not hidden it, or when an owner asked for
+ * it with `"features": { "social": true }` and no account: then posts are written and approved here and nothing is
+ * sent anywhere. Apps treat a server that says nothing as not having it.
  */
-export const socialFeature = (raw, configured) => !!configured && !(raw && typeof raw === "object" && raw.social === false);
+export const socialFeature = (raw, configured) => { const said = raw && typeof raw === "object" ? raw.social : undefined; return said === false ? false : !!configured || said === true; };
 
 /** The flag that governs a conversation kind ("channel" or "dm"), or null for anything else. */
 export const featureForKind = kind => kind === "channel" ? "channels" : kind === "dm" ? "directMessages" : null;

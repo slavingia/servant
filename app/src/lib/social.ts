@@ -26,6 +26,8 @@ export type SocialPost = {
 export type SocialCounts = { open: number; drafted: number; scheduled: number; failed: number };
 export type SocialHome = {
   account: { handle: string; name: string } | null; error: string | null; syncedAt: number | null;
+  /** False when the server has no X account: posts are written and approved here, and nothing is sent. Older servers don't say. */
+  connected?: boolean;
   canApprove: boolean; entitlementId: string; guidePageId: string; searches: string[]; spacingMinutes: number; limit: number;
   counts: SocialCounts; ownDrafts: SocialReply[];
 };
@@ -81,10 +83,10 @@ export function agoLabel(at: number, now = Date.now()): string {
 export const replyTime = (reply: Pick<SocialReply, "postedAt" | "scheduledFor" | "updatedAt">) => reply.postedAt ?? reply.scheduledFor ?? reply.updatedAt;
 
 /** Where a reply stands, in one line. */
-export function replyLine(reply: SocialReply, now = Date.now()): string {
+export function replyLine(reply: SocialReply, now = Date.now(), connected = true): string {
   switch (reply.status) {
     case "draft": return reply.error ? reply.error : reply.byAgent ? (reply.edited ? "Agent's draft, edited" : "Agent's draft") : `Written by ${reply.createdByName ?? "a teammate"}`;
-    case "scheduled": return `Goes out ${socialWhen(reply.scheduledFor ?? now, now)}${reply.approvedByName ? ` · approved by ${reply.approvedByName}` : ""}`;
+    case "scheduled": return `${connected ? "Goes out" : "Approved for"} ${socialWhen(reply.scheduledFor ?? now, now)}${reply.approvedByName ? ` · approved by ${reply.approvedByName}` : ""}`;
     case "posting": return "Posting now";
     case "posted": return `Posted ${socialWhen(reply.postedAt ?? now, now)}${reply.approvedByName ? ` · approved by ${reply.approvedByName}` : ""}`;
     case "failed": return `Not posted. ${reply.error ?? "Try again."}`;
@@ -92,7 +94,7 @@ export function replyLine(reply: SocialReply, now = Date.now()): string {
   }
 }
 /** One word for a reply's state, for a calendar entry. */
-export const replyBadge = (reply: Pick<SocialReply, "status">) => reply.status === "posted" ? "Posted" : reply.status === "failed" ? "Not posted" : reply.status === "posting" ? "Posting" : "Scheduled";
+export const replyBadge = (reply: Pick<SocialReply, "status">, connected = true) => reply.status === "posted" ? "Posted" : reply.status === "failed" ? "Not posted" : reply.status === "posting" ? "Posting" : connected ? "Scheduled" : "Approved";
 
 /** What a reply is to, in a few words: "Reply to Jo Park (@jopark)" or "Post". */
 export const replyTarget = (reply: Pick<SocialReply, "post" | "postId">) => reply.post ? `Reply to ${reply.post.author.name}${reply.post.author.handle ? ` (@${reply.post.author.handle})` : ""}` : reply.postId ? "Reply" : "Post";
@@ -179,8 +181,12 @@ export function parseWhen(dateText: string, timeText: string, now = Date.now()):
   return { at: date.getTime() };
 }
 
+/** What the screen says when the server has no X account. */
+export const NOT_CONNECTED = "No X account is connected, so nothing is posted. Write and approve posts here, then copy them to where they go.";
+
 /** The line under the screen's tabs: which account, and when X was last asked. */
-export function connectionLine(home: Pick<SocialHome, "account" | "error" | "syncedAt">, now = Date.now()): string {
+export function connectionLine(home: Pick<SocialHome, "account" | "error" | "syncedAt" | "connected">, now = Date.now()): string {
+  if (home.connected === false) return NOT_CONNECTED;
   if (home.error) return home.error;
   if (!home.account) return "Connecting to X…";
   return `@${home.account.handle} on X${home.syncedAt ? ` · checked ${agoLabel(home.syncedAt, now) === "now" ? "just now" : `${agoLabel(home.syncedAt, now)} ago`}` : ""}`;

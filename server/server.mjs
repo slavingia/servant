@@ -230,6 +230,8 @@ export function loadConfig() {
     // and hidden again by `"features": { "social": false }`.
     social: cfg.social && typeof cfg.social === "object" ? cfg.social : undefined,
     socialHidden: cfg.features?.social === false,
+    // `"features": { "social": true }` with no keys: a place to write and approve posts, with nothing sent to X.
+    socialShown: cfg.features?.social === true,
     // One server-wide banner for signed-in apps (banner.mjs). Null when off.
     banner: normalizeBanner(cfg.banner),
     // Everyday shorthand (tmmrw, lmk, btw...) expanded as people type, as one group (colloquialisms.mjs). Off unless set.
@@ -835,7 +837,7 @@ const wiki = () => wikiStore ??= createWikiStore({ file: path.join(DATA_DIR, "me
 let socialDb = null, socialRun = null, socialTimer = null, socialConfig = null;
 const socialWork = new Set();
 const socialCfg = cfg => socialSettings((cfg || socialConfig?.() || loadConfig()).social);
-const socialOn = cfg => socialFeature({ social: cfg.socialHidden ? false : undefined }, socialCfg(cfg).configured);
+const socialOn = cfg => socialFeature({ social: cfg.socialHidden ? false : cfg.socialShown ? true : undefined }, socialCfg(cfg).configured);
 /** The flags an app is sent: the ones that are on unless turned off, and social media, which is on only once it is set up. */
 const featuresFor = cfg => ({ ...normalizeFeatures(cfg.features), social: socialOn(cfg) });
 const maySocial = user => !!user && !isRemoved(user) && (user.role === "owner" || entitlementStore().holds(SOCIAL_ENTITLEMENT.id, user.id));
@@ -2150,7 +2152,7 @@ async function handle(req, res, cfg) {
     const refusedAgent = person => noAgent(person) || usageStore().overLimit(person) ? (fail(res, 429, "usage_limit", limitText(person)), true) : false;
     if (method === "GET" && parts.length === 2) {
       const guide = socialGuide();
-      return send(res, 200, { ...socialRunner().status(), canApprove: maySocial(user), entitlementId: SOCIAL_ENTITLEMENT.id, guidePageId: guide.id, searches: settings.searches,
+      return send(res, 200, { ...socialRunner().status(), connected: settings.configured, canApprove: maySocial(user), entitlementId: SOCIAL_ENTITLEMENT.id, guidePageId: guide.id, searches: settings.searches,
         spacingMinutes: settings.spacingMs / 60_000, limit: SOCIAL_LIMITS.post, counts: store.counts(), ownDrafts: store.ownDrafts() });
     }
     if (method === "GET" && parts[2] === "posts" && parts.length === 3) {

@@ -108,6 +108,11 @@ test("a time is chosen from three quick ones or typed", () => {
 
 test("the connection line and the posts left to draft", () => {
   assert.equal(connectionLine({ account: null, error: null, syncedAt: null }, NOW), "Connecting to X…");
+  // A server with no X account says so, and an approved post is never described as about to go out.
+  assert.equal(connectionLine({ account: null, error: null, syncedAt: null, connected: false }, NOW), "No X account is connected, so nothing is posted. Write and approve posts here, then copy them to where they go.");
+  assert.equal(replyBadge({ status: "scheduled" }, false), "Approved");
+  assert.equal(replyLine({ status: "scheduled", scheduledFor: NOW + 60 * 60_000 } as SocialReply, NOW, false).startsWith("Approved for "), true);
+  assert.equal(replyLine({ status: "scheduled", scheduledFor: NOW + 60 * 60_000 } as SocialReply, NOW).startsWith("Goes out "), true);
   assert.equal(connectionLine({ account: { handle: "exampleorg", name: "Example Org" }, error: null, syncedAt: NOW - 4 * 60_000 }, NOW), "@exampleorg on X · checked 4m ago");
   assert.equal(connectionLine({ account: { handle: "exampleorg", name: "Example Org" }, error: null, syncedAt: NOW }, NOW), "@exampleorg on X · checked just now");
   assert.equal(connectionLine({ account: null, error: "X refused this server's keys. Ask an owner to check the four X values in config.json", syncedAt: null }, NOW).startsWith("X refused"), true);

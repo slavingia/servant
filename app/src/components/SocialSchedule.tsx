@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import { Button, ButtonGroup } from "./Button";
 import type { Account } from "../lib/server";
 import { cellLabel, monthGrid, monthTitle, replyBadge, replyLine, replyTarget, replyTime, scheduleDays, socialDayLabel, stepMonth, type CalendarCell, type SocialReply } from "../lib/social";
@@ -23,10 +24,11 @@ export function ScheduleViewToggle({ view, onChange }: { view: "list" | "calenda
 
 // One approved reply: when it goes out, what it says, what it answers, and the one thing that can still be done
 // with it. Cancelling sends it back to the posts to answer, as a draft; a reply that was not posted can be sent again.
-function Entry({ account, reply, canApprove, onChanged }: { account: Account; reply: SocialReply; canApprove: boolean; onChanged: () => void }) {
+function Entry({ account, reply, canApprove, connected, onChanged }: { account: Account; reply: SocialReply; canApprove: boolean; connected: boolean; onChanged: () => void }) {
   const styles = useStyles();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
   const act = async (work: () => Promise<unknown>, failed: string) => {
     if (busy) return;
     setBusy(true); setError("");
@@ -36,14 +38,15 @@ function Entry({ account, reply, canApprove, onChanged }: { account: Account; re
   return <View testID={`social-entry-${reply.id}`} style={styles.entry}>
     <Text style={styles.time}>{localFormat("time", new Date(replyTime(reply)))}</Text>
     <View style={styles.entryCopy}>
-      <Text style={styles.target}>{target}<Text style={[styles.badge, reply.status === "failed" && styles.failed]}>{`  ${replyBadge(reply)}`}</Text></Text>
+      <Text style={styles.target}>{target}<Text style={[styles.badge, reply.status === "failed" && styles.failed]}>{`  ${replyBadge(reply, connected)}`}</Text></Text>
       {reply.post ? <Text style={styles.quote}>{reply.post.text}</Text> : null}
       <Text selectable style={styles.words}>{reply.text}</Text>
-      <Text style={[styles.meta, reply.status === "failed" && styles.failed]}>{replyLine(reply)}</Text>
+      <Text style={[styles.meta, reply.status === "failed" && styles.failed]}>{replyLine(reply, undefined, connected)}</Text>
       {reply.lesson ? <Text testID={`social-lesson-${reply.id}`} style={styles.meta}>{`The guide learned from the edit: ${reply.lesson}`}</Text> : null}
       <ButtonGroup>
         {reply.status === "scheduled" && canApprove ? <Button testID={`social-cancel-${reply.id}`} label="Cancel" accessibilityLabel={`Cancel: ${target}`} kind="secondary" compact busy={busy} onPress={() => void act(() => socialApi.cancel(account, reply.id), "Couldn't cancel this. Try again.")} /> : null}
         {reply.status === "failed" && canApprove ? <Button testID={`social-retry-${reply.id}`} label="Post again" accessibilityLabel={`Post again: ${target}`} kind="secondary" compact busy={busy} onPress={() => void act(() => socialApi.approve(account, reply.id), "Couldn't send this again. Try again.")} /> : null}
+        {!connected ? <Button testID={`social-copy-${reply.id}`} label={copied ? "Copied" : "Copy"} accessibilityLabel={`Copy the words: ${target}`} kind="secondary" compact onPress={() => void Clipboard.setStringAsync(reply.text).then(ok => { if (ok) setCopied(true); else setError("Couldn't copy. Select the words and copy them yourself."); }).catch(() => setError("Couldn't copy. Select the words and copy them yourself."))} /> : null}
         {reply.url ? <Button label="Open on X" accessibilityLabel={`Open on X: ${target}`} kind="link" compact icon="external" onPress={() => void Linking.openURL(reply.url!)} /> : null}
       </ButtonGroup>
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
@@ -52,14 +55,14 @@ function Entry({ account, reply, canApprove, onChanged }: { account: Account; re
 }
 
 /** The schedule as a list: a heading for each day, then that day's replies in time order. */
-export function ScheduleList({ account, replies, canApprove, onChanged }: { account: Account; replies: readonly SocialReply[]; canApprove: boolean; onChanged: () => void }) {
+export function ScheduleList({ account, replies, canApprove, connected = true, onChanged }: { account: Account; replies: readonly SocialReply[]; canApprove: boolean; connected?: boolean; onChanged: () => void }) {
   const styles = useStyles();
   const days = scheduleDays(replies);
   if (!days.length) return <Text testID="social-schedule-empty" style={styles.empty}>Nothing is scheduled. Replies appear here once they are approved.</Text>;
   return <View testID="social-schedule-list">
     {days.map(day => <View key={day.key} style={styles.day}>
       <Text accessibilityRole="header" style={styles.dayTitle}>{`${day.label} · ${day.replies.length} ${day.replies.length === 1 ? "reply" : "replies"}`}</Text>
-      {day.replies.map(reply => <Entry key={reply.id} account={account} reply={reply} canApprove={canApprove} onChanged={onChanged} />)}
+      {day.replies.map(reply => <Entry key={reply.id} account={account} reply={reply} canApprove={canApprove} connected={connected} onChanged={onChanged} />)}
     </View>)}
   </View>;
 }
@@ -68,8 +71,8 @@ export function ScheduleList({ account, replies, canApprove, onChanged }: { acco
  * The schedule as a month: each day says how many replies go out, with the first few times on a wide window.
  * Choosing a day lists what is on it underneath.
  */
-export function ScheduleCalendar({ account, replies, year, month, wide, canApprove, onMonth, onChanged }: {
-  account: Account; replies: readonly SocialReply[]; year: number; month: number; wide: boolean; canApprove: boolean;
+export function ScheduleCalendar({ account, replies, year, month, wide, canApprove, connected = true, onMonth, onChanged }: {
+  account: Account; replies: readonly SocialReply[]; year: number; month: number; wide: boolean; canApprove: boolean; connected?: boolean;
   onMonth: (to: { year: number; month: number }) => void; onChanged: () => void;
 }) {
   const styles = useStyles();
@@ -94,7 +97,7 @@ export function ScheduleCalendar({ account, replies, year, month, wide, canAppro
     </View>)}
     {chosen ? <View style={styles.day}>
       <Text accessibilityRole="header" testID="social-day-title" style={styles.dayTitle}>{`${socialDayLabel(chosen.at)} · ${chosen.replies.length ? `${chosen.replies.length} ${chosen.replies.length === 1 ? "reply" : "replies"}` : "nothing scheduled"}`}</Text>
-      {chosen.replies.map(reply => <Entry key={reply.id} account={account} reply={reply} canApprove={canApprove} onChanged={onChanged} />)}
+      {chosen.replies.map(reply => <Entry key={reply.id} account={account} reply={reply} canApprove={canApprove} connected={connected} onChanged={onChanged} />)}
     </View> : null}
   </View>;
 }

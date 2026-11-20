@@ -69,6 +69,17 @@ test("without an X account's keys there is no social media: no flag, no routes, 
   assert.deepEqual([(await api("GET", "/v1/social", member)).status, (await api("GET", "/v1/social", member)).body.error.code], [404, "feature_off"]);
   assert.equal((await api("GET", "/v1/entitlements", owner)).body.entitlements.some(e => e.id === "native-social"), false);
   assert.equal((await api("GET", "/v1/wiki", member)).body.pages.length, 0, "no guide is made until social media is used");
+  // An owner can ask for it with no X account: a place to write posts, where nothing is fetched and nothing is sent.
+  config.features = { social: true }; saveConfig();
+  assert.equal((await api("GET", "/v1/me", member)).body.features.social, true);
+  const home = (await api("GET", "/v1/social", member)).body;
+  assert.deepEqual([home.connected, home.account, home.error], [false, null, null]);
+  const written = await api("POST", "/v1/social/replies", member, { text: "Offices are closed on Monday." });
+  assert.deepEqual([written.status, written.body.reply.status, written.body.reply.text], [201, "draft", "Offices are closed on Monday."]);
+  assert.deepEqual((await api("POST", "/v1/social/sync", member)).body.added, 0);
+  await server.socialTurn();
+  assert.deepEqual((await api("GET", "/v1/social", member)).body.ownDrafts.map(r => r.status), ["draft"], "still here, and not sent anywhere");
+  assert.equal((await api("POST", `/v1/social/replies/${written.body.reply.id}/discard`, member)).status, 200);
   // The keys alone turn it on; the flag turns it back off without touching anything.
   config.social = X; config.features = { social: false }; saveConfig();
   assert.equal((await api("GET", "/v1/me", member)).body.features.social, false);
