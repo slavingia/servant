@@ -33,7 +33,8 @@ export type ProjectLevel = "read" | "write" | "merge";
 export type ProjectPerson = { key: string; id?: string; name: string; github?: string; level: ProjectLevel; owner: boolean };
 // A body of work the team shares (docs/projects.md). access: your level (null for an admin who isn't listed);
 // canEdit: you own it or are an admin; canWrite: you may change its notes and files.
-export type Project = { id: string; name: string; description: string; notes: string; repo: string; path: string; pages: string; workflow: "main" | "pr"; rules: string[]; files: { id: string; name: string; size: number }[]; people: ProjectPerson[]; access: ProjectLevel | null; canEdit: boolean; canWrite: boolean; chatCount: number; sharedCount: number; stages: string[]; releases: ProjectRelease[]; reviewers?: Record<string, Reviewer[]>; createdAt?: number; updatedAt?: number };
+export type OutsideReviewer = { email: string; /** A few words on what they are there for: "Product owner". */ label: string };
+export type Project = { id: string; name: string; description: string; notes: string; repo: string; path: string; pages: string; workflow: "main" | "pr"; rules: string[]; files: { id: string; name: string; size: number }[]; people: ProjectPerson[]; access: ProjectLevel | null; canEdit: boolean; canWrite: boolean; chatCount: number; sharedCount: number; stages: string[]; releases: ProjectRelease[]; reviewers?: Record<string, Reviewer[]>; /** Business owners and subject matter experts outside the server, named once (docs/prototype-reviews.md). */ outsideReviewers?: OutsideReviewer[]; createdAt?: number; updatedAt?: number };
 // Who reviews a stage on every feature (Design: jo-park). A cell with no owner of its own is theirs to tick.
 export type Reviewer = { key: string; id?: string; name: string; github?: string };
 // Releases: a project's dated drops. Every item (a feature) goes through the project's stages, and each
@@ -486,8 +487,8 @@ export const api = {
   readChat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/read`, { method: "POST", body: "{}" }).then(() => undefined),
   chat: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}`).then((r) => r.json()).then((d) => d.chat as Chat),
   // Share a prototype with a business owner by work email; they confirm a code, see it and comment (docs/prototype-reviews.md).
-  prototypeShares: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/shares`).then(json<{ shares: PrototypeShare[] }>),
-  sharePrototype: (a: Account, id: string, email: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/shares`, { method: "POST", body: JSON.stringify({ email }) }).then(json<{ shares: PrototypeShare[] }>),
+  prototypeShares: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/shares`).then(json<{ shares: PrototypeShare[]; /** The project's outside reviewers who have no link to this prototype yet. */ suggested?: OutsideReviewer[] }>),
+  sharePrototype: (a: Account, id: string, email: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/shares`, { method: "POST", body: JSON.stringify({ email }) }).then(json<{ shares: PrototypeShare[]; suggested?: OutsideReviewer[] }>),
   /** Whether the agent starts on one reviewer's comments as they arrive. */
   setPrototypeShareAutoWork: (a: Account, id: string, shareId: string, autoWork: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/shares/${encodeURIComponent(shareId)}`, { method: "PATCH", body: JSON.stringify({ autoWork }) }).then(json<{ shares: PrototypeShare[] }>),
   /** You dealt with a comment yourself: it leaves the chat's waiting list. */
@@ -502,7 +503,7 @@ export const api = {
   projects: (a: Account) => request(a, "/v1/projects").then(json<{ projects: Project[]; vibeCoder: boolean; vibe: boolean; vibeProject?: string; vibeLinks?: { primary: string; backup: string } }>),
   project: (a: Account, id: string) => request(a, `/v1/projects/${encodeURIComponent(id)}`).then(json<{ project: Project; sharedChats: Chat[]; appPreview?: { path: string; url: string; builtAt: string | null; commit: string | null } | null }>),
   createProject: (a: Account, body: { name: string; description?: string; notes?: string }) => request(a, "/v1/projects", { method: "POST", body: JSON.stringify(body) }).then(json<{ project: Project }>).then(d => d.project),
-  updateProject: (a: Account, id: string, change: Partial<Pick<Project, "name" | "description" | "notes" | "repo" | "path" | "pages" | "workflow" | "rules" | "stages">> & { reviewers?: Record<string, string[]> }) => request(a, `/v1/projects/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(change) }).then(json<{ project: Project }>).then(d => d.project),
+  updateProject: (a: Account, id: string, change: Partial<Pick<Project, "name" | "description" | "notes" | "repo" | "path" | "pages" | "workflow" | "rules" | "stages">> & { reviewers?: Record<string, string[]>; outsideReviewers?: OutsideReviewer[] }) => request(a, `/v1/projects/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(change) }).then(json<{ project: Project }>).then(d => d.project),
   projectReadme: (a: Account, id: string) => request(a, `/v1/projects/${encodeURIComponent(id)}/readme`).then(json<{ readme: { repo: string; name: string; text: string; fetchedAt: number; stale: boolean } | null }>).then(d => d.readme),
   deleteProject: (a: Account, id: string) => request(a, `/v1/projects/${encodeURIComponent(id)}`, { method: "DELETE" }),
   addProjectFile: (a: Account, id: string, name: string, data: string) => request(a, `/v1/projects/${encodeURIComponent(id)}/files`, { method: "POST", body: JSON.stringify({ name, data }) }).then(json<{ project: Project }>).then(d => d.project),

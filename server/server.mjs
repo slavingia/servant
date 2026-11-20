@@ -76,7 +76,7 @@ import { createLexiconStore } from "./lexicon.mjs";
 import { withColloquialisms } from "./colloquialisms.mjs";
 import { createWikiStore, WIKI_LIMITS } from "./wiki.mjs";
 import { draftWikiPage } from "./wiki-draft.mjs";
-import { MAX_ITEMS, MAX_PARTS, MAX_PEOPLE, MAX_PROJECTS, MAX_RELEASES, VIBE_PROJECT, accessOf, configureProjects, accessibleProjects, cleanDate, cleanDescription, cleanLevel, cleanLogin, cleanName, cleanNotes, cleanPath, cleanReleaseName, cleanRepo, cleanRules, cleanReviewers, cleanStage, cleanStages, cleanTitle, ownsCell, cleanUrl, cleanWorkflow, createProjectFiles, createProjectStore, expandPath, migrateFolders, needsMigration, newItem, newPart, newProject, newRelease, patchCell, cleanPartTitle, releaseReady, setItemDone, projectInstructions, projectPeople, projectSharedWith, projectView, removeAccess, setAccess, validProjectId, vibeFolder, vibePreview } from "./projects.mjs";
+import { cleanOutsideReviewers, outsideReviewers, MAX_ITEMS, MAX_PARTS, MAX_PEOPLE, MAX_PROJECTS, MAX_RELEASES, VIBE_PROJECT, accessOf, configureProjects, accessibleProjects, cleanDate, cleanDescription, cleanLevel, cleanLogin, cleanName, cleanNotes, cleanPath, cleanReleaseName, cleanRepo, cleanRules, cleanReviewers, cleanStage, cleanStages, cleanTitle, ownsCell, cleanUrl, cleanWorkflow, createProjectFiles, createProjectStore, expandPath, migrateFolders, needsMigration, newItem, newPart, newProject, newRelease, patchCell, cleanPartTitle, releaseReady, setItemDone, projectInstructions, projectPeople, projectSharedWith, projectView, removeAccess, setAccess, validProjectId, vibeFolder, vibePreview } from "./projects.mjs";
 import { validTermsAcceptance } from "./terms.mjs";
 import { autoTitle, cleanChatTitle } from "./chat-title.mjs";
 import { cleanGuessRequest, guessAbbreviations, learnAbbreviations, LEARN_SOURCE } from "./lexicon-guess.mjs";
@@ -1861,7 +1861,9 @@ async function handle(req, res, cfg) {
       if (method === "PATCH" && parts.length === 3) {
         const body = await readAuthorizedBody(req);
         // Notes are for anyone who can write; the rest is the owners' call.
-        const settings = { name: cleanName, description: cleanDescription, repo: cleanRepo, path: cleanPath, pages: cleanUrl, workflow: cleanWorkflow, rules: cleanRules, stages: cleanStages, reviewers: cleanReviewers };
+        const settings = { name: cleanName, description: cleanDescription, repo: cleanRepo, path: cleanPath, pages: cleanUrl, workflow: cleanWorkflow, rules: cleanRules, stages: cleanStages, reviewers: cleanReviewers,
+          // Outside reviewers must be at addresses a prototype could be shared to (prototype-reviews.mjs).
+          outsideReviewers: value => cleanOutsideReviewers(value, reviewDomains(emailSettings(cfg))) };
         const changing = Object.keys(settings).filter(k => body[k] !== undefined);
         projects().mutate(data => {
           const p = within(data, pid, changing.length ? "edit" : "write");
@@ -2534,7 +2536,10 @@ async function handle(req, res, cfg) {
     const reviews = prototypeReviews();
     const listing = () => {
       const comments = reviews.comments({ chatId: chat.id });
-      return { shares: reviews.forChat(chat.id).map(s => ({ id: s.id, email: s.email, createdAt: s.createdAt, ...(s.verifiedAt ? { verifiedAt: s.verifiedAt } : {}), ...(s.lastSeenAt ? { lastSeenAt: s.lastSeenAt } : {}), ...(s.endedAt ? { endedAt: s.endedAt } : {}), autoWork: s.autoWork,
+      // The outside reviewers named on the project prototypes are built in, who don't have an open link to this one yet.
+      const open = new Set(reviews.forChat(chat.id).filter(s => !s.endedAt).map(s => s.email));
+      const suggested = outsideReviewers(vibeProject()).filter(r => !open.has(r.email));
+      return { suggested, shares: reviews.forChat(chat.id).map(s => ({ id: s.id, email: s.email, createdAt: s.createdAt, ...(s.verifiedAt ? { verifiedAt: s.verifiedAt } : {}), ...(s.lastSeenAt ? { lastSeenAt: s.lastSeenAt } : {}), ...(s.endedAt ? { endedAt: s.endedAt } : {}), autoWork: s.autoWork,
         comments: comments.filter(c => c.shareId === s.id).map(c => ({ id: c.id, page: c.page, x: c.x, y: c.y, anchor: c.anchor, text: c.text, createdAt: c.createdAt,
           ...(c.askedAt ? { askedAt: c.askedAt, askedBy: c.askedBy === "auto" ? "auto" : "you", turnId: c.turnId } : {}), ...(c.setAsideAt ? { setAsideAt: c.setAsideAt } : {}) })) })) };
     };
