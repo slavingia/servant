@@ -50,6 +50,9 @@ export function capabilitySettings(raw) {
   const cfg = raw && typeof raw === "object" ? raw : {};
   const wait = Number(cfg.waitSeconds);
   return { mode: cfg.mode === "ask" ? "ask" : "off",
+    // `"owners": "ask"`: an owner's own agent is checked like everyone else's, and an owner's request is decided by
+    // another owner when there is one. Unset, owners' agents are logged but not held (the default).
+    checkOwners: cfg.owners === "ask" || cfg.checkOwners === true,
     // How long the agent waits for the manager's answer before it tells the person it is waiting. 0: don't wait.
     waitSeconds: Number.isFinite(wait) && wait >= 0 ? Math.min(900, Math.floor(wait)) : 120 };
 }
@@ -84,7 +87,7 @@ export function cleanHosts(value) {
 export const grantDaysSetting = raw => (Number.isInteger(raw) && raw >= 1 && raw <= 3650 ? raw : 0);
 const DAY_MS = 24 * 60 * 60_000;
 
-export function createEntitlements(file, { clock = Date.now, known = () => true, isOwner = () => false, manages = () => false, grantDays = () => 0 } = {}) {
+export function createEntitlements(file, { clock = Date.now, known = () => true, isOwner = () => false, manages = () => false, grantDays = () => 0, ownerDecidesOwn = () => true } = {}) {
   const db = new DatabaseSync(file);
   db.exec("PRAGMA busy_timeout=5000");
   db.exec(`PRAGMA journal_mode=WAL;
@@ -142,7 +145,8 @@ export function createEntitlements(file, { clock = Date.now, known = () => true,
     });
   };
   /** May `by` decide what `userId` holds? Owners for anyone (themselves included); a manager for the people they manage. */
-  const decides = (by, userId) => !!by && known(by) && (isOwner(by) || (String(by) !== String(userId) && manages(by, userId)));
+  // An owner decides for anyone; for themselves unless the server has owners checked and another owner is there to decide.
+  const decides = (by, userId) => !!by && known(by) && (String(by) === String(userId) ? isOwner(by) && !!ownerDecidesOwn(String(by)) : isOwner(by) || manages(by, userId));
   const granted = (id, userId) => grantRow(id, userId)?.status === "granted";
   // Holding a built-in "write" also counts as holding its "read". Holding a built-in entitlement for every project
   // counts for each project; holding it for one project counts for that project only.
