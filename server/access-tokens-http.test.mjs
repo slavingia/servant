@@ -133,11 +133,56 @@ test("see prototypes and send one for review; a server owner can do it for the p
   assert.equal(sent.status, 201);
   assert.deepEqual(sent.json.prototype, { id: "cht_proto", title: "Refund tracker", by: "Pat Tester" });
   assert.deepEqual(sent.json.results.map(r => [r.email, r.sent, r.error ?? null]), [["jo.park@example.gov", true, null], ["sam@example.com", false, "Use an email that ends in @example.gov"]]);
+  // Each one that went out comes back with its link and a message to paste; one that didn't has neither.
+  const [ok, refused] = sent.json.results;
+  assert.match(ok.link, /^https:\/\/team\.example\.gov\/review\/[A-Za-z0-9_-]+$/);
+  assert.equal(ok.message, `I've shared the prototype "Refund tracker" with you for review: ${ok.link}\n\nIt will ask you to confirm your email (jo.park@example.gov) with a code. Then right-click anywhere on the prototype to leave a comment.`);
+  assert.deepEqual(["link" in refused, "message" in refused], [false, false]);
+  assert.equal(mail[0].text.includes(ok.link), true, "the same link the email carries");
+  // The link opens nothing by itself: the prototype still needs a code sent to that address.
+  const page = await fetch(ok.link.replace("https://team.example.gov", base));
+  assert.equal(page.status, 200);
+  assert.equal((await page.text()).includes(FOLDER), false, "the review page does not give the prototype away before the code");
+  assert.equal((await fetch(`${ok.link.replace("https://team.example.gov", base)}/comments`)).status, 401);
   assert.deepEqual(mail.map(m => [m.to, m.subject]), [["jo.park@example.gov", "Ana Ruiz shared a prototype with you: Refund tracker"]]);
   assert.match(mail[0].text, /https:\/\/team\.example\.gov\/review\/[A-Za-z0-9_-]+/);
-  assert.equal(JSON.stringify(sent.json).includes("/review/"), false, "the link is only ever in the email");
+  // With a name, the message and Servant's own email greet them by it. The name is not kept anywhere.
+  mail.splice(0);
+  const named = await shell(people.ana.token, "POST", "/prototypes/cht_proto/shares", { people: [{ name: "  Jo   Park ", email: "jo.park@example.gov" }] });
+  assert.deepEqual([named.status, named.json.results[0].name], [201, "Jo Park"]);
+  assert.match(named.json.results[0].message, /^Hi Jo, I've shared the prototype "Refund tracker" with you for review: https:\/\/team\.example\.gov\/review\//);
+  assert.match(mail[0].text, /^Hi Jo Park,\n\nAna Ruiz shared the prototype "Refund tracker" with you/);
+  assert.notEqual(named.json.results[0].link, ok.link, "sharing again makes a fresh link; the old one stops");
+  assert.equal((await fetch(ok.link.replace("https://team.example.gov", base))).status, 404);
+  assert.equal(JSON.stringify((await app("pat", "GET", "chats/cht_proto/prototype/shares")).body).includes("Jo Park"), false);
+  for (const bad of [{ people: [{ name: "Jo" }] }, { people: [{ name: 7, email: "jo.park@example.gov" }] }, { people: "jo.park@example.gov" }]) assert.equal((await shell(people.ana.token, "POST", "/prototypes/cht_proto/shares", bad)).status, 400);
+  // An owner can also invite the person onto the server with the same request: a single-use link in their name,
+  // in the message and in the email, that starts them as a business owner.
+  mail.splice(0);
+  assert.deepEqual([(await shell(people.pat.token, "POST", "/prototypes/cht_proto/shares", { people: [{ name: "Jo Park", email: "jo.park@example.gov" }], invite: true })).status, mail.length], [403, 0], "only an owner brings people onto the server");
+  assert.equal((await shell(people.ana.token, "POST", "/prototypes/cht_proto/shares", { emails: ["jo.park@example.gov"], invite: true })).status, 400, "an invite needs a name");
+  assert.equal((await shell(people.ana.token, "POST", "/prototypes/cht_proto/shares", { people: [{ name: "Jo Park", email: "jo.park@example.gov" }], invite: "yes" })).status, 400);
+  const invited = await shell(people.ana.token, "POST", "/prototypes/cht_proto/shares", { people: [{ name: "Jo Park", email: "jo.park@example.gov" }, { name: "Sam Outside", email: "sam@example.com" }], invite: true });
+  const [jo, outside] = invited.json.results;
+  assert.match(jo.join, /^https:\/\/team\.example\.gov\/join\?code=/);
+  assert.equal(jo.message.endsWith(`\n\nTo use the rest of Servant with the team, join here (works once, for a week): ${jo.join}`), true);
+  assert.equal(mail[0].text.includes(`To use the rest of Servant with the team, join here: ${jo.join}`), true);
+  assert.deepEqual([outside.sent, "join" in outside, mail.length], [false, false, 1], "no invite is made for an address that can't be shared with");
+  // Joining with it makes Jo a member who starts as a business owner, invited by Ana. The link works once.
+  const { TERMS_VERSION, TERMS_ITEMS } = await import("./terms.mjs");
+  const code = new URL(jo.join).searchParams.get("code");
+  const pair = body => testFetch(directory, `${base}/v1/pair`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const joined = await pair({ code, device: "Browser", terms: { version: TERMS_VERSION, items: TERMS_ITEMS } });
+  assert.equal(joined.status, 201);
+  const account = await joined.json();
+  assert.deepEqual([account.user.name, account.user.role], ["Jo Park", "member"]);
+  const listed = (await app("ana", "GET", "people")).body.people.find(p => p.id === account.user.id);
+  assert.deepEqual([listed.agentTier, listed.vibeCoder], [2, true], "a business owner, able to prototype");
+  assert.equal((await pair({ code, device: "Browser", terms: { version: TERMS_VERSION, items: TERMS_ITEMS } })).status >= 400, true, "used once");
+  // The app's own Share never returns the link: there it is still only in the email.
+  assert.equal(JSON.stringify((await app("pat", "GET", "chats/cht_proto/prototype/shares")).body).includes("/review/"), false);
   // The share is Pat's: it is in Pat's share sheet, and comments will arrive in Pat's chat.
-  assert.deepEqual((await app("pat", "GET", "chats/cht_proto/prototype/shares")).body.shares.map(s => s.email), ["jo.park@example.gov"]);
+  assert.deepEqual((await app("pat", "GET", "chats/cht_proto/prototype/shares")).body.shares.filter(s => !s.endedAt).map(s => s.email), ["jo.park@example.gov"]);
   assert.deepEqual((await shell(people.pat.token, "GET", "/prototypes")).json.prototypes[0].sharedWith, [{ email: "jo.park@example.gov", opened: false, comments: 0 }]);
   // The app's own Share still works the same way, through the same code.
   mail.splice(0);

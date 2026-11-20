@@ -26,7 +26,7 @@ Every answer is JSON. An error has \`error.code\` and \`error.message\`; the mes
 | --- | --- |
 | \`GET /me\` | Who the token acts as. |
 | \`GET /prototypes?q=words\` | Prototypes you can see: yours, ones shared with everyone, and all of them if you own the server. Each has \`id\`, \`title\`, \`by\`, \`url\`, \`canShare\` and, when you can share it, who it is shared with. |
-| \`POST /prototypes/<id>/shares\` | Body \`{ "emails": ["name@example.gov"] }\` (one to ten). Sends each person a link to review the prototype. Their comments arrive in the chat of the person who made it. |
+| \`POST /prototypes/<id>/shares\` | Body \`{ "emails": ["name@example.gov"] }\` or \`{ "people": [{ "name": "Jo Park", "email": "jo.park@example.gov" }] }\` (one to ten). Sends each person a link to review the prototype; they need no account. Each result has \`sent\`, the \`link\`, and a \`message\` ready to paste into a chat or an email of your own. Add \`"invite": true\` (server owners only, names required) to also invite each person onto the server: the result and the message then carry a \`join\` link that works once, for a week. Their comments arrive in the chat of the person who made the prototype. |
 | \`POST /agent\` | Body \`{ "text": "…" }\` starts a new chat with your agent; add \`"chatId"\` to continue one of yours. Answers at once with \`chatId\` and \`turnId\`; the agent works in the background. |
 | \`GET /agent/<chatId>\` | \`working\` (true while the agent is busy), \`needsApproval\`, and the messages so far with the agent's \`reply\` to each. |
 
@@ -41,6 +41,15 @@ $body = @{ emails = @("jo.park@example.gov", "sam.lee@example.gov") } | ConvertT
 Invoke-RestMethod "$Servant/prototypes/$($found.prototypes[0].id)/shares" -Method Post -Headers $Headers -ContentType "application/json" -Body $body
 \`\`\`
 
+Invite someone who has no account, by name and email, to review a prototype and join the team if they wish, then
+show the message to send them (show the user \`message\` exactly as returned, so they can copy it):
+
+\`\`\`powershell
+$body = @{ invite = $true; people = @(@{ name = "Jo Park"; email = "jo.park@example.gov" }) } | ConvertTo-Json -Depth 4
+$sent = Invoke-RestMethod "$Servant/prototypes/$($found.prototypes[0].id)/shares" -Method Post -Headers $Headers -ContentType "application/json" -Body $body
+$sent.results | ForEach-Object { if ($_.sent) { $_.message } else { "$($_.email): $($_.error)" } }
+\`\`\`
+
 Ask your agent something and wait for the answer:
 
 \`\`\`powershell
@@ -53,7 +62,8 @@ $chat.turns[-1].reply
 ## Limits
 
 - A token works only at \`${base}\`. It cannot read channels, direct messages, cases or other people's chats.
-- You can share a prototype you made, or any prototype if you own the server. Nobody else's.
+- You can share a prototype you made, or any prototype if you own the server. Nobody else's. Only a server owner can add \`"invite": true\`.
+- The review \`link\` opens nothing by itself: the person confirms a code sent to their own address first. The \`join\` link is different: whoever has it can join once, so send it only to the person it is for.
 - A message to the agent is checked the way one typed in the app is: a credential in it is refused, and personal
   information gets a warning (send again with \`"confirmPii": true\` to send it anyway).
 - When the agent needs an approval, \`needsApproval\` is true: approve it in the Servant app.

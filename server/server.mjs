@@ -20,7 +20,7 @@ import { previewInfo, serveAppPreview } from "./app-preview.mjs";
 import { privacyPage } from "./privacy-page.mjs";
 import { landingPage, supportPage } from "./public-page.mjs";
 import { termsPage } from "./terms-page.mjs";
-import { createEmailVerifier, commandSender, emailSettings, emailSetupWarning, normalizeEmail } from "./email-verify.mjs";
+import { createEmailVerifier, commandSender, emailAllowed, emailSettings, emailSetupWarning, normalizeEmail } from "./email-verify.mjs";
 import { createSessions } from "./session-expiry.mjs";
 import http from "node:http";
 import crypto from "node:crypto";
@@ -321,7 +321,7 @@ export function mutateStateForTest(fn) {
 
 /** Tests only: where the agent's network gate listens, and a token that makes traffic count as one person's. */
 export const egressForTest = () => ({ port: egressProxy?.port, use: (body, config) => agentUse(body, config), mint: (userId, chatId) => egressStore().tokenFor(userId, chatId), working: userId => egressStore().working(userId) });
-export function createInvite({ name, role = "member", userId }) {
+export function createInvite({ name, role = "member", userId, agentTier, createdBy }) {
   return mutateState(state => {
     if (!["owner", "member"].includes(role)) throw new Error("role must be owner or member");
     const existing = userId ? state.users[userId] : null;
@@ -331,6 +331,9 @@ export function createInvite({ name, role = "member", userId }) {
       name: existing ? existing.name : String(name || "").slice(0, 80) || "Guest",
       role: existing ? existing.role : role,
       ...(existing ? { userId: existing.id } : {}),
+      // An owner inviting someone for a kind of work (a business owner reviewing a prototype) says where they
+      // start, instead of the server's default; and who invited them decides their entitlement requests.
+      ...(!existing && Number.isInteger(agentTier) ? { agentTier } : {}), ...(!existing && createdBy ? { createdBy } : {}),
       createdAt: now(),
       expiresAt: now() + INVITE_TTL_MS,
     };
@@ -1043,7 +1046,9 @@ function reviewCommented(share, comment, sharer, cfg) {
  * request; the share belongs to the chat's own person, so comments arrive in their chat whoever sent the link.
  * Resolves to the share, or throws { status, code, message }.
  */
-async function sharePrototype(chat, email, asker, cfg, { autoWork = false } = {}) {
+// The access level called "Business owner" (usage.mjs AGENT_TIERS): where someone invited to review a prototype starts.
+const BUSINESS_OWNER_TIER = 2;
+async function sharePrototype(chat, email, asker, cfg, { autoWork = false, name = "", join = "" } = {}) {
   const reviews = prototypeReviews();
   const origin = publicOrigin(cfg), settings = emailSettings(cfg);
   if (!origin) throw requestError(400, "not_set_up", "This server has no public address yet, so there is no link to send. Ask an owner to set it up");
@@ -1051,14 +1056,16 @@ async function sharePrototype(chat, email, asker, cfg, { autoWork = false } = {}
   const made = reviews.share({ chatId: chat.id, folder: chat.vibeFolder, title: chat.title, email, by: chat.userId, domains: reviewDomains(settings), autoWork });
   try {
     await sendMail({ to: made.share.email, code: "", minutes: 0, subject: `${asker.name} shared a prototype with you: ${made.share.title}`,
-      text: `${asker.name} shared the prototype "${made.share.title}" with you on ${cfg.name} and would like your comments.\n\nOpen it here: ${origin}/review/${made.token}\n\nYou'll be asked to confirm this email address with a code. Then right-click anywhere on the prototype to leave a comment.\n\nIf you weren't expecting this, ignore this email.` }, settings);
+      text: `${name ? `Hi ${name},\n\n` : ""}${asker.name} shared the prototype "${made.share.title}" with you on ${cfg.name} and would like your comments.\n\nOpen it here: ${origin}/review/${made.token}\n\nYou'll be asked to confirm this email address with a code. Then right-click anywhere on the prototype to leave a comment.${join ? `\n\nTo use the rest of Servant with the team, join here: ${join}\nThat link works once, for a week.` : ""}\n\nIf you weren't expecting this, ignore this email.` }, settings);
   } catch (error) {
     // A link nobody received is ended, so it can't be found later by someone else.
     reviews.end(made.share.id, chat.id, asker.id);
     console.error("[servant] review share email failed:", error?.message || error);
     throw requestError(502, "email_send_failed", "Couldn't send the email. Try again, or ask an owner to check email setup");
   }
-  return made.share;
+  // The link is handed back for one use only: a message the asker sends the person themselves (the token API). It
+  // opens nothing by itself; the prototype still needs a code confirmed from the address it was shared with.
+  return { ...made.share, link: `${origin}/review/${made.token}` };
 }
 
 /**
@@ -1111,12 +1118,35 @@ async function handleTokenApi(req, res, url, parts, cfg) {
       const chat = state.chats[parts[3]];
       if (!isPrototype(chat) || !canSee(chat)) return fail(res, 404, "not_found", "No such prototype. GET /api/v1/prototypes lists the ones you can see");
       if (!canShare(chat)) return fail(res, 403, "forbidden", `Only ${users[chat.userId].name}, who made this prototype, or a server owner can share it`);
-      const emails = Array.isArray(given.emails) ? given.emails : typeof given.email === "string" ? [given.email] : null;
-      if (!emails || !emails.length || emails.length > 10 || emails.some(e => typeof e !== "string")) return fail(res, 400, "bad_request", "Send emails: a list of one to ten work addresses");
+      // Addresses alone, or people with a name to greet them by: { "people": [{ "name": "Jo Park", "email": "…" }] }.
+      const asked = Array.isArray(given.people) ? given.people : Array.isArray(given.emails) ? given.emails.map(email => ({ email })) : typeof given.email === "string" ? [{ email: given.email }] : null;
+      if (!asked || !asked.length || asked.length > 10 || asked.some(p => !p || typeof p !== "object" || typeof p.email !== "string" || (p.name !== undefined && typeof p.name !== "string"))) {
+        return fail(res, 400, "bad_request", 'Send emails: a list of one to ten work addresses, or people: a list of { "name", "email" }');
+      }
+      // "invite": true also invites each person onto the server, as a business owner, so they can go past the full
+      // screen prototype if they wish. Only a server owner brings people onto the server, here as in the app.
+      const inviting = given.invite === true;
+      if (given.invite !== undefined && typeof given.invite !== "boolean") return fail(res, 400, "bad_request", "invite is true or false");
+      if (inviting && user.role !== "owner") return fail(res, 403, "forbidden", "Only a server owner can invite someone onto the server. Share the prototype without invite, or ask an owner");
+      if (inviting && asked.some(p => !String(p.name ?? "").trim())) return fail(res, 400, "bad_request", 'To invite someone, give their name: people: [{ "name", "email" }]');
       const results = [];
-      for (const email of emails) {
-        try { const share = await sharePrototype(chat, email, user, cfg); results.push({ email: share.email, sent: true }); }
-        catch (error) { if (!error?.status) throw error; results.push({ email: String(email).slice(0, 254), sent: false, error: error.message }); }
+      for (const person of asked) {
+        const name = String(person.name ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
+        try {
+          const address = normalizeEmail(person.email);
+          const member = inviting && address ? Object.values(users).find(u => !isRemoved(u) && u.email && u.email.toLowerCase() === address) : null;
+          // A single-use invite in their name, good for a week. Made only once the address is known to be allowed.
+          let join = "";
+          if (inviting && !member && address && emailAllowed(address, reviewDomains(emailSettings(cfg)))) {
+            const code = createInvite({ name, role: "member", agentTier: BUSINESS_OWNER_TIER, createdBy: user.id });
+            join = joinWebLink(code, cfg) || pairLink(code, cfg);
+          }
+          const share = await sharePrototype(chat, person.email, user, cfg, { name, join });
+          // Something to paste into a chat or an email of your own, beside the one Servant sent. The name is used
+          // here and in the greeting of that email; it is not kept.
+          const message = `${name ? `Hi ${name.split(" ")[0]}, ` : ""}I've shared the prototype "${chat.title}" with you for review: ${share.link}\n\nIt will ask you to confirm your email (${share.email}) with a code. Then right-click anywhere on the prototype to leave a comment.${join ? `\n\nTo use the rest of Servant with the team, join here (works once, for a week): ${join}` : ""}`;
+          results.push({ email: share.email, ...(name ? { name } : {}), sent: true, link: share.link, ...(join ? { join } : {}), ...(member ? { alreadyMember: true } : {}), message });
+        } catch (error) { if (!error?.status) throw error; results.push({ email: String(person.email).slice(0, 254), ...(name ? { name } : {}), sent: false, error: error.message }); }
       }
       return send(res, results.some(r => r.sent) ? 201 : 400, { prototype: { id: chat.id, title: chat.title, by: users[chat.userId].name }, results });
     }
@@ -1648,7 +1678,7 @@ async function handle(req, res, cfg) {
       else invite.usedAt = now();
       // The phone that made a sign-in link can show where it was used.
       if (invite.kind === "sign-in-link") invite.usedDevice = String(body.device || "Phone").slice(0, 80);
-      const user = existing || { id: id("usr"), name, role: invite.role, createdAt: now(), tourDue: true, ...(invite.role === "owner" ? {} : { agentTier: loadConfig().defaultAgentTier ?? 0 }) };
+      const user = existing || { id: id("usr"), name, role: invite.role, createdAt: now(), tourDue: true, ...(invite.role === "owner" ? {} : { agentTier: Number.isInteger(invite.agentTier) ? invite.agentTier : loadConfig().defaultAgentTier ?? 0, ...(invite.agentTier === 2 ? { vibeCoder: true } : {}) }) };
       const token = crypto.randomBytes(32).toString("base64url");
       const deviceId = id("dev");
       // Every acceptance is kept: who, which version, which checks, when, on which device.

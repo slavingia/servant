@@ -41,13 +41,23 @@ Invoke-RestMethod "$Servant/me" -Headers $Headers
 | `GET /api/v1` | The guide. No token needed; it names nobody on the server. |
 | `GET /api/v1/me` | Who the token acts as. |
 | `GET /api/v1/prototypes?q=words` | Prototypes you can see: yours, ones shared with everyone, and all of them if you own the server. |
-| `POST /api/v1/prototypes/<id>/shares` | `{ "emails": [...] }`, one to ten work addresses: sends each the review link ([prototype-reviews.md](prototype-reviews.md)). |
+| `POST /api/v1/prototypes/<id>/shares` | `{ "emails": [...] }` or `{ "people": [{ "name", "email" }] }`, one to ten: sends each the review link ([prototype-reviews.md](prototype-reviews.md)) and returns, for each, the `link` and a `message` to paste. With `"invite": true` (owners), also a `join` link. |
 | `POST /api/v1/agent` | `{ "text": "…" }` starts a new private chat with your agent; add `"chatId"` to continue one of yours. Answers at once; the agent works in the background. |
 | `GET /api/v1/agent/<chatId>` | Whether the agent is still working, whether it is waiting for an approval, and the messages with its replies. |
 
 ### Sharing someone else's prototype
 
 A prototype is shared by the person who made it, or by a **server owner on their behalf**. The second is new with tokens and only there: an owner can say "send the prototype Pat is working on to these two people" without going through Pat. The share still belongs to Pat: it appears in Pat's share sheet, the reviewers' comments arrive in Pat's chat, and Pat can end it. The email says who sent the link. Someone who is not an owner can share only their own.
+
+### A message to copy, and inviting someone onto the server
+
+Each person the link was sent to comes back with the review `link` and a `message` ready to paste into a chat or an email of your own, beside the email Servant sent: "Hi Jo, I've shared the prototype "Refund tracker" with you for review: … It will ask you to confirm your email with a code…". A name, when given, is used to greet them there and in Servant's email; it is not kept.
+
+The review link is returned only here, to the person who asked for it; the app's own share sheet never shows it. It opens nothing by itself: the prototype still needs a code confirmed from the address it was shared with.
+
+With `"invite": true`, a **server owner** also invites each person onto the server in the same request, for someone who has no account and may want more than the full-screen prototype. Names are required. Each gets a single-use invite in their name, good for a week, that starts them as a member at the **Business owner** access level, with the owner who invited them deciding their entitlement requests. The `join` link is in the result, in the message and in Servant's email. No invite is made for an address a prototype can't be shared with, or for someone who is already a member (`alreadyMember`). Unlike the review link, **whoever has a join link can use it once**: send it only to the person it is for.
+
+Bringing people onto a server is an owner's job in the app (Invite people), and it is here: anyone else's token is refused `invite`.
 
 ## What a token can and can't do
 
