@@ -1273,11 +1273,40 @@ async function requireEntitlementChecks(cfg, up, user) {
  * agent is not held back. Every checked call is written to the agent action log first; one that can't be recorded is
  * refused. Answers { verdict: "allow" | "deny" | "wait", message } for the agent to read.
  */
-/** The project a chat's work belongs to, as { id, name }, or null. A project that no longer exists scopes nothing. */
+/** The project a chat's work belongs to, as { id, name, folder, repo }, or null. A project that no longer exists scopes nothing. */
 function agentProject(chat) {
   if (!chat?.projectId || !validProjectId(chat.projectId)) return null;
   const found = projects().byId(chat.projectId);
-  return found ? { id: found.id, name: found.name } : null;
+  return found ? { id: found.id, name: found.name, folder: found.path ? path.resolve(expandPath(found.path)) : "", repo: typeof found.repo === "string" ? found.repo : "" } : null;
+}
+// A path with links resolved as far as it exists, so a link inside a project that points out of it counts as outside.
+function settledPath(target) {
+  let current = path.resolve(target), rest = "";
+  for (;;) {
+    try { return path.join(fs.realpathSync(current), rest); } catch { /* keep climbing to something that exists */ }
+    const parent = path.dirname(current);
+    if (parent === current) return path.resolve(target);
+    rest = path.join(path.basename(current), rest); current = parent;
+  }
+}
+/**
+ * What a tool call names that lies outside its project: paths outside the project's folder and GitHub repositories
+ * other than the project's own (the bridge reports both, server/hermes_capabilities.py `targets`). A grant for one
+ * project covers that project's folder and repository only; a call that names anything else is asked about as the
+ * every-project entitlement. A project with no folder or no repository set has no such rule for that kind.
+ */
+export function outsideProject(project, body) {
+  const list = value => (Array.isArray(value) ? value : []).filter(item => typeof item === "string" && item && item.length <= 400).slice(0, 20);
+  const beyond = [];
+  if (project?.folder) {
+    const home = settledPath(project.folder);
+    for (const named of list(body?.paths)) {
+      const at = settledPath(path.resolve(project.folder, expandPath(named)));
+      if (at !== home && !at.startsWith(home + path.sep)) beyond.push(named);
+    }
+  }
+  if (project?.repo) for (const repo of list(body?.repos)) if (repo.toLowerCase() !== project.repo.toLowerCase()) beyond.push(repo);
+  return beyond;
 }
 async function agentUse(body, config = loadConfig) {
   const who = egressStore().whose(body?.token);
@@ -1301,7 +1330,10 @@ async function agentUse(body, config = loadConfig) {
   if (ownerUnchecked(config(), person)) return logged("allowed-owner", { verdict: "allow" });
   // Work in a project's chat is asked about, allowed and recorded for that project: holding "Filesystem write" for
   // one project says nothing about another. A chat outside any project uses the entitlement for every project.
-  const project = agentProject(state.chats[who.chatId]);
+  // A grant for one project covers that project's folder and repository. A call that names a path or repository
+  // outside them is asked about as the entitlement for every project instead.
+  const inChat = agentProject(state.chats[who.chatId]);
+  const project = inChat && outsideProject(inChat, body).length ? null : inChat;
   const until = Date.now() + capabilitySettings(config().agentCapabilities).waitSeconds * 1000;
   let told = false;
   for (;;) {

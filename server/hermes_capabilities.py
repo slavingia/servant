@@ -236,6 +236,56 @@ def tool_needs(tool_name, args):
     return set(TOOL_NEEDS.get(tool_name, ()))
 
 
+# Where a tool call points, for per-project entitlements (docs/entitlements.md, "Per project"): the paths and the
+# GitHub repositories it names. Servant uses them to see whether the call stays inside the project of the chat it
+# came from. For file tools the path is exact. For a shell command it is what can be read off the words: absolute
+# paths, home paths, anything climbing with "..", the folder after cd or -C, and repositories named to gh or in a
+# GitHub address. A command can reach places its words don't show (a variable, a script); that is the sandbox's
+# to stop, not this list's.
+MAX_TARGETS = 20
+_REPO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$")
+_REPO_IN_ADDRESS = re.compile(r"github\.com[:/]([A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}?)(?:\.git)?(?:[/?#\s\"']|$)")
+_REPO_IN_API = re.compile(r"(?:^|/)repos/([A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100})(?:[/?#]|$)")
+
+
+def _path_like(word):
+    return isinstance(word, str) and 0 < len(word) <= 400 and not word.startswith("-") and "://" not in word and (
+        word.startswith(("/", "~")) or word == ".." or word.startswith("../") or "/../" in word or word.endswith("/.."))
+
+
+def targets(tool_name, args):
+    """{"paths": [...], "repos": [...]}: what the call names, each list short and without repeats."""
+    args = args if isinstance(args, dict) else {}
+    paths, repos = [], []
+    def add(found, value):
+        if isinstance(value, str) and value and value not in found and len(found) < MAX_TARGETS:
+            found.append(value[:400])
+    if tool_name in SHELL_TOOLS:
+        command = args.get("command") if isinstance(args.get("command"), str) else ""
+        for key in ("workdir", "cwd"):
+            add(paths, args.get(key))
+        for match in _REPO_IN_ADDRESS.finditer(command):
+            # api.github.com/repos/<owner>/<name>/… is read by the API pattern below, not as a repository called "repos/<owner>".
+            if not match.group(1).startswith("repos/"):
+                add(repos, match.group(1))
+        for words in _segments(command) or []:
+            for index, word in enumerate(words):
+                previous = words[index - 1] if index else ""
+                # "cd app" and "git -C app" move the work even when the folder is written plainly.
+                if _path_like(word) or (previous in ("cd", "pushd", "-C") and not word.startswith("-")):
+                    add(paths, word)
+                if previous in ("--repo", "-R") or (word.startswith("--repo=") and word[7:]):
+                    name = word[7:] if word.startswith("--repo=") else word
+                    if _REPO.match(name):
+                        add(repos, name)
+                for match in _REPO_IN_API.finditer(word):
+                    add(repos, match.group(1))
+    else:
+        for key in ("path", "file_path", "workdir", "cwd"):
+            add(paths, args.get(key))
+    return {"paths": paths, "repos": repos}
+
+
 def in_order(needs):
     return [n for n in ORDER if n in needs]
 
