@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, useMemo } from "react";
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Button } from "./Button";
 import { api, ServerError, type Account, type OutsideReviewer, type PrototypeShare } from "../lib/server";
-import { AUTO_WORK_HINT, AUTO_WORK_LABEL, commentAsked, commentWhere, looksLikeEmail, orderShares, outsideReviewerLine, shareLine } from "../lib/prototype-reviews";
+import { AUTO_WORK_HINT, AUTO_WORK_LABEL, AUTO_WORK_UNCHECKED_HINT, autoWorkAvailable, commentAsked, commentWhere, looksLikeEmail, orderShares, outsideReviewerLine, shareLine } from "../lib/prototype-reviews";
 import { Toggle } from "./Toggle";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
 
@@ -22,6 +22,8 @@ export function PrototypeReviewSheet({ account, chatId = "", projectId, title, o
   const [shares, setShares] = useState<PrototypeShare[] | null>(null);
   // The project's outside reviewers who have no link to this prototype yet: one press each, no retyping.
   const [suggested, setSuggested] = useState<OutsideReviewer[]>([]);
+  // Whether a comment may start the agent with nobody reading it first (the server decides; see AUTO_WORK_UNCHECKED_HINT).
+  const [autoOk, setAutoOk] = useState(true);
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +31,7 @@ export function PrototypeReviewSheet({ account, chatId = "", projectId, title, o
 
   const failed = (e: unknown, fallback: string) => e instanceof ServerError ? e.message : fallback;
   const load = useCallback(() => {
-    calls.list().then(r => { setShares(r.shares); setSuggested(r.suggested ?? []); }, e => { setShares([]); setError(failed(e, "Couldn't load who this is shared with. Close and try again")); });
+    calls.list().then(r => { setShares(r.shares); setSuggested(r.suggested ?? []); setAutoOk(autoWorkAvailable(r)); }, e => { setShares([]); setError(failed(e, "Couldn't load who this is shared with. Close and try again")); });
   }, [calls]);
   useEffect(load, [load]);
 
@@ -40,7 +42,7 @@ export function PrototypeReviewSheet({ account, chatId = "", projectId, title, o
     setBusy("send"); setError(null); setSent(null);
     try {
       const next = await calls.share(to);
-      setShares(next.shares); setSuggested(next.suggested ?? []);
+      setShares(next.shares); setSuggested(next.suggested ?? []); setAutoOk(autoWorkAvailable(next));
       setSent(to); setEmail("");
     } catch (e) { setError(failed(e, "Couldn't send the link. Try again")); }
     finally { setBusy(null); }
@@ -53,7 +55,7 @@ export function PrototypeReviewSheet({ account, chatId = "", projectId, title, o
     try {
       for (const person of people) {
         const next = await calls.share(person.email);
-        setShares(next.shares); setSuggested(next.suggested ?? []);
+        setShares(next.shares); setSuggested(next.suggested ?? []); setAutoOk(autoWorkAvailable(next));
         done.push(person.email);
       }
     } catch (e) { setError(failed(e, "Couldn't send the link. Try again")); }
@@ -62,7 +64,7 @@ export function PrototypeReviewSheet({ account, chatId = "", projectId, title, o
   const end = async (share: PrototypeShare) => {
     if (busy) return;
     setBusy(share.id); setError(null); setSent(null);
-    try { const next = await calls.end(share.id); setShares(next.shares); setSuggested(next.suggested ?? []); }
+    try { const next = await calls.end(share.id); setShares(next.shares); setSuggested(next.suggested ?? []); setAutoOk(autoWorkAvailable(next)); }
     catch (e) { setError(failed(e, "Couldn't end that share. Try again")); }
     finally { setBusy(null); }
   };
@@ -117,9 +119,9 @@ export function PrototypeReviewSheet({ account, chatId = "", projectId, title, o
                 {share.endedAt || ofApp ? null : <View style={styles.auto}>
                   <View style={styles.rowCopy}>
                     <Text style={styles.autoLabel}>{AUTO_WORK_LABEL}</Text>
-                    <Text style={styles.meta}>{AUTO_WORK_HINT}</Text>
+                    <Text testID={autoOk ? undefined : "review-auto-unavailable"} style={styles.meta}>{autoOk ? AUTO_WORK_HINT : AUTO_WORK_UNCHECKED_HINT}</Text>
                   </View>
-                  <Toggle testID={`review-auto-${share.id}`} label={`${AUTO_WORK_LABEL}, for ${share.email}`} value={!!share.autoWork} disabled={!!busy} onValueChange={on => void setAuto(share, on)} />
+                  <Toggle testID={`review-auto-${share.id}`} label={`${AUTO_WORK_LABEL}, for ${share.email}`} value={!!share.autoWork && autoOk} disabled={!!busy || !autoOk} onValueChange={on => void setAuto(share, on)} />
                 </View>}
                 {share.comments.map(comment => <View key={comment.id} style={styles.comment}>
                   <Text style={styles.body}>{comment.text}</Text>

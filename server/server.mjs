@@ -1013,6 +1013,11 @@ function askAgentAboutComment(share, comment, sharer, by, cfg) {
     return { refused: error?.status ? error.message : "The agent couldn't be asked. Try again" };
   }
 }
+// A reviewer's comment is an outsider's words. With nobody reading it first, it may start the agent only when that
+// agent has to ask before it reads or changes files or GitHub (the built-in entitlement checks, docs/entitlements.md)
+// and the sharer is not an owner, whose agent is never held back. Otherwise the comment waits in the chat for the
+// sharer, who reads it and presses "Ask Agent to work on this" themselves.
+const autoWorkChecked = (cfg, sharer) => capabilitiesOn(cfg) && sharer?.role !== "owner";
 // A comment arrived: it shows in the prototype's own chat, where the person who shared it reads it and decides what
 // to do (answer the reviewer themselves, change the prototype, hand it to the agent, or nothing), and they are told.
 // When they switched it on for this reviewer, the agent starts on it straight away. Nothing is filed anywhere else:
@@ -1020,7 +1025,7 @@ function askAgentAboutComment(share, comment, sharer, by, cfg) {
 function reviewCommented(share, comment, sharer, cfg) {
   // A reviewer can't run up the sharer's agent use: past a number of comments an hour, the rest wait for the sharer.
   let started = false;
-  if (share.autoWork && prototypeReviews().autoWorkedSince(share.id, now() - 3_600_000) < AUTO_WORK_PER_HOUR) {
+  if (share.autoWork && autoWorkChecked(cfg, sharer) && prototypeReviews().autoWorkedSince(share.id, now() - 3_600_000) < AUTO_WORK_PER_HOUR) {
     try { started = !!askAgentAboutComment(share, comment, sharer, "auto", cfg).turn; } catch (error) { console.error("[servant] review comment auto-work", error?.message || error); }
   }
   try { push?.enqueue({ kind: "note", eventId: id("rev"), to: [sharer.id], chatId: share.chatId, title: started ? `Agent is working on a comment on ${share.title}` : `Comment on ${share.title}`, body: `${share.email}: ${comment.text}` }); }
@@ -2713,7 +2718,7 @@ async function handle(req, res, cfg) {
       // The outside reviewers named on the project prototypes are built in, who don't have an open link to this one yet.
       const open = new Set(reviews.forChat(chat.id).filter(s => !s.endedAt).map(s => s.email));
       const suggested = outsideReviewers(vibeProject()).filter(r => !open.has(r.email));
-      return { suggested, shares: reviews.forChat(chat.id).map(s => ({ id: s.id, email: s.email, createdAt: s.createdAt, ...(s.verifiedAt ? { verifiedAt: s.verifiedAt } : {}), ...(s.lastSeenAt ? { lastSeenAt: s.lastSeenAt } : {}), ...(s.endedAt ? { endedAt: s.endedAt } : {}), autoWork: s.autoWork,
+      return { suggested, autoWorkChecked: autoWorkChecked(cfg, user), shares: reviews.forChat(chat.id).map(s => ({ id: s.id, email: s.email, createdAt: s.createdAt, ...(s.verifiedAt ? { verifiedAt: s.verifiedAt } : {}), ...(s.lastSeenAt ? { lastSeenAt: s.lastSeenAt } : {}), ...(s.endedAt ? { endedAt: s.endedAt } : {}), autoWork: s.autoWork,
         comments: comments.filter(c => c.shareId === s.id).map(c => ({ id: c.id, page: c.page, x: c.x, y: c.y, anchor: c.anchor, text: c.text, createdAt: c.createdAt,
           ...(c.askedAt ? { askedAt: c.askedAt, askedBy: c.askedBy === "auto" ? "auto" : "you", turnId: c.turnId } : {}), ...(c.setAsideAt ? { setAsideAt: c.setAsideAt } : {}) })) })) };
     };
