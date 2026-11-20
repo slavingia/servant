@@ -66,3 +66,7 @@ All routes need a device token, like the rest of `/v1/`.
 | `GET /v1/code-requests/<id>` | you | One request, without the code |
 | `POST /v1/code-requests/<id>/answer` `{ code }` | your other devices | Give the code: 4 to 12 letters or numbers; spaces and dashes are dropped |
 | `POST /v1/code-requests/<id>/cancel` | you | Cancel it; an unclaimed answer is dropped |
+
+## How this is tested
+
+`server/code-requests-identity.test.mjs` tries the path the wrong way round against the real API: signed out, with a made-up token, from a device that was signed out, as someone else holding the id, outside the encrypted transport, with another person named in the request, out of order (picking up before the answer, answering twice, answering or cancelling after the end), and by sending a captured answer and pick-up a second time. `code-requests.test.mjs` covers expiry by the clock and the limits; `code-requests-http.test.mjs` and `code-requests-worker.test.mjs` cover the alert.
