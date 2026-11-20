@@ -129,8 +129,8 @@ export default function EntitlementsScreen() {
               : <Text style={styles.meta}>{`They confirmed: ${entitlement.confirmation}`}</Text>}
             <View style={styles.actions}>
               {/* A built-in entitlement can be allowed for this one action, or from now on. */}
-              {entitlement.native ? <Button testID={`once-${entitlement.id}-${request.userId}`} label="Allow once" accessibilityLabel={`Allow ${entitlement.name} once for ${request.name}`} compact busy={busy === `${entitlement.id}:${request.userId}:once`} disabled={!!busy} onPress={() => void decide(entitlement, request, "once")} /> : null}
-              <Button testID={`grant-${entitlement.id}-${request.userId}`} label={entitlement.native ? "Allow always" : "Grant"} accessibilityLabel={entitlement.native ? `Always allow ${entitlement.name} for ${request.name}` : `Grant ${entitlement.name} to ${request.name}`} kind={entitlement.native ? "secondary" : "primary"} compact busy={busy === `${entitlement.id}:${request.userId}:grant`} disabled={!!busy} onPress={() => void decide(entitlement, request, "grant")} />
+              {entitlement.native && !entitlement.byRequest ? <Button testID={`once-${entitlement.id}-${request.userId}`} label="Allow once" accessibilityLabel={`Allow ${entitlement.name} once for ${request.name}`} compact busy={busy === `${entitlement.id}:${request.userId}:once`} disabled={!!busy} onPress={() => void decide(entitlement, request, "once")} /> : null}
+              <Button testID={`grant-${entitlement.id}-${request.userId}`} label={entitlement.native && !entitlement.byRequest ? "Allow always" : "Grant"} accessibilityLabel={entitlement.native && !entitlement.byRequest ? `Always allow ${entitlement.name} for ${request.name}` : `Grant ${entitlement.name} to ${request.name}`} kind={entitlement.native && !entitlement.byRequest ? "secondary" : "primary"} compact busy={busy === `${entitlement.id}:${request.userId}:grant`} disabled={!!busy} onPress={() => void decide(entitlement, request, "grant")} />
               <Button testID={`deny-${entitlement.id}-${request.userId}`} label="Decline" accessibilityLabel={`Decline ${request.name}'s request for ${entitlement.name}`} kind="secondary" compact busy={busy === `${entitlement.id}:${request.userId}:deny`} disabled={!!busy} onPress={() => void decide(entitlement, request, "deny")} />
             </View>
           </View>)}
@@ -139,7 +139,7 @@ export default function EntitlementsScreen() {
 
       {page ? <View>
         <Text accessibilityRole="header" style={styles.section}>Entitlements</Text>
-        {page.entitlements.every(e => e.native) ? <Text testID="none-of-your-own" style={styles.empty}>{owner ? "Four are built in. Make one for each other system your team's agents should reach." : "Four are built in. An owner makes the others."}</Text> : null}
+        {page.entitlements.every(e => e.native) ? <Text testID="none-of-your-own" style={styles.empty}>{owner ? "These are built in. Make one for each other system your team's agents should reach." : "These are built in. An owner makes the others."}</Text> : null}
         <View style={page.entitlements.length ? styles.list : null}>
           {page.entitlements.map(entitlement => {
             const standing = standingLine(entitlement.mine, managerName);

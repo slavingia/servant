@@ -3,6 +3,8 @@
 export type WikiPageSummary = {
   id: string; parentId: string | null; title: string; position: number;
   createdAt: number; updatedAt: number; updatedByName: string | null; version: number; canDelete: boolean;
+  /** A page a part of Servant reads. "social-guide" is the page Agent writes social media replies from. */
+  kind?: string;
 };
 export type WikiPage = WikiPageSummary & { body: string };
 
@@ -22,7 +24,17 @@ export type WikiRow = {
   open: boolean;
   /** The built-in Abbreviations page: no subpages, no rename, no delete. */
   special: boolean;
+  /** What the page is marked as, when a part of Servant reads it (the social media guide). */
+  kind?: string;
 };
+
+/** The page Agent writes social media replies from (server/social-draft.mjs). */
+export const SOCIAL_GUIDE_KIND = "social-guide";
+/** What a marked page is used for, said in the tree and at the top of the page. Null for an ordinary page. */
+export const wikiMarkNote = (kind: string | undefined): string | null => kind === SOCIAL_GUIDE_KIND
+  ? "Agent writes social media replies from this page. When someone changes a draft before it is approved, what the change teaches is added under Learned from edits."
+  : null;
+export const wikiMarkLabel = (kind: string | undefined): string | null => kind === SOCIAL_GUIDE_KIND ? "Used for social media replies" : null;
 
 const inOrder = (a: WikiPageSummary, b: WikiPageSummary) => a.position - b.position || a.createdAt - b.createdAt || a.id.localeCompare(b.id);
 
@@ -46,7 +58,7 @@ export function wikiRows(pages: readonly WikiPageSummary[], closed: ReadonlySet<
       seen.add(page.id);
       const children = under.get(page.id) ?? [];
       const open = children.length > 0 && !closed.has(page.id);
-      rows.push({ id: page.id, title: page.title || UNTITLED, depth, hasChildren: children.length > 0, open, special: false });
+      rows.push({ id: page.id, title: page.title || UNTITLED, depth, hasChildren: children.length > 0, open, special: false, ...(page.kind ? { kind: page.kind } : {}) });
       if (open) walk(page.id, depth + 1);
     }
   };

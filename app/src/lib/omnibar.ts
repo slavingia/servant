@@ -2,7 +2,7 @@ import { DESTINATIONS } from "./destinations.ts";
 import { ALL_FEATURES, anyTalk, type FeatureName, type Features } from "./features.ts";
 
 // `needs`: a server feature (features.ts) without which the shortcut would be a dead link; "talk" means channels or DMs.
-export type Shortcut = { id: string; title: string; detail: string; path: string; keywords: string; owner?: boolean; fileDrop?: boolean; needs?: FeatureName | "talk" };
+export type Shortcut = { id: string; title: string; detail: string; path: string; keywords: string; owner?: boolean; fileDrop?: boolean; needs?: FeatureName | "talk" | "social" };
 
 // A place from the one list (destinations.ts), under the name it has everywhere.
 const place = (id: string): Shortcut => {
@@ -29,7 +29,7 @@ export function matchesQuery(query: string, ...values: (string | null | undefine
   return terms.every(term => text.includes(term));
 }
 
-const offered = (item: Shortcut, features: Features) => !item.needs || (item.needs === "talk" ? anyTalk(features) : features[item.needs]);
+const offered = (item: Shortcut, features: Features) => !item.needs || (item.needs === "talk" ? anyTalk(features) : features[item.needs] === true);
 
 export function omnibarShortcuts(query: string, owner: boolean, features: Features = ALL_FEATURES, fileDrop = false) {
   return shortcuts.filter(item => (!item.owner || owner) && (!item.fileDrop || fileDrop) && offered(item, features) && matchesQuery(query, item.title, item.detail, item.keywords));

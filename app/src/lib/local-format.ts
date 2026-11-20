@@ -21,6 +21,10 @@ export const FORMATS = {
   weekdayMonthDay: { weekday: "long", month: "short", day: "numeric" },
   /** Friday, Nov 2, 2025 */
   weekdayMonthDayYear: { weekday: "long", month: "short", day: "numeric", year: "numeric" },
+  /** Fri */
+  weekdayShort: { weekday: "short" },
+  /** November 2025 */
+  monthYear: { month: "long", year: "numeric" },
 } as const satisfies Record<string, Intl.DateTimeFormatOptions>;
 export type LocalFormat = keyof typeof FORMATS;
 

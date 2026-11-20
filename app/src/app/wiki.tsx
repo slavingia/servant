@@ -9,7 +9,7 @@ import { useWideLayout } from "../lib/layout";
 import type { Account } from "../lib/server";
 import { useSession } from "../lib/session";
 import { createThemedStyles, space, typography, useTheme } from "../lib/theme";
-import { ABBREVIATIONS_PAGE, ABBREVIATIONS_TITLE, UNTITLED, WIKI_MAX_DEPTH, wikiAncestors, wikiDepth, wikiLanding, wikiOpened, wikiRows, type WikiPageSummary, type WikiRow } from "../lib/wiki";
+import { ABBREVIATIONS_PAGE, ABBREVIATIONS_TITLE, UNTITLED, WIKI_MAX_DEPTH, wikiAncestors, wikiDepth, wikiLanding, wikiMarkLabel, wikiOpened, wikiRows, type WikiPageSummary, type WikiRow } from "../lib/wiki";
 import { wikiApi } from "../lib/wiki-api";
 import { ServeLoader } from "../components/ServeLoader";
 
@@ -113,9 +113,11 @@ function TreeRow({ row, current, canAdd, onOpen, onToggle, onAdd }: { row: WikiR
           onPress={onToggle} style={({ pressed }) => [styles.disclosure, pressed && styles.pressed]}>
           <AppIcon name={row.open ? "chevronDown" : "chevronRight"} size={16} color={colors.muted} />
         </Pressable>
-      : <View style={styles.disclosure}>{row.special ? <AppIcon name="code" size={16} color={colors.muted} /> : null}</View>}
-    <Pressable accessibilityRole="link" accessibilityLabel={row.title} aria-current={current ? "page" : undefined} onPress={onOpen} style={({ pressed }) => [styles.rowMain, pressed && styles.pressed]}>
+      : <View style={styles.disclosure}>{row.special ? <AppIcon name="code" size={16} color={colors.muted} /> : row.kind ? <AppIcon name="megaphone" size={16} color={colors.muted} /> : null}</View>}
+    <Pressable accessibilityRole="link" accessibilityLabel={wikiMarkLabel(row.kind) ? `${row.title}. ${wikiMarkLabel(row.kind)}` : row.title} aria-current={current ? "page" : undefined} onPress={onOpen} style={({ pressed }) => [styles.rowMain, pressed && styles.pressed]}>
       <Text style={[styles.rowTitle, current && styles.rowTitleCurrent]}>{row.title}</Text>
+      {/* A marked page says what reads it, under its name. */}
+      {wikiMarkLabel(row.kind) ? <Text testID={`wiki-mark-${row.id}`} style={styles.rowMark}>{wikiMarkLabel(row.kind)}</Text> : null}
     </Pressable>
     {canAdd ? <IconButton icon="plus" label={`Add a page under ${row.title}`} onPress={onAdd} /> : null}
   </View>;
@@ -135,6 +137,7 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   rowMain: { flex: 1, minWidth: 0, minHeight: 44, justifyContent: "center", paddingVertical: space.xs },
   rowTitle: { ...typography.body, color: colors.ink },
   rowTitleCurrent: { ...typography.bodyStrong, color: colors.ink },
+  rowMark: { ...typography.caption, color: colors.muted },
   pressed: { opacity: 0.6 },
   hint: { ...typography.body, color: colors.muted, padding: space.sm },
   error: { ...typography.body, color: colors.red, padding: space.sm },
