@@ -194,9 +194,9 @@ test("allow once lets one action through and the next asks again; allow always s
   assert.equal(store.use("usr_pat", "github-write").verdict, "wait");
   fails(() => store.decide(store.create({ name: "Jira", hosts: [] }, "usr_ana").id, "usr_pat", { decision: "once", by: "usr_ana" }), 404);
   assert.deepEqual(store.history(id).filter(h => h.userId === "usr_pat").map(h => h.action).reverse(), ["requested", "once", "used", "requested", "granted", "revoked", "requested"]);
-  assert.deepEqual(capabilitySettings(undefined), { mode: "off", waitSeconds: 120 });
-  assert.deepEqual(capabilitySettings({ mode: "ask", waitSeconds: 5000 }), { mode: "ask", waitSeconds: 900 });
-  assert.deepEqual(capabilitySettings({ mode: "ask", waitSeconds: 0 }), { mode: "ask", waitSeconds: 0 });
+  assert.deepEqual(capabilitySettings(undefined), { mode: "off", checkOwners: false, waitSeconds: 120 });
+  assert.deepEqual(capabilitySettings({ mode: "ask", waitSeconds: 5000 }), { mode: "ask", checkOwners: false, waitSeconds: 900 });
+  assert.deepEqual(capabilitySettings({ mode: "ask", waitSeconds: 0 }), { mode: "ask", checkOwners: false, waitSeconds: 0 });
   done();
 });
 
@@ -336,4 +336,34 @@ test("built-in entitlements are held per project: allowed for one project says n
     assert.deepEqual(store.list().filter(e => e.projectId).map(e => e.name).sort(), ["Filesystem read · Prototypes", "Filesystem write · Example app", "Filesystem write · Prototypes", "GitHub read · Example app", "GitHub read · Prototypes", "GitHub write · Example app", "GitHub write · Prototypes"].sort(),
       "one for each project something was asked for in; none made for a use that something wider already covered (New one, reading Example app)");
   } finally { done(); }
+});
+
+test("with owners checked, an owner's own request is another owner's to decide; alone, the owner decides it", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "servant-entitlements-owners-"));
+  const roles = new Map([["usr_ana", "owner"], ["usr_ben", "owner"], ["usr_pat", "member"]]);
+  let checked = true;
+  const owners = () => [...roles].filter(([, role]) => role === "owner").length;
+  const store = createEntitlements(path.join(dir, "entitlements.db"), { known: id => roles.has(id), isOwner: id => roles.get(id) === "owner", manages: () => false, ownerDecidesOwn: () => !checked || owners() < 2 });
+  try {
+    assert.deepEqual([capabilitySettings({ mode: "ask", owners: "ask" }).checkOwners, capabilitySettings({ mode: "ask" }).checkOwners, capabilitySettings({ mode: "ask", owners: true }).checkOwners], [true, false, false]);
+    assert.equal(capabilitySettings(capabilitySettings({ mode: "ask", owners: "ask" })).checkOwners, true, "reading the settings twice keeps it");
+    // Ana's agent tries something: a request is on file, like anyone's.
+    assert.equal(store.use("usr_ana", "fs-write", "Run: a command").verdict, "wait");
+    // Ana can't allow it herself while there is another owner; Ben can.
+    fails(() => store.decide("native-fs-write", "usr_ana", { decision: "grant", by: "usr_ana" }), 403, "forbidden");
+    assert.equal(store.decides("usr_ana", "usr_ana"), false);
+    assert.equal(store.decide("native-fs-write", "usr_ana", { decision: "grant", by: "usr_ben" }).grant.status, "granted");
+    assert.equal(store.use("usr_ana", "fs-write", "Run: a command").verdict, "allow");
+    // An owner still decides for everyone else.
+    store.use("usr_pat", "fs-read", "Read a file");
+    assert.equal(store.decide("native-fs-read", "usr_pat", { decision: "grant", by: "usr_ana" }).grant.status, "granted");
+    // The only owner left decides their own, so a one-owner server is never locked out.
+    roles.delete("usr_ben");
+    store.use("usr_ana", "github-write", "Run: git push");
+    assert.equal(store.decide("native-github-write", "usr_ana", { decision: "once", by: "usr_ana" }).grant.status, "once");
+    // Without the setting, an owner decides their own, as before.
+    roles.set("usr_ben", "owner"); checked = false;
+    store.use("usr_ben", "fs-write", "Run: a command");
+    assert.equal(store.decide("native-fs-write", "usr_ben", { decision: "grant", by: "usr_ben" }).grant.status, "granted");
+  } finally { store.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });

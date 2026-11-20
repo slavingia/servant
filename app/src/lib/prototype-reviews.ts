@@ -56,7 +56,7 @@ export const commentAsked = (comment: Pick<PrototypeComment, "askedAt" | "askedB
 export const waitingLine = (n: number) => (n === 1 ? "1 comment from a reviewer" : `${n} comments from reviewers`);
 export const AUTO_WORK_LABEL = "Agent starts on their comments by itself";
 /** In place of the hint when a comment can't start the agent by itself here: a reviewer is an outsider, so that needs an agent that asks before it acts. */
-export const AUTO_WORK_UNCHECKED_HINT = "Not available for you on this server. A reviewer's comment can start Agent by itself only when Agent has to ask before it reads or changes files, and owners' agents are never asked. Their comments wait here for you.";
+export const AUTO_WORK_UNCHECKED_HINT = "Not available for you on this server. A reviewer's comment can start Agent by itself only when your Agent has to ask before it reads or changes files. Their comments wait here for you.";
 /** Whether a response from the server says comments may start the agent unattended (absent on an older server: yes). */
 export const autoWorkAvailable = (response: unknown): boolean => (response as { autoWorkChecked?: unknown } | null)?.autoWorkChecked !== false;
 export const AUTO_WORK_HINT = "Each comment this person makes is sent to Agent in this chat as it arrives, and counts toward your agent use. Off, their comments wait here for you.";

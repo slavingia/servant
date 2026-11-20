@@ -62,7 +62,7 @@ Evidence: [entitlements.md](../../entitlements.md) ("Built-in entitlements"); `s
 What it does not do:
 
 - It is a check made inside the agent, not a wall around the computer. A program the agent was allowed to run can do more than its command line shows. **Filesystem write should be granted as "this person's agent may run arbitrary commands on the server's computer".**
-- Owners' own agents are logged but not held for approval; owners are the ones who approve. This is a decision, recorded in section 2 below.
+- Owners' own agents are logged but not held for approval by default; `"owners": "ask"` holds them too, with another owner deciding (section 2 below).
 - Read and write cover everything the server's user and credentials can reach, not one folder or repository.
 - It has been tested piece by piece and through Hermes's own hook, but not yet watched stopping and resuming a live model's turn.
 
@@ -83,13 +83,14 @@ Nothing in Servant detects a malicious instruction in a page, file or message th
 - with 1d, it can only send data to hosts that person was granted;
 - with the sandbox's closed paths (section 3), it cannot read the server's keys or databases.
 
-Decided, not open: **an owner's own agent is not held for approval.** The review asked that being the administrator not grant access by itself. The project's owner considered that on November 20, 2026 and decided against it: owners are the people who run the server's computer and who approve everyone else, so asking an owner to approve their own agent adds a prompt and no control. What follows from that decision, and what still bounds an owner's agent:
+**Owners can be checked too.** By default an owner's own agent is logged but not held: on a small team the owner runs the server's computer and approves everyone else, so approving their own agent adds a prompt and little control. A deployment that needs the administrator bound like everyone else sets `"agentCapabilities": { "mode": "ask", "owners": "ask" }`. Then:
 
-- An injection in something an owner asks the agent to read acts with the owner's access. This is the accepted risk.
-- Every checked tool call an owner's agent makes is still written to the append-only action log (`allowed-owner`), so the use is on record.
-- The network gate and the sandbox's closed folders apply to the owner's agent like anyone's, when they are on.
-- Text from outside the server never starts an owner's agent by itself: a reviewer's comment waits for the owner to read it and hand it over ([prototype-reviews.md](../../prototype-reviews.md#when-the-agent-starts-by-itself)).
-- A deployment that wants owners checked too should give day-to-day work to member accounts and keep the owner account for administration; members are checked per project ([entitlements.md](../../entitlements.md)).
+- An owner's agent asks before it reads or changes files or GitHub, per project, exactly as a member's does. Being an owner grants nothing by itself.
+- An owner's request is decided by **another owner**. An owner can't allow their own, unless they are the only owner on the server (so a one-owner server is never locked out; that self-approval is on the record like any other decision).
+- The action log records the owner's calls as allowed, waiting or denied, the same words as for everyone else.
+- A reviewer's comment may start a checked owner's agent unattended, on the same terms as a member's ([prototype-reviews.md](../../prototype-reviews.md#when-the-agent-starts-by-itself)).
+
+With the setting off, the accepted risk stands: an injection in something an owner asks the agent to read acts with the owner's access, bounded by the network gate and the sandbox's closed folders when those are on, and logged as `allowed-owner`.
 
 ## 3. Local files, credentials, configuration and databases
 

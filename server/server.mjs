@@ -1027,7 +1027,7 @@ function askAgentAboutComment(share, comment, sharer, by, cfg) {
 // agent has to ask before it reads or changes files or GitHub (the built-in entitlement checks, docs/entitlements.md)
 // and the sharer is not an owner, whose agent is never held back. Otherwise the comment waits in the chat for the
 // sharer, who reads it and presses "Ask Agent to work on this" themselves.
-const autoWorkChecked = (cfg, sharer) => capabilitiesOn(cfg) && sharer?.role !== "owner";
+const autoWorkChecked = (cfg, sharer) => capabilitiesOn(cfg) && !ownerUnchecked(cfg, sharer);
 // A comment arrived: it shows in the prototype's own chat, where the person who shared it reads it and decides what
 // to do (answer the reviewer themselves, change the prototype, hand it to the agent, or nothing), and they are told.
 // When they switched it on for this reviewer, the agent starts on it straight away. Nothing is filed anywhere else:
@@ -1200,11 +1200,15 @@ async function handleTokenApi(req, res, url, parts, cfg) {
 // One-time codes an automation asks its own person for (docs/code-requests.md). Memory only: a restart forgets them.
 const codeRequests = createCodeRequests({ clock: () => now() });
 // Entitlements (docs/entitlements.md): who holds which named access, and who decides. The agent's outbound gate asks here.
+// The settings this process was started with, when a test or an embedder passed them in instead of config.json.
+let servedConfig = null;
 const entitlementStore = () => entitlementDb ??= createEntitlements(path.join(DATA_DIR, "entitlements.db"), {
   known: userId => { const u = readState().users[userId]; return !!u && !isRemoved(u); },
   isOwner: userId => readState().users[userId]?.role === "owner",
   manages: (by, userId) => { const state = readState(); return managerOf(state, state.users[userId])?.id === by; },
   grantDays: () => loadConfig().entitlementGrantDays,
+  // With owners checked, an owner's own request is another owner's to decide, when there is another owner.
+  ownerDecidesOwn: () => !capabilitySettings((servedConfig || loadConfig()).agentCapabilities).checkOwners || ownerIds(readState()).length < 2,
 });
 // Everyone but an owner has a manager, who decides their entitlement requests: whoever was chosen for them, else
 // whoever invited them, else the server's first owner. Someone who has left is skipped.
@@ -1231,6 +1235,8 @@ const egressOn = cfg => egressSettings(cfg?.agentEgress).mode === "ask";
 // With the gate on, each turn tells the bridge whose it is: a token the sandboxed commands of that chat present to the
 // gate (hermes_egress.py). `scope` is the chat or thread; its token never changes for the same person.
 const capabilitiesOn = cfg => capabilitySettings(cfg?.agentCapabilities).mode === "ask";
+// An owner's own agent is not held unless the server says owners are checked too (`"agentCapabilities": { "owners": "ask" }`).
+const ownerUnchecked = (cfg, user) => user?.role === "owner" && !capabilitySettings(cfg?.agentCapabilities).checkOwners;
 // The same token also lets the bridge ask, before a tool call, whether this person may read or change files or GitHub
 // (agentUse below). `X-Servant-Door` is where to ask: the local listener the network gate uses.
 const doorPort = cfg => egressProxy?.port || egressSettings(cfg?.agentEgress).port;
@@ -1239,7 +1245,7 @@ const egressHeaders = (cfg, userId, scope) => (egressOn(cfg) || capabilitiesOn(c
 const sleepMs = ms => new Promise(resolve => setTimeout(resolve, ms));
 // A full agent that can't ask before acting must not be handed a turn while the checks are on.
 async function requireEntitlementChecks(cfg, up, user) {
-  if (!capabilitiesOn(cfg) || user?.role === "owner") return;
+  if (!capabilitiesOn(cfg) || ownerUnchecked(cfg, user)) return;
   if (!(await supportsEntitlementChecks(up))) throw requestError(502, "agent_error", "The agent on this server can't check entitlements before acting, so it can't work for you yet. Ask an owner to update the agent's bridge");
 }
 /**
@@ -1274,7 +1280,7 @@ async function agentUse(body, config = loadConfig) {
     }
     return { status: 200, answer };
   };
-  if (person.role === "owner") return logged("allowed-owner", { verdict: "allow" });
+  if (ownerUnchecked(config(), person)) return logged("allowed-owner", { verdict: "allow" });
   // Work in a project's chat is asked about, allowed and recorded for that project: holding "Filesystem write" for
   // one project says nothing about another. A chat outside any project uses the entitlement for every project.
   const project = agentProject(state.chats[who.chatId]);
@@ -1284,11 +1290,15 @@ async function agentUse(body, config = loadConfig) {
     // Look at everything the action needs before spending anything: a single allowance for one entitlement is not
     // used up while another is still waiting. Whatever is missing is asked for together.
     const looked = needs.map(capability => ({ capability, ...store.use(person.id, capability, detail, { consume: false, project }) }));
-    const manager = managerOf(readState(), person);
+    // Who decides: the person's manager; for an owner (checked on this server), the other owners, or the owner alone.
+    const current = readState();
+    const others = person.role === "owner" ? ownerIds(current).filter(ownerId => ownerId !== person.id) : [];
+    const manager = person.role === "owner" ? (others.length === 1 ? current.users[others[0]] : null) : managerOf(current, person);
+    const deciders = person.role === "owner" ? (others.length ? others : [person.id]) : [manager?.id];
     const refused = looked.find(r => r.verdict === "deny");
     if (refused) return logged("denied", { verdict: "deny", capability: refused.capability, message: `Servant blocked this: ${person.name} asked for ${refused.entitlement.name} and was declined. Tell them so, and don't look for another way to do it. They can ask again in Servant under Entitlements.` });
     const missing = looked.filter(r => r.verdict === "wait");
-    for (const r of missing) if (r.fresh) tellAbout([manager?.id], "Entitlement request", `${person.name}'s agent needs ${r.entitlement.name}`);
+    for (const r of missing) if (r.fresh) tellAbout(deciders, "Entitlement request", `${person.name}'s agent needs ${r.entitlement.name}`);
     // The person watching the reply sees why it has stopped, not "Working".
     if (missing.length && !told) { told = true; try { agentTurns?.noteForChat(who.chatId, `Waiting for ${manager?.name || "an owner"} to allow ${missing.map(r => r.entitlement.name).join(" and ")}`); } catch { /* the wait still happens */ } }
     if (!missing.length) {
@@ -2499,7 +2509,7 @@ async function handle(req, res, cfg) {
         // Owners see the whole chart: each person and who decides for them.
         ...(user.role === "owner" ? { org: everyone.map(u => ({ ...brief(u), role: u.role, manager: brief(managerOf(state, u)) || null })) } : {}),
         // Whether built-in entitlements are checked before the agent reads or changes files or GitHub.
-        capabilities: { mode: capabilitySettings(cfg.agentCapabilities).mode },
+        capabilities: { mode: capabilitySettings(cfg.agentCapabilities).mode, ...(capabilitySettings(cfg.agentCapabilities).checkOwners ? { owners: "ask" } : {}) },
         egress: { mode: egressSettings(cfg.agentEgress).mode, ...(user.role === "owner" ? { always: egressSettings(cfg.agentEgress).always, refused: egressStore().recent(50).map(a => ({ ...a, name: users[a.userId]?.name || "Former member" })),
           // What agents did reach: per person (or the agent itself), host and day.
           reached: egressStore().recentReached(100).map(a => ({ ...a, name: a.userId ? users[a.userId]?.name || "Former member" : "The agent itself" })) } : {}) } });
@@ -3384,6 +3394,7 @@ export async function runFeedback(report) {
 function createServices(fixedCfg, { externalWorker = false, autoDrain = true } = {}) {
   process.umask(0o077); // messages.db and its WAL files are private to this user
   glossaryConfig = fixedCfg;
+  servedConfig = fixedCfg;
   store();
   let servicePush;
   const readLink = createLinkPreviews();
