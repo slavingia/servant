@@ -121,3 +121,12 @@ How long a press takes to show its screen is measured separately, and more exact
 ### Releasing it
 
 Turning the compiler on changes the app's native fingerprint ([ota.md](ota.md)), although no native code changed. Phones get all of this with the next App Store or Play build, not over the air, and builds from before it stop receiving updates made after it.
+
+## When the live connection keeps being cut
+
+Each app holds one live connection (`POST /v1/events`). When connections are cut again and again (a tunnel dropping its connections, a server too busy to keep up), every open app reconnects and then refetches its lists. Enough devices doing that at once keep the server too busy to hold a connection, which cuts them again. Two things stop that loop:
+
+- **The server refuses a device that reopens too often** (`server/live-opens.mjs`): after six opens in a minute, the next is answered `429 reconnecting_too_often` with `Retry-After`, before any work is done for it. Ordinary use (coming back to the app, a server restart, a flaky network) stays far under that. The count is kept in memory per device and forgotten on restart.
+- **The app waits longer, and not in step with other apps** (`app/src/lib/live-backoff.ts`): the wait before reconnecting doubles after each attempt that failed or was cut short, up to 30 seconds, and goes back to one second only after a connection has lasted 30 seconds. Each wait is spread at random between half and all of itself. Coming back to the app still reconnects at once.
+
+An app from before this change resets its wait as soon as it connects, so it is the server's refusal that slows it down: a refused attempt is a failure, and the old app doubles its wait after each one.

@@ -1,4 +1,5 @@
 import { agentTierOf, TIER_TOKEN_LIMITS } from "./usage.mjs";
+import { createLiveOpens } from "./live-opens.mjs";
 import { jobRoleOf } from "./job-roles.mjs";
 import { ftsQuery, parseSearch, SEARCH_SCHEMA } from "./search.mjs";
 import { firstLink } from "./link-preview.mjs";
@@ -624,6 +625,7 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
   const listeners = new Map();
   const eventStreams = new Set();
   let closingEvents = false;
+  const liveOpens = createLiveOpens();
   const agentTasks = new Set();
   const whenIdle = async () => {
     while (agentTasks.size) await Promise.allSettled([...agentTasks]);
@@ -1622,6 +1624,13 @@ export function createMessaging({ file, users, agentName, managerOf = () => null
         return fail(res, 400, 'invalid_cursor', 'Invalid event cursor'), true;
       }
       if (!isAuthorized()) return fail(res, 401, 'unauthorized', 'This device is no longer paired'), true;
+      // A device that keeps reopening the connection is refused before any work is done for it (live-opens.mjs).
+      // The app waits longer after each refusal, so a server that fell behind gets room to catch up.
+      const opening = liveOpens.take(device?.id);
+      if (!opening.ok) {
+        res.setHeader("Retry-After", String(opening.retryAfter));
+        return fail(res, 429, "reconnecting_too_often", `This device reconnected too many times in a minute. It will try again in ${opening.retryAfter} seconds`), true;
+      }
       res.writeHead(200, {
         ...cors,
         "Content-Type": "text/event-stream; charset=utf-8",

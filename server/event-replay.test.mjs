@@ -331,3 +331,16 @@ test('a delayed channel edit cannot publish an update after another API deletes 
     assert.equal(f.eventCount(), beforeEvents);
   } finally { f.close(); }
 });
+
+test('a device that keeps reopening the live connection is refused until the minute passes; others are not', { timeout: 30000 }, async t => {
+  const f = await fixture(t);
+  // Six opens in a row from one device are served (an app coming back, a server restart, a flaky network).
+  for (let i = 0; i < 6; i++) { const live = await f.events(1); await live.stop(); }
+  // The seventh is refused before a stream is opened, with when to come back.
+  await assert.rejects(f.events(1), error => /429/.test(String(error.message)), 'the seventh open in a minute is refused');
+  await assert.rejects(f.events(1), error => /429/.test(String(error.message)), 'and stays refused');
+  // Someone else's device is served as usual, and the refused device's other requests still work.
+  const other = await f.events(1, { who: 'outsider' });
+  await other.stop();
+  assert.ok(Array.isArray((await f.api(1, '/v1/conversations', { who: 'member' })).conversations));
+});
