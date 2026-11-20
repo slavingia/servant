@@ -75,6 +75,8 @@ import { createGlossaryStore } from "./glossary.mjs";
 import { createLexiconStore } from "./lexicon.mjs";
 import { withColloquialisms } from "./colloquialisms.mjs";
 import { createWikiStore, WIKI_LIMITS } from "./wiki.mjs";
+import { accessTokenSettings, createAccessTokens, DEFAULT_DAYS } from "./access-tokens.mjs";
+import { apiGuide } from "./access-token-guide.mjs";
 import { draftWikiPage } from "./wiki-draft.mjs";
 import { createSocial, socialSettings, SOCIAL_LIMITS } from "./social.mjs";
 import { createSocialRunner } from "./social-run.mjs";
@@ -221,6 +223,8 @@ export function loadConfig() {
     discoveryUrl: process.env.SERVANT_DISCOVERY_URL || cfg.discoveryUrl || "",
     // Which parts of the app this instance uses (features.mjs). Each is on unless set to exactly false.
     features: normalizeFeatures(cfg.features),
+    // Personal access tokens and the plain HTTPS API they open at /api/v1/ (docs/access-tokens.md). Off unless enabled.
+    accessTokens: accessTokenSettings(cfg.accessTokens),
     // Social media (docs/social.md): the X account's keys, the searches and the pace. Shown only once the keys are there,
     // and hidden again by `"features": { "social": false }`.
     social: cfg.social && typeof cfg.social === "object" ? cfg.social : undefined,
@@ -535,7 +539,7 @@ function removePerson(state, targetId) {
   target.removedAt = now();
   for (const d of Object.values(state.devices)) if (d.userId === targetId && !d.revokedAt) revokeDevice(d);
   // Everything they held is revoked and their code requests are dropped. Their agent's network tokens stop counting because they are no longer on the server.
-  entitlementStore().forget(targetId, "server"); codeRequests.forget(targetId);
+  entitlementStore().forget(targetId, "server"); codeRequests.forget(targetId); accessTokens().forget(targetId, "server");
   // The credentials they saved for their own agent go with them.
   connectionStore().forget(targetId);
   // Out of every project; projects they owned stay (admins can still edit them).
@@ -892,7 +896,8 @@ let todosStore = null;
 let workChatStarter = null;
 let otaServer;
 const ota = () => otaServer ??= createOta({ dir: path.join(DATA_DIR, "ota") });
-let entitlementDb = null, egressDb = null, egressProxy = null, reviewDb = null;
+let entitlementDb = null, egressDb = null, egressProxy = null, reviewDb = null, tokenDb = null;
+const accessTokens = () => tokenDb ??= createAccessTokens(path.join(DATA_DIR, "access-tokens.db"));
 // Prototypes shared with a business owner by email, and the comments they left (docs/prototype-reviews.md).
 const prototypeReviews = () => reviewDb ??= createPrototypeReviews(path.join(DATA_DIR, "prototype-reviews.db"));
 const sendMail = (message, settings) => (globalThis.__servantEmailSend || commandSender)(message, settings);
@@ -1033,6 +1038,135 @@ function reviewCommented(share, comment, sharer, cfg) {
   try { push?.enqueue({ kind: "note", eventId: id("rev"), to: [sharer.id], chatId: share.chatId, title: started ? `Agent is working on a comment on ${share.title}` : `Comment on ${share.title}`, body: `${share.email}: ${comment.text}` }); }
   catch (error) { console.error("[servant] review comment alert", error.message); }
 }
+/**
+ * Share one chat's prototype with one address and send the link. `asker` is who pressed the button or made the
+ * request; the share belongs to the chat's own person, so comments arrive in their chat whoever sent the link.
+ * Resolves to the share, or throws { status, code, message }.
+ */
+async function sharePrototype(chat, email, asker, cfg, { autoWork = false } = {}) {
+  const reviews = prototypeReviews();
+  const origin = publicOrigin(cfg), settings = emailSettings(cfg);
+  if (!origin) throw requestError(400, "not_set_up", "This server has no public address yet, so there is no link to send. Ask an owner to set it up");
+  if (!settings.mailer?.command && !globalThis.__servantEmailSend) throw requestError(400, "not_set_up", "This server can't send email yet, so the link can't be sent. Ask an owner to set up email");
+  const made = reviews.share({ chatId: chat.id, folder: chat.vibeFolder, title: chat.title, email, by: chat.userId, domains: reviewDomains(settings), autoWork });
+  try {
+    await sendMail({ to: made.share.email, code: "", minutes: 0, subject: `${asker.name} shared a prototype with you: ${made.share.title}`,
+      text: `${asker.name} shared the prototype "${made.share.title}" with you on ${cfg.name} and would like your comments.\n\nOpen it here: ${origin}/review/${made.token}\n\nYou'll be asked to confirm this email address with a code. Then right-click anywhere on the prototype to leave a comment.\n\nIf you weren't expecting this, ignore this email.` }, settings);
+  } catch (error) {
+    // A link nobody received is ended, so it can't be found later by someone else.
+    reviews.end(made.share.id, chat.id, asker.id);
+    console.error("[servant] review share email failed:", error?.message || error);
+    throw requestError(502, "email_send_failed", "Couldn't send the email. Try again, or ask an owner to check email setup");
+  }
+  return made.share;
+}
+
+/**
+ * /api/v1/: what a personal access token can do (docs/access-tokens.md). Plain HTTPS with `Authorization: Bearer
+ * svt_…`, for a shell or a script where the app and its encryption can't run. It is a short list on purpose: who
+ * you are, the prototypes you can see, sharing one for review, and a message to your own agent with its answer.
+ */
+async function handleTokenApi(req, res, url, parts, cfg) {
+  const method = req.method || "GET";
+  const settings = accessTokenSettings(cfg.accessTokens);
+  // Shut means absent: the same answer as any address this server doesn't have.
+  if (!settings.enabled) return fail(res, 404, "not_found", `This server has no ${method} ${url.pathname}`);
+  // How to use it, for a person or a coding agent to read. No token needed, and nothing about this server's people in it.
+  if (method === "GET" && parts.length === 2) {
+    res.writeHead(200, { "Content-Type": "text/markdown; charset=utf-8", "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" });
+    return res.end(apiGuide({ origin: publicOrigin(cfg) || `http://${req.headers.host || "127.0.0.1"}`, name: cfg.name })), undefined;
+  }
+  const presented = /^Bearer (\S+)$/.exec(String(req.headers.authorization || ""))?.[1] || "";
+  const held = accessTokens().check(presented);
+  const state = readState();
+  const user = held && state.users[held.userId];
+  if (!held || !user || isRemoved(user)) return fail(res, 401, "unauthorized", "That token isn't valid. It may have expired or been revoked. Make a new one in Servant under You, then Access tokens");
+  if (!accessTokens().allow(held.id, settings.requestsPerMinute)) { res.setHeader("Retry-After", "60"); return fail(res, 429, "rate_limited", "Too many requests with this token. Wait a minute"); }
+  const users = state.users;
+  // A prototype someone built on this server. You can see your own, ones shared with everyone, and (as an owner) all.
+  const isPrototype = chat => chat && !chat.deletedAt && chat.mode === "vibe" && chat.hosted === "server" && !!chat.vibeFolder && !!users[chat.userId] && !isRemoved(users[chat.userId]);
+  const canSee = chat => chat.userId === user.id || user.role === "owner" || chat.shared === true;
+  // Sharing is the chat's own person's, and a server owner's on their behalf.
+  const canShare = chat => chat.userId === user.id || user.role === "owner";
+  const prototypeView = chat => {
+    const shares = canShare(chat) ? prototypeReviews().forChat(chat.id).filter(share => !share.endedAt).map(share => ({ email: share.email, opened: !!share.verifiedAt, comments: prototypeReviews().comments({ shareId: share.id }).length })) : undefined;
+    return { id: chat.id, title: chat.title, by: users[chat.userId].name, mine: chat.userId === user.id, url: prototypePreview(chat), updatedAt: chat.updatedAt, canShare: canShare(chat), ...(shares ? { sharedWith: shares } : {}) };
+  };
+  const body = async () => {
+    const raw = await readBody(req, 64 * 1024);
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw requestError(400, "bad_request", "Send a JSON object");
+    return raw;
+  };
+  try {
+    if (method === "GET" && parts[2] === "me" && parts.length === 3) return send(res, 200, { name: user.name, role: user.role, server: cfg.name });
+    if (method === "GET" && parts[2] === "prototypes" && parts.length === 3) {
+      const q = (url.searchParams.get("q") || "").toLowerCase().trim();
+      const found = Object.values(state.chats).filter(chat => isPrototype(chat) && canSee(chat)).map(prototypeView)
+        .filter(p => !q || `${p.title} ${p.by}`.toLowerCase().includes(q)).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 100);
+      return send(res, 200, { prototypes: found });
+    }
+    // Send a prototype to one or more work addresses for review. Each gets the same emailed link and code as from the app.
+    if (method === "POST" && parts[2] === "prototypes" && parts[4] === "shares" && parts.length === 5) {
+      const given = await body();
+      const chat = state.chats[parts[3]];
+      if (!isPrototype(chat) || !canSee(chat)) return fail(res, 404, "not_found", "No such prototype. GET /api/v1/prototypes lists the ones you can see");
+      if (!canShare(chat)) return fail(res, 403, "forbidden", `Only ${users[chat.userId].name}, who made this prototype, or a server owner can share it`);
+      const emails = Array.isArray(given.emails) ? given.emails : typeof given.email === "string" ? [given.email] : null;
+      if (!emails || !emails.length || emails.length > 10 || emails.some(e => typeof e !== "string")) return fail(res, 400, "bad_request", "Send emails: a list of one to ten work addresses");
+      const results = [];
+      for (const email of emails) {
+        try { const share = await sharePrototype(chat, email, user, cfg); results.push({ email: share.email, sent: true }); }
+        catch (error) { if (!error?.status) throw error; results.push({ email: String(email).slice(0, 254), sent: false, error: error.message }); }
+      }
+      return send(res, results.some(r => r.sent) ? 201 : 400, { prototype: { id: chat.id, title: chat.title, by: users[chat.userId].name }, results });
+    }
+    // A message to your own agent: a new chat, or one more message in a chat of yours. The answer is read back below.
+    if (method === "POST" && parts[2] === "agent" && parts.length === 3) {
+      const given = await body();
+      const text = typeof given.text === "string" ? given.text.trim() : "";
+      if (!text) return fail(res, 400, "bad_request", "Send text: what you want to ask or tell your agent");
+      if (text.length > INLINE_MESSAGE_CHARS) return fail(res, 413, "too_long", "That message is too long");
+      if (noAgent(user) || usageStore().overLimit(user)) return fail(res, 429, "usage_limit", limitText(user));
+      // The same two checks a message typed in the app gets: no credentials in chat, and a warning before personal information.
+      const typed = tokenRefusal(text);
+      if (typed) return fail(res, 400, "secret_in_chat", typed);
+      if (given.confirmPii !== true && piiWarningEnabled(cfg.piiWarning)) {
+        const warn = await screenMessage(text, cfg.piiWarning);
+        if (warn) return fail(res, 409, "pii_warning", `${warn.message} Send again with "confirmPii": true to send it anyway`, { types: warn.types || [] });
+      }
+      const device = Object.values(state.devices).find(d => d.userId === user.id && !d.revokedAt);
+      if (!device) return fail(res, 409, "no_device", "Sign in to Servant on a phone or computer once before using a token: the agent works from a signed-in device of yours");
+      if (given.chatId !== undefined) {
+        const chat = state.chats[String(given.chatId)];
+        if (!chat || chat.deletedAt || chat.userId !== user.id || !chat.hermesSessionId) return fail(res, 404, "not_found", "No such chat of yours");
+        const turn = agentTurns.enqueue({ chat, user, device, text, attachments: [] });
+        mutateState(s => { const active = s.chats[chat.id]; if (active) { active.updatedAt = now(); delete active.archivedAt; } });
+        if (privateTimer) void agentTurns.processNext();
+        return send(res, 202, { chatId: chat.id, turnId: turn.id, status: turn.status, read: `/api/v1/agent/${chat.id}` });
+      }
+      if (!workChatStarter) return fail(res, 503, "agent_unavailable", "The agent isn't running on this server");
+      let chat;
+      try { chat = await workChatStarter({ userId: user.id, deviceId: device.id, title: text.replace(/\s+/g, " ").slice(0, 60), where: "an access token", transcript: text, shared: false, asWritten: true }); }
+      catch (error) { if (error?.status) throw error; return fail(res, 503, "agent_unavailable", "The agent didn't take the message. Try again in a moment"); }
+      if (privateTimer) void agentTurns.processNext();
+      return send(res, 202, { chatId: chat.id, turnId: chat.firstTurnId, status: "queued", read: `/api/v1/agent/${chat.id}` });
+    }
+    // Where a chat of yours stands: whether the agent is still working, and what was said, newest last.
+    if (method === "GET" && parts[2] === "agent" && parts.length === 4) {
+      const chat = state.chats[parts[3]];
+      if (!chat || chat.deletedAt || chat.userId !== user.id) return fail(res, 404, "not_found", "No such chat of yours");
+      const turns = agentTurns.latest(chat.id).reverse();
+      const working = turns.some(t => ["queued", "running", "waiting_for_approval", "stopping"].includes(t.status));
+      return send(res, 200, { chatId: chat.id, title: chat.title, working, needsApproval: turns.some(t => t.status === "waiting_for_approval"),
+        turns: turns.map(t => ({ id: t.id, status: t.status, text: t.text, ...(t.assistantText ? { reply: t.assistantText } : {}) })) });
+    }
+  } catch (error) {
+    if (!error?.status) throw error;
+    return fail(res, error.status, error.code || "bad_request", error.message);
+  }
+  return fail(res, 404, "not_found", `This server has no ${method} ${url.pathname}. GET /api/v1 says what there is`);
+}
+
 // One-time codes an automation asks its own person for (docs/code-requests.md). Memory only: a restart forgets them.
 const codeRequests = createCodeRequests({ clock: () => now() });
 // Entitlements (docs/entitlements.md): who holds which named access, and who decides. The agent's outbound gate asks here.
@@ -1343,6 +1477,9 @@ async function handle(req, res, cfg) {
     return res.end(method === "HEAD" ? undefined : publicPages[pagePath](cfg));
   }
   if (url.pathname.startsWith("/ota/") && ota().handle(req, res)) return undefined;
+  // The plain HTTPS API for personal access tokens (docs/access-tokens.md). Its own prefix and its own credential:
+  // nothing under /v1/ takes a token, and nothing here takes a device's.
+  if (parts[0] === "api" && parts[1] === "v1") return handleTokenApi(req, res, url, parts, cfg);
 
   // Lets the app check a server address before pairing (and re-discover it later).
   if (method === "GET" && (url.pathname === "/v1/server" || url.pathname === "/v1/hub")) {
@@ -1871,6 +2008,25 @@ async function handle(req, res, cfg) {
         }
         return send(res, 200, { reply });
       });
+    }
+    return fail(res, 404, "not_found", "Not found");
+  }
+  // Your own personal access tokens (docs/access-tokens.md): made, listed and revoked from the app, over the app's
+  // own encrypted API. A token is returned once, when it is made.
+  if (parts[1] === "tokens") {
+    const settings = accessTokenSettings(cfg.accessTokens);
+    if (method === "GET" && parts.length === 2) return send(res, 200, { enabled: settings.enabled, tokens: accessTokens().list(user.id), defaultDays: DEFAULT_DAYS, address: publicOrigin(cfg) ? `${publicOrigin(cfg)}/api/v1` : null });
+    if (!settings.enabled) return fail(res, 404, "feature_off", "This server doesn't use access tokens. An owner can turn them on in config.json");
+    if (method === "POST" && parts.length === 2) {
+      const body = await readAuthorizedBody(req);
+      const current = requireAuth(req).user;
+      try { const made = accessTokens().create(current.id, { name: body?.name, days: body?.days ?? DEFAULT_DAYS }); return send(res, 201, { token: made.token, record: made.record }); }
+      catch (e) { if (!e.status) throw e; return fail(res, e.status, e.code, e.message); }
+    }
+    if (method === "DELETE" && parts.length === 3) {
+      const current = requireAuth(req).user;
+      if (!accessTokens().revoke(parts[2], current.id)) return fail(res, 404, "not_found", "That token was already revoked");
+      return send(res, 200, { tokens: accessTokens().list(current.id) });
     }
     return fail(res, 404, "not_found", "Not found");
   }
@@ -2728,21 +2884,8 @@ async function handle(req, res, cfg) {
     if (method === "GET" && parts.length === 5) return send(res, 200, listing());
     if (method === "POST" && parts.length === 5) {
       const body = await readAuthorizedBody(req);
-      const origin = publicOrigin(cfg), settings = emailSettings(cfg);
-      if (!origin) return fail(res, 400, "not_set_up", "This server has no public address yet, so there is no link to send. Ask an owner to set it up");
-      if (!settings.mailer?.command && !globalThis.__servantEmailSend) return fail(res, 400, "not_set_up", "This server can't send email yet, so the link can't be sent. Ask an owner to set up email");
-      let made;
-      try { made = reviews.share({ chatId: chat.id, folder: chat.vibeFolder, title: chat.title, email: body.email, by: user.id, domains: reviewDomains(settings), autoWork: body.autoWork === true }); }
+      try { await sharePrototype(chat, body.email, user, cfg, { autoWork: body.autoWork === true }); }
       catch (e) { if (!e.status) throw e; return fail(res, e.status, e.code, e.message); }
-      try {
-        await sendMail({ to: made.share.email, code: "", minutes: 0, subject: `${user.name} shared a prototype with you: ${made.share.title}`,
-          text: `${user.name} shared the prototype "${made.share.title}" with you on ${cfg.name} and would like your comments.\n\nOpen it here: ${origin}/review/${made.token}\n\nYou'll be asked to confirm this email address with a code. Then right-click anywhere on the prototype to leave a comment.\n\nIf you weren't expecting this, ignore this email.` }, settings);
-      } catch (error) {
-        // A link nobody received is ended, so it can't be found later by someone else.
-        reviews.end(made.share.id, chat.id, user.id);
-        console.error("[servant] review share email failed:", error?.message || error);
-        return fail(res, 502, "email_send_failed", "Couldn't send the email. Try again, or ask an owner to check email setup");
-      }
       return send(res, 201, listing());
     }
     // Whether the agent starts on this reviewer's comments as they arrive. Off unless the sharer turns it on.
@@ -3229,7 +3372,7 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
     onUsage: recordUsage,
     // @agent in a channel or DM asked for real work: open a shared agent chat for the person who
     // asked, with the conversation as its first message, and start the agent on it.
-    startWorkChat: workChatStarter = async ({ userId, deviceId, title, where, transcript, projectId, shared = true, beforeEnqueue }) => {
+    startWorkChat: workChatStarter = async ({ userId, deviceId, title, where, transcript, projectId, shared = true, beforeEnqueue, asWritten = false }) => {
       const cfg = fixedCfg || loadConfig();
       const state = readState();
       const user = state.users[userId];
@@ -3251,8 +3394,10 @@ function createServices(fixedCfg, { externalWorker = false, autoDrain = true } =
       // Link and recheck the todo before publishing the chat or exposing its turn to a worker.
       beforeEnqueue?.(chat);
       mutateState(s => { s.chats[chatId] = chat; });
-      const text = `${user.name} asked for this in ${where}. Do the work here${shared ? "; others can follow along" : ""}.\n\n${transcript}`.slice(0, INLINE_MESSAGE_CHARS);
-      serviceTurns.enqueue({ chat, user, device, text, attachments: [] });
+      // A message the person wrote themselves (through /api/v1/) goes to the agent as they wrote it.
+      const text = (asWritten ? transcript : `${user.name} asked for this in ${where}. Do the work here${shared ? "; others can follow along" : ""}.\n\n${transcript}`).slice(0, INLINE_MESSAGE_CHARS);
+      const turn = serviceTurns.enqueue({ chat, user, device, text, attachments: [] });
+      chat.firstTurnId = turn.id;
       return chat;
     },
     askAgent: async ({ sessionId, sessionKey: key, fresh, text, restartText, attachments, onDelta, onUsage = () => {}, userId }) => {
@@ -3580,6 +3725,7 @@ export function startServer(fixedCfg) {
     agentTurns?.close(); agentTurns = null;
     chatMedia?.close(); chatMedia = null; usageDb?.close(); usageDb = null;
     await egressProxy?.close(); egressProxy = null;
+    tokenDb?.close(); tokenDb = null;
     entitlementDb?.close(); entitlementDb = null; egressDb?.close(); egressDb = null; reviewDb?.close(); reviewDb = null;
     if (connectionDoor) { const door = await connectionDoor.catch(() => null); connectionDoor = null; door?.close(); door?.closeAllConnections?.(); }
     connectionDb?.close(); connectionDb = null; toolsCache = null;
@@ -3638,6 +3784,33 @@ function arg(name, fallback) {
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   const cmd = process.argv[2];
+  if (cmd === "token") {
+    // Personal access tokens from the server's own terminal (docs/access-tokens.md):
+    //   servant token create --user "Pat Tester" --name "Work laptop" [--days 90]
+    //   servant token list --user "Pat Tester"
+    //   servant token revoke <token id> --user "Pat Tester"
+    const sub = process.argv[3] || "list", wanted = arg("user", "");
+    const people = Object.values(readState().users).filter(u => !isRemoved(u));
+    const person = people.find(u => u.id === wanted) || people.find(u => u.name.toLowerCase() === wanted.toLowerCase());
+    if (!person) { console.error(wanted ? `No one here is called ${JSON.stringify(wanted)}. Use --user with a name or id from People` : "Say whose token: --user \"Their name\""); process.exit(1); }
+    const when = at => new Date(at).toISOString().slice(0, 10);
+    try {
+      if (sub === "create") {
+        const made = accessTokens().create(person.id, { name: arg("name", ""), days: Number(arg("days", String(DEFAULT_DAYS))) });
+        console.log(`Token for ${person.name} (${made.record.name}), good until ${when(made.record.expiresAt)}:`);
+        console.log(`\n  ${made.token}\n`);
+        console.log("This is the only time it is shown. Keep it like a password.");
+        if (!accessTokenSettings(loadConfig().accessTokens).enabled) console.log('It will not work until config.json has "accessTokens": { "enabled": true }.');
+      } else if (sub === "revoke") {
+        console.log(accessTokens().revoke(process.argv[4], person.id, "server") ? "Revoked." : "No live token with that id for that person.");
+      } else {
+        const list = accessTokens().list(person.id);
+        if (!list.length) console.log(`${person.name} has no tokens.`);
+        for (const t of list) console.log(`${t.id}  ${t.state.padEnd(7)}  ${t.hint}  ${t.name}  (made ${when(t.createdAt)}, ends ${when(t.expiresAt)}${t.lastUsedAt ? `, last used ${when(t.lastUsedAt)}` : ", never used"})`);
+      }
+    } catch (error) { console.error(error.message); process.exit(1); }
+    process.exit(0);
+  }
   if (cmd === "invite") {
     // --owner: sign in as the owner (first owner on a new server). --local: the
     // link points at 127.0.0.1, for the Mac app on this same computer.

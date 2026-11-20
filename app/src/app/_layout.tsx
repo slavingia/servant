@@ -169,6 +169,7 @@ function SessionNavigation() {
         {/* The onboarding tour (tour.tsx): once after joining, and from You. It fills the screen and has its own Skip. */}
         <Stack.Screen name="tour" options={{ headerShown: false, title: "Tour", animation: "none" }} />
         <Stack.Screen name="connections" options={{ title: "Connections", ...childScreen }} />
+        <Stack.Screen name="access-tokens" options={{ title: "Access tokens", ...childScreen }} />
         <Stack.Screen name="leaderboard" options={{ title: "Agent usage", ...childScreen }} />
         <Stack.Screen name="invite" options={{ title: "Invite someone", ...childScreen }} />
         <Stack.Screen name="recordings/index" options={{ title: "Notetaker", ...sidebarScreen }} />
