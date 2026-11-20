@@ -53,6 +53,17 @@ Drafts are written by the restricted member agent (`upstreams.member`, [member-s
 
 An approval does not outlive the entitlement. When a reply's time comes, the server checks that the person who approved it still holds Social media; if not, the reply goes back to a draft and says why.
 
+## Pictures
+
+A reply or a post can carry one picture (PNG, JPEG, GIF or WebP, up to 5 MB). Under the words there are two ways to add one:
+
+- **Add picture** attaches one from the device.
+- **Make a picture** asks Agent for one from a few words ("a closed sign on an office door, flat illustration"). It is the asker's own agent, the one their chats use, so it can make a picture only if that agent can: it needs an image generator set up, and the restricted agent members get has no tools and will say so. The words are sent as a description of one picture; whatever comes back is used only if it is an image. Token counts are recorded against the person who asked.
+
+A new picture, like new words, needs a new approval. **Save picture** downloads it (or opens the share sheet on a phone), so a post can be taken to wherever it goes. Pictures are never deleted: taking one off or replacing it keeps the earlier one in `social.db`.
+
+**Servant does not send pictures to X yet.** On a server with an X account, approving a post that has a picture is refused with that reason, and a post approved with a picture before the account was connected is marked "not posted" when its time comes, never sent as words alone. Copy the words and save the picture to post it by hand, or take the picture off.
+
 ## When replies go out
 
 Approving puts a reply at the **next opening**: now, or `spacingMinutes` after the nearest reply already waiting or just sent. Approving thirty drafts in a row sends them one after another over an hour rather than all at once. A reply scheduled for tomorrow does not hold up one approved now.
@@ -110,6 +121,9 @@ All under `/v1/social`, signed in, and `404 feature_off` when social media is of
 | `POST /v1/social/posts/:id/skip`, `/restore` | Skip a post, or bring it back |
 | `POST /v1/social/replies` | A post of your own: `note` for Agent to write up, or `text` |
 | `PUT /v1/social/replies/:id` | Change a reply's words |
+| `PUT /v1/social/replies/:id/image` | Put a picture on it: `attachments` with one image, or `prompt` for Agent to make one |
+| `GET /v1/social/replies/:id/image` | The picture's bytes, to show or save it |
+| `DELETE /v1/social/replies/:id/image` | Take the picture off |
 | `POST /v1/social/replies/:id/approve` | Approve (`at` for a time). Needs Social media |
 | `POST /v1/social/replies/:id/cancel` | Take an approval back. Needs Social media |
 | `POST /v1/social/replies/:id/discard` | Discard a draft |

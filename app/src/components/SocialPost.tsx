@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import { Button, ButtonGroup } from "./Button";
 import { Avatar } from "./Messaging";
 import { Radio } from "./Radio";
+import { SocialPicture } from "./SocialPicture";
 import type { Account } from "../lib/server";
 import { agoLabel, lengthLine, NEEDS_ENTITLEMENT, parseWhen, replyLine, sourceLine, whenChoices, type SocialPost, type SocialReply } from "../lib/social";
 import { socialApi } from "../lib/social-api";
@@ -154,6 +155,7 @@ export function SocialReplyEditor({ account, reply, to, canApprove, limit, onRep
     <TextInput testID={`social-text-${reply.id}`} accessibilityLabel={label} value={text} onChangeText={setText} onBlur={save} multiline editable={busy !== "approve" && busy !== "discard" && busy !== "redraft"}
       placeholderTextColor={colors.muted} style={styles.input} />
     <Text testID={`social-count-${reply.id}`} style={[styles.meta, count.over && styles.over]}>{count.over ? `${count.text}. Shorten it before it can be approved.` : count.text}</Text>
+    <SocialPicture account={account} reply={reply} label={label} onReply={onReply} />
     {asking && onRedraft ? <View style={styles.askRow}>
       <TextInput testID={`social-instruction-${reply.id}`} accessibilityLabel="What Agent should change" placeholder="What should change? For example: shorter, or mention the help page" placeholderTextColor={colors.muted}
         value={instruction} onChangeText={setInstruction} maxLength={500} editable={!busy} autoFocus style={styles.ask} />

@@ -14,7 +14,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { xKeys, xLength, X_API, X_POST_LIMIT } from "./x-client.mjs";
 
-export const SOCIAL_LIMITS = { post: X_POST_LIMIT, searches: 10, search: 400, page: 50, scheduleAheadMs: 366 * 86_400_000, instruction: 500 };
+export const SOCIAL_LIMITS = { image: 5 * 1024 * 1024, post: X_POST_LIMIT, searches: 10, search: 400, page: 50, scheduleAheadMs: 366 * 86_400_000, instruction: 500 };
 const fault = (status, code, message) => Object.assign(new Error(message), { status, code });
 const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 
@@ -97,7 +97,16 @@ export function createSocial({ file, clock = Date.now, names = () => ({}), mayAp
     CREATE TABLE IF NOT EXISTS social_versions (reply_id TEXT NOT NULL, seq INTEGER NOT NULL, text TEXT NOT NULL, source TEXT NOT NULL, by TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY(reply_id, seq));
     CREATE TRIGGER IF NOT EXISTS social_versions_no_update BEFORE UPDATE ON social_versions BEGIN SELECT RAISE(ABORT, 'reply wordings are append-only'); END;
     CREATE TRIGGER IF NOT EXISTS social_versions_no_delete BEFORE DELETE ON social_versions BEGIN SELECT RAISE(ABORT, 'reply wordings are append-only'); END;
-    CREATE TABLE IF NOT EXISTS social_kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
+    CREATE TABLE IF NOT EXISTS social_kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS social_images (
+      id TEXT PRIMARY KEY, reply_id TEXT NOT NULL, name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, data BLOB NOT NULL,
+      source TEXT NOT NULL, prompt TEXT, by TEXT NOT NULL, at INTEGER NOT NULL
+    );
+    CREATE TRIGGER IF NOT EXISTS social_images_no_update BEFORE UPDATE ON social_images BEGIN SELECT RAISE(ABORT, 'post images are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS social_images_no_delete BEFORE DELETE ON social_images BEGIN SELECT RAISE(ABORT, 'post images are append-only'); END;`);
+  // The picture a post carries, if any: the id of a row in social_images. Taking a picture off clears this; the row stays.
+  if (!db.prepare("PRAGMA table_info(social_replies)").all().some(c => c.name === "image_id")) db.exec("ALTER TABLE social_replies ADD COLUMN image_id TEXT");
+  const imageMeta = id => id ? db.prepare("SELECT id,name,mime,size,source,prompt FROM social_images WHERE id=?").get(id) : undefined;
   const tx = work => { db.exec("BEGIN IMMEDIATE"); try { const out = work(); db.exec("COMMIT"); return out; } catch (error) { db.exec("ROLLBACK"); throw error; } };
   const kv = {
     get: key => db.prepare("SELECT value FROM social_kv WHERE key=?").get(key)?.value ?? null,
@@ -121,6 +130,7 @@ export function createSocial({ file, clock = Date.now, names = () => ({}), mayAp
     ...(r.scheduled_for ? { scheduledFor: r.scheduled_for } : {}),
     ...(r.posted_at ? { postedAt: r.posted_at, url: `https://x.com/i/status/${r.remote_id}` } : {}),
     ...(r.error ? { error: r.error } : {}), ...(r.lesson ? { lesson: r.lesson } : {}),
+    ...(r.image_id ? (m => m ? { image: { id: m.id, name: m.name, mime: m.mime, size: m.size, byAgent: m.source === "agent", ...(m.prompt ? { prompt: m.prompt } : {}) } } : {})(imageMeta(r.image_id)) : {}),
     ...(withPost && r.post_id ? { post: postView(postRow(r.post_id), false) } : {}),
   });
   const postView = (p, withReply = true) => p && ({
@@ -236,6 +246,39 @@ export function createSocial({ file, clock = Date.now, names = () => ({}), mayAp
       return tx(() => replyView(replyRow(edit(foundReply(replyId), clean, by)), true));
     },
     /**
+     * Put a picture on a reply or post, in place of any it had. `image` is { name, mime, data }; `source` is "person"
+     * for one somebody attached and "agent" for one the agent made from `prompt`. Like new words, a new picture needs
+     * a new approval. The picture it replaces stays in social_images.
+     */
+    setImage(replyId, image, by, { source = "person", prompt = "" } = {}) {
+      if (!image || !Buffer.isBuffer(image.data) || !image.data.length || !/^image\/(png|jpeg|gif|webp)$/.test(image.mime || "")) throw fault(400, "attachments", "Attach a PNG, JPEG, GIF or WebP image");
+      if (image.data.length > SOCIAL_LIMITS.image) throw fault(413, "too_large", `That image is larger than ${SOCIAL_LIMITS.image / 1048576} MB. Use a smaller one`);
+      return tx(() => {
+        const r = foundReply(replyId);
+        changeable(r, "picture");
+        const id = `simg_${crypto.randomBytes(12).toString("base64url")}`;
+        db.prepare("INSERT INTO social_images(id,reply_id,name,mime,size,data,source,prompt,by,at) VALUES (?,?,?,?,?,?,?,?,?,?)")
+          .run(id, r.id, String(image.name || "image").slice(0, 180), image.mime, image.data.length, image.data, source === "agent" ? "agent" : "person", prompt ? String(prompt).slice(0, SOCIAL_LIMITS.instruction) : null, by, clock());
+        db.prepare("UPDATE social_replies SET image_id=?,status='draft',approved_by=NULL,approved_at=NULL,scheduled_for=NULL,error=NULL,updated_by=?,updated_at=? WHERE id=?").run(id, by, clock(), r.id);
+        return replyView(replyRow(r.id), true);
+      });
+    },
+    /** Take the picture off. The reply goes back to a draft; the picture's row is kept. */
+    clearImage(replyId, by) {
+      return tx(() => {
+        const r = foundReply(replyId);
+        changeable(r, "picture");
+        if (r.image_id) db.prepare("UPDATE social_replies SET image_id=NULL,status='draft',approved_by=NULL,approved_at=NULL,scheduled_for=NULL,error=NULL,updated_by=?,updated_at=? WHERE id=?").run(by, clock(), r.id);
+        return replyView(replyRow(r.id), true);
+      });
+    },
+    /** The picture's bytes, for showing it: { name, mime, data }, or null when the reply has none. */
+    image(replyId) {
+      const r = foundReply(replyId);
+      const row = r.image_id ? db.prepare("SELECT name,mime,data FROM social_images WHERE id=?").get(r.image_id) : null;
+      return row ? { name: row.name, mime: row.mime, data: Buffer.from(row.data) } : null;
+    },
+    /**
      * Approve a reply: it goes out at `at` when given, else at the next opening `gap` away from the others.
      * The caller has already checked that `by` may approve.
      */
@@ -306,7 +349,7 @@ export function createSocial({ file, clock = Date.now, names = () => ({}), mayAp
             continue;
           }
           if (db.prepare("UPDATE social_replies SET status='posting',claimed_at=? WHERE id=? AND status='scheduled'").run(now, r.id).changes !== 1) continue;
-          return { id: r.id, text: r.text, replyTo: r.post_id ? postRow(r.post_id)?.remote_id ?? null : null, isReply: !!r.post_id };
+          return { id: r.id, text: r.text, ...(r.image_id ? { hasImage: true } : {}), replyTo: r.post_id ? postRow(r.post_id)?.remote_id ?? null : null, isReply: !!r.post_id };
         }
         return null;
       });
@@ -344,8 +387,12 @@ export function createSocial({ file, clock = Date.now, names = () => ({}), mayAp
     close: () => db.close(),
   };
 
+  // Words and pictures change only until a reply is on its way out.
+  function changeable(r, what) {
+    if (["posting", "posted", "discarded"].includes(r.status)) throw fault(409, "conflict", r.status === "posted" ? `This reply was already posted, so its ${what} can't change` : r.status === "posting" ? "This reply is being posted right now" : "This reply was discarded");
+  }
   function edit(r, clean, by) {
-    if (["posting", "posted", "discarded"].includes(r.status)) throw fault(409, "conflict", r.status === "posted" ? "This reply was already posted, so its words can't change" : r.status === "posting" ? "This reply is being posted right now" : "This reply was discarded");
+    changeable(r, "words");
     if (clean === r.text) return r.id;
     // New words need a new approval.
     db.prepare("UPDATE social_replies SET text=?,status='draft',approved_by=NULL,approved_at=NULL,scheduled_for=NULL,error=NULL,updated_by=?,updated_at=? WHERE id=?").run(clean, by, clock(), r.id);

@@ -13,7 +13,15 @@ export type SocialReply = {
   /** What the guide learned from the change a person made to this draft. */
   lesson?: string;
   post?: SocialPost;
+  /** The picture the post carries, if any. Its bytes are asked for separately (social-api.ts `image`). */
+  image?: SocialImage;
 };
+/** `byAgent` when Agent made it, from `prompt`; otherwise someone attached it. */
+export type SocialImage = { id: string; name: string; mime: string; size: number; byAgent: boolean; prompt?: string };
+
+/** The line under a post's picture: where it came from. */
+export const pictureLine = (image: SocialImage) => image.byAgent ? `Made by Agent${image.prompt ? ` from: ${image.prompt}` : ""}` : image.name;
+
 export type SocialPost = {
   id: string; kind: "mention" | "search"; search?: string;
   author: { name: string; handle: string; avatar?: string };

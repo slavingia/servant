@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
+import zlib from 'node:zlib';
 import { serverIdentity } from '../server/secure-transport.mjs';
 import { testFetch } from '../server/encrypted-test-client.mjs';
 import { TERMS_VERSION, TERMS_ITEMS } from '../server/terms.mjs';
@@ -94,6 +95,19 @@ const asked = [];
 const REPLIES = [[/renew my permit/, 'You can renew online at example.gov/renew. If the site sends you in circles, try the "Start over" link at the top.'], [/open this Friday/, 'Yes, the downtown office is open Friday from 9 to 5.'],
   [/thank you to whoever/, 'Thank you for telling us. We will pass it on to the team.'], [/in review/, 'Three weeks is longer than usual. Send us a private message with your application number and we will look into it.'],
   [/walk-ins/, 'We take walk-ins every weekday morning. Afternoons are by appointment at example.gov/visit.'], [/renewal form on mobile/, 'Glad it is working for you now. Thanks for bearing with us.'], [/number you can text/, 'We do not have a text line yet. The quickest way to reach us is the chat at example.gov/help.']];
+// A picture for the stand-in agent to "make": a plain sign, drawn here so no image file or outside service is needed.
+function signPng(size = 360) {
+  const crc = bytes => { let c = ~0; for (const b of bytes) { c ^= b; for (let i = 0; i < 8; i++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1)); } return ~c >>> 0; };
+  const chunk = (type, data) => { const head = Buffer.alloc(4); head.writeUInt32BE(data.length); const body = Buffer.concat([Buffer.from(type), data]); const tail = Buffer.alloc(4); tail.writeUInt32BE(crc(body)); return Buffer.concat([head, body, tail]); };
+  const rows = Buffer.alloc(size * (1 + size * 3));
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const inSign = x > size * 0.15 && x < size * 0.85 && y > size * 0.3 && y < size * 0.7, bar = inSign && y > size * 0.46 && y < size * 0.54 && x > size * 0.25 && x < size * 0.75;
+    const [r, g, b] = bar ? [255, 255, 255] : inSign ? [181, 9, 9] : [223, 233, 244];
+    rows.set([r, g, b], y * (1 + size * 3) + 1 + x * 3);
+  }
+  const header = Buffer.alloc(13); header.writeUInt32BE(size, 0); header.writeUInt32BE(size, 4); header.set([8, 2, 0, 0, 0], 8);
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', header), chunk('IDAT', zlib.deflateSync(rows)), chunk('IEND', Buffer.alloc(0))]);
+}
 const fakeAgent = http.createServer(async (request, response) => {
   if (request.headers.authorization !== 'Bearer stand-in-key') return json(response, 401, {});
   if (request.url === '/v1/capabilities') return json(response, 200, { features: { servant_member_isolation: true }, servant: { memberPolicy: { version: 1, persistentMemory: false, localContext: false, localMedia: false, allowedTools: [] } } });
@@ -102,7 +116,8 @@ const fakeAgent = http.createServer(async (request, response) => {
   const [system, user] = [messages.find(m => m.role === 'system')?.content || '', messages.find(m => m.role === 'user')?.content || ''];
   asked.push({ system, user });
   let content;
-  if (/what the change teaches/.test(system)) content = 'Greet the person by their first name and say how long the task takes';
+  if (/Make exactly one image/.test(system)) content = `Here is the picture.\n\n![a closed sign](data:image/png;base64,${signPng().toString('base64')})`;
+  else if (/what the change teaches/.test(system)) content = 'Greet the person by their first name and say how long the task takes';
   else if (/write one post/.test(system)) content = 'Our offices are closed Thursday, November 26. Online services stay open at example.gov.';
   else if (/IGNORE YOUR RULES/.test(user)) content = 'SKIP: spam';
   else content = REPLIES.find(([pattern]) => pattern.test(user))?.[1] || 'Thanks for reaching out. You can find help at example.gov/help.';
@@ -117,7 +132,8 @@ try {
   const port = await freePort();
   const apiUrl = `http://127.0.0.1:${port}`;
   fs.writeFileSync(path.join(data, 'config.json'), JSON.stringify({ name: 'Example team', publicUrl: apiUrl, discovery: 'off', discoveryUrl: '', defaultAgentTier: 1,
-    upstreams: { member: { url: agentUrl, key: 'stand-in-key' } },
+    // A picture is asked of the person's own agent, which on this stand-in server is the same one.
+    upstreams: { member: { url: agentUrl, key: 'stand-in-key' }, ...(noX ? { owner: { url: agentUrl, key: 'stand-in-key' } } : {}) },
     ...(before ? {} : noX ? { features: { social: true } } : { social: { x: { apiKey: 'stand-in', apiSecret: 'stand-in', accessToken: 'stand-in', accessTokenSecret: 'stand-in', api: xUrl }, searches: ['"Example Org" -is:retweet'], spacingMinutes: 2, pollMinutes: 1 } }) }));
   const env = {
     ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(SERVANT_|HERMES_|API_SERVER_KEY$)/.test(key))),
@@ -195,8 +211,22 @@ try {
     await api('POST', `/v1/entitlements/${entitlementId}/request`, { confirmed: true, note: 'I write our posts' }, jo.token);
     await api('POST', `/v1/entitlements/${entitlementId}/people/${jo.user.id}`, { decision: 'grant' }, ana.token);
     const made = await api('POST', '/v1/social/replies', { text: 'Our downtown office is closed this Monday. Renew online any time.' }, jo.token);
+    // The approved post carries a picture someone attached; Pat's draft gets one from Agent, asked for on the screen.
+    await api('PUT', `/v1/social/replies/${made.reply.id}/image`, { attachments: [{ name: 'closed-sign.png', data: signPng().toString('base64') }] }, jo.token);
     await api('POST', `/v1/social/replies/${made.reply.id}/approve`, {}, jo.token);
-    await api('POST', '/v1/social/replies', { text: 'Walk-ins are welcome on Fridays from 9 to 4.' }, pat.token);
+    const draft = (await api('POST', '/v1/social/replies', { text: 'Walk-ins are welcome on Fridays from 9 to 4.' }, pat.token)).reply;
+    {
+      const page = await newPage(jo, desktop);
+      await page.getByTestId(`social-picture-make-${draft.id}`).click();
+      await page.getByTestId(`social-picture-prompt-${draft.id}`).fill('a closed sign on an office door, flat illustration');
+      await shot(page, 'no-x-picture-ask-desktop.png');
+      await page.getByTestId(`social-picture-go-${draft.id}`).click();
+      await page.getByTestId(`social-image-${draft.id}`).waitFor();
+      assert.match(await text(page, `social-picture-${draft.id}`), /Made by Agent from: a closed sign on an office door, flat illustration/);
+      assert.match(asked.at(-1).user, /^a closed sign on an office door/);
+      await page.getByTestId(`social-picture-remove-${draft.id}`).waitFor();
+      await page.getByTestId(`social-picture-save-${draft.id}`).waitFor();
+    }
     for (const [viewport, name] of [[desktop, 'no-x-desktop.png'], [phone, 'no-x-phone.png']]) {
       const page = await newPage(jo, viewport);
       await page.getByTestId(`social-entry-${made.reply.id}`).waitFor();
@@ -206,7 +236,11 @@ try {
       assert.match(await text(page, `social-entry-${made.reply.id}`), /Approved/);
       await page.getByTestId('social-own-drafts').waitFor();
       await page.getByTestId(`social-copy-${made.reply.id}`).waitFor();
-      await shot(page, name);
+      await page.getByTestId(`social-image-${made.reply.id}`).waitFor();
+      await page.getByTestId(`social-image-${draft.id}`).waitFor();
+      await page.getByTestId(`social-picture-save-${made.reply.id}`).waitFor();
+      assert.equal(await page.getByTestId(`social-picture-remove-${made.reply.id}`).count(), 0, 'an approved post\'s picture is not changed from the list');
+      await page.screenshot({ path: path.join(shots, name), animations: 'disabled', fullPage: true });
     }
     await delay(2500);
     assert.equal((await api('GET', '/v1/social', undefined, jo.token)).counts.scheduled, 1, 'approved, and still not sent anywhere');

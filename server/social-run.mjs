@@ -61,6 +61,8 @@ export function createSocialRunner({ store, settings, fetch: doFetch, clock = Da
         const due = store.claimDue();
         if (!due) return null;
         // The post it answers has gone from Servant's own records: without it this would go out as a post of its own.
+        // Servant can't send a picture to X yet, and a post approved with one must not go out without it.
+        if (due.hasImage) { store.failed(due.id, "Servant can't post a picture to X yet, so this was not sent. Copy the words and the picture and post it yourself, or take the picture off and approve it again"); return { id: due.id, ok: false }; }
         if (due.isReply && !due.replyTo) { store.failed(due.id, "The post this answers is no longer in Servant, so the reply was not sent"); return { id: due.id, ok: false }; }
         try {
           const sent = await x.post(due.text, due.replyTo);

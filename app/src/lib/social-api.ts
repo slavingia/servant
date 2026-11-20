@@ -26,4 +26,10 @@ export const socialApi = {
   approve: (account: Account, replyId: string, at?: number) => request(account, `${reply(replyId)}/approve`, send("POST", at ? { at } : {})).then(json<{ reply: SocialReply }>),
   cancel: (account: Account, replyId: string) => request(account, `${reply(replyId)}/cancel`, send("POST")).then(json<{ reply: SocialReply }>),
   discard: (account: Account, replyId: string) => request(account, `${reply(replyId)}/discard`, send("POST")).then(json<{ reply: SocialReply; post: SocialPost | null }>),
+  /** A picture someone attached: { name, data } with the bytes in base64. It replaces any the post had. */
+  attachImage: (account: Account, replyId: string, file: { name: string; data: string }) => request(account, `${reply(replyId)}/image`, send("PUT", { attachments: [{ name: file.name, data: file.data }] })).then(json<{ reply: SocialReply }>),
+  /** A picture the person's own agent makes from a few words. */
+  makeImage: (account: Account, replyId: string, prompt: string) => request(account, `${reply(replyId)}/image`, send("PUT", { prompt })).then(json<{ reply: SocialReply }>),
+  removeImage: (account: Account, replyId: string) => request(account, `${reply(replyId)}/image`, send("DELETE")).then(json<{ reply: SocialReply }>),
+  image: (account: Account, replyId: string, signal?: AbortSignal) => request(account, `${reply(replyId)}/image`, { signal }).then(json<{ name: string; mime: string; data: string }>),
 };
