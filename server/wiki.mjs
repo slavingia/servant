@@ -45,11 +45,15 @@ export function createWikiStore({ file, keepRecords = () => false, names = () =>
       updated_at INTEGER NOT NULL, updated_by TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1
     );
     CREATE INDEX IF NOT EXISTS wiki_pages_parent ON wiki_pages(parent_id, position);`);
+  // A marked page is one a part of Servant reads: the social media guide (social-draft.mjs) is the page Agent
+  // writes replies from. It is read and changed like any page; it can't be deleted while it is marked.
+  if (!db.prepare("PRAGMA table_info(wiki_pages)").all().some(column => column.name === "kind")) db.exec("ALTER TABLE wiki_pages ADD COLUMN kind TEXT");
   const row = id => typeof id === "string" && ID.test(id) ? db.prepare("SELECT * FROM wiki_pages WHERE id=?").get(id) : undefined;
   const found = id => row(id) || (() => { throw fault(404, "not_found", "That page is no longer in the wiki. Go back to the list of pages"); })();
   const canDelete = (stored, user) => user.role === "owner" || stored.author_id === user.id;
   const summary = (stored, user) => ({ id: stored.id, parentId: stored.parent_id, title: stored.title, position: stored.position,
-    createdAt: stored.created_at, updatedAt: stored.updated_at, updatedByName: names()[stored.updated_by] || null, version: stored.version, canDelete: canDelete(stored, user) });
+    createdAt: stored.created_at, updatedAt: stored.updated_at, updatedByName: names()[stored.updated_by] || null, version: stored.version, canDelete: !stored.kind && canDelete(stored, user),
+    ...(stored.kind ? { kind: stored.kind } : {}) });
   const full = (stored, user) => ({ ...summary(stored, user), body: stored.body });
   const transaction = work => {
     db.exec("BEGIN IMMEDIATE");
@@ -73,7 +77,7 @@ export function createWikiStore({ file, keepRecords = () => false, names = () =>
   };
   return {
     /** Every page without its text, for the tree. */
-    list: user => db.prepare("SELECT id,parent_id,title,position,author_id,created_at,updated_at,updated_by,version FROM wiki_pages ORDER BY position,created_at,id").all().map(stored => summary(stored, user)),
+    list: user => db.prepare("SELECT id,parent_id,title,position,author_id,created_at,updated_at,updated_by,version,kind FROM wiki_pages ORDER BY position,created_at,id").all().map(stored => summary(stored, user)),
     get: (id, user) => full(found(id), user),
     create(body, user, now = Date.now()) {
       const input = fields(body, ["title", "body", "parentId"]);
@@ -120,10 +124,27 @@ export function createWikiStore({ file, keepRecords = () => false, names = () =>
     remove(id, user) {
       return transaction(() => {
         const stored = found(id);
+        if (stored.kind) throw fault(409, "marked", "Servant reads this page, so it can't be deleted. Ask Agent to change what it says instead");
         if (!canDelete(stored, user)) throw fault(403, "forbidden", "Only the person who made this page or an owner can delete it");
         if (db.prepare("SELECT 1 FROM wiki_pages WHERE parent_id=? LIMIT 1").get(id)) throw fault(409, "has_subpages", "This page has subpages. Move or delete them first");
         keep(stored, user, "wiki_page_deleted");
         db.prepare("DELETE FROM wiki_pages WHERE id=?").run(id);
+      });
+    },
+    /** The marked page of a kind, with its text, or null when there is none yet. */
+    marked(kind, user = { id: "server", role: "member" }) {
+      const stored = db.prepare("SELECT * FROM wiki_pages WHERE kind=? ORDER BY created_at LIMIT 1").get(String(kind));
+      return stored ? full(stored, user) : null;
+    },
+    /** The marked page of a kind, made from `start` the first time it is wanted. It sits at the top and counts toward no limit. */
+    ensureMarked(kind, start, now = Date.now()) {
+      return transaction(() => {
+        const existing = db.prepare("SELECT * FROM wiki_pages WHERE kind=? ORDER BY created_at LIMIT 1").get(String(kind));
+        if (existing) return full(existing, { id: "server", role: "member" });
+        const id = `wiki_${crypto.randomBytes(12).toString("base64url")}`;
+        db.prepare("INSERT INTO wiki_pages (id,parent_id,title,body,position,author_id,created_at,updated_at,updated_by,kind) VALUES (?,?,?,?,?,?,?,?,?,?)")
+          .run(id, null, text(start.title, "title", WIKI_LIMITS.title, { required: true, oneLine: true }), text(start.body, "text", WIKI_LIMITS.body), nextPosition(null), "server", now, now, "server", String(kind));
+        return full(row(id), { id: "server", role: "member" });
       });
     },
     close: () => db.close(),

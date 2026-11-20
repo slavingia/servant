@@ -28,7 +28,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createMessaging } from "./messaging.mjs";
-import { normalizeFeatures, featureOffMessage } from "./features.mjs";
+import { normalizeFeatures, featureOffMessage, socialFeature } from "./features.mjs";
 import { normalizeBanner } from "./banner.mjs";
 import { normalizeTheme } from "./theme.mjs";
 import { piiWarningEnabled, screenText } from "./pii-gate.mjs";
@@ -64,7 +64,7 @@ import { jobRoleOf, validJobRole } from "./job-roles.mjs";
 import { tourFacts } from "./tour.mjs";
 import { createAgentTurns, terminalTurn } from "./agent-turns.mjs";
 import { createEgressProxy, createEgressStore, egressSettings } from "./egress.mjs";
-import { capabilitySettings, createEntitlements, NATIVE } from "./entitlements.mjs";
+import { capabilitySettings, createEntitlements, NATIVE, SOCIAL_ENTITLEMENT } from "./entitlements.mjs";
 import { checkGithubToken, cleanValues, createConnections, createTextStream, publicTool, readConnectMarkers, redactor, stripConnectMarkers, tokenInChatMessage, tokenInText, toolCatalog } from "./connections.mjs";
 import { createPrototypeReviews, maskEmail, reviewDomains } from "./prototype-reviews.mjs";
 import { reviewPage, reviewPageHeaders } from "./prototype-review-page.mjs";
@@ -76,6 +76,9 @@ import { createLexiconStore } from "./lexicon.mjs";
 import { withColloquialisms } from "./colloquialisms.mjs";
 import { createWikiStore, WIKI_LIMITS } from "./wiki.mjs";
 import { draftWikiPage } from "./wiki-draft.mjs";
+import { createSocial, socialSettings, SOCIAL_LIMITS } from "./social.mjs";
+import { createSocialRunner } from "./social-run.mjs";
+import { addLesson, cleanInstruction, readLesson, readSocialDraft, socialDraftMessages, socialLessonMessages, socialPostMessages, SOCIAL_GUIDE, SOCIAL_GUIDE_KIND } from "./social-draft.mjs";
 import { MAX_ITEMS, MAX_PARTS, MAX_PEOPLE, MAX_PROJECTS, MAX_RELEASES, VIBE_PROJECT, accessOf, configureProjects, accessibleProjects, cleanDate, cleanDescription, cleanLevel, cleanLogin, cleanName, cleanNotes, cleanPath, cleanReleaseName, cleanRepo, cleanRules, cleanReviewers, cleanStage, cleanStages, cleanTitle, ownsCell, cleanUrl, cleanWorkflow, createProjectFiles, createProjectStore, expandPath, migrateFolders, needsMigration, newItem, newPart, newProject, newRelease, patchCell, cleanPartTitle, releaseReady, setItemDone, projectInstructions, projectPeople, projectSharedWith, projectView, removeAccess, setAccess, validProjectId, vibeFolder, vibePreview } from "./projects.mjs";
 import { validTermsAcceptance } from "./terms.mjs";
 import { autoTitle, cleanChatTitle } from "./chat-title.mjs";
@@ -216,6 +219,10 @@ export function loadConfig() {
     discoveryUrl: process.env.SERVANT_DISCOVERY_URL || cfg.discoveryUrl || "",
     // Which parts of the app this instance uses (features.mjs). Each is on unless set to exactly false.
     features: normalizeFeatures(cfg.features),
+    // Social media (docs/social.md): the X account's keys, the searches and the pace. Shown only once the keys are there,
+    // and hidden again by `"features": { "social": false }`.
+    social: cfg.social && typeof cfg.social === "object" ? cfg.social : undefined,
+    socialHidden: cfg.features?.social === false,
     // One server-wide banner for signed-in apps (banner.mjs). Null when off.
     banner: normalizeBanner(cfg.banner),
     // Everyday shorthand (tmmrw, lmk, btw...) expanded as people type, as one group (colloquialisms.mjs). Off unless set.
@@ -813,6 +820,20 @@ let wikiStore;
 const WIKI_BODY_LIMIT = WIKI_LIMITS.body * 4 + 4096;
 const wiki = () => wikiStore ??= createWikiStore({ file: path.join(DATA_DIR, "messages.db"), keepRecords: () => recordsPreservationEnabled((glossaryConfig || loadConfig()).recordsPreservation),
   names: () => Object.fromEntries(Object.values(readState().users).map(person => [person.id, person.name])) });
+// Social media (docs/social.md). Posts from X and the replies to them live in their own file; the guide the agent
+// drafts from is a marked page of the wiki.
+let socialDb = null, socialRun = null, socialTimer = null, socialConfig = null;
+const socialWork = new Set();
+const socialCfg = cfg => socialSettings((cfg || socialConfig?.() || loadConfig()).social);
+const socialOn = cfg => socialFeature({ social: cfg.socialHidden ? false : undefined }, socialCfg(cfg).configured);
+/** The flags an app is sent: the ones that are on unless turned off, and social media, which is on only once it is set up. */
+const featuresFor = cfg => ({ ...normalizeFeatures(cfg.features), social: socialOn(cfg) });
+const maySocial = user => !!user && !isRemoved(user) && (user.role === "owner" || entitlementStore().holds(SOCIAL_ENTITLEMENT.id, user.id));
+const social = () => socialDb ??= createSocial({ file: path.join(DATA_DIR, "social.db"),
+  names: () => Object.fromEntries(Object.values(readState().users).map(person => [person.id, person.name])),
+  mayApprove: userId => maySocial(readState().users[userId]) });
+const socialRunner = () => socialRun ??= createSocialRunner({ store: social(), settings: () => socialCfg(), fetch: globalThis.__servantSocialFetch });
+const socialGuide = () => wiki().ensureMarked(SOCIAL_GUIDE_KIND, SOCIAL_GUIDE);
 let readmeCache;
 const projectReadme = repo => (readmeCache ??= createReadmeCache(path.join(DATA_DIR, "readme-cache")))(repo);
 const projects = () => projectStore ??= createProjectStore(loadConfig().projectsFile);
@@ -1093,7 +1114,7 @@ function entitlementView(entitlement, viewer, users) {
   const person = userId => ({ id: userId, name: users[userId]?.name || (userId === "server" ? "Servant" : "Former member") });
   const people = store.grants(entitlement.id).filter(g => g.userId !== viewer.id && store.decides(viewer.id, g.userId));
   return { id: entitlement.id, name: entitlement.name, description: entitlement.description, hosts: entitlement.hosts, confirmation: entitlement.confirmation,
-    ...(entitlement.native ? { native: true, capability: entitlement.capability } : {}),
+    ...(entitlement.native ? { native: true, capability: entitlement.capability, ...(entitlement.byRequest ? { byRequest: true } : {}) } : {}),
     mine: store.grant(entitlement.id, viewer.id), people: people.map(g => ({ ...g, name: person(g.userId).name, ...(g.decidedBy ? { decidedByName: person(g.decidedBy).name } : {}) })) };
 }
 // The agent was refused a host: tell whoever can do something about it, once (egress.mjs repeats at most daily).
@@ -1347,7 +1368,7 @@ async function handle(req, res, cfg) {
     if (method === "POST" && parts.length === 4 && parts[3] === "poll") {
       const body = await readBody(req);
       const result = mutateState(state => pollDeviceLink(state, parts[2], body?.secret));
-      return send(res, 200, result.status === "approved" ? { ...result, server: { name: cfg.name }, features: normalizeFeatures(cfg.features), banner: cfg.banner ?? null, theme: normalizeTheme(cfg.theme), deepWork: inDeepWork(readState().users[result.user?.id]) } : result);
+      return send(res, 200, result.status === "approved" ? { ...result, server: { name: cfg.name }, features: featuresFor(cfg), banner: cfg.banner ?? null, theme: normalizeTheme(cfg.theme), deepWork: inDeepWork(readState().users[result.user?.id]) } : result);
     }
     if (method === "GET" && parts.length === 3) {
       const state = readState();
@@ -1464,7 +1485,7 @@ async function handle(req, res, cfg) {
     // A new person's first unread: a question from the agent, with quick answers. Never blocks pairing.
     if (verifiedEmail) emailVerifier.consume(body.emailChallenge);
     if (isNew) { try { messaging?.welcomeFromAgent(user.id); } catch (error) { console.error("[servant] welcome", error); } }
-    return send(res, 201, { token, user: { id: user.id, name: user.name, role: user.role }, server: { name: cfg.name }, hub: { name: cfg.name }, banner: cfg.banner ?? null, features: normalizeFeatures(cfg.features), theme: normalizeTheme(cfg.theme), deepWork: inDeepWork(user), tour: { due: user.tourDue === true } });
+    return send(res, 201, { token, user: { id: user.id, name: user.name, role: user.role }, server: { name: cfg.name }, hub: { name: cfg.name }, banner: cfg.banner ?? null, features: featuresFor(cfg), theme: normalizeTheme(cfg.theme), deepWork: inDeepWork(user), tour: { due: user.tourDue === true } });
   }
 
   // Build scripts on this Mac post release notes. Tunnel traffic always carries
@@ -1590,7 +1611,7 @@ async function handle(req, res, cfg) {
     mutateAuthenticated(req, (_state, current) => { current.device.lastSeenAt = now(); });
     return send(res, 200, { user: { id: user.id, name: user.name, role: user.role, ...(user.emailVerifiedAt ? { emailVerified: true } : {}), ...(jobRoleOf(user) ? { jobRole: jobRoleOf(user) } : {}) },
       // The onboarding tour (tour.mjs): due once for someone who joined since it existed, until they finish or skip it.
-      tour: { due: user.tourDue === true }, emailRequired: emailSettings(cfg).enabled && !user.emailVerifiedAt, device: { id: device.id, label: device.label }, session: sessions.view(device, user), server: { name: cfg.name }, hub: { name: cfg.name }, features: normalizeFeatures(cfg.features), banner: cfg.banner ?? null, theme: normalizeTheme(cfg.theme), deepWork: inDeepWork(user), ...(recordsPreservationEnabled(cfg.recordsPreservation) ? { recordsKept: true } : {}), ...(user.role === "owner" && cfg.fileDropDir ? { fileDrop: true } : {}) });
+      tour: { due: user.tourDue === true }, emailRequired: emailSettings(cfg).enabled && !user.emailVerifiedAt, device: { id: device.id, label: device.label }, session: sessions.view(device, user), server: { name: cfg.name }, hub: { name: cfg.name }, features: featuresFor(cfg), banner: cfg.banner ?? null, theme: normalizeTheme(cfg.theme), deepWork: inDeepWork(user), ...(recordsPreservationEnabled(cfg.recordsPreservation) ? { recordsKept: true } : {}), ...(user.role === "owner" && cfg.fileDropDir ? { fileDrop: true } : {}) });
   }
 
   if (method === "POST" && url.pathname === "/v1/signout") {
@@ -1709,6 +1730,98 @@ async function handle(req, res, cfg) {
       lexicon().remove(parts[2], current);
       checkedAbbreviation(current, parts[2], "");
       return send(res, 200, { ok: true });
+    }
+    return fail(res, 404, "not_found", "Not found");
+  }
+  // Social media (docs/social.md): everyone on the server reads the posts and writes replies; approving one needs
+  // the Social media entitlement. Mutations recheck the device after awaiting the body.
+  if (parts[1] === "social") {
+    if (!socialOn(cfg)) return fail(res, 404, "feature_off", featureOffMessage("social"));
+    const store = social(), settings = socialCfg(cfg);
+    const guard = async work => { try { return await work(); } catch (error) { if (!error?.status || !error?.code) throw error; return fail(res, error.status, error.code, error.message), undefined; } };
+    // Each answers the request itself when the person may not, and says so by returning true.
+    const refusedApprover = person => maySocial(person) ? false : (fail(res, 403, "needs_entitlement", "Approving what goes out needs the Social media entitlement. Ask for it in Entitlements"), true);
+    const refusedAgent = person => noAgent(person) || usageStore().overLimit(person) ? (fail(res, 429, "usage_limit", limitText(person)), true) : false;
+    if (method === "GET" && parts.length === 2) {
+      const guide = socialGuide();
+      return send(res, 200, { ...socialRunner().status(), canApprove: maySocial(user), entitlementId: SOCIAL_ENTITLEMENT.id, guidePageId: guide.id, searches: settings.searches,
+        spacingMinutes: settings.spacingMs / 60_000, limit: SOCIAL_LIMITS.post, counts: store.counts(), ownDrafts: store.ownDrafts() });
+    }
+    if (method === "GET" && parts[2] === "posts" && parts.length === 3) {
+      const [filter, source] = [url.searchParams.get("filter") || "open", url.searchParams.get("source") || "all"];
+      if (!["open", "drafted", "skipped"].includes(filter) || !["all", "mentions", "search"].includes(source)) return fail(res, 400, "bad_request", "filter is open, drafted or skipped; source is all, mentions or search");
+      return send(res, 200, store.posts({ filter, source, before: url.searchParams.get("before"), limit: url.searchParams.get("limit") }));
+    }
+    if (method === "GET" && parts[2] === "schedule" && parts.length === 3) {
+      return send(res, 200, { replies: store.schedule({ from: Number(url.searchParams.get("from")) || 0, to: Number(url.searchParams.get("to")) || undefined }) });
+    }
+    // Look at X now rather than at the next turn of the clock.
+    if (method === "POST" && parts[2] === "sync" && parts.length === 3) {
+      await readAuthorizedBody(req);
+      const out = await socialRunner().sync();
+      return send(res, 200, { added: out.added, ...socialRunner().status(), counts: store.counts() });
+    }
+    // Ask the agent for a reply to a post, written from the guide. Nothing goes out: the draft waits to be read and approved.
+    if (method === "POST" && parts[2] === "posts" && parts[4] === "draft" && parts.length === 5) {
+      const body = await readAuthorizedBody(req);
+      const current = requireAuth(req).user;
+      return guard(async () => {
+        if (refusedAgent(current)) return undefined;
+        const instruction = cleanInstruction(body?.instruction, SOCIAL_LIMITS.instruction);
+        const { post, reply } = store.raw(parts[3]);
+        if (reply && !["draft", "failed"].includes(reply.status)) throw requestError(409, "conflict", "This reply was already approved. Cancel it before asking for another draft");
+        const messages = socialDraftMessages({ guide: socialGuide(), post, account: socialRunner().status().account?.handle, instruction, previous: instruction && reply ? reply.text : "" });
+        const drafted = readSocialDraft(await askSocial(messages, current, cfg, `social:draft:${post.id}`));
+        return send(res, 200, { post: drafted.skip ? store.suggestSkip(post.id, drafted.skip) : store.draftByAgent(post.id, drafted.text, current.id) });
+      });
+    }
+    // A person writes the reply themselves, or changes the one that is there.
+    if (method === "PUT" && parts[2] === "posts" && parts[4] === "reply" && parts.length === 5) {
+      const body = await readAuthorizedBody(req);
+      const current = requireAuth(req).user;
+      return guard(() => { store.write(store.raw(parts[3]).post.id, body?.text, current.id); return send(res, 200, { post: store.post(parts[3]) }); });
+    }
+    if (method === "POST" && parts[2] === "posts" && ["skip", "restore"].includes(parts[4]) && parts.length === 5) {
+      await readAuthorizedBody(req);
+      const current = requireAuth(req).user;
+      return guard(() => send(res, 200, { post: parts[4] === "skip" ? store.skip(parts[3], current.id) : store.restore(parts[3]) }));
+    }
+    // A post of the team's own: written by hand, or by the agent from a note. It is approved the same way.
+    if (method === "POST" && parts[2] === "replies" && parts.length === 3) {
+      const body = await readAuthorizedBody(req);
+      const current = requireAuth(req).user;
+      return guard(async () => {
+        if (typeof body?.note === "string" && body.note.trim()) {
+          if (refusedAgent(current)) return undefined;
+          const drafted = readSocialDraft(await askSocial(socialPostMessages({ guide: socialGuide(), note: cleanInstruction(body.note, SOCIAL_LIMITS.instruction) }), current, cfg, "social:post"));
+          if (drafted.skip) throw requestError(502, "agent_empty", "The agent didn't write a post. Say more about what it should say, or write it yourself");
+          return send(res, 201, { reply: store.write(null, drafted.text, current.id, "agent") });
+        }
+        return send(res, 201, { reply: store.write(null, body?.text, current.id) });
+      });
+    }
+    if (method === "PUT" && parts[2] === "replies" && parts.length === 4) {
+      const body = await readAuthorizedBody(req);
+      const current = requireAuth(req).user;
+      return guard(() => send(res, 200, { reply: store.edit(parts[3], body?.text, current.id) }));
+    }
+    if (method === "POST" && parts[2] === "replies" && ["approve", "cancel", "discard"].includes(parts[4]) && parts.length === 5) {
+      const body = await readAuthorizedBody(req);
+      const current = requireAuth(req).user;
+      return guard(() => {
+        if (parts[4] === "discard") return send(res, 200, store.discard(parts[3], current.id));
+        // Approving, and taking an approval back, are for people who hold the entitlement.
+        if (refusedApprover(current)) return undefined;
+        if (parts[4] === "cancel") return send(res, 200, { reply: store.cancel(parts[3]) });
+        const reply = store.approve(parts[3], current.id, { at: body?.at ?? null, gap: settings.spacingMs });
+        // What a person changed in the agent's draft before approving it is what the guide learns from.
+        const fix = store.correction(reply.id);
+        if (fix && !noAgent(current) && !usageStore().overLimit(current)) {
+          const work = learnFromEdit(reply.id, fix, current, cfg).catch(error => console.error("[servant] social guide", error?.message || error)).finally(() => socialWork.delete(work));
+          socialWork.add(work);
+        }
+        return send(res, 200, { reply });
+      });
     }
     return fail(res, 404, "not_found", "Not found");
   }
@@ -2084,7 +2197,7 @@ async function handle(req, res, cfg) {
       const state = readState();
       const brief = u => u && ({ id: u.id, name: u.name });
       const everyone = Object.values(activeUsers(state));
-      return send(res, 200, { entitlements: store.list().map(e => entitlementView(e, user, users)), canCreate: user.role === "owner", waiting: store.waitingOn(user.id).length,
+      return send(res, 200, { entitlements: store.list().filter(e => e.id !== SOCIAL_ENTITLEMENT.id || socialOn(cfg)).map(e => entitlementView(e, user, users)), canCreate: user.role === "owner", waiting: store.waitingOn(user.id).length,
         manager: brief(managerOf(state, user)) || null, reports: everyone.filter(u => managerOf(state, u)?.id === user.id).map(brief),
         // Owners see the whole chart: each person and who decides for them.
         ...(user.role === "owner" ? { org: everyone.map(u => ({ ...brief(u), role: u.role, manager: brief(managerOf(state, u)) || null })) } : {}),
@@ -3142,6 +3255,42 @@ async function askWikiAgent(messages, user, cfg) {
   }
 }
 
+// Replies to the public are drafted by the restricted member agent and no other: a post on X is a stranger's text, and
+// that agent has no tools for it to turn against the server (docs/member-security.md). It is checked to have none
+// before every draft. The tokens count against the person who asked; only the counts are kept.
+async function askSocial(messages, user, cfg, eventId) {
+  const test = globalThis.__servantSocialAsk;
+  if (test) return test(messages, user);
+  const up = cfg.upstreams.member;
+  if (!up?.url || !up?.key) throw requestError(503, "agent_unavailable", "Replies are drafted by the restricted agent, and it isn't set up on this server. Write the reply yourself, or ask an owner to set it up");
+  try {
+    await verifyMemberUpstream(up);
+    const response = await hermes(up, "POST", "/v1/chat/completions", { messages: [{ role: "system", content: messages.system }, { role: "user", content: messages.user }] }, {}, AbortSignal.timeout(60_000));
+    if (!response.ok) throw requestError(502, "agent_failed", `The agent returned ${response.status}. Nothing was drafted; try again in a moment`);
+    const data = await response.json();
+    if (data.usage) recordUsage({ eventId: `${eventId}:${crypto.randomUUID()}`, userId: user.id, source: "chat", usage: data.usage });
+    return data.choices?.[0]?.message?.content || "";
+  } catch (error) {
+    if (error?.status && error?.code) throw error;
+    throw requestError(503, "agent_unavailable", "The agent didn't answer. Nothing was drafted; try again in a moment, or write the reply yourself");
+  }
+}
+
+// The guide learns from an edit: the agent says what the change teaches, and that line is added to the guide's
+// "Learned from edits" as an ordinary edit of the page by the person who approved, so it is versioned (and
+// preserved) like any other. Someone else saving the page at the same moment is tried once more.
+async function learnFromEdit(replyId, fix, user, cfg) {
+  const lesson = readLesson(await askSocial(socialLessonMessages(fix), user, cfg, `social:lesson:${replyId}`));
+  if (!lesson) return;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const guide = socialGuide();
+    const body = addLesson(guide.body, lesson, WIKI_LIMITS.body);
+    if (!body) return;
+    try { wiki().update(guide.id, { body, version: guide.version }, user); social().learned(replyId, lesson); return; }
+    catch (error) { if (error?.code !== "stale") throw error; }
+  }
+}
+
 // One no-tools question to the restricted member agent. Null when it isn't set up.
 // The title the agent gives a chat. A name someone typed meanwhile wins: write checks again before saving.
 const nameChat = chatId => autoTitle(chatId, {
@@ -3203,6 +3352,23 @@ export function startServer(fixedCfg) {
   inboxConfig = () => fixedCfg || loadConfig();
   // Checked every few seconds; a short configured delay (a test or a demonstration) is checked as often as it asks.
   if (!inboxNoticeTimer) { inboxNoticeTimer = setInterval(() => void inboxNotices.sweep(), Math.max(1000, Math.min(5000, inboxNoticeSettings(cfg).delayMs))); inboxNoticeTimer.unref(); }
+  // Social media: every few seconds, post the next approved reply whose time has come, and ask X for new posts when
+  // it has been long enough. Off (and silent) until the X account's keys are in config.json.
+  socialConfig = () => fixedCfg || loadConfig();
+  if (!socialTimer) {
+    let busy = false;
+    const turn = async () => {
+      if (busy || !socialOn(socialConfig())) return;
+      busy = true;
+      try {
+        const runner = socialRunner();
+        await runner.postDue();
+        if (runner.syncDue()) { runner.markTried(); await runner.sync(); }
+      } catch (error) { console.error("[servant] social", error?.message || error); } finally { busy = false; }
+    };
+    const work = () => { const run = turn().finally(() => socialWork.delete(run)); socialWork.add(run); };
+    socialTimer = setInterval(work, Number(process.env.SERVANT_SOCIAL_TICK_MS) || 15_000); socialTimer.unref();
+  }
   sessions.start(() => fixedCfg || loadConfig());
   feedback ??= createFeedback({ file: path.join(DATA_DIR, "feedback.db"), interval: 0, recover: false });
   migrateProjects();
@@ -3251,6 +3417,8 @@ export function startServer(fixedCfg) {
     while (requests.size) await Promise.allSettled([...requests]);
     clearInterval(privateTimer); privateTimer = null;
     clearInterval(inboxNoticeTimer); inboxNoticeTimer = null;
+    clearInterval(socialTimer); socialTimer = null;
+    while (socialWork.size) await Promise.allSettled([...socialWork]);
     await inboxNotices.idle();
     await agentTurns?.whenIdle();
     agentTurns?.drainOutbox(event => push.enqueue(event));
@@ -3264,6 +3432,7 @@ export function startServer(fixedCfg) {
     businessReports?.close(); businessReports = null;
     glossaryStore?.close(); glossaryStore = null;
     lexiconStore?.close(); lexiconStore = null;
+    socialDb?.close(); socialDb = null; socialRun = null;
     wikiStore?.close(); wikiStore = null;
     messaging?.close(); messaging = null;
     agentTurns?.close(); agentTurns = null;
@@ -3285,6 +3454,9 @@ export function startServer(fixedCfg) {
   };
   // The proxy first retires persistent event streams while allowing requests
   // already assigned to this version to reach the still-open listener.
+  // For tests: one turn of the social media clock now, and a wait for the guide to finish learning.
+  server.socialTurn = async () => { const runner = socialRunner(); await runner.postDue(); if (runner.syncDue()) { runner.markTried(); await runner.sync(); } };
+  server.socialIdle = async () => { while (socialWork.size) await Promise.allSettled([...socialWork]); };
   server.drainEvents = () => { messaging?.closeEvents(); if (externalWorker) for (const close of [...privateStreams]) close(); };
   let shutdownPromise;
   server.shutdown = ({ timeoutMs = 300000 } = {}) => {
