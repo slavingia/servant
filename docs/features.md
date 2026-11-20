@@ -141,7 +141,7 @@ The attachment picker and sharing modules require a new native app build for exi
 ## Roles
 
 - **Owner**: the person whose computer runs the agent. Full agent.
-- **Member**: anyone the owner invites. The checked-in member bridge allows text and inline-image reasoning, with an empty host-tool allowlist, no local context files and no persistent memory. The server refuses an unverified member upstream. See the [reproducible member policy](member-security.md), including its intentionally restricted capabilities.
+- **Member**: anyone invited with the team's join link. Every member can share that link from People; only an owner can replace it. The checked-in member bridge allows text and inline-image reasoning, with an empty host-tool allowlist, no local context files and no persistent memory. The server refuses an unverified member upstream. See the [reproducible member policy](member-security.md), including its intentionally restricted capabilities.
 
 Each person can sign in on multiple devices without an account-wide device cap.
 QR linking and existing-user invites add separate credentials to the same account;

@@ -116,7 +116,7 @@ test("person to agent session: each person's turn goes to their own session, car
 });
 
 test("member to owner: owner-only routes refuse a member", async () => {
-  for (const [method, route, body] of [["GET", "devices"], ["POST", "invites", {}], ["GET", "entitlements/actions"], ["POST", "entitlements", { name: "Mine", hosts: ["example.gov"] }],
+  for (const [method, route, body] of [["GET", "devices"], ["POST", "invites", { fresh: true }], ["GET", "entitlements/actions"], ["POST", "entitlements", { name: "Mine", hosts: ["example.gov"] }],
     ["PATCH", `people/${people.jo.id}`, { agentTier: 3 }], ["PUT", `people/${people.pat.id}/manager`, { managerId: people.pat.id }]]) {
     const r = await api("pat", method, route, body);
     assert.equal(r.status, 403, `${method} ${route}: ${r.text}`);
