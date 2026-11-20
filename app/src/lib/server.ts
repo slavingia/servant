@@ -87,8 +87,10 @@ export type Person = { /** The role they chose for themselves (server/job-roles.
 export type EntitlementStanding = { entitlementId: string; userId: string; status: "requested" | "granted" | "once" | "used" | "denied" | "revoked"; note: string; requestedAt: number; /** "use": the agent asked by trying; `detail` is what it was about to do. */ via?: "use"; detail?: string; decidedBy?: string; decidedAt?: number; reason?: string; name?: string; decidedByName?: string };
 export type Entitlement = { /** Built in: on every server, asked for by use. */ native?: boolean; capability?: string; id: string; name: string; description: string; hosts: string[]; confirmation: string; mine: EntitlementStanding | null; people: EntitlementStanding[] };
 export type AgentAction = { seq: number; userId: string; name: string; chatId?: string; needs: string[]; verdict: "allowed" | "allowed-once" | "allowed-owner" | "denied" | "waiting"; detail: string; at: number };
-export type PrototypeComment = { id: string; page: string; /** Where on the page, as a share of its width and height. */ x?: number; y?: number; anchor: string; text: string; createdAt: number; todoId?: string };
-export type PrototypeShare = { id: string; email: string; createdAt: number; verifiedAt?: number; lastSeenAt?: number; endedAt?: number; comments: PrototypeComment[] };
+export type PrototypeComment = { id: string; page: string; /** Where on the page, as a share of its width and height. */ x?: number; y?: number; anchor: string; text: string; createdAt: number; todoId?: string;
+  /** When the comment was handed to the agent in the prototype's chat, and whether you did it or it happened by itself. */
+  askedAt?: number; askedBy?: "you" | "auto"; turnId?: string; /** When you set it aside: dealt with some other way than the agent. */ setAsideAt?: number };
+export type PrototypeShare = { id: string; email: string; createdAt: number; verifiedAt?: number; lastSeenAt?: number; endedAt?: number; /** The agent starts on this person's comments as they arrive. */ autoWork?: boolean; comments: PrototypeComment[] };
 export type EntitlementDraft = { name: string; description: string; hosts: string[]; confirmation: string };
 export type EntitlementsPage = { /** Whether built-in entitlements are checked before the agent acts. */ capabilities?: { mode: "ask" | "off" }; entitlements: Entitlement[]; canCreate: boolean; waiting: number; manager: { id: string; name: string } | null; reports: { id: string; name: string }[];
   egress: { mode: "ask" | "off"; always?: string[]; refused?: { userId: string; name: string; host: string; attempts: number; lastAt: number }[]; /** What agents did reach: per person (or the agent itself), host and day. */ reached?: { userId: string; name: string; host: string; day: string; connections: number; lastAt: number }[] } };
@@ -486,6 +488,12 @@ export const api = {
   // Share a prototype with a business owner by work email; they confirm a code, see it and comment (docs/prototype-reviews.md).
   prototypeShares: (a: Account, id: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/shares`).then(json<{ shares: PrototypeShare[] }>),
   sharePrototype: (a: Account, id: string, email: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/shares`, { method: "POST", body: JSON.stringify({ email }) }).then(json<{ shares: PrototypeShare[] }>),
+  /** Whether the agent starts on one reviewer's comments as they arrive. */
+  setPrototypeShareAutoWork: (a: Account, id: string, shareId: string, autoWork: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/shares/${encodeURIComponent(shareId)}`, { method: "PATCH", body: JSON.stringify({ autoWork }) }).then(json<{ shares: PrototypeShare[] }>),
+  /** You dealt with a comment yourself: it leaves the chat's waiting list. */
+  setPrototypeCommentAside: (a: Account, id: string, commentId: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/comments/${encodeURIComponent(commentId)}/set-aside`, { method: "POST", body: "{}" }).then(json<{ comment: { id: string; setAsideAt: number } }>),
+  /** Hand one reviewer's comment to the agent, as a message in the prototype's chat. */
+  workOnPrototypeComment: (a: Account, id: string, commentId: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/comments/${encodeURIComponent(commentId)}/work`, { method: "POST", body: "{}" }).then(json<{ comment: { id: string; askedAt: number } }>),
   endPrototypeShare: (a: Account, id: string, shareId: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/shares/${encodeURIComponent(shareId)}`, { method: "DELETE" }).then(json<{ shares: PrototypeShare[] }>),
   // Edit mode in the prototype preview: save the changed page over the prototype's file.
   savePrototype: (a: Account, id: string, path: string, changes: PrototypeChanges) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype`, { method: "POST", body: JSON.stringify({ path, ...changes }) }).then(json<{ ok: true; path: string; missed: string[] }>),

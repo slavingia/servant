@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Button } from "./Button";
 import { api, ServerError, type Account, type PrototypeShare } from "../lib/server";
-import { commentWhere, looksLikeEmail, orderShares, shareLine } from "../lib/prototype-reviews";
+import { AUTO_WORK_HINT, AUTO_WORK_LABEL, commentAsked, commentWhere, looksLikeEmail, orderShares, shareLine } from "../lib/prototype-reviews";
+import { Toggle } from "./Toggle";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
 
 // Share a prototype with a business owner (docs/prototype-reviews.md). The person who built it types a work email;
@@ -43,12 +44,20 @@ export function PrototypeReviewSheet({ account, chatId, title, onClose }: { acco
     finally { setBusy(null); }
   };
 
+  const setAuto = async (share: PrototypeShare, on: boolean) => {
+    if (busy) return;
+    setBusy(`auto:${share.id}`); setError(null); setSent(null);
+    try { setShares((await api.setPrototypeShareAutoWork(account, chatId, share.id, on)).shares); }
+    catch (e) { setError(failed(e, "Couldn't change that. Try again")); }
+    finally { setBusy(null); }
+  };
+
   return <Modal visible transparent animationType="fade" onRequestClose={onClose}>
     <View style={styles.scrim}>
       <View testID="prototype-review-sheet" accessibilityViewIsModal style={styles.dialog}>
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
           <Text accessibilityRole="header" style={styles.title}>Share with a business owner</Text>
-          <Text style={styles.body}>{`They get a link to "${title}" by email. After confirming a code sent to that address, they can look at the prototype and right-click anywhere on it to leave a comment. Each comment becomes a to-do for you.`}</Text>
+          <Text style={styles.body}>{`They get a link to "${title}" by email. After confirming a code sent to that address, they can look at the prototype and right-click anywhere on it to leave a comment. Each comment comes to this chat, for you to decide what to do with.`}</Text>
           <Text style={styles.label}>Their work email</Text>
           <TextInput testID="review-email" accessibilityLabel="Their work email" value={email} onChangeText={value => { setEmail(value); setError(null); }} editable={busy !== "send"}
             keyboardType="email-address" autoCapitalize="none" autoCorrect={false} autoComplete="email" maxLength={254} onSubmitEditing={() => void send()} returnKeyType="send"
@@ -69,9 +78,17 @@ export function PrototypeReviewSheet({ account, chatId, title, onClose }: { acco
                   </View>
                   {share.endedAt ? null : <Button testID={`review-end-${share.id}`} label="End" accessibilityLabel={`End sharing with ${share.email}`} kind="danger" compact busy={busy === share.id} disabled={!!busy} onPress={() => void end(share)} />}
                 </View>
+                {/* For someone you trust to steer the work: their comments go straight to Agent. Off unless you say so. */}
+                {share.endedAt ? null : <View style={styles.auto}>
+                  <View style={styles.rowCopy}>
+                    <Text style={styles.autoLabel}>{AUTO_WORK_LABEL}</Text>
+                    <Text style={styles.meta}>{AUTO_WORK_HINT}</Text>
+                  </View>
+                  <Toggle testID={`review-auto-${share.id}`} label={`${AUTO_WORK_LABEL}, for ${share.email}`} value={!!share.autoWork} disabled={!!busy} onValueChange={on => void setAuto(share, on)} />
+                </View>}
                 {share.comments.map(comment => <View key={comment.id} style={styles.comment}>
                   <Text style={styles.body}>{comment.text}</Text>
-                  <Text style={styles.meta}>{commentWhere(comment)}</Text>
+                  <Text style={styles.meta}>{[commentWhere(comment), commentAsked(comment)].filter(Boolean).join(" · ")}</Text>
                 </View>)}
               </View>)}
             </View>
@@ -101,5 +118,7 @@ const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create
   rowCopy: { flex: 1, minWidth: 0 },
   name: { ...typography.bodyStrong, color: colors.ink },
   meta: { ...typography.caption, color: colors.muted },
+  auto: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  autoLabel: { ...typography.label, color: colors.ink },
   comment: { paddingLeft: space.sm, borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colors.line, gap: space.xxs },
 }));

@@ -1,6 +1,7 @@
 import { Radio } from "../../components/Radio";
 import { PrototypeReviewSheet } from "../../components/PrototypeReviewSheet";
-import { commentBy, commentCount, numberedComments, pageOf, pinsOn, type PinnedComment } from "../../lib/prototype-reviews";
+import { commentBy, commentCount, numberedComments, pageOf, pinsOn, waitingComments, type PinnedComment } from "../../lib/prototype-reviews";
+import { ReviewComments } from "../../components/ReviewComments";
 import { FlashList } from "@shopify/flash-list";
 import { RECYCLING_CONVERSATION_LIST, listOrder } from "../../lib/conversation-list";
 import { createElement, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -988,15 +989,20 @@ function ChatConversation({ account }: { account: Account }) {
   // A finished reply's steps, fetched when its summary is opened.
   // The preview is always shown once there is something to see (the agent has replied).
   const previewOpen = !!previewUrl && canSplitPreview && (messages ?? []).some(m => m.role === "assistant" && !m.pending);
-  // What business owners said about this prototype, for pins in the preview. Read when the preview opens and again
-  // after the share sheet closes; a chat that isn't yours, or has no prototype on this server, simply has none.
+  // What business owners said about this prototype: pins in the preview, and the ones still waiting above the
+  // message box. Read when the chat has a prototype, again after the share sheet closes, and every so often while
+  // the chat is open, since a comment can arrive at any time; a chat that isn't yours, or has no prototype on this
+  // server, simply has none.
   const [reviewComments, setReviewComments] = useState<PinnedComment[]>([]);
+  const [reviewRead, setReviewRead] = useState(0);
   useEffect(() => {
-    if (!previewOpen || readOnly || reviewing) return;
+    if (!previewUrl || readOnly || reviewing) return;
     let live = true;
-    api.prototypeShares(account, String(id)).then(r => { if (live) setReviewComments(numberedComments(r.shares)); }, () => { if (live) setReviewComments([]); });
-    return () => { live = false; };
-  }, [previewOpen, readOnly, reviewing, account, id]);
+    const read = () => api.prototypeShares(account, String(id)).then(r => { if (live) setReviewComments(numberedComments(r.shares)); }, () => { if (live) setReviewComments([]); });
+    void read();
+    const timer = setInterval(() => { if (AppState.currentState === "active") void read(); }, 20_000);
+    return () => { live = false; clearInterval(timer); };
+  }, [previewUrl, readOnly, reviewing, account, id, reviewRead]);
   const savePrototype = (path: string, changes: PrototypeChanges) => api.savePrototype(account, String(id), path, changes);
   const loadSteps = useStableCallback((turnId: string) => api.agentTurn(account, String(id), turnId).then(found => found?.steps ?? []));
   const headerLinks: HeaderLink[] = [
@@ -1167,6 +1173,9 @@ function ChatConversation({ account }: { account: Account }) {
           </View>
           {aboutError ? <Text accessibilityRole="alert" style={styles.aboutError}>{aboutError}</Text> : null}
         </View> : null}
+        {/* Reviewers' comments nobody has handed to Agent yet. Handing one over makes it a message in this chat. */}
+        {!readOnly && messages !== null ? <ReviewComments account={account} chatId={String(id)} comments={waitingComments(reviewComments)}
+          onAsked={() => { setReviewRead(n => n + 1); void refreshTurns(); setTimeout(() => { if (mounted.current) void refreshTurns(); }, 900); }} /> : null}
         {messages !== null && !loadError ? <Composer projectId={projectId} draftKey={`chat:${id}`} autoFocus={compose === "1"} commands={{ channel: false, agent: true }} placeholder={pendingForward ? "Message (optional)" : "Message the agent"} onSend={send} allowFileAttachments={false} allowDocuments canSendEmpty={!!pendingForward}
           holdToQueue={busy || activeAgentTurn(turn)} onStop={stoppable ? () => { void stop(); } : undefined} /> : null}
       </ConversationKeyboardView>
