@@ -1,6 +1,6 @@
 // Sharing a prototype with a business owner, over the real server: the person who built it types a work email, the
 // business owner gets a link, confirms a code sent to that address, sees the prototype and comments on it, and each
-// comment becomes a to-do for the person who shared it.
+// comment shows in the prototype's own chat for the person who shared it.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
@@ -21,7 +21,7 @@ const config = { host: "127.0.0.1", port: 0, name: "Example team", agentName: "A
 const mail = [], pushes = [];
 let mailFails = false;
 globalThis.__servantEmailSend = async message => { if (mailFails) throw new Error("smtp down"); mail.push(message); };
-globalThis.__servantPushSend = async (target, notification) => { pushes.push({ to: target.token, title: notification.title, body: notification.body, page: notification.data.page }); return { ok: true }; };
+globalThis.__servantPushSend = async (target, notification) => { pushes.push({ to: target.token, title: notification.title, body: notification.body, page: notification.data.page, chatId: notification.data.chatId }); return { ok: true }; };
 
 const people = { ana: { name: "Ana Ruiz", role: "owner" }, pat: { name: "Pat Tester", role: "member" }, sam: { name: "Sam Lee", role: "member" } };
 const FOLDER = "proto-0123456789abcdef01";
@@ -57,7 +57,7 @@ async function visit(pathname, { method = "GET", body, session } = {}) {
 const linkIn = message => new URL(message.text.match(/https:\/\/team\.example\.gov\/review\/[A-Za-z0-9_-]+/)[0]).pathname;
 async function waitFor(list, count) { for (let i = 0; i < 300 && list.length < count; i++) await new Promise(r => setTimeout(r, 20)); return list.splice(0); }
 
-test("share by work email, confirm a code, see the prototype, comment; the comment becomes the sharer's to-do", async () => {
+test("share by work email, confirm a code, see the prototype, comment; the comment goes to the prototype's chat", async () => {
   // Who may share, and to whom.
   assert.equal((await api("ana", "POST", "chats/cht_proto/prototype/shares", { email: "jo@example.gov" })).status, 403, "an owner can read the chat, but it isn't theirs to share");
   assert.equal((await api("pat", "POST", "chats/cht_plain/prototype/shares", { email: "jo@example.gov" })).status, 404, "a chat without a prototype has nothing to share");
@@ -105,24 +105,19 @@ test("share by work email, confirm a code, see the prototype, comment; the comme
   const session = verified.json.session;
   assert.ok((await visit(`${verified.json.prototype}?review=1`)).text.includes("data-servant-review"), "the prototype they are shown listens for right-clicks");
 
-  // A comment: saved, shown back to them, a to-do for Pat, and an alert that opens To-dos.
+  // A comment: saved, shown back to them, and an alert for Pat that opens the prototype's chat.
   assert.equal((await visit(`${link}/comments`, { method: "POST", session, body: { page: "index.html", x: 0.4, y: 0.2, text: " " } })).status, 400);
   const made = await visit(`${link}/comments`, { method: "POST", session, body: { page: `/p/${FOLDER}/index.html`, x: 0.4, y: 0.2, anchor: "Pay now", text: "This should say Pay in full" } });
   assert.equal(made.status, 201);
   assert.deepEqual([made.json.comment.page, made.json.comment.anchor, made.json.comment.text], ["index.html", "Pay now", "This should say Pay in full"]);
   assert.equal("email" in made.json.comment, false);
   assert.deepEqual((await visit(`${link}/comments`, { session })).json.comments.map(c => c.text), ["This should say Pay in full"]);
-  assert.deepEqual(await waitFor(pushes, 1), [{ to: "push-pat", title: "Comment on Refund tracker", body: "jo.park@example.gov: This should say Pay in full", page: "todos" }]);
-  const todos = (await api("pat", "GET", "todos")).body.todos.filter(t => /^Comment on Refund tracker/.test(t.text));
-  assert.equal(todos.length, 1);
-  assert.equal(todos[0].text, "Comment on Refund tracker: This should say Pay in full");
-  assert.match(todos[0].description, /jo\.park@example\.gov commented on the prototype "Refund tracker"\./);
-  assert.match(todos[0].description, /Where: On "Pay now", index\.html/);
-  assert.match(todos[0].description, new RegExp(`Page: https://team\\.example\\.gov/p/${FOLDER}/`));
-  assert.equal((await api("sam", "GET", "todos")).body.todos.some(t => /Refund tracker/.test(t.text)), false, "it is Pat's to-do, not a teammate's");
+  assert.deepEqual(await waitFor(pushes, 1), [{ to: "push-pat", title: "Comment on Refund tracker", body: "jo.park@example.gov: This should say Pay in full", page: undefined, chatId: "cht_proto" }], "the alert opens the prototype's chat");
+  // The chat is where a prototype's comments live: nothing is filed in To-dos, for the sharer or anyone else.
+  for (const who of ["pat", "sam", "ana"]) assert.equal((await api(who, "GET", "todos")).body.todos.some(t => /Refund tracker/.test(t.text)), false);
   const listed = (await api("pat", "GET", "chats/cht_proto/prototype/shares")).body.shares[0];
   assert.ok(listed.verifiedAt && listed.lastSeenAt);
-  assert.deepEqual(listed.comments.map(c => [c.text, c.anchor, c.todoId]), [["This should say Pay in full", "Pay now", todos[0].id]]);
+  assert.deepEqual(listed.comments.map(c => [c.text, c.anchor, "todoId" in c]), [["This should say Pay in full", "Pay now", false]]);
 
   // Sharing again replaces the link; ending the share closes the session. The comment stays.
   const again = await api("pat", "POST", "chats/cht_proto/prototype/shares", { email: "jo.park@example.gov" });
@@ -204,6 +199,16 @@ test("a comment can be handed to the agent in the prototype's chat: by the share
   assert.deepEqual([again.status, again.body.error.message, (await turns()).length], [409, "The agent was already asked to work on this comment", 1], "a comment is handed over once");
   assert.equal((await visit(`${jo.link}/comments`, { session: jo.session })).json.comments[0].asked, true, "the reviewer is told it was handed over");
 
+  // Or the sharer deals with it themselves: set aside, it leaves the waiting list, stays on record, and starts nothing.
+  const extra = await visit(`${jo.link}/comments`, { method: "POST", session: jo.session, body: { page: "index.html", x: 0.9, y: 0.9, text: "Nice colors." } });
+  await waitFor(pushes, 1);
+  assert.equal((await api("ana", "POST", `chats/cht_work/prototype/comments/${extra.json.comment.id}/set-aside`, {})).status, 403);
+  const aside = await api("pat", "POST", `chats/cht_work/prototype/comments/${extra.json.comment.id}/set-aside`, {});
+  assert.deepEqual([aside.status, typeof aside.body.comment.setAsideAt, (await turns()).length], [200, "number", 1]);
+  assert.equal((await api("pat", "POST", `chats/cht_work/prototype/comments/${extra.json.comment.id}/set-aside`, {})).body.comment.setAsideAt, aside.body.comment.setAsideAt, "once");
+  assert.deepEqual((await comments()).map(c => [!!c.askedAt, !!c.setAsideAt]), [[true, false], [false, true]]);
+  assert.equal((await visit(`${jo.link}/comments`, { session: jo.session })).json.comments[1].asked, undefined, "the reviewer is not told it was set aside");
+
   // Switched on for this reviewer: their next comment starts the agent with nobody pressing anything.
   assert.equal((await api("ana", "PATCH", `chats/cht_work/prototype/shares/${jo.id}`, { autoWork: true })).status, 403);
   assert.equal((await api("pat", "PATCH", `chats/cht_work/prototype/shares/${jo.id}`, { autoWork: "yes" })).status, 400);
@@ -212,8 +217,8 @@ test("a comment can be handed to the agent in the prototype's chat: by the share
   const second = await visit(`${jo.link}/comments`, { method: "POST", session: jo.session, body: { page: "index.html", x: 0.2, y: 0.6, text: "Add the office hours." } });
   assert.deepEqual([second.status, second.json.comment.asked], [201, true]);
   assert.deepEqual((await waitFor(pushes, 1)).map(p => p.title), ["Agent is working on a comment on Permit finder"]);
-  assert.deepEqual([(await turns()).length, (await comments()).map(c => c.askedBy)], [2, ["you", "auto"]]);
-  assert.equal((await api("pat", "GET", "todos")).body.todos.filter(t => /^Comment on Permit finder/.test(t.text)).length, 2, "each comment is still a to-do");
+  assert.deepEqual([(await turns()).length, (await comments()).map(c => c.askedBy ?? null)], [2, ["you", null, "auto"]]);
+  assert.equal((await api("pat", "GET", "todos")).body.todos.some(t => /Permit finder/.test(t.text)), false, "handed to the agent or not, a comment is never a to-do");
 
   // The switch is one reviewer's: another person's comments on the same prototype wait.
   const sam = await enter("sam.lee@example.gov");

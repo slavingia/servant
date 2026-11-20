@@ -18,7 +18,7 @@ export function notificationRoute(data: Record<string, unknown>, userId: string,
   if (typeof data.caseId === 'string' && /^inbox_[A-Za-z0-9_-]{1,80}$/.test(data.caseId)) return features.secureInbox ? { pathname: '/inbox/[id]', params: { id: data.caseId } } : null;
   // An entitlement request, decision or refused host (docs/entitlements.md) opens the Entitlements screen.
   if (data.page === 'entitlements') return { pathname: '/entitlements' };
-  // A comment on a prototype you shared became a to-do (docs/prototype-reviews.md).
+  // A note about your to-dos. (A comment on a prototype you shared opens that prototype's chat, by `chatId` below.)
   if (data.page === 'todos') return { pathname: '/todos' };
   // An automation signed in as you is waiting for a one-time code: open the screen to type it.
   if (typeof data.codeRequestId === 'string' && /^code_[A-Za-z0-9_-]{12}$/.test(data.codeRequestId)) return { pathname: '/code/[id]', params: { id: data.codeRequestId } };
