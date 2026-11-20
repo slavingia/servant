@@ -4,11 +4,11 @@ import { Stack, useLocalSearchParams } from "expo-router";
 import { Button } from "../components/Button";
 import { PrototypeReviewSheet } from "../components/PrototypeReviewSheet";
 import { ServeLoader } from "../components/ServeLoader";
-import { api, ServerError, type Project } from "../lib/server";
+import { api, ServerError, type Project, type PrototypeComment } from "../lib/server";
 import { useSession } from "../lib/session";
 import { openNewChat } from "../lib/new-chat";
 import { useWideLayout } from "../lib/layout";
-import { boxPlace, changesLine, cleanPreviewPath, commentAsk, editsAsk, parsePreviewMessage, type PreviewChanges, type PreviewMode, type PreviewSpot } from "../lib/app-preview";
+import { boxPlace, changesLine, cleanPreviewPath, commentAsk, editsAsk, parsePreviewMessage, reviewerAsk, type PreviewChanges, type PreviewMode, type PreviewSpot } from "../lib/app-preview";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
 
 // App preview (docs/app-preview.md): the project's app running in the browser, at phone size. Use it as normal,
@@ -38,6 +38,22 @@ export default function AppPreviewScreen() {
   const [error, setError] = useState<string | null>(null);
   // The sheet for sending this preview to someone outside the server (PrototypeReviewSheet).
   const [sharing, setSharing] = useState(false);
+  // What outside reviewers said about this preview on the shares this person made, still waiting for them to decide.
+  // An app preview has no chat of its own, so this screen is where its comments come back. Read when the screen opens,
+  // after the share sheet closes, and every so often, since a comment can arrive at any time.
+  const [waiting, setWaiting] = useState<(PrototypeComment & { email: string })[]>([]);
+  const [waitingRead, setWaitingRead] = useState(0);
+  const [handling, setHandling] = useState<string | null>(null);
+  useEffect(() => {
+    if (!account || !id || sharing) return;
+    let live = true;
+    const read = () => api.appPreviewShares(account, String(id)).then(r => {
+      if (live) setWaiting(r.shares.flatMap(share => share.comments.filter(c => !c.setAsideAt).map(c => ({ ...c, email: share.email }))).sort((a, b) => a.createdAt - b.createdAt));
+    }, () => { if (live) setWaiting([]); });
+    void read();
+    const timer = setInterval(() => void read(), 20_000);
+    return () => { live = false; clearInterval(timer); };
+  }, [account, id, sharing, waitingRead]);
   const [mode, setMode] = useState<PreviewMode>("use");
   const [size, setSize] = useState<keyof typeof SIZES>("phone");
   const [src, setSrc] = useState<string | null>(null);
@@ -93,6 +109,18 @@ export default function AppPreviewScreen() {
     // The ask waits in the new chat's message box, so it can be read and changed before it goes.
     openNewChat(account, { projectId: project.id }, {}, text);
   };
+  // Either way the comment leaves the list: handed to the agent (as a message waiting in a new chat, to be read
+  // before it is sent), or set aside because it was dealt with some other way.
+  const settle = async (item: PrototypeComment & { email: string }, toAgent: boolean) => {
+    if (!account || !preview || handling) return;
+    setHandling(item.id);
+    try {
+      await api.setAppPreviewCommentAside(account, String(id), item.id);
+      setWaiting(list => list.filter(c => c.id !== item.id));
+      if (toAgent) ask(reviewerAsk({ projectName: name, url: preview.url, email: item.email, page: item.page, anchor: item.anchor, comment: item.text, commit: preview.commit }));
+    } catch (e) { setError(e instanceof Error ? e.message : "Couldn't do that. Try again"); setWaitingRead(n => n + 1); }
+    finally { setHandling(null); }
+  };
   const sendComment = () => {
     if (!spot || !comment.trim() || !preview) return;
     ask(commentAsk({ projectName: name, url: preview.url, spot, comment, commit: preview.commit }));
@@ -143,6 +171,17 @@ export default function AppPreviewScreen() {
       </View>
       {sharing && account ? <PrototypeReviewSheet account={account} projectId={String(id)} title={`${name} preview`} onClose={() => setSharing(false)} /> : null}
       <Text testID="preview-hint" style={styles.hint}>{hint}</Text>
+      {waiting.length ? <View testID="preview-reviewer-comments" style={styles.waiting}>
+        <Text style={styles.waitingTitle}>{waiting.length === 1 ? "1 comment from a reviewer" : `${waiting.length} comments from reviewers`}</Text>
+        {waiting.map(item => <View key={item.id} testID={`preview-reviewer-comment-${item.id}`} style={styles.waitingItem}>
+          <Text style={styles.waitingBy}>{[item.email, item.anchor ? `On \u201c${item.anchor}\u201d` : null, item.page === "/" ? "First screen" : item.page].filter(Boolean).join(" · ")}</Text>
+          <Text selectable style={styles.waitingText}>{item.text}</Text>
+          <View style={styles.waitingActions}>
+            <Button testID={`preview-reviewer-ask-${item.id}`} label="Ask the agent" accessibilityLabel={`Ask the agent about ${item.email}'s comment: ${item.text.slice(0, 80)}`} kind="secondary" compact busy={handling === item.id} disabled={!!handling} onPress={() => void settle(item, true)} />
+            <Button testID={`preview-reviewer-aside-${item.id}`} label="Set aside" accessibilityLabel={`Set aside ${item.email}'s comment: ${item.text.slice(0, 80)}`} kind="link" compact disabled={!!handling} onPress={() => void settle(item, false)} />
+          </View>
+        </View>)}
+      </View> : null}
       <ScrollView style={styles.stageScroll} contentContainerStyle={styles.stage}>
         <View testID="app-preview-frame" style={[styles.device, { width: dims.width, height: dims.height }]}>
           {Platform.OS !== "web"
@@ -183,6 +222,12 @@ const useStyles = createThemedStyles(({ colors, controls }) => StyleSheet.create
   segmentTextOn: { color: colors.ink },
   goRow: { flexDirection: "row", alignItems: "center", gap: space.xs, flexGrow: 1, minWidth: 220 },
   goInput: { ...controls.input, minHeight: 44, flex: 1 },
+  waiting: { paddingHorizontal: space.side, paddingVertical: space.xs, gap: space.xs, backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
+  waitingTitle: { ...typography.label, color: colors.muted },
+  waitingItem: { gap: space.xxs, paddingLeft: space.sm, borderLeftWidth: 2, borderLeftColor: colors.line },
+  waitingBy: { ...typography.caption, color: colors.muted },
+  waitingText: { ...typography.body, color: colors.ink },
+  waitingActions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: space.sm },
   hint: { ...typography.caption, color: colors.muted, paddingHorizontal: space.side, paddingVertical: space.xs, backgroundColor: colors.background, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   stageScroll: { flex: 1 },
   stage: { alignItems: "center", padding: space.lg, gap: space.sm },

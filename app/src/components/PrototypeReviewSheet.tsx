@@ -81,8 +81,8 @@ export function PrototypeReviewSheet({ account, chatId = "", projectId, title, o
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
           <Text accessibilityRole="header" style={styles.title}>{ofApp ? "Share with a reviewer" : "Share with a business owner"}</Text>
           <Text style={styles.body}>{ofApp
-            ? `They get a link to "${title}" by email. After confirming a code sent to that address, they can use the app in their browser, with its sample data, and right-click anywhere on it to leave a comment. Each comment becomes a to-do for you in this project.`
-            : `They get a link to "${title}" by email. After confirming a code sent to that address, they can look at the prototype and right-click anywhere on it to leave a comment. Each comment shows in this chat and becomes a to-do for you.`}</Text>
+            ? `They get a link to "${title}" by email. After confirming a code sent to that address, they can use the app in their browser, with its sample data, and right-click anywhere on it to leave a comment. Each comment comes back to this screen, for you to decide what to do with.`
+            : `They get a link to "${title}" by email. After confirming a code sent to that address, they can look at the prototype and right-click anywhere on it to leave a comment. Each comment comes to this chat, for you to decide what to do with.`}</Text>
           <Text style={styles.label}>Their work email</Text>
           <TextInput testID="review-email" accessibilityLabel="Their work email" value={email} onChangeText={value => { setEmail(value); setError(null); }} editable={busy !== "send"}
             keyboardType="email-address" autoCapitalize="none" autoCorrect={false} autoComplete="email" maxLength={254} onSubmitEditing={() => void send()} returnKeyType="send"

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Sharing a prototype with a business owner, in real browsers against a temporary server: the person who built it
 // sends a link from the chat's options in the app; the business owner opens the link, confirms the emailed code,
-// right-clicks the prototype and leaves a comment; the comment becomes the sharer's to-do. Saves captures to
+// right-clicks the prototype and leaves a comment; the comment comes to the prototype's own chat. Saves captures to
 // docs/shots/prototype-review.
 // Run after npm ci --prefix app and npm ci --prefix desktop, then: cd desktop && npx playwright install chromium.
 //   node scripts/prototype-review-e2e.mjs
@@ -119,6 +119,15 @@ try {
   const phone = { width: 390, height: 844 }, desktop = { width: 1280, height: 900 };
   const watch = page => { page.setDefaultTimeout(60000); page.on('pageerror', error => pageErrors.push(error.message)); return page; };
 
+  // The share sheet, from the chat's options. A press on the options menu while the chat is still settling can be
+  // lost, so it is pressed again if the sheet has not opened.
+  const openShareSheet = async page => {
+    for (let attempt = 0; ; attempt++) {
+      if (!(await page.getByTestId('share-prototype').isVisible())) await page.getByTestId('open-options').click();
+      await page.getByTestId('share-prototype').click();
+      try { await page.getByTestId('prototype-review-sheet').waitFor({ timeout: 5000 }); return; } catch (error) { if (attempt >= 3) throw error; }
+    }
+  };
   // 1. The person who built the prototype shares it from the chat's options in the app.
   let openApp = null;
   if (withApp) {
@@ -151,8 +160,7 @@ try {
     };
     const { page: app, context } = await openApp(phone);
     const cutShare = film(app, 'share');
-    await app.getByTestId('open-options').click();
-    await app.getByTestId('share-prototype').click();
+    await openShareSheet(app);
     await app.getByTestId('review-send').click();
     await app.getByText("Enter the business owner's work email", { exact: true }).waitFor();
     await app.getByTestId('review-email').fill('jo.park@example.com');
@@ -199,7 +207,11 @@ try {
   // 3. They see the prototype and right-click the part they want to talk about.
   const frame = reviewer.frameLocator('#frame');
   await frame.getByRole('button', { name: 'Pay now' }).waitFor();
-  await reviewer.getByText('None yet. Right-click the part of the prototype you want to talk about.', { exact: true }).waitFor();
+  // The prototype fills the window: no side panel, only a small bar at the bottom.
+  await reviewer.getByRole('button', { name: 'No comments' }).waitFor();
+  assert.equal(await reviewer.locator('#panel').isVisible(), false);
+  const filled = await reviewer.locator('#frame').boundingBox();
+  assert.ok(filled.width >= desktop.width - 2 && filled.height >= desktop.height - 2, `the prototype is full screen (${Math.round(filled.width)}x${Math.round(filled.height)})`);
   await shot(reviewer, 'review-prototype-desktop.png');
   await frame.getByRole('button', { name: 'Pay now' }).click({ button: 'right' });
   await reviewer.getByRole('dialog', { name: 'Leave a comment' }).waitFor();
@@ -236,10 +248,8 @@ try {
   await small.getByRole('heading', { name: 'Pat Tester shared a prototype with you' }).waitFor();
   await shot(small, 'review-confirm-phone.png');
 
-  // 4. Each comment is a to-do for the person who shared it, and shows in the share list.
-  const todos = (await api('GET', '/v1/todos')).todos.filter(t => t.text.startsWith('Comment on Refund tracker'));
-  assert.deepEqual(todos.map(t => t.text).sort(), ['Comment on Refund tracker: Is this before or after the offset?', 'Comment on Refund tracker: This should say "Pay in full". People think it pays the refund.']);
-  assert.match(todos.find(t => /Pay in full/.test(t.text)).description, /Where: On "Pay now", index\.html/);
+  // 4. The comments are with the share, for the prototype's chat. Nothing is filed in To-dos.
+  assert.deepEqual((await api('GET', '/v1/todos')).todos.filter(t => /Refund tracker/.test(t.text)), []);
   const shares = (await api('GET', '/v1/chats/cht_proto/prototype/shares')).shares;
   assert.deepEqual(shares.map(s => [s.email, s.comments.length, !!s.verifiedAt]), [['jo.park@example.gov', 2, true]]);
   assert.deepEqual(shares.map(s => [s.autoWork, s.comments.map(c => c.askedAt ?? null)]), [[false, [null, null]]], 'nothing goes to the agent unless the sharer says so');
@@ -273,8 +283,7 @@ try {
     const { page: sheet, context: sheetContext } = await openApp(phone);
     await sheet.getByTestId('review-comments').waitFor();
     await shot(sheet, 'chat-comments-phone.png');
-    await sheet.getByTestId('open-options').click();
-    await sheet.getByTestId('share-prototype').click();
+    await openShareSheet(sheet);
     const auto = sheet.getByTestId(`review-auto-${shares[0].id}`);
     await auto.waitFor();
     assert.equal(await auto.getAttribute('aria-checked'), 'false');
@@ -304,8 +313,7 @@ try {
     assert.equal(mail.length, mailed, 'naming a reviewer sends nothing');
 
     const { page: again, context: againContext } = await openApp(phone);
-    await again.getByTestId('open-options').click();
-    await again.getByTestId('share-prototype').click();
+    await openShareSheet(again);
     await again.getByTestId('review-suggested').waitFor();
     assert.equal(await again.getByTestId('review-suggested').innerText().then(text => text.includes('jo.park@example.gov')), false, 'Jo already has a link, so only Sam is offered');
     await again.getByTestId('review-suggest-sam.lee@example.gov').scrollIntoViewIfNeeded();
@@ -317,7 +325,7 @@ try {
     await againContext.close();
   }
   // 8. A project's app preview goes out the same way: the reviewer named on the project is one press away, uses
-  //    the app in their browser, and their comment becomes a to-do in the project.
+  //    the app in their browser, and their comment comes back to the preview screen of the person who shared it.
   if (openApp) {
     const mailed = mail.length;
     const { page: preview, context: previewContext } = await openApp(desktop, '/app-preview?id=example-app');
@@ -346,25 +354,34 @@ try {
     await visitor.getByRole('dialog', { name: 'Leave a comment' }).waitFor();
     await visitor.getByLabel('Comment', { exact: true }).fill('Call this "Pay my balance".');
     await visitor.getByRole('button', { name: 'Save comment' }).click();
-    await visitor.getByText('1 comment', { exact: true }).waitFor();
+    await visitor.getByRole('button', { name: '1 comment' }).click();
     await visitor.getByText(/First screen/).first().waitFor();
     await shot(visitor, 'app-review-desktop.png');
     await appContext.close();
-    const made = (await api('GET', '/v1/todos')).todos.find(t => t.text === 'Comment on Example app preview: Call this "Pay my balance".');
-    assert.ok(made, 'the comment is a to-do for the person who shared it');
-    assert.match(made.description, /ana\.ruiz@example\.gov commented on the app preview "Example app preview"\.[\s\S]*Where: On "Make a payment", the first screen/);
+    // The comment comes back to the preview screen of the person who shared it. Nothing is filed in To-dos.
+    assert.deepEqual((await api('GET', '/v1/todos')).todos.filter(t => /Example app/.test(t.text)), []);
+    const { page: back, context: backContext } = await openApp(desktop, '/app-preview?id=example-app');
+    await back.getByTestId('preview-reviewer-comments').waitFor();
+    const waiting = (await api('GET', '/v1/projects/example-app/app-preview/shares')).shares[0].comments[0];
+    assert.match(await back.getByTestId(`preview-reviewer-comment-${waiting.id}`).innerText(), /^ana\.ruiz@example\.gov · On “Make a payment” · First screen\nCall this "Pay my balance"\./);
+    await shot(back, 'app-comments-desktop.png');
+    // Handing it on opens a new agent chat in the project with the comment quoted in the message box, not yet sent.
+    await back.getByTestId(`preview-reviewer-ask-${waiting.id}`).click();
+    await back.getByText(/ana\.ruiz@example\.gov reviewed the Example app preview and left this comment/).first().waitFor();
+    assert.ok((await api('GET', '/v1/projects/example-app/app-preview/shares')).shares[0].comments[0].setAsideAt, 'and it has left the waiting list');
+    await backContext.close();
   }
   // The reviewer's next comment starts the agent with nobody pressing anything, and their page says it was sent on.
   await reviewer.getByRole('button', { name: 'Comment on this page' }).click();
   await reviewer.getByLabel('Comment', { exact: true }).fill('Add when the refund will arrive.');
   await reviewer.getByRole('button', { name: 'Save comment' }).click();
-  await reviewer.getByText('3 comments', { exact: true }).waitFor();
+  await reviewer.getByRole('button', { name: '3 comments' }).click();
   await reviewer.getByText(/Sent to the team’s agent/).first().waitFor();
   await shot(reviewer, 'review-sent-on-desktop.png');
   const after = (await api('GET', '/v1/chats/cht_proto/prototype/shares')).shares.find(share => share.email === 'jo.park@example.gov');
   assert.deepEqual(after.comments.map(c => c.askedBy ?? null), ['you', null, 'auto'], 'the one handed over, the one still waiting, and the one that started by itself');
   assert.equal((await turns()).length, 2);
-  assert.equal((await api('GET', '/v1/todos')).todos.filter(t => t.text.startsWith('Comment on Refund tracker')).length, 3, 'each is still a to-do');
+  assert.deepEqual((await api('GET', '/v1/todos')).todos.filter(t => /Refund tracker/.test(t.text)), [], 'handed to the agent or not, a comment is never a to-do');
   // Ending the share closes the page for them.
   await api('DELETE', `/v1/chats/cht_proto/prototype/shares/${shares[0].id}`);
   await reviewer.reload();

@@ -92,13 +92,13 @@ export function createPrototypeReviews(file, { clock = Date.now } = {}) {
   // comment, the turn it was handed to the agent in, when, and by whom ("auto" or the sharer's id).
   const columns = table => db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
   if (!columns("shares").includes("auto_work")) db.exec("ALTER TABLE shares ADD COLUMN auto_work INTEGER NOT NULL DEFAULT 0");
-  for (const [name, type] of [["turn_id", "TEXT"], ["asked_at", "INTEGER"], ["asked_by", "TEXT"]]) if (!columns("comments").includes(name)) db.exec(`ALTER TABLE comments ADD COLUMN ${name} ${type}`);
+  for (const [name, type] of [["turn_id", "TEXT"], ["asked_at", "INTEGER"], ["asked_by", "TEXT"], ["set_aside_at", "INTEGER"]]) if (!columns("comments").includes(name)) db.exec(`ALTER TABLE comments ADD COLUMN ${name} ${type}`);
   // Added with app preview reviews (docs/app-preview.md): a share is of a chat's prototype, or of a project's app.
   if (!columns("shares").includes("project_id")) db.exec("ALTER TABLE shares ADD COLUMN project_id TEXT");
   const shareView = r => r && ({ id: r.id, kind: r.project_id ? "app" : "prototype", ...(r.project_id ? { projectId: r.project_id } : {}), chatId: r.chat_id, folder: r.folder, title: r.title, email: r.email, createdBy: r.created_by, createdAt: r.created_at,
     ...(r.verified_at ? { verifiedAt: r.verified_at } : {}), ...(r.last_seen_at ? { lastSeenAt: r.last_seen_at } : {}), ...(r.ended_at ? { endedAt: r.ended_at } : {}), autoWork: !!r.auto_work });
   const commentView = r => ({ id: r.id, shareId: r.share_id, chatId: r.chat_id, email: r.email, page: r.page, x: r.x, y: r.y, anchor: r.anchor, text: r.text, createdAt: r.created_at, ...(r.todo_id ? { todoId: r.todo_id } : {}),
-    ...(r.asked_at ? { askedAt: r.asked_at, askedBy: r.asked_by, turnId: r.turn_id } : {}) });
+    ...(r.asked_at ? { askedAt: r.asked_at, askedBy: r.asked_by, turnId: r.turn_id } : {}), ...(r.set_aside_at ? { setAsideAt: r.set_aside_at } : {}) });
   const live = row => (row && !row.ended_at ? row : null);
 
   return {
@@ -211,6 +211,15 @@ export function createPrototypeReviews(file, { clock = Date.now } = {}) {
      * never worked twice. `by` is "auto" or the sharer's id. `release` undoes a claim whose turn could not be queued.
      */
     claimForAgent(commentId, by) { return db.prepare("UPDATE comments SET asked_at=?, asked_by=? WHERE id=? AND asked_at IS NULL").run(clock(), String(by), String(commentId)).changes > 0; },
+    /**
+     * The sharer has dealt with a comment some other way (answered the reviewer themselves, decided against it): it
+     * leaves the chat's waiting list. The comment stays on record, and can still be handed to the agent later.
+     */
+    setAside(commentId, chatId) { return db.prepare("UPDATE comments SET set_aside_at=? WHERE id=? AND chat_id=? AND set_aside_at IS NULL").run(clock(), String(commentId), String(chatId)).changes > 0; },
+    /** The same for a comment on a project's app preview, by the person whose share it was made on. */
+    setAsideApp(commentId, projectId, by) {
+      return db.prepare("UPDATE comments SET set_aside_at=? WHERE id=? AND set_aside_at IS NULL AND share_id IN (SELECT id FROM shares WHERE project_id=? AND created_by=?)").run(clock(), String(commentId), String(projectId), String(by)).changes > 0;
+    },
     releaseClaim(commentId) { db.prepare("UPDATE comments SET asked_at=NULL, asked_by=NULL, turn_id=NULL WHERE id=?").run(String(commentId)); },
     linkTurn(commentId, turnId) { db.prepare("UPDATE comments SET turn_id=? WHERE id=?").run(String(turnId), String(commentId)); },
     /** How many of a share's comments the agent started on by itself since a moment. */

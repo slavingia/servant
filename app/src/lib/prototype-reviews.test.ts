@@ -45,10 +45,10 @@ test("the builder's preview numbers every reviewer's comments in the order they 
 });
 
 test("comments wait above the message box until they are handed to Agent, and say how that happened", () => {
-  const share = (email: string, comments: { id: string; createdAt: number; askedAt?: number; askedBy?: "you" | "auto" }[]) => ({ id: email, email, createdAt: 1, comments: comments.map(c => ({ page: "index.html", anchor: "", text: c.id, ...c })) });
-  const all = numberedComments([share("jo@example.gov", [{ id: "a", createdAt: 1, askedAt: 5, askedBy: "you" }, { id: "c", createdAt: 3 }]), share("sam@example.gov", [{ id: "b", createdAt: 2, askedAt: 2, askedBy: "auto" }, { id: "d", createdAt: 4 }])]);
+  const share = (email: string, comments: { id: string; createdAt: number; askedAt?: number; askedBy?: "you" | "auto"; setAsideAt?: number }[]) => ({ id: email, email, createdAt: 1, comments: comments.map(c => ({ page: "index.html", anchor: "", text: c.id, ...c })) });
+  const all = numberedComments([share("jo@example.gov", [{ id: "a", createdAt: 1, askedAt: 5, askedBy: "you" }, { id: "c", createdAt: 3 }]), share("sam@example.gov", [{ id: "b", createdAt: 2, askedAt: 2, askedBy: "auto" }, { id: "d", createdAt: 4 }, { id: "e", createdAt: 5, setAsideAt: 6 }])]);
   assert.deepEqual(waitingComments(all).map(c => [c.id, c.n, c.email]), [["c", 3, "jo@example.gov"], ["d", 4, "sam@example.gov"]], "they keep the number their pin has");
-  assert.deepEqual(all.map(commentAsked), ["You asked Agent to work on it", "Agent started on it by itself", null, null]);
+  assert.deepEqual(all.map(commentAsked), ["You asked Agent to work on it", "Agent started on it by itself", null, null, "You set it aside"]);
   assert.deepEqual([waitingLine(1), waitingLine(3)], ["1 comment from a reviewer", "3 comments from reviewers"]);
 });
 

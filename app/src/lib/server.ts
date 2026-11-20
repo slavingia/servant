@@ -90,7 +90,7 @@ export type Entitlement = { /** Built in: on every server, asked for by use. */ 
 export type AgentAction = { seq: number; userId: string; name: string; chatId?: string; needs: string[]; verdict: "allowed" | "allowed-once" | "allowed-owner" | "denied" | "waiting"; detail: string; at: number };
 export type PrototypeComment = { id: string; page: string; /** Where on the page, as a share of its width and height. */ x?: number; y?: number; anchor: string; text: string; createdAt: number; todoId?: string;
   /** When the comment was handed to the agent in the prototype's chat, and whether you did it or it happened by itself. */
-  askedAt?: number; askedBy?: "you" | "auto"; turnId?: string };
+  askedAt?: number; askedBy?: "you" | "auto"; turnId?: string; /** When you set it aside: dealt with some other way than the agent. */ setAsideAt?: number };
 export type PrototypeShare = { id: string; email: string; createdAt: number; verifiedAt?: number; lastSeenAt?: number; endedAt?: number; /** The agent starts on this person's comments as they arrive. */ autoWork?: boolean; comments: PrototypeComment[] };
 export type EntitlementDraft = { name: string; description: string; hosts: string[]; confirmation: string };
 export type EntitlementsPage = { /** Whether built-in entitlements are checked before the agent acts. */ capabilities?: { mode: "ask" | "off" }; entitlements: Entitlement[]; canCreate: boolean; waiting: number; manager: { id: string; name: string } | null; reports: { id: string; name: string }[];
@@ -493,8 +493,12 @@ export const api = {
   appPreviewShares: (a: Account, projectId: string) => request(a, `/v1/projects/${encodeURIComponent(projectId)}/app-preview/shares`).then(json<{ shares: PrototypeShare[]; suggested?: OutsideReviewer[] }>),
   shareAppPreview: (a: Account, projectId: string, email: string) => request(a, `/v1/projects/${encodeURIComponent(projectId)}/app-preview/shares`, { method: "POST", body: JSON.stringify({ email }) }).then(json<{ shares: PrototypeShare[]; suggested?: OutsideReviewer[] }>),
   endAppPreviewShare: (a: Account, projectId: string, shareId: string) => request(a, `/v1/projects/${encodeURIComponent(projectId)}/app-preview/shares/${encodeURIComponent(shareId)}`, { method: "DELETE" }).then(json<{ shares: PrototypeShare[]; suggested?: OutsideReviewer[] }>),
+  /** You dealt with a reviewer's comment on the app preview: it leaves your waiting list. */
+  setAppPreviewCommentAside: (a: Account, projectId: string, commentId: string) => request(a, `/v1/projects/${encodeURIComponent(projectId)}/app-preview/comments/${encodeURIComponent(commentId)}/set-aside`, { method: "POST", body: "{}" }).then(json<{ ok: boolean }>),
   /** Whether the agent starts on one reviewer's comments as they arrive. */
   setPrototypeShareAutoWork: (a: Account, id: string, shareId: string, autoWork: boolean) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/shares/${encodeURIComponent(shareId)}`, { method: "PATCH", body: JSON.stringify({ autoWork }) }).then(json<{ shares: PrototypeShare[] }>),
+  /** You dealt with a comment yourself: it leaves the chat's waiting list. */
+  setPrototypeCommentAside: (a: Account, id: string, commentId: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/comments/${encodeURIComponent(commentId)}/set-aside`, { method: "POST", body: "{}" }).then(json<{ comment: { id: string; setAsideAt: number } }>),
   /** Hand one reviewer's comment to the agent, as a message in the prototype's chat. */
   workOnPrototypeComment: (a: Account, id: string, commentId: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/comments/${encodeURIComponent(commentId)}/work`, { method: "POST", body: "{}" }).then(json<{ comment: { id: string; askedAt: number } }>),
   endPrototypeShare: (a: Account, id: string, shareId: string) => request(a, `/v1/chats/${encodeURIComponent(id)}/prototype/shares/${encodeURIComponent(shareId)}`, { method: "DELETE" }).then(json<{ shares: PrototypeShare[]; suggested?: OutsideReviewer[] }>),
