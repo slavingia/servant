@@ -1068,6 +1068,8 @@ function reviewCommented(share, comment, sharer, cfg) {
 export const servantFootnote = (team, joining) => `What is Servant? It is where ${team} works: secure team messaging with an AI agent that builds and changes prototypes like this one. Reviewing needs no account or install; your comments go straight to the person who built it.${joining ? " If you join, you can ask the agent for changes yourself, build prototypes of your own and talk with the team, in a browser or the phone and Mac apps." : ""}`;
 // What a report sent with an access token can be about (POST /api/v1/feedback).
 const FEEDBACK_KINDS = ["bug", "friction", "slow", "confusing", "idea"];
+// Why a chat can't go to a reviewer the way a prototype can (GET /api/v1/work).
+const NOTHING_TO_OPEN = "Nothing from this chat is on the server for a reviewer to open: the work is in the project's own folder or repository. To get comments on it, build it as a prototype in Servant, or put the project's app preview on the server";
 // The access level called "Business owner" (usage.mjs AGENT_TIERS): where someone invited to review a prototype starts.
 const BUSINESS_OWNER_TIER = 2;
 async function sharePrototype(chat, email, asker, cfg, { autoWork = false, name = "", joinCode = "" } = {}) {
@@ -1087,6 +1089,29 @@ async function sharePrototype(chat, email, asker, cfg, { autoWork = false, name 
   }
   // The link is handed back for one use only: a message the asker sends the person themselves (the token API). It
   // opens nothing by itself; the prototype still needs a code confirmed from the address it was shared with.
+  return { ...made.share, link: `${origin}/review/${made.token}` };
+}
+
+/**
+ * Share a project's app preview with one address and send the link (docs/app-preview.md). The share is the asker's
+ * own. Resolves to the share with its link, or throws { status, code, message }.
+ */
+async function shareAppPreview(project, email, asker, cfg, { name = "" } = {}) {
+  const reviews = prototypeReviews();
+  const origin = publicOrigin(cfg), settings = emailSettings(cfg);
+  if (!previewInfo(APP_PREVIEWS_DIR, project.id)) throw requestError(404, "not_found", "This project has no app preview to share yet");
+  if (!origin) throw requestError(400, "not_set_up", "This server has no public address yet, so there is no link to send. Ask an owner to set it up");
+  if (!settings.mailer?.command && !globalThis.__servantEmailSend) throw requestError(400, "not_set_up", "This server can't send email yet, so the link can't be sent. Ask an owner to set up email");
+  const title = `${project.name} preview`;
+  const made = reviews.shareApp({ projectId: project.id, title, email, by: asker.id, domains: reviewDomains(settings) });
+  try {
+    await sendMail({ to: made.share.email, code: "", minutes: 0, subject: `${asker.name} shared an app preview with you: ${title}`,
+      text: `${name ? `Hi ${name},\n\n` : ""}${asker.name} shared the app preview "${title}" with you on ${cfg.name} and would like your comments. It runs in your browser with sample data.\n\nOpen it here: ${origin}/review/${made.token}\n\nIt opens straight away. To leave a comment, confirm this email address with the code that page offers to send you, then right-click anywhere on the app.\n\nIf you weren't expecting this, ignore this email.` }, settings);
+  } catch (error) {
+    reviews.endApp(made.share.id, project.id, asker.id);
+    console.error("[servant] app review share email failed:", error?.message || error);
+    throw requestError(502, "email_send_failed", "Couldn't send the email. Try again, or ask an owner to check email setup");
+  }
   return { ...made.share, link: `${origin}/review/${made.token}` };
 }
 
@@ -1121,6 +1146,19 @@ async function handleTokenApi(req, res, url, parts, cfg) {
     const shares = canShare(chat) ? prototypeReviews().forChat(chat.id).filter(share => !share.endedAt).map(share => ({ email: share.email, opened: !!share.verifiedAt, comments: prototypeReviews().comments({ shareId: share.id }).length })) : undefined;
     return { id: chat.id, title: chat.title, by: users[chat.userId].name, mine: chat.userId === user.id, url: prototypePreview(chat), updatedAt: chat.updatedAt, canShare: canShare(chat), ...(shares ? { sharedWith: shares } : {}) };
   };
+  // The projects this person is in, and each one's app preview when the server has one (docs/app-preview.md).
+  const myProjects = () => { const data = projects().read(); return accessibleProjects(data, user, users).map(found => found.project); };
+  const appView = project => {
+    const preview = previewInfo(APP_PREVIEWS_DIR, project.id);
+    if (!preview) return null;
+    const reviews = prototypeReviews();
+    return { kind: "app", id: project.id, title: `${project.name} preview`, by: "", project: project.name, mine: false, url: `${publicOrigin(cfg) || ""}${preview.path}`, updatedAt: Date.parse(preview.builtAt) || 0, canShare: true,
+      sharedWith: reviews.forApp(project.id, user.id).filter(share => !share.endedAt).map(share => ({ email: share.email, opened: !!share.verifiedAt, comments: reviews.comments({ shareId: share.id }).length })) };
+  };
+  // A chat of your own with the agent that made nothing the server can show: work in a project's folder, say.
+  const isPlainChat = chat => !!chat && !chat.deletedAt && !chat.archivedAt && chat.userId === user.id && !!chat.hermesSessionId && !isPrototype(chat);
+  const projectNames = new Map(projects().read().projects.map(p => [p.id, p.name]));
+  const chatView = chat => ({ kind: "chat", id: chat.id, title: chat.title, by: user.name, ...(projectNames.get(chat.projectId) ? { project: projectNames.get(chat.projectId) } : {}), mine: true, url: "", updatedAt: chat.updatedAt, canShare: false, why: NOTHING_TO_OPEN });
   const body = async () => {
     const raw = await readBody(req, 64 * 1024);
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw requestError(400, "bad_request", "Send a JSON object");
@@ -1134,12 +1172,26 @@ async function handleTokenApi(req, res, url, parts, cfg) {
         .filter(p => !q || `${p.title} ${p.by}`.toLowerCase().includes(q)).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 100);
       return send(res, 200, { prototypes: found });
     }
+    // Everything you are working on with the agent that this server knows of: prototypes, the app previews of your
+    // projects, and your agent chats. The first two can go to a reviewer; a chat is listed so it can be found, with why not.
+    if (method === "GET" && parts[2] === "work" && parts.length === 3) {
+      const q = (url.searchParams.get("q") || "").toLowerCase().trim();
+      const found = [...Object.values(state.chats).filter(chat => isPrototype(chat) && canSee(chat)).map(chat => ({ kind: "prototype", ...prototypeView(chat) })), ...myProjects().map(appView).filter(Boolean),
+        ...Object.values(state.chats).filter(isPlainChat).map(chatView)]
+        .filter(w => !q || `${w.title} ${w.by} ${w.project || ""}`.toLowerCase().includes(q)).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 100);
+      return send(res, 200, { work: found });
+    }
     // Send a prototype to one or more work addresses for review. Each gets the same emailed link and code as from the app.
-    if (method === "POST" && parts[2] === "prototypes" && parts[4] === "shares" && parts.length === 5) {
+    const isShares = method === "POST" && parts[4] === "shares" && parts.length === 5;
+    if (isShares && (parts[2] === "prototypes" || parts[2] === "work")) {
       const given = await body();
+      const any = parts[2] === "work";
       const chat = state.chats[parts[3]];
-      if (!isPrototype(chat) || !canSee(chat)) return fail(res, 404, "not_found", "No such prototype. GET /api/v1/prototypes lists the ones you can see");
-      if (!canShare(chat)) return fail(res, 403, "forbidden", `Only ${users[chat.userId].name}, who made this prototype, or a server owner can share it`);
+      const project = any && !chat ? myProjects().find(p => p.id === parts[3] && appView(p)) : null;
+      if (any && !project && isPlainChat(chat)) return fail(res, 409, "nothing_to_open", NOTHING_TO_OPEN);
+      if (!project && (!isPrototype(chat) || !canSee(chat))) return fail(res, 404, "not_found", any ? "Nothing with that id. GET /api/v1/work lists what you can see" : "No such prototype. GET /api/v1/prototypes lists the ones you can see");
+      if (!project && !canShare(chat)) return fail(res, 403, "forbidden", `Only ${users[chat.userId].name}, who made this prototype, or a server owner can share it`);
+      const thing = project ? "app preview" : "prototype", title = project ? `${project.name} preview` : chat.title;
       // Addresses alone, or people with a name to greet them by: { "people": [{ "name": "Jo Park", "email": "…" }] }.
       const asked = Array.isArray(given.people) ? given.people : Array.isArray(given.emails) ? given.emails.map(email => ({ email })) : typeof given.email === "string" ? [{ email: given.email }] : null;
       if (!asked || !asked.length || asked.length > 10 || asked.some(p => !p || typeof p !== "object" || typeof p.email !== "string" || (p.name !== undefined && typeof p.name !== "string"))) {
@@ -1149,6 +1201,7 @@ async function handleTokenApi(req, res, url, parts, cfg) {
       // screen prototype if they wish. Only a server owner brings people onto the server, here as in the app.
       const inviting = given.invite === true;
       if (given.invite !== undefined && typeof given.invite !== "boolean") return fail(res, 400, "bad_request", "invite is true or false");
+      if (inviting && project) return fail(res, 400, "bad_request", "An invitation to join goes with a prototype, not with an app preview. Share the app preview without invite");
       if (inviting && user.role !== "owner") return fail(res, 403, "forbidden", "Only a server owner can invite someone onto the server. Share the prototype without invite, or ask an owner");
       if (inviting && asked.some(p => !String(p.name ?? "").trim())) return fail(res, 400, "bad_request", 'To invite someone, give their name: people: [{ "name", "email" }]');
       const results = [];
@@ -1160,15 +1213,16 @@ async function handleTokenApi(req, res, url, parts, cfg) {
           // A single-use invite in their name, good for a week. Made only once the address is known to be allowed.
           let joinCode = "";
           if (inviting && !member && address && emailAllowed(address, reviewDomains(emailSettings(cfg)))) joinCode = createInvite({ name, role: "member", agentTier: BUSINESS_OWNER_TIER, createdBy: user.id });
-          const share = await sharePrototype(chat, person.email, user, cfg, { name, joinCode });
+          const share = project ? await shareAppPreview(project, person.email, user, cfg, { name }) : await sharePrototype(chat, person.email, user, cfg, { name, joinCode });
           // Something to paste into a chat or an email of your own, beside the one Servant sent. The name is used
           // here and in the greeting of that email; it is not kept.
-          const message = `${name ? `Hi ${name.split(" ")[0]}, ` : ""}I've shared the prototype "${chat.title}" with you for review: ${share.link}\n\nIt opens straight away. To leave a comment, confirm your email (${share.email}) with the code that page offers to send you, then right-click anywhere on the prototype.${joinCode ? `\n\nYou're also invited to join the team in Servant. Once you've typed that code, "Join ${cfg.name}" is on the same page if you'd like to do more than review. The invitation is good for a week.` : ""}\n\n${servantFootnote(cfg.name, !!joinCode)}`;
+          const message = `${name ? `Hi ${name.split(" ")[0]}, ` : ""}I've shared the ${thing} "${title}" with you for review: ${share.link}\n\nIt opens straight away. To leave a comment, confirm your email (${share.email}) with the code that page offers to send you, then right-click anywhere on the ${project ? "app" : "prototype"}.${joinCode ? `\n\nYou're also invited to join the team in Servant. Once you've typed that code, "Join ${cfg.name}" is on the same page if you'd like to do more than review. The invitation is good for a week.` : ""}\n\n${servantFootnote(cfg.name, !!joinCode)}`;
           // One link. The invite onto the server is not in the message: it is offered on the review page, after the code.
           results.push({ email: share.email, ...(name ? { name } : {}), sent: true, link: share.link, ...(joinCode ? { invited: true } : {}), ...(member ? { alreadyMember: true } : {}), message });
         } catch (error) { if (!error?.status) throw error; results.push({ email: String(person.email).slice(0, 254), ...(name ? { name } : {}), sent: false, error: error.message }); }
       }
-      return send(res, results.some(r => r.sent) ? 201 : 400, { prototype: { id: chat.id, title: chat.title, by: users[chat.userId].name }, results });
+      const about = project ? { id: project.id, kind: "app", title } : { id: chat.id, title: chat.title, by: users[chat.userId].name };
+      return send(res, results.some(r => r.sent) ? 201 : 400, { [any ? "work" : "prototype"]: any && !project ? { kind: "prototype", ...about } : about, results });
     }
     // A report to the people who run Servant, from a person or from a coding agent working for them: something broke,
     // was slow, got in the way or was confusing. It joins the same queue as feedback sent from the app (feedback.mjs)
@@ -2292,22 +2346,8 @@ async function handle(req, res, cfg) {
         if (method === "POST" && parts.length === 5) {
           const body = await readAuthorizedBody(req);
           const current = requireAuth(req).user;
-          const origin = publicOrigin(cfg), settings = emailSettings(cfg);
-          if (!previewInfo(APP_PREVIEWS_DIR, pid)) return fail(res, 404, "not_found", "This project has no app preview to share yet");
-          if (!origin) return fail(res, 400, "not_set_up", "This server has no public address yet, so there is no link to send. Ask an owner to set it up");
-          if (!settings.mailer?.command && !globalThis.__servantEmailSend) return fail(res, 400, "not_set_up", "This server can't send email yet, so the link can't be sent. Ask an owner to set up email");
-          const title = `${project.name} preview`;
-          let made;
-          try { made = reviews.shareApp({ projectId: pid, title, email: body.email, by: current.id, domains: reviewDomains(settings) }); }
+          try { await shareAppPreview(project, body.email, current, cfg); }
           catch (e) { if (!e.status) throw e; return fail(res, e.status, e.code, e.message); }
-          try {
-            await sendMail({ to: made.share.email, code: "", minutes: 0, subject: `${current.name} shared an app preview with you: ${title}`,
-              text: `${current.name} shared the app preview "${title}" with you on ${cfg.name} and would like your comments. It runs in your browser with sample data.\n\nOpen it here: ${origin}/review/${made.token}\n\nIt opens straight away. To leave a comment, confirm this email address with the code that page offers to send you, then right-click anywhere on the app.\n\nIf you weren't expecting this, ignore this email.` }, settings);
-          } catch (error) {
-            reviews.endApp(made.share.id, pid, current.id);
-            console.error("[servant] app review share email failed:", error?.message || error);
-            return fail(res, 502, "email_send_failed", "Couldn't send the email. Try again, or ask an owner to check email setup");
-          }
           return send(res, 201, listing(current));
         }
         if (method === "DELETE" && parts.length === 6) {
