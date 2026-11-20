@@ -10,6 +10,7 @@ In the prototyping chat, choose **Share** in the bar above the prototype's previ
 
 The action is in the chat, not in the prototype. On a phone, **Full screen** opens the prototype in the phone's own browser sheet, and the menu there (⋮ on Android) is the browser's: it lists nothing of Servant's. Close the sheet to get back to the chat and its Share.
 
+- **This project's reviewers** lists the outside reviewers named on the Prototypes project who have no link to this prototype yet, each with **Send**, and **Send to all** when there is more than one. See [Outside reviewers](#outside-reviewers).
 - The address must be on the server's allowed email domains (`emailVerification.domains` in `config.json`). A server with none set accepts only `.gov` and `.mil` addresses.
 - The sheet lists everyone it was shared with, whether they have opened it, and what they said. **End** stops one person's link.
 - Sending again to the same address makes a fresh link and ends the old one.
@@ -29,6 +30,16 @@ It needs the server to have a public address (`publicUrl`) and a mailer (`emailV
 4. Coming back in the same browser tab needs no new code for twelve hours.
 
 They see only their own comments, not other reviewers', and nothing else on the server. Under a comment that was handed to the agent the page says **Sent to the team's agent**; it does not say what came of it.
+
+## Outside reviewers
+
+A project's owners can name the business owners and subject matter experts they keep going back to, once: in the project's **About**, under **Outside reviewers**, one a line, a work email and then a few words on their role ("jo.park@example.gov, Product owner"). Up to ten, at addresses a prototype could be shared to.
+
+Naming someone sends them nothing and opens nothing. It only saves retyping: when anyone shares a prototype, the people named on the Prototypes project are offered with one press, and when anyone shares a project's app preview ([app-preview.md](app-preview.md#sharing-it-with-someone-outside-the-server)), the people named on that project are. Each of them still gets a link only when someone presses Send, and confirms a code each time. Everyone who can see the project can see the list.
+
+Prototypes are all built in one project (`prototypesProject`, "prototypes" unless set), so its list is the one the share sheet offers. A server whose `projects.json` has no such project offers nobody; the email box still works.
+
+In `projects.json` it is `"outsideReviewers": [{ "email": "jo.park@example.gov", "label": "Product owner" }]` on the project.
 
 ## When the agent starts by itself
 

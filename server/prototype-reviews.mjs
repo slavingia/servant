@@ -43,6 +43,19 @@ export function cleanPage(value, folder) {
   if (page.length > 200 || !/^[A-Za-z0-9._\-/]+$/.test(page) || page.split("/").some(part => !part || part.startsWith("."))) return "index.html";
   return page;
 }
+/**
+ * A page of a project's app preview, as the reviewer's browser reported it: "/" for the first screen, "notices",
+ * "account/settings". The app moves between screens without loading a new page, so this is its path at that moment.
+ */
+export function cleanAppPage(value, projectId) {
+  let page = String(value ?? "").replace(/[?#].*$/, "");
+  const prefix = `/a/${projectId}`;
+  if (page.startsWith(prefix)) page = page.slice(prefix.length);
+  page = page.replace(/^\/+|\/+$/g, "").replace(/(^|\/)index\.html$/, "");
+  if (!page) return "/";
+  if (page.length > 200 || !/^[A-Za-z0-9._\-/()\[\]+@~]+$/.test(page) || page.split("/").some(part => !part || part.startsWith("."))) return "/";
+  return page;
+}
 const fraction = value => { const n = Number(value); return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0; };
 
 /**
@@ -80,7 +93,9 @@ export function createPrototypeReviews(file, { clock = Date.now } = {}) {
   const columns = table => db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
   if (!columns("shares").includes("auto_work")) db.exec("ALTER TABLE shares ADD COLUMN auto_work INTEGER NOT NULL DEFAULT 0");
   for (const [name, type] of [["turn_id", "TEXT"], ["asked_at", "INTEGER"], ["asked_by", "TEXT"], ["set_aside_at", "INTEGER"]]) if (!columns("comments").includes(name)) db.exec(`ALTER TABLE comments ADD COLUMN ${name} ${type}`);
-  const shareView = r => r && ({ id: r.id, chatId: r.chat_id, folder: r.folder, title: r.title, email: r.email, createdBy: r.created_by, createdAt: r.created_at,
+  // Added with app preview reviews (docs/app-preview.md): a share is of a chat's prototype, or of a project's app.
+  if (!columns("shares").includes("project_id")) db.exec("ALTER TABLE shares ADD COLUMN project_id TEXT");
+  const shareView = r => r && ({ id: r.id, kind: r.project_id ? "app" : "prototype", ...(r.project_id ? { projectId: r.project_id } : {}), chatId: r.chat_id, folder: r.folder, title: r.title, email: r.email, createdBy: r.created_by, createdAt: r.created_at,
     ...(r.verified_at ? { verifiedAt: r.verified_at } : {}), ...(r.last_seen_at ? { lastSeenAt: r.last_seen_at } : {}), ...(r.ended_at ? { endedAt: r.ended_at } : {}), autoWork: !!r.auto_work });
   const commentView = r => ({ id: r.id, shareId: r.share_id, chatId: r.chat_id, email: r.email, page: r.page, x: r.x, y: r.y, anchor: r.anchor, text: r.text, createdAt: r.created_at, ...(r.todo_id ? { todoId: r.todo_id } : {}),
     ...(r.asked_at ? { askedAt: r.asked_at, askedBy: r.asked_by, turnId: r.turn_id } : {}), ...(r.set_aside_at ? { setAsideAt: r.set_aside_at } : {}) });
@@ -110,6 +125,37 @@ export function createPrototypeReviews(file, { clock = Date.now } = {}) {
         db.exec("COMMIT");
         return { share: shareView(db.prepare("SELECT * FROM shares WHERE id=?").get(id)), token };
       } catch (error) { db.exec("ROLLBACK"); throw error; }
+    },
+    /**
+     * Share a project's app preview with one address, by the same rules: a fresh link replaces that person's old
+     * one for this project from this sharer. Each person on the server keeps their own shares of a project's app.
+     */
+    shareApp({ projectId, title, email, by, domains }) {
+      const clean = normalizeEmail(email);
+      if (!clean) throw fault(400, "email_invalid", "Enter the reviewer's work email");
+      if (!emailAllowed(clean, domains)) throw fault(403, "email_not_allowed", `Use an email that ends in ${domains.map(d => (d.includes(".") ? "@" + d : "." + d)).join(" or ")}`);
+      const now = clock();
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        const open = db.prepare("SELECT * FROM shares WHERE project_id=? AND created_by=? AND ended_at IS NULL").all(String(projectId), String(by));
+        if (open.filter(s => s.email !== clean).length >= MAX_SHARES_PER_CHAT) throw fault(400, "bad_request", `An app preview can be shared with up to ${MAX_SHARES_PER_CHAT} people. End a share to add another`);
+        for (const old of open.filter(s => s.email === clean)) {
+          db.prepare("UPDATE shares SET ended_at=?, ended_by=? WHERE id=?").run(now, String(by), old.id);
+          db.prepare("DELETE FROM sessions WHERE share_id=?").run(old.id);
+        }
+        const id = newId("rev"), token = crypto.randomBytes(24).toString("base64url");
+        db.prepare("INSERT INTO shares(id,token_hash,chat_id,folder,title,email,created_by,created_at,project_id) VALUES (?,?,'','',?,?,?,?,?)").run(id, hash(token), line(title, 120) || "App preview", clean, String(by), now, String(projectId));
+        db.exec("COMMIT");
+        return { share: shareView(db.prepare("SELECT * FROM shares WHERE id=?").get(id)), token };
+      } catch (error) { db.exec("ROLLBACK"); throw error; }
+    },
+    /** One person's shares of a project's app, newest first, ended ones included. */
+    forApp(projectId, by) { return db.prepare("SELECT * FROM shares WHERE project_id=? AND created_by=? ORDER BY created_at DESC, rowid DESC").all(String(projectId), String(by)).map(shareView); },
+    /** End one of a person's shares of a project's app. */
+    endApp(id, projectId, by) {
+      const changed = db.prepare("UPDATE shares SET ended_at=?, ended_by=? WHERE id=? AND project_id=? AND created_by=? AND ended_at IS NULL").run(clock(), String(by), String(id), String(projectId), String(by)).changes > 0;
+      if (changed) db.prepare("DELETE FROM sessions WHERE share_id=?").run(String(id));
+      return changed;
     },
     /** The share a link belongs to, or null when the link is unknown or was ended. */
     byToken(token) { return shareView(live(db.prepare("SELECT * FROM shares WHERE token_hash=?").get(hash(token || "")))) || null; },
@@ -151,12 +197,12 @@ export function createPrototypeReviews(file, { clock = Date.now } = {}) {
       if (words.length > MAX_COMMENT) throw fault(400, "bad_request", `A comment can be up to ${MAX_COMMENT.toLocaleString("en-US")} characters`);
       const id = newId("cmt");
       db.prepare("INSERT INTO comments(id,share_id,chat_id,email,page,x,y,anchor,text,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
-        .run(id, share.id, share.chatId, share.email, cleanPage(page, share.folder), fraction(x), fraction(y), line(anchor, 120), words, clock());
+        .run(id, share.id, share.chatId, share.email, share.kind === "app" ? cleanAppPage(page, share.projectId) : cleanPage(page, share.folder), fraction(x), fraction(y), line(anchor, 120), words, clock());
       return commentView(db.prepare("SELECT * FROM comments WHERE id=?").get(id));
     },
     /** Whether the agent starts on this reviewer's comments as they arrive. Only for a share that is still open. */
     setAutoWork(id, chatId, on) {
-      return db.prepare("UPDATE shares SET auto_work=? WHERE id=? AND chat_id=? AND ended_at IS NULL").run(on ? 1 : 0, String(id), String(chatId)).changes > 0;
+      return db.prepare("UPDATE shares SET auto_work=? WHERE id=? AND chat_id=? AND project_id IS NULL AND ended_at IS NULL").run(on ? 1 : 0, String(id), String(chatId)).changes > 0;
     },
     /** One comment of a chat's prototype, or null. */
     commentOf(commentId, chatId) { const r = db.prepare("SELECT * FROM comments WHERE id=? AND chat_id=?").get(String(commentId), String(chatId)); return r ? commentView(r) : null; },
@@ -170,6 +216,10 @@ export function createPrototypeReviews(file, { clock = Date.now } = {}) {
      * leaves the chat's waiting list. The comment stays on record, and can still be handed to the agent later.
      */
     setAside(commentId, chatId) { return db.prepare("UPDATE comments SET set_aside_at=? WHERE id=? AND chat_id=? AND set_aside_at IS NULL").run(clock(), String(commentId), String(chatId)).changes > 0; },
+    /** The same for a comment on a project's app preview, by the person whose share it was made on. */
+    setAsideApp(commentId, projectId, by) {
+      return db.prepare("UPDATE comments SET set_aside_at=? WHERE id=? AND set_aside_at IS NULL AND share_id IN (SELECT id FROM shares WHERE project_id=? AND created_by=?)").run(clock(), String(commentId), String(projectId), String(by)).changes > 0;
+    },
     releaseClaim(commentId) { db.prepare("UPDATE comments SET asked_at=NULL, asked_by=NULL, turn_id=NULL WHERE id=?").run(String(commentId)); },
     linkTurn(commentId, turnId) { db.prepare("UPDATE comments SET turn_id=? WHERE id=?").run(String(turnId), String(commentId)); },
     /** How many of a share's comments the agent started on by itself since a moment. */
@@ -177,7 +227,8 @@ export function createPrototypeReviews(file, { clock = Date.now } = {}) {
     /** Remember which to-do a comment became. */
     linkTodo(commentId, todoId) { db.prepare("UPDATE comments SET todo_id=? WHERE id=?").run(String(todoId), String(commentId)); },
     /** Every comment on a chat's prototype, oldest first; or only one share's (what that reviewer sees: their own). */
-    comments({ chatId, shareId }) {
+    comments({ chatId, shareId, shareIds }) {
+      if (shareIds) return shareIds.flatMap(one => db.prepare("SELECT * FROM comments WHERE share_id=? ORDER BY created_at, rowid").all(String(one))).map(commentView);
       const rows = shareId ? db.prepare("SELECT * FROM comments WHERE share_id=? ORDER BY created_at, rowid").all(String(shareId))
         : db.prepare("SELECT * FROM comments WHERE chat_id=? ORDER BY created_at, rowid").all(String(chatId));
       return rows.map(commentView);

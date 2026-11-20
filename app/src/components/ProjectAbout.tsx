@@ -12,6 +12,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { Avatar } from "./Messaging";
 import { forgetProject } from "../lib/projects-store";
 import { parseReviewers, reviewerText, stageReviewers } from "../lib/releases";
+import { outsideReviewerLine, outsideReviewerText, parseOutsideReviewers } from "../lib/prototype-reviews";
 import { api, ServerError, type Account, type Person, type Project, type ProjectLevel, type ProjectPerson } from "../lib/server";
 import { radius, space, typography, useTheme, createThemedStyles, linkUnderline } from "../lib/theme";
 import { Toggle } from "./Toggle";
@@ -49,6 +50,12 @@ export function ProjectAbout({ account, project, onChange }: { account: Account;
     if (next.join(" ") === parseReviewers(reviewerText(stageReviewers(project, stage))).join(" ")) return;
     const all = Object.fromEntries(project.stages.map(s => [s, s === stage ? next : stageReviewers(project, s).map(p => p.github ?? p.key)]));
     save({ reviewers: all });
+  };
+  // Outside reviewers, as typed: one a line. Saved on blur like the rest.
+  const [outside, setOutside] = useState(() => outsideReviewerText(project.outsideReviewers));
+  const saveOutside = () => {
+    const next = parseOutsideReviewers(outside);
+    if (outsideReviewerText(next) !== outsideReviewerText(project.outsideReviewers)) save({ outsideReviewers: next });
   };
   const field = (key: keyof typeof fields) => (value: string) => setFields(f => ({ ...f, [key]: value }));
   const [error, setError] = useState<string | null>(null);
@@ -186,6 +193,16 @@ export function ProjectAbout({ account, project, onChange }: { account: Account;
             placeholder="One stage per line" placeholderTextColor={colors.muted}
             style={[styles.input, styles.rules, { minHeight: 48 + 22 * Math.max(3, 1 + fields.stages.split("\n").length) }]} />
         </> : project.stages.length ? <Text style={styles.stages}>{project.stages.join("  →  ")}</Text> : null}
+        {/* Outside reviewers: business owners and subject matter experts who are not on the server, named once. */}
+        {canEdit || project.outsideReviewers?.length ? <>
+          <Text style={styles.label}>Outside reviewers</Text>
+          <Text style={[styles.help, styles.helpTop]}>Business owners and subject matter experts who are not on this server. Sharing a prototype offers them with one press. Naming someone here sends them nothing.</Text>
+          {canEdit
+            ? <TextInput testID="project-outside-reviewers" accessibilityLabel="Outside reviewers, one per line: work email, then their role" value={outside} onChangeText={setOutside} onBlur={saveOutside} multiline textAlignVertical="top"
+                autoCapitalize="none" autoCorrect={false} placeholder="name@example.gov, Product owner" placeholderTextColor={colors.muted}
+                style={[styles.input, styles.rules, { minHeight: 48 + 22 * Math.max(2, 1 + outside.split("\n").length) }]} />
+            : <Text testID="project-outside-reviewers-list" style={styles.stages}>{(project.outsideReviewers ?? []).map(outsideReviewerLine).join("\n")}</Text>}
+        </> : null}
         {/* Reviewers: who signs off each stage on every feature. A cell with no owner is theirs to tick. */}
         {project.stages.length && (canEdit || project.stages.some(s => stageReviewers(project, s).length)) ? <>
           <Text style={styles.label}>Reviewers</Text>

@@ -1,5 +1,21 @@
 // Sharing a prototype with a business owner (docs/prototype-reviews.md): the words the share sheet shows.
-import type { PrototypeComment, PrototypeShare } from "./server.ts";
+import type { OutsideReviewer, PrototypeComment, PrototypeShare } from "./server.ts";
+
+/** A project's outside reviewers as a person types them: one a line, "name@example.gov, Product owner". */
+export const outsideReviewerText = (list: readonly OutsideReviewer[] = []) => list.map(r => (r.label ? `${r.email}, ${r.label}` : r.email)).join("\n");
+/** What was typed, as a list: the first thing on a line is the address, the rest (after a comma or a space) is their role. Repeats are dropped. */
+export function parseOutsideReviewers(text: string): OutsideReviewer[] {
+  const out: OutsideReviewer[] = [];
+  for (const line of text.split("\n")) {
+    const match = /^\s*([^\s,]+)[\s,]*(.*)$/.exec(line);
+    if (!match || !match[1]) continue;
+    const email = match[1].trim().toLowerCase();
+    if (!out.some(r => r.email === email)) out.push({ email, label: match[2]!.replace(/\s+/g, " ").trim() });
+  }
+  return out;
+}
+/** One reviewer on a line: "jo.park@example.gov · Product owner". */
+export const outsideReviewerLine = (r: OutsideReviewer) => (r.label ? `${r.email} · ${r.label}` : r.email);
 
 /** Where a share stands, in a few words. */
 export function shareStatus(share: Pick<PrototypeShare, "verifiedAt" | "endedAt">): string {

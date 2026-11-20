@@ -11,6 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { safeName } from "./media.mjs";
+import { emailAllowed, normalizeEmail } from "./email-verify.mjs";
 
 export const MAX_PROJECTS = 100;
 export const MAX_PROJECT_FILES = 25;
@@ -147,6 +148,30 @@ export function cleanReviewers(value) {
   if (Object.keys(out).length > MAX_STAGES) throw fault(413, "bad_request", `Keep it to ${MAX_STAGES} stages`);
   return out;
 }
+/**
+ * A project's outside reviewers (docs/prototype-reviews.md): business owners and subject matter experts who are not
+ * on the server, named once so sharing a prototype or the app preview with them is one press. Each is a work email
+ * and a few words on what they are there for ("Product owner"). Naming someone sends nothing and opens nothing:
+ * they still get a link only when someone shares with them, and confirm a code each time.
+ */
+export const MAX_OUTSIDE_REVIEWERS = 10;
+export function cleanOutsideReviewers(value, domains) {
+  if (!Array.isArray(value)) throw fault(400, "bad_request", "Outside reviewers are a list of work emails, each with a few words on their role");
+  const out = [];
+  for (const entry of value) {
+    const given = typeof entry === "string" ? { email: entry } : entry && typeof entry === "object" ? entry : {};
+    const email = normalizeEmail(given.email);
+    if (!email) throw fault(400, "email_invalid", `${JSON.stringify(String(given.email ?? "").slice(0, 80))} isn't an email address`);
+    if (domains && !emailAllowed(email, domains)) throw fault(403, "email_not_allowed", `${email} can't be a reviewer here. Use an email that ends in ${domains.map(d => (d.includes(".") ? "@" + d : "." + d)).join(" or ")}`);
+    if (out.some(r => r.email === email)) continue;
+    out.push({ email, label: text(given.label, 60) });
+  }
+  if (out.length > MAX_OUTSIDE_REVIEWERS) throw fault(413, "bad_request", `Keep it to ${MAX_OUTSIDE_REVIEWERS} outside reviewers`);
+  return out;
+}
+/** A project's outside reviewers as stored, with anything malformed in a hand-edited file left out. */
+export const outsideReviewers = project => (Array.isArray(project?.outsideReviewers) ? project.outsideReviewers : [])
+  .map(r => ({ email: normalizeEmail(r?.email), label: text(r?.label, 60) })).filter(r => r.email).slice(0, MAX_OUTSIDE_REVIEWERS);
 const reviewerKeys = (project, stage) => (project.reviewers && Object.hasOwn(project.reviewers, stage) && Array.isArray(project.reviewers[stage]) ? project.reviewers[stage] : []);
 /** The people who review one stage, as the app shows them. */
 export const stageReviewers = (project, stage, users, people) => reviewerKeys(project, stage).map(k => resolvePerson(k, users, people));
@@ -312,6 +337,7 @@ export function projectView(project, access, viewer, users, people, chats = []) 
     pages: project.pages || "", workflow: project.workflow, rules: project.rules, files: project.files.map(({ id, name, size }) => ({ id, name, size })),
     stages: project.stages, releases: sortedReleases(project).map(r => releaseView(r, project, users)),
     reviewers: Object.fromEntries(project.stages.map(s => [s, stageReviewers(project, s, users, people).map(({ key, id, name, github }) => ({ key, ...(id ? { id } : {}), name, ...(github ? { github } : {}) }))]).filter(([, l]) => l.length)),
+    outsideReviewers: outsideReviewers(project),
     people: list.map(({ key, id, name, github, level, owner: isOwner }) => ({ key, ...(id ? { id } : {}), name, ...(github ? { github } : {}), level, owner: isOwner })),
     access: access.level, canEdit: access.canEdit, canWrite: access.canWrite,
     chatCount: inProject.filter(c => c.userId === viewer.id).length,
