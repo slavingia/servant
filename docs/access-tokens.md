@@ -51,7 +51,7 @@ A prototype is shared by the person who made it, or by a **server owner on their
 
 ### A message to copy, and inviting someone onto the server
 
-Each person the link was sent to comes back with the review `link` and a `message` ready to paste into a chat or an email of your own, beside the email Servant sent: "Hi Jo, I've shared the prototype "Refund tracker" with you for review: … It will ask you to confirm your email with a code…". A name, when given, is used to greet them there and in Servant's email; it is not kept.
+Each person the link was sent to comes back with the review `link` and a `message` ready to paste into a chat or an email of your own, beside the email Servant sent: "Hi Jo, I've shared the prototype "Refund tracker" with you for review: … It will ask you to confirm your email with a code…". A name, when given, is used to greet them there and in Servant's email; it is not kept. Both end with a footnote for someone who has never seen Servant: what it is, that reviewing needs no account or install, and, when they are invited too, what joining adds.
 
 The review link is returned only here, to the person who asked for it; the app's own share sheet never shows it. It opens nothing by itself: the prototype still needs a code confirmed from the address it was shared with.
 

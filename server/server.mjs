@@ -1046,6 +1046,11 @@ function reviewCommented(share, comment, sharer, cfg) {
  * request; the share belongs to the chat's own person, so comments arrive in their chat whoever sent the link.
  * Resolves to the share, or throws { status, code, message }.
  */
+/**
+ * A footnote for someone who has never seen Servant: what it is, in two or three sentences, at the end of a message
+ * or an email that invites them to review a prototype. With `joining`, it also says what joining would add.
+ */
+export const servantFootnote = (team, joining) => `What is Servant? It is where ${team} works: secure team messaging with an AI agent that builds and changes prototypes like this one. Reviewing needs no account or install; your comments go straight to the person who built it.${joining ? " If you join, you can ask the agent for changes yourself, build prototypes of your own and talk with the team, in a browser or the phone and Mac apps." : ""}`;
 // The access level called "Business owner" (usage.mjs AGENT_TIERS): where someone invited to review a prototype starts.
 const BUSINESS_OWNER_TIER = 2;
 async function sharePrototype(chat, email, asker, cfg, { autoWork = false, name = "", join = "" } = {}) {
@@ -1056,7 +1061,7 @@ async function sharePrototype(chat, email, asker, cfg, { autoWork = false, name 
   const made = reviews.share({ chatId: chat.id, folder: chat.vibeFolder, title: chat.title, email, by: chat.userId, domains: reviewDomains(settings), autoWork });
   try {
     await sendMail({ to: made.share.email, code: "", minutes: 0, subject: `${asker.name} shared a prototype with you: ${made.share.title}`,
-      text: `${name ? `Hi ${name},\n\n` : ""}${asker.name} shared the prototype "${made.share.title}" with you on ${cfg.name} and would like your comments.\n\nOpen it here: ${origin}/review/${made.token}\n\nYou'll be asked to confirm this email address with a code. Then right-click anywhere on the prototype to leave a comment.${join ? `\n\nTo use the rest of Servant with the team, join here: ${join}\nThat link works once, for a week.` : ""}\n\nIf you weren't expecting this, ignore this email.` }, settings);
+      text: `${name ? `Hi ${name},\n\n` : ""}${asker.name} shared the prototype "${made.share.title}" with you on ${cfg.name} and would like your comments.\n\nOpen it here: ${origin}/review/${made.token}\n\nYou'll be asked to confirm this email address with a code. Then right-click anywhere on the prototype to leave a comment.${join ? `\n\nTo use the rest of Servant with the team, join here: ${join}\nThat link works once, for a week.` : ""}\n\n${servantFootnote(cfg.name, !!join)}\n\nIf you weren't expecting this, ignore this email.` }, settings);
   } catch (error) {
     // A link nobody received is ended, so it can't be found later by someone else.
     reviews.end(made.share.id, chat.id, asker.id);
@@ -1144,7 +1149,7 @@ async function handleTokenApi(req, res, url, parts, cfg) {
           const share = await sharePrototype(chat, person.email, user, cfg, { name, join });
           // Something to paste into a chat or an email of your own, beside the one Servant sent. The name is used
           // here and in the greeting of that email; it is not kept.
-          const message = `${name ? `Hi ${name.split(" ")[0]}, ` : ""}I've shared the prototype "${chat.title}" with you for review: ${share.link}\n\nIt will ask you to confirm your email (${share.email}) with a code. Then right-click anywhere on the prototype to leave a comment.${join ? `\n\nTo use the rest of Servant with the team, join here (works once, for a week): ${join}` : ""}`;
+          const message = `${name ? `Hi ${name.split(" ")[0]}, ` : ""}I've shared the prototype "${chat.title}" with you for review: ${share.link}\n\nIt will ask you to confirm your email (${share.email}) with a code. Then right-click anywhere on the prototype to leave a comment.${join ? `\n\nTo use the rest of Servant with the team, join here (works once, for a week): ${join}` : ""}\n\n${servantFootnote(cfg.name, !!join)}`;
           results.push({ email: share.email, ...(name ? { name } : {}), sent: true, link: share.link, ...(join ? { join } : {}), ...(member ? { alreadyMember: true } : {}), message });
         } catch (error) { if (!error?.status) throw error; results.push({ email: String(person.email).slice(0, 254), ...(name ? { name } : {}), sent: false, error: error.message }); }
       }

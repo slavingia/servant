@@ -136,7 +136,10 @@ test("see prototypes and send one for review; a server owner can do it for the p
   // Each one that went out comes back with its link and a message to paste; one that didn't has neither.
   const [ok, refused] = sent.json.results;
   assert.match(ok.link, /^https:\/\/team\.example\.gov\/review\/[A-Za-z0-9_-]+$/);
-  assert.equal(ok.message, `I've shared the prototype "Refund tracker" with you for review: ${ok.link}\n\nIt will ask you to confirm your email (jo.park@example.gov) with a code. Then right-click anywhere on the prototype to leave a comment.`);
+  // It ends with a footnote on what Servant is, for someone who has never seen it.
+  const ABOUT = "What is Servant? It is where Example team works: secure team messaging with an AI agent that builds and changes prototypes like this one. Reviewing needs no account or install; your comments go straight to the person who built it.";
+  assert.equal(ok.message, `I've shared the prototype "Refund tracker" with you for review: ${ok.link}\n\nIt will ask you to confirm your email (jo.park@example.gov) with a code. Then right-click anywhere on the prototype to leave a comment.\n\n${ABOUT}`);
+  assert.equal(mail[0].text.includes(`\n\n${ABOUT}\n\nIf you weren't expecting this, ignore this email.`), true, "and so does the email Servant sends");
   assert.deepEqual(["link" in refused, "message" in refused], [false, false]);
   assert.equal(mail[0].text.includes(ok.link), true, "the same link the email carries");
   // The link opens nothing by itself: the prototype still needs a code sent to that address.
@@ -165,7 +168,10 @@ test("see prototypes and send one for review; a server owner can do it for the p
   const invited = await shell(people.ana.token, "POST", "/prototypes/cht_proto/shares", { people: [{ name: "Jo Park", email: "jo.park@example.gov" }, { name: "Sam Outside", email: "sam@example.com" }], invite: true });
   const [jo, outside] = invited.json.results;
   assert.match(jo.join, /^https:\/\/team\.example\.gov\/join\?code=/);
-  assert.equal(jo.message.endsWith(`\n\nTo use the rest of Servant with the team, join here (works once, for a week): ${jo.join}`), true);
+  // When they are invited too, the footnote says what joining adds.
+  const JOINING = " If you join, you can ask the agent for changes yourself, build prototypes of your own and talk with the team, in a browser or the phone and Mac apps.";
+  assert.equal(jo.message.endsWith(`\n\nTo use the rest of Servant with the team, join here (works once, for a week): ${jo.join}\n\n${ABOUT}${JOINING}`), true);
+  assert.equal(mail[0].text.includes(`${ABOUT}${JOINING}\n\nIf you weren't expecting this`), true);
   assert.equal(mail[0].text.includes(`To use the rest of Servant with the team, join here: ${jo.join}`), true);
   assert.deepEqual([outside.sent, "join" in outside, mail.length], [false, false, 1], "no invite is made for an address that can't be shared with");
   // Joining with it makes Jo a member who starts as a business owner, invited by Ana. The link works once.

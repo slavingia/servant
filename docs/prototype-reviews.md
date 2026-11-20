@@ -58,7 +58,7 @@ A comment is words from someone outside the server, and the agent that builds pr
 
 Two emails leave the server through the owner's mailer command, both to the address the sharer typed:
 
-- the invitation: the sharer's name, the server's name, the prototype's title and the link;
+- the invitation: the sharer's name, the server's name, the prototype's title and the link, and a short footnote on what Servant is for someone who has never seen it;
 - the code: the prototype's title, the sharer's name and the six-digit code.
 
 The alert to the sharer carries the prototype's title, the reviewer's address and the start of the comment, like any other alert, and the id of the prototype's chat so a tap opens it ([notifications.md](notifications.md)).
