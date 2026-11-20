@@ -449,3 +449,40 @@ test("in a project's chat the agent's check is about that project: allowed there
     assert.ok(actions.some(a => a.chatId === "chat_app" && a.verdict === "allowed") && actions.some(a => a.chatId === "chat_site" && a.verdict === "waiting"));
   } finally { config.agentCapabilities = before; }
 });
+
+test("with owners checked, an owner's agent waits like anyone's, and another owner decides when there is one", async () => {
+  const before = { ...config.agentCapabilities };
+  config.agentCapabilities = { mode: "ask", waitSeconds: 0, owners: "ask" };
+  const ana = people.owner.id;
+  const decide = (id, decision) => api("owner", "POST", `entitlements/${encodeURIComponent(id)}/people/${ana}`, { decision });
+  try {
+    assert.deepEqual((await api("owner", "GET", "entitlements")).body.capabilities, { mode: "ask", owners: "ask" });
+    // Ana is the only owner. Her agent is held, the action log says waiting (not allowed-owner), and she is the one told.
+    await pushed(0); pushes.length = 0;
+    const held = await use("owner", ["fs-write"], "Run: rm -rf build");
+    assert.equal(held.verdict, "wait");
+    assert.match(held.message, /^Servant is holding this: An owner has been asked to allow Filesystem write for Ana Ruiz/);
+    assert.deepEqual((await pushed(1)).map(p => [p.to, p.body]), [["push-owner", "Ana Ruiz's agent needs Filesystem write"]]);
+    const latest = (await api("owner", "GET", "entitlements/actions")).body.actions.find(a => a.userId === ana);
+    assert.deepEqual([latest.verdict, latest.detail], ["waiting", "Run: rm -rf build"]);
+    // The only owner decides her own request, so a one-owner server is not locked out.
+    assert.equal((await decide("native-fs-write", "once")).status, 200);
+    assert.equal((await use("owner", ["fs-write"], "Run: rm -rf build")).verdict, "allow");
+    assert.equal((await use("owner", ["fs-write"], "Run: rm -rf build again")).verdict, "wait", "allowed once, then asked again");
+
+    // A second owner joins: now Ana's own request is no longer hers to decide.
+    mod.mutateStateForTest(state => { state.users.usr_ben = { id: "usr_ben", name: "Ben Ortiz", role: "owner", createdAt: Date.now() }; });
+    const refused = await decide("native-fs-write", "grant");
+    assert.deepEqual([refused.status, refused.body.error.code], [403, "forbidden"]);
+    assert.equal((await use("owner", ["fs-write"], "Run: rm -rf build again")).verdict, "wait");
+    // Ana still decides for other people.
+    assert.equal((await use("sam", ["github-read"], "Run: gh pr list")).verdict === "allow" || (await api("owner", "POST", `entitlements/native-github-read/people/${people.sam.id}`, { decision: "grant" })).status === 200, true);
+
+    // Without the setting, an owner's agent is not held, as before.
+    config.agentCapabilities = { mode: "ask", waitSeconds: 0 };
+    assert.equal((await use("owner", ["fs-write", "github-write"], "Run: git push")).verdict, "allow");
+  } finally {
+    mod.mutateStateForTest(state => { delete state.users.usr_ben; });
+    config.agentCapabilities = before;
+  }
+});
