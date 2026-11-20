@@ -279,3 +279,61 @@ test("the lifetime setting takes whole days from 1 to 3650; anything else means 
   assert.deepEqual([90, 1, 3650].map(grantDaysSetting), [90, 1, 3650]);
   assert.deepEqual([0, -1, 1.5, 3651, "30", null, undefined, true].map(grantDaysSetting), [0, 0, 0, 0, 0, 0, 0, 0]);
 });
+
+test("built-in entitlements are held per project: allowed for one project says nothing about another", () => {
+  const { store, done } = setup();
+  const app = { id: "example-app", name: "Example app" }, site = { id: "prototypes", name: "Prototypes" };
+  const ask = (who, capability, project, options = {}) => store.use(who, capability, "Run: a command", { project, ...options });
+  const allow = (id, who, decision = "grant", by = "usr_ana") => store.decide(id, who, { decision, by });
+  try {
+    // The first use in a project's chat asks for the entitlement for that project, by name.
+    const first = ask("usr_pat", "fs-write", app);
+    assert.deepEqual([first.verdict, first.fresh, first.entitlement.id, first.entitlement.name], ["wait", true, "native-fs-write@example-app", "Filesystem write · Example app"]);
+    assert.deepEqual([first.entitlement.native, first.entitlement.capability, first.entitlement.projectId], [true, "fs-write", "example-app"]);
+    assert.equal(ask("usr_pat", "fs-write", app).fresh, false, "asked once");
+    allow(first.entitlement.id, "usr_pat");
+    assert.equal(ask("usr_pat", "fs-write", app).verdict, "allow");
+    // Write covers read, in the same project only.
+    assert.equal(ask("usr_pat", "fs-read", app).verdict, "allow");
+    for (const [capability, project, why] of [["fs-write", site, "another project"], ["fs-read", site, "reading another project"], ["fs-write", null, "a chat outside any project"], ["github-write", app, "another entitlement in the same project"]]) {
+      assert.equal(ask("usr_pat", capability, project).verdict, "wait", why);
+    }
+    assert.deepEqual(store.held("usr_pat").map(e => e.name), ["Filesystem write · Example app"]);
+
+    // Held for every project (no project named), it counts in each one.
+    allow("native-fs-write", "usr_pat");
+    for (const project of [site, { id: "new-one", name: "New one" }, null]) assert.equal(ask("usr_pat", "fs-write", project).verdict, "allow");
+    assert.equal(ask("usr_pat", "fs-read", site).verdict, "allow", "and its write still covers read");
+
+    // Allow once is for the project it was asked in, and is used up there.
+    assert.equal(ask("usr_sam", "github-write", app).verdict, "wait");
+    allow("native-github-write@example-app", "usr_sam", "once");
+    assert.equal(ask("usr_sam", "github-write", site).verdict, "wait", "not usable in another project");
+    assert.deepEqual([ask("usr_sam", "github-write", app, { consume: false }).once, ask("usr_sam", "github-write", app).verdict, ask("usr_sam", "github-write", app).verdict], [true, "allow", "wait"]);
+
+    // The GitHub pair opens GitHub's hosts for someone who holds it for a project. The gate goes by host, not repository.
+    assert.equal(store.allows("usr_jo", "api.github.com"), false);
+    ask("usr_jo", "github-read", app);
+    allow("native-github-read@example-app", "usr_jo");
+    assert.equal(store.allows("usr_jo", "api.github.com"), true);
+
+    // Access is handed down per project too: Jo holds GitHub read for Example app, so Jo can grant that and nothing wider.
+    ask("usr_pat", "github-read", app); ask("usr_pat", "github-read", site);
+    allow("native-github-read@example-app", "usr_pat", "grant", "usr_jo");
+    fails(() => allow("native-github-read@prototypes", "usr_pat", "grant", "usr_jo"), 403, "not_held");
+    // Taking it back closes that project only.
+    allow("native-fs-write@example-app", "usr_pat", "revoke");
+    assert.equal(store.grant("native-fs-write", "usr_pat").status, "granted");
+
+    // A refusal for one project stands for that project and no other.
+    ask("usr_sam", "fs-write", app); ask("usr_sam", "fs-write", site);
+    allow("native-fs-write@example-app", "usr_sam", "deny");
+    assert.deepEqual([ask("usr_sam", "fs-write", app).verdict, ask("usr_sam", "fs-write", site).verdict], ["deny", "wait"]);
+
+    // Like the built-in ones they stand for, they keep their name and can't be retired; a made-up project id is refused.
+    fails(() => store.retire("native-fs-write@example-app", "usr_ana"), 400);
+    fails(() => ask("usr_pat", "fs-read", { id: "../etc", name: "x" }), 400);
+    assert.deepEqual(store.list().filter(e => e.projectId).map(e => e.name).sort(), ["Filesystem read · Prototypes", "Filesystem write · Example app", "Filesystem write · Prototypes", "GitHub read · Example app", "GitHub read · Prototypes", "GitHub write · Example app", "GitHub write · Prototypes"].sort(),
+      "one for each project something was asked for in; none made for a use that something wider already covered (New one, reading Example app)");
+  } finally { done(); }
+});
