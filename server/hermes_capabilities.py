@@ -1,6 +1,7 @@
 """Which built-in entitlement a tool call needs (docs/entitlements.md, "Built-in entitlements").
 
-Four of them: reading files, changing files, reading GitHub, changing GitHub. The agent's own file tools are exact.
+Four of them: reading files, changing files, reading GitHub, changing GitHub. A fifth, deleting a branch, a tag or a
+repository, is asked for beside the write it is part of and can only ever be allowed once, so it asks every time. The agent's own file tools are exact.
 A shell command is read as carefully as a shell command can be, and the rule is one-sided on purpose: a command
 counts as reading only when every part of it is on a short list of commands known to only read. Anything else
 needs "filesystem write", and anything that talks to GitHub and isn't a known read needs "GitHub write". A wrong
@@ -11,9 +12,9 @@ No Hermes imports here, so it can be tested with any Python.
 import re
 import shlex
 
-FS_READ, FS_WRITE, GH_READ, GH_WRITE = "fs-read", "fs-write", "github-read", "github-write"
+FS_READ, FS_WRITE, GH_READ, GH_WRITE, DELETE = "fs-read", "fs-write", "github-read", "github-write", "delete"
 # Asked for in this order, the weightiest first, so a person isn't asked twice for one command when one answer says no.
-ORDER = (GH_WRITE, FS_WRITE, GH_READ, FS_READ)
+ORDER = (DELETE, GH_WRITE, FS_WRITE, GH_READ, FS_READ)
 
 # Hermes tools that read or change files without a shell.
 TOOL_NEEDS = {
@@ -122,7 +123,12 @@ def _git_needs(args):
     if sub in GIT_FETCH:
         return {GH_READ} if sub == "ls-remote" else {GH_READ, FS_WRITE}
     if sub in GIT_SEND:
-        return {GH_WRITE}
+        # Deleting on GitHub: --delete, -d, a refspec with nothing before the colon, or a mirror/prune that removes
+        # whatever isn't here.
+        deletes = any(a in ("--delete", "-d", "--mirror", "--prune") or (not a.startswith("-") and re.match(r"^\+?:.", a)) or (a.startswith("-") and not a.startswith("--") and "d" in a[1:]) for a in rest)
+        return {GH_WRITE, DELETE} if deletes else {GH_WRITE}
+    if sub in ("branch", "tag") and any(a in ("--delete", "-d", "-D") or (a.startswith("-") and not a.startswith("--") and ("d" in a[1:] or "D" in a[1:])) for a in rest):
+        return {FS_WRITE, DELETE}
     forms = GIT_READ_FORMS.get(sub)
     if forms is not None:
         first = rest[0] if rest else ""
@@ -137,7 +143,11 @@ def _gh_needs(args):
         return {GH_READ}
     group = words[0]
     if group == "api":
+        if _gh_api_method(args) == "DELETE" and any(_DELETES_REF_OR_REPO.search(a) for a in words[1:]):
+            return {GH_WRITE, DELETE}
         return {GH_READ} if _gh_api_is_get(args) else {GH_WRITE}
+    if group == "repo" and len(words) > 1 and words[1] == "delete":
+        return {GH_WRITE, DELETE}
     if group not in GH_READ_FORMS:
         return {GH_WRITE}
     forms = GH_READ_FORMS[group]
@@ -148,6 +158,22 @@ def _gh_needs(args):
     if (group, action) in GH_FETCH:
         return {GH_READ, FS_WRITE}
     return {GH_READ} if action in forms else {GH_WRITE}
+
+
+# A GitHub API address that names a whole repository or a branch or tag: what DELETE on it removes.
+_DELETES_REF_OR_REPO = re.compile(r"(^|[/\s])repos/[^/\s]+/[^/\s?#]+/?($|[?#]|/git/refs/|/branches/|/releases/tags/)")
+
+
+def _gh_api_method(args):
+    method = None
+    for i, a in enumerate(args):
+        if a in ("-X", "--method") and i + 1 < len(args):
+            method = args[i + 1]
+        elif a.startswith("--method="):
+            method = a.split("=", 1)[1]
+        elif re.match(r"^-X[A-Za-z]+$", a):
+            method = a[2:]
+    return (method or "GET").upper()
 
 
 def _gh_api_is_get(args):
@@ -192,7 +218,21 @@ def _segment_needs(words):
         needs.add(FS_WRITE)
         if mentions_github:
             needs.add(GH_WRITE)
+            # A DELETE sent straight to GitHub's API, or a git or gh delete inside something this runs.
+            if _deletes_inside(args):
+                needs.add(DELETE)
     return needs
+
+
+def _deletes_inside(args):
+    text = " ".join(args)
+    if re.search(r"(^|\s)(-X\s*|--request[=\s]|--method[=\s])['\"]?DELETE\b", text, re.I) and _DELETES_REF_OR_REPO.search(text.replace("https://api.github.com/", "")):
+        return True
+    for arg in args:
+        for words in _segments(arg) or []:
+            if words and words[0].rsplit("/", 1)[-1] in ("git", "gh") and DELETE in _segment_needs(words):
+                return True
+    return False
 
 
 def _least(needs):
@@ -209,6 +249,10 @@ def command_needs(command):
     return _least(_command_needs(command))
 
 
+# A delete written anywhere in a command this reader can't follow (inside $(...), backticks, an unclosed quote).
+_LOOKS_LIKE_DELETE = re.compile(r"\bgh\s+repo\s+delete\b|\bgit\s+(?:\S+\s+)*?(?:push\b[^;&|]*?(?:\s--delete\b|\s-d\b|\s\+?:\S|\s--mirror\b|\s--prune\b)|(?:branch|tag)\b[^;&|]*?\s(?:-[a-zA-Z]*[dD][a-zA-Z]*|--delete)\b)|-X\s*['\"]?DELETE\b|--method[=\s]['\"]?DELETE\b", re.I)
+
+
 def _command_needs(command):
     if not isinstance(command, str) or not command.strip():
         return {FS_READ}
@@ -217,11 +261,15 @@ def _command_needs(command):
         needs.add(FS_WRITE)
         if GITHUB_HOST.search(command) or re.search(r"(^|[\s;&|(`])(gh|git)\s", command):
             needs.add(GH_WRITE)
+            if _LOOKS_LIKE_DELETE.search(command):
+                needs.add(DELETE)
     segments = _segments(command)
     if segments is None:
         needs.add(FS_WRITE)
         if GITHUB_HOST.search(command) or re.search(r"(^|[\s;&|(`])(gh|git)\s", command):
             needs.add(GH_WRITE)
+            if _LOOKS_LIKE_DELETE.search(command):
+                needs.add(DELETE)
         return needs
     for words in segments:
         needs |= _segment_needs(words)

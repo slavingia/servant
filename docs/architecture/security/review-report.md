@@ -105,7 +105,7 @@ The agent bridge on the server's computer has to be the current version for per-
 
 Tracked in issue #75:
 
-1. Destructive commands (deleting a branch or a repository) ask every time, even for someone who holds write, in place of a separate delete permission.
+1. ~~Destructive commands (deleting a branch or a repository) ask every time, even for someone who holds write, in place of a separate delete permission.~~ Done: the built-in **Deleting branches and repositories** entitlement is allowed once at a time and never always ([entitlements.md](../../entitlements.md)).
 2. A judged live run of the comment-injection check with the member agents' model.
 3. The same untrusted-text review for the secure inbox, social posts and pasted pages.
 4. Sandbox tests on Linux, and clearing secrets from the agent's environment.

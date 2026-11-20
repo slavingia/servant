@@ -7,7 +7,7 @@ import { CheckBox } from "../components/CheckBox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { api, ServerError, type AgentAction, type Entitlement, type EntitlementsPage, type EntitlementStanding } from "../lib/server";
 import { useSession } from "../lib/session";
-import { actionLine, askLabel, canAsk, checksLine, holders, hostsLine, parseHosts, reachedLine, refusedLine, requestLine, standingLine, untilWords, waitingOnYou } from "../lib/entitlements";
+import { actionLine, answersFor, askable, askLabel, checksLine, holders, hostsLine, parseHosts, reachedLine, refusedLine, requestLine, standingLine, untilWords, waitingOnYou } from "../lib/entitlements";
 import { createThemedStyles, radius, space, typography, useTheme } from "../lib/theme";
 
 // Entitlements (docs/entitlements.md): the named access a person's agent may use. Everyone sees the list and asks
@@ -129,8 +129,8 @@ export default function EntitlementsScreen() {
               : <Text style={styles.meta}>{`They confirmed: ${entitlement.confirmation}`}</Text>}
             <View style={styles.actions}>
               {/* A built-in entitlement can be allowed for this one action, or from now on. */}
-              {entitlement.native && !entitlement.byRequest ? <Button testID={`once-${entitlement.id}-${request.userId}`} label="Allow once" accessibilityLabel={`Allow ${entitlement.name} once for ${request.name}`} compact busy={busy === `${entitlement.id}:${request.userId}:once`} disabled={!!busy} onPress={() => void decide(entitlement, request, "once")} /> : null}
-              <Button testID={`grant-${entitlement.id}-${request.userId}`} label={entitlement.native && !entitlement.byRequest ? "Allow always" : "Grant"} accessibilityLabel={entitlement.native && !entitlement.byRequest ? `Always allow ${entitlement.name} for ${request.name}` : `Grant ${entitlement.name} to ${request.name}`} kind={entitlement.native && !entitlement.byRequest ? "secondary" : "primary"} compact busy={busy === `${entitlement.id}:${request.userId}:grant`} disabled={!!busy} onPress={() => void decide(entitlement, request, "grant")} />
+              {answersFor(entitlement).once ? <Button testID={`once-${entitlement.id}-${request.userId}`} label="Allow once" accessibilityLabel={`Allow ${entitlement.name} once for ${request.name}`} compact busy={busy === `${entitlement.id}:${request.userId}:once`} disabled={!!busy} onPress={() => void decide(entitlement, request, "once")} /> : null}
+              {answersFor(entitlement).always ? <Button testID={`grant-${entitlement.id}-${request.userId}`} label={entitlement.native && !entitlement.byRequest ? "Allow always" : "Grant"} accessibilityLabel={entitlement.native && !entitlement.byRequest ? `Always allow ${entitlement.name} for ${request.name}` : `Grant ${entitlement.name} to ${request.name}`} kind={entitlement.native && !entitlement.byRequest ? "secondary" : "primary"} compact busy={busy === `${entitlement.id}:${request.userId}:grant`} disabled={!!busy} onPress={() => void decide(entitlement, request, "grant")} /> : null}
               <Button testID={`deny-${entitlement.id}-${request.userId}`} label="Decline" accessibilityLabel={`Decline ${request.name}'s request for ${entitlement.name}`} kind="secondary" compact busy={busy === `${entitlement.id}:${request.userId}:deny`} disabled={!!busy} onPress={() => void decide(entitlement, request, "deny")} />
             </View>
           </View>)}
@@ -156,7 +156,7 @@ export default function EntitlementsScreen() {
                 <Button testID={`revoke-${entitlement.id}-${person.userId}`} label="Take back" accessibilityLabel={`Take ${entitlement.name} back from ${person.name}`} kind="danger" compact disabled={!!busy} onPress={() => { setDangerError(null); setDanger({ kind: "revoke", entitlement, person }); }} />
               </View>)}
               <View style={styles.actions}>
-                {canAsk(entitlement.mine) ? <Button testID={`ask-${entitlement.id}`} label={askLabel(entitlement.mine)} accessibilityLabel={`${askLabel(entitlement.mine)}: ${entitlement.name}`} kind="secondary" compact disabled={!!busy} onPress={() => openAsk(entitlement)} /> : null}
+                {askable(entitlement, entitlement.mine) ? <Button testID={`ask-${entitlement.id}`} label={askLabel(entitlement.mine)} accessibilityLabel={`${askLabel(entitlement.mine)}: ${entitlement.name}`} kind="secondary" compact disabled={!!busy} onPress={() => openAsk(entitlement)} /> : null}
                 {owner ? <Button testID={`edit-${entitlement.id}`} label="Edit" accessibilityLabel={`Edit ${entitlement.name}`} kind="secondary" compact disabled={!!busy} onPress={() => openDraft(entitlement)} /> : null}
                 {owner && !entitlement.native ? <Button testID={`retire-${entitlement.id}`} label="Retire" accessibilityLabel={`Retire ${entitlement.name}`} kind="danger" compact disabled={!!busy} onPress={() => { setDangerError(null); setDanger({ kind: "retire", entitlement }); }} /> : null}
               </View>

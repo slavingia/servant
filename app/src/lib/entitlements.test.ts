@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { actionLine, askLabel, canAsk, checksLine, holders, hostsLine, parseHosts, reachedLine, refusedLine, requestLine, standingLine, untilWords, waitingOnYou } from "./entitlements.ts";
+import { actionLine, answersFor, askable, askLabel, canAsk, checksLine, holders, hostsLine, parseHosts, reachedLine, refusedLine, requestLine, standingLine, untilWords, waitingOnYou } from "./entitlements.ts";
 import type { Entitlement, EntitlementStanding } from "./server.ts";
 
 const standing = (status: EntitlementStanding["status"], extra: Partial<EntitlementStanding> = {}): EntitlementStanding => ({ entitlementId: "ent_1", userId: "usr_pat", status, note: "", requestedAt: 1, ...extra });
@@ -80,4 +80,14 @@ test("a standing grant with a lifetime says when it ends", () => {
   assert.equal(untilWords(new Date(2026, 11, 20, 12).getTime(), now), " until Dec 20");
   assert.equal(standingLine(standing("granted", { expiresAt: new Date(2026, 11, 20, 12).getTime() }), "Jo Park", now), "You have this until Dec 20");
   assert.equal(standingLine(standing("granted"), "Jo Park", now), "You have this");
+});
+
+test("deleting branches and repositories is answered once at a time: no Allow always, and nobody asks for it ahead of time", () => {
+  assert.deepEqual(answersFor({ native: true, onceOnly: true }), { once: true, always: false });
+  assert.deepEqual(answersFor({ native: true }), { once: true, always: true });
+  assert.deepEqual(answersFor({ native: true, byRequest: true }), { once: false, always: true });
+  assert.deepEqual(answersFor({}), { once: false, always: true });
+  assert.equal(askable({ onceOnly: true }, null), false);
+  assert.equal(askable({}, null), true);
+  assert.equal(actionLine({ verdict: "allowed-once", needs: ["delete", "github-write"] }), "Allowed once · Deleting branches and repositories, GitHub write");
 });

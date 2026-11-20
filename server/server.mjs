@@ -1467,6 +1467,11 @@ async function agentUse(body, config = loadConfig) {
     const manager = person.role === "owner" ? (others.length === 1 ? current.users[others[0]] : null) : managerOf(current, person);
     const deciders = person.role === "owner" ? (others.length ? others : [person.id]) : [manager?.id];
     const refused = looked.find(r => r.verdict === "deny");
+    // A no to a delete stops this one only: it is spent here, so the next delete is asked about again.
+    if (refused?.entitlement.onceOnly) {
+      store.use(person.id, refused.capability, detail, { project });
+      return logged("denied", { verdict: "deny", capability: refused.capability, message: `Servant blocked this: ${manager?.name || "An owner"} declined this delete for ${person.name}. Tell them so, and don't look for another way to do it. Another delete would be asked about again.` });
+    }
     if (refused) return logged("denied", { verdict: "deny", capability: refused.capability, message: `Servant blocked this: ${person.name} asked for ${refused.entitlement.name} and was declined. Tell them so, and don't look for another way to do it. They can ask again in Servant under Entitlements.` });
     const missing = looked.filter(r => r.verdict === "wait");
     for (const r of missing) if (r.fresh) tellAbout(deciders, "Entitlement request", `${person.name}'s agent needs ${r.entitlement.name}`);
@@ -1517,7 +1522,7 @@ function entitlementView(entitlement, viewer, users) {
   const person = userId => ({ id: userId, name: users[userId]?.name || (userId === "server" ? "Servant" : "Former member") });
   const people = store.grants(entitlement.id).filter(g => g.userId !== viewer.id && store.decides(viewer.id, g.userId));
   return { id: entitlement.id, name: entitlement.name, description: entitlement.description, hosts: entitlement.hosts, confirmation: entitlement.confirmation,
-    ...(entitlement.native ? { native: true, capability: entitlement.capability, ...(entitlement.projectId ? { projectId: entitlement.projectId } : {}), ...(entitlement.byRequest ? { byRequest: true } : {}) } : {}),
+    ...(entitlement.native ? { native: true, capability: entitlement.capability, ...(entitlement.projectId ? { projectId: entitlement.projectId } : {}), ...(entitlement.byRequest ? { byRequest: true } : {}), ...(entitlement.onceOnly ? { onceOnly: true } : {}) } : {}),
     mine: store.grant(entitlement.id, viewer.id), people: people.map(g => ({ ...g, name: person(g.userId).name, ...(g.decidedBy ? { decidedByName: person(g.decidedBy).name } : {}) })) };
 }
 // The agent was refused a host: tell whoever can do something about it, once (egress.mjs repeats at most daily).

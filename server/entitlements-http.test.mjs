@@ -256,7 +256,7 @@ test("built-in entitlements: the first use asks the manager, who allows once or 
   await pushed(0); pushes.length = 0;
   const builtIn = (await api("owner", "GET", "entitlements")).body;
   assert.deepEqual(builtIn.capabilities, { mode: "ask" });
-  assert.deepEqual(builtIn.entitlements.filter(e => e.native).map(e => [e.name, e.capability]), [["Filesystem read", "fs-read"], ["Filesystem write", "fs-write"], ["GitHub read", "github-read"], ["GitHub write", "github-write"]]);
+  assert.deepEqual(builtIn.entitlements.filter(e => e.native).map(e => [e.name, e.capability]), [["Deleting branches and repositories", "delete"], ["Filesystem read", "fs-read"], ["Filesystem write", "fs-write"], ["GitHub read", "github-read"], ["GitHub write", "github-write"]]);
   await api("owner", "PUT", `people/${people.pat.id}/manager`, { managerId: people.owner.id });
   await pushed(1); pushes.length = 0;
 
@@ -264,7 +264,7 @@ test("built-in entitlements: the first use asks the manager, who allows once or 
   assert.deepEqual(await use(null, ["fs-write"], "Write x"), { status: 403, verdict: "deny", message: "Servant doesn't know whose turn this is, so it can't be allowed." });
   assert.equal((await use("owner", ["github-write", "fs-write"], "Run: git push")).verdict, "allow", "an owner's own agent is not held back");
   assert.equal((await use("pat", [], "Use todo")).verdict, "allow");
-  assert.equal((await use("pat", ["sudo"], "x")).verdict, "allow", "only the four built-in ones are checked");
+  assert.equal((await use("pat", ["sudo"], "x")).verdict, "allow", "only the built-in ones are checked");
 
   // Pat's agent is about to commit and push. Pat's manager is told once about each thing it needs; the agent is told to wait.
   const held = await use("pat", ["github-write", "fs-write"], "Run: git commit -am fix && git push");
@@ -352,6 +352,45 @@ test("built-in entitlements: the first use asks the manager, who allows once or 
   config.agentCapabilities.mode = "off";
   assert.equal((await use("pat", ["github-write", "fs-write"], "Run: git push")).verdict, "allow");
   config.agentCapabilities.mode = "ask";
+});
+
+test("deleting a branch or a repository asks every time, even for someone who holds GitHub write", async () => {
+  await pushed(0); pushes.length = 0;
+  config.agentCapabilities.waitSeconds = 0;
+  await api("owner", "PUT", `people/${people.pat.id}/manager`, { managerId: people.owner.id });
+  await pushed(1); pushes.length = 0;
+  // Pat holds GitHub write for good.
+  await use("pat", ["github-write"], "Run: git push");
+  await api("owner", "POST", `entitlements/native-github-write/people/${people.pat.id}`, { decision: "grant" });
+  await pushed(2); pushes.length = 0;
+  assert.equal((await use("pat", ["github-write"], "Run: git push")).verdict, "allow");
+  const listed = (await api("owner", "GET", "entitlements")).body.entitlements.find(e => e.id === "native-delete");
+  assert.deepEqual([listed.native, listed.onceOnly, listed.hosts], [true, true, []]);
+
+  // A delete waits for the owner, and the request says what the agent was about to delete.
+  const held = await use("pat", ["delete", "github-write"], "Run: git push --delete origin old-branch");
+  assert.deepEqual([held.verdict, held.capability], ["wait", "delete"]);
+  assert.deepEqual(await pushed(1), [{ to: "push-owner", title: "Entitlement request", body: "Pat Tester's agent needs Deleting branches and repositories" }]);
+  // It can't be allowed always, nor asked for ahead of time.
+  const always = await api("owner", "POST", `entitlements/native-delete/people/${people.pat.id}`, { decision: "grant" });
+  assert.deepEqual([always.status, always.body.error.code], [400, "once_only"]);
+  assert.equal((await api("owner", "POST", `entitlements/native-delete/people/${people.pat.id}`, { decision: "once" })).status, 200);
+  await pushed(1); pushes.length = 0;
+  assert.equal((await use("pat", ["delete", "github-write"], "Run: git push --delete origin old-branch")).verdict, "allow", "that delete goes ahead");
+  assert.equal((await use("pat", ["delete", "github-write"], "Run: gh repo delete example-org/example-app --yes")).verdict, "wait", "the next one asks again");
+  await pushed(1); pushes.length = 0;
+  // A no stops this one only.
+  assert.equal((await api("owner", "POST", `entitlements/native-delete/people/${people.pat.id}`, { decision: "deny" })).status, 200);
+  await pushed(1); pushes.length = 0;
+  const refused = await use("pat", ["delete", "github-write"], "Run: gh repo delete example-org/example-app --yes");
+  assert.equal(refused.verdict, "deny");
+  assert.match(refused.message, /^Servant blocked this: Ana Ruiz declined this delete for Pat Tester/);
+  assert.equal((await use("pat", ["delete", "github-write"], "Run: git push origin :another")).verdict, "wait", "the next delete is a new question");
+  await pushed(1); pushes.length = 0;
+  const history = (await api("owner", "GET", "entitlements/native-delete/history")).body.history.filter(h => h.userId === people.pat.id).reverse().map(h => h.action);
+  assert.deepEqual(history, ["requested", "once", "used", "requested", "denied", "refused", "requested"]);
+  await api("owner", "POST", `entitlements/native-github-write/people/${people.pat.id}`, { decision: "revoke" });
+  await pushed(1); pushes.length = 0;
 });
 
 test("someone who joins from an owner's team link reports to that owner", async () => {

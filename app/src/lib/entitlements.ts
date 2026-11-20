@@ -30,6 +30,14 @@ export function standingLine(mine: EntitlementStanding | null, managerName: stri
 export const canAsk = (mine: EntitlementStanding | null) => !mine || mine.status === "denied" || mine.status === "revoked" || mine.status === "expired" || mine.status === "used";
 export const askLabel = (mine: EntitlementStanding | null) => (mine && mine.status !== "used" ? "Ask again" : "Ask for this");
 
+/** The answers to a request: a built-in one can be allowed once, and always unless it asks every time (deleting). */
+export function answersFor(entitlement: Pick<Entitlement, "native" | "byRequest" | "onceOnly">): { once: boolean; always: boolean } {
+  const asksByUse = !!entitlement.native && !entitlement.byRequest;
+  return { once: asksByUse, always: !entitlement.onceOnly };
+}
+/** Whether a person can ask for it ahead of time: not one that is asked about every time the agent is about to do it. */
+export const askable = (entitlement: Pick<Entitlement, "onceOnly">, mine: EntitlementStanding | null) => !entitlement.onceOnly && canAsk(mine);
+
 /** A request, for the person deciding it: who wants what, and whether they asked or their agent did by trying. */
 export const requestLine = (request: EntitlementStanding, entitlement: Entitlement) =>
   request.via === "use" ? `${request.name}'s agent needs ${entitlement.name}` : `${request.name} asked for ${entitlement.name}`;
@@ -64,7 +72,7 @@ export function hostsLine(hosts: readonly string[]): string {
 }
 
 const VERDICT: Record<AgentAction["verdict"], string> = { allowed: "Allowed", "allowed-once": "Allowed once", "allowed-owner": "Allowed (owner)", denied: "Declined", waiting: "Waiting for an answer" };
-const NEED: Record<string, string> = { "fs-read": "Filesystem read", "fs-write": "Filesystem write", "github-read": "GitHub read", "github-write": "GitHub write" };
+const NEED: Record<string, string> = { delete: "Deleting branches and repositories", "fs-read": "Filesystem read", "fs-write": "Filesystem write", "github-read": "GitHub read", "github-write": "GitHub write" };
 /** One line of the agent action log: how it ended and what it needed, "Allowed once · GitHub write". */
 export const actionLine = (action: Pick<AgentAction, "verdict" | "needs">) => [VERDICT[action.verdict] ?? action.verdict, action.needs.map(n => NEED[n] ?? n).join(", ")].filter(Boolean).join(" · ");
 

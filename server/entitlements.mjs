@@ -26,7 +26,13 @@ export const NATIVE = [
   { id: "native-fs-write", capability: "fs-write", name: "Filesystem write", description: "The agent may create, change and delete files and run commands that could, for this person. Covers reading", hosts: [], covers: "fs-read" },
   { id: "native-github-read", capability: "github-read", name: "GitHub read", description: "The agent may read repositories, issues and pull requests on GitHub for this person", hosts: GITHUB_HOSTS },
   { id: "native-github-write", capability: "github-write", name: "GitHub write", description: "The agent may push, open and merge pull requests, and change issues on GitHub for this person. Covers reading", hosts: GITHUB_HOSTS, covers: "github-read" },
+  // Deleting a branch, a tag or a repository asks every time, even for someone who holds write: it can be allowed
+  // once and never always, so nobody holds it. It is asked for together with the write it is part of, which opens
+// GitHub's hosts when the delete is on GitHub, so it opens none itself.
+  { id: "native-delete", capability: "delete", name: "Deleting branches and repositories", description: "The agent may delete a branch, a tag or a repository, here or on GitHub, for this person. Asked every time: it can only be allowed once", hosts: [], onceOnly: true },
 ];
+/** A manager may allow a delete once when they hold the write it is part of: either of these, for that project or every one. */
+const DELETE_DECIDED_WITH = ["github-write", "fs-write"];
 /**
  * Social media (docs/social.md): built in like the four above, but asked for by hand like any other, and it opens
  * no hosts. Holding it lets a person approve what the team's account posts; the server posts, never the agent.
@@ -117,7 +123,7 @@ export function createEntitlements(file, { clock = Date.now, known = () => true,
   const note = (entitlementId, userId, action, by, detail = {}) =>
     db.prepare("INSERT INTO history(entitlement_id,user_id,action,by,at,detail) VALUES (?,?,?,?,?,?)").run(entitlementId, userId ?? null, action, String(by), clock(), JSON.stringify(detail));
   const shape = r => r && ({ id: r.id, name: r.name, description: r.description, hosts: JSON.parse(r.hosts), confirmation: r.confirmation || DEFAULT_CONFIRMATION,
-    createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at, ...(r.capability ? { native: true, capability: scopeOf(r.capability).base, ...(scopeOf(r.capability).projectId ? { projectId: scopeOf(r.capability).projectId } : {}), ...(r.capability === SOCIAL_ENTITLEMENT.capability ? { byRequest: true } : {}) } : {}), ...(r.retired_at ? { retiredAt: r.retired_at } : {}) });
+    createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at, ...(r.capability ? { native: true, capability: scopeOf(r.capability).base, ...(scopeOf(r.capability).projectId ? { projectId: scopeOf(r.capability).projectId } : {}), ...(r.capability === SOCIAL_ENTITLEMENT.capability ? { byRequest: true } : {}), ...(nativeFor(scopeOf(r.capability).base)?.onceOnly ? { onceOnly: true } : {}) } : {}), ...(r.retired_at ? { retiredAt: r.retired_at } : {}) });
   // How long a standing grant lasts, in milliseconds; 0 when grants don't run out.
   const lifetime = () => grantDaysSetting(grantDays()) * DAY_MS;
   const grantShape = r => r && ({ entitlementId: r.entitlement_id, userId: r.user_id, status: r.status, note: r.note, requestedAt: r.requested_at,
@@ -151,10 +157,12 @@ export function createEntitlements(file, { clock = Date.now, known = () => true,
   // Holding a built-in "write" also counts as holding its "read". Holding a built-in entitlement for every project
   // counts for each project; holding it for one project counts for that project only.
   const holds = (id, userId) => {
-    if (granted(id, userId)) return true;
     const entitlement = row(id);
     const { base, projectId } = scopeOf(entitlement?.capability);
     const native = nativeFor(base);
+    // Allowed once at a time and never held, even by someone who once had it granted some other way.
+    if (native?.onceOnly) return false;
+    if (granted(id, userId)) return true;
     if (!native) return false;
     const reach = n => granted(n.id, userId) || (!!projectId && granted(scopedId(n.id, projectId), userId));
     // The same entitlement for every project, or its "write" (for every project, or for this one).
@@ -220,6 +228,8 @@ export function createEntitlements(file, { clock = Date.now, known = () => true,
       return tx(() => {
         const entitlement = live(id);
         if (!known(userId)) throw fault(403, "forbidden", "Only people on this server can ask for an entitlement");
+        // Asked about each time the agent is about to delete, never ahead of time.
+        if (entitlement.onceOnly) throw fault(400, "asked_by_use", `${entitlement.name} isn't asked for ahead of time. Each one is asked about when the agent is about to do it`);
         if (confirmed !== true) throw fault(400, "confirmation_required", `To ask for ${entitlement.name}, confirm: ${entitlement.confirmation}`);
         const existing = grantRow(id, userId);
         if (existing?.status === "granted") throw fault(409, "already_granted", `You already have ${entitlement.name}`);
@@ -245,8 +255,16 @@ export function createEntitlements(file, { clock = Date.now, known = () => true,
         if (!decides(by, userId)) throw fault(403, "forbidden", String(by) === String(userId) ? "Your manager or an owner has to decide your own request" : "Only that person's manager or an owner can decide this");
         const existing = grantRow(id, userId);
         if (!existing) throw fault(404, "not_found", "That person hasn't asked for this entitlement");
+        // Deleting is allowed one action at a time, never from now on.
+        if (decision === "grant" && entitlement.onceOnly) throw fault(400, "once_only", `${entitlement.name} can only be allowed once. Each one is asked about`);
+        // Nobody holds the right to delete, so a manager allows it once when they hold the write it is part of.
+        if (decision === "once" && entitlement.onceOnly && !isOwner(by)) {
+          const projectId = entitlement.projectId || "";
+          const writes = DELETE_DECIDED_WITH.map(nativeFor).flatMap(n => [n.id, ...(projectId ? [scopedId(n.id, projectId)] : [])]);
+          if (!writes.some(w => row(w) && holds(w, by))) throw fault(403, "not_held", `You can only allow ${entitlement.name} once when you hold GitHub write or Filesystem write yourself. Leave this one to an owner`);
+        }
         // Access is handed down, never made up: a manager passes on only what they were granted themselves.
-        if ((decision === "grant" || decision === "once") && !isOwner(by) && !holds(id, by)) throw fault(403, "not_held", `You can only grant what you hold yourself. Ask for ${entitlement.name} first, or leave this one to an owner`);
+        else if ((decision === "grant" || decision === "once") && !isOwner(by) && !holds(id, by)) throw fault(403, "not_held", `You can only grant what you hold yourself. Ask for ${entitlement.name} first, or leave this one to an owner`);
         // "Allow once" is for a built-in entitlement the agent asked for by use: that one action goes ahead, the next asks again.
         if (decision === "once" && (!entitlement.native || entitlement.byRequest)) throw fault(400, "bad_request", "Only a built-in entitlement can be allowed once");
         if (decision === "revoke" ? existing.status !== "granted" : existing.status !== "requested") {
@@ -276,7 +294,7 @@ export function createEntitlements(file, { clock = Date.now, known = () => true,
         if (project && !PROJECT_ID.test(String(project.id || ""))) throw fault(400, "bad_request", "No such project");
         // Already covered by something wider (the same entitlement for every project, or a "write"): allowed, and
         // no entitlement for this project is made just to say so.
-        if (project && known(userId) && !row(scopedId(builtIn.id, project.id))) {
+        if (project && known(userId) && !builtIn.onceOnly && !row(scopedId(builtIn.id, project.id))) {
           const reach = n => granted(n.id, userId) || granted(scopedId(n.id, project.id), userId);
           if (granted(builtIn.id, userId) || NATIVE.some(n => n.covers === builtIn.capability && reach(n))) return { verdict: "allow", entitlement: live(builtIn.id) };
         }
@@ -290,6 +308,14 @@ export function createEntitlements(file, { clock = Date.now, known = () => true,
           db.prepare("UPDATE grants SET status='used', used_at=? WHERE entitlement_id=? AND user_id=?").run(clock(), native.id, String(userId));
           note(native.id, userId, "used", userId, existing.detail ? { detail: existing.detail } : {});
           return { verdict: "allow", entitlement, once: true };
+        }
+        // A no to a delete is about that one delete, as an allowance is: it stops this try, and the next is a new question.
+        if (existing?.status === "denied" && !builtIn.onceOnly) return { verdict: "deny", entitlement };
+        if (existing?.status === "denied" && consume) {
+          // Spent like an allowance (no hosts open: used_at stays empty), and the history says this try was refused.
+          db.prepare("UPDATE grants SET status='used', used_at=NULL WHERE entitlement_id=? AND user_id=?").run(native.id, String(userId));
+          note(native.id, userId, "refused", userId, existing.detail ? { detail: existing.detail } : {});
+          return { verdict: "deny", entitlement };
         }
         if (existing?.status === "denied") return { verdict: "deny", entitlement };
         const clean = line(detail, 300);

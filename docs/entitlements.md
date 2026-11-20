@@ -16,7 +16,7 @@ Two rules sit behind it.
 
 ## Built-in entitlements
 
-Five entitlements are on every server and can't be retired or renamed. Four are for what the agent does:
+Six entitlements are on every server and can't be retired or renamed. Five are for what the agent does:
 
 | Entitlement | What it lets the agent do for the person |
 | --- | --- |
@@ -24,10 +24,11 @@ Five entitlements are on every server and can't be retired or renamed. Four are 
 | **Filesystem write** | Create, change and delete files, and run commands that could. Covers reading. |
 | **GitHub read** | Read repositories, issues and pull requests. |
 | **GitHub write** | Push, open and merge pull requests, change issues. Covers reading. |
+| **Deleting branches and repositories** | Delete a branch, a tag or a repository, on GitHub or on the server's computer. Asked about every time (below). |
 
 The fifth, **Social media**, is for a person rather than their agent: holding it lets someone approve what goes out from the team's social media account ([social.md](social.md)). It is asked for and granted by hand like any entitlement you make yourself, opens no hosts, and is listed only on a server that has social media set up.
 
-The four above are **asked for by use**. Nobody fills in a form: the first time someone's agent is about to do one of these things, the agent stops, the person's manager is told ("Pat Tester's agent needs GitHub write"), and in Entitlements the manager sees what the agent was about to do ("Run: git push origin main") with three answers:
+The five above are **asked for by use**. Nobody fills in a form: the first time someone's agent is about to do one of these things, the agent stops, the person's manager is told ("Pat Tester's agent needs GitHub write"), and in Entitlements the manager sees what the agent was about to do ("Run: git push origin main") with three answers:
 
 - **Allow once**: that one action goes ahead. The next one asks again.
 - **Allow always**: the person holds the entitlement from now on, until someone takes it back, or until it runs out on a server that gives standing grants a lifetime (below).
@@ -64,8 +65,8 @@ The agent's bridge asks Servant before each tool call that touches files or GitH
 | 3 | The person is an owner and owners aren't checked (`owners` not `"ask"`) | Allow, logged as `allowed-owner` |
 | 4 | Resource: the chat is in a project and every path and repository the call names is inside that project's folder and repository | Asked about as that project's entitlement (`native-fs-write@example-app`) |
 | 5 | Resource: no project, or the call names anything outside it | Asked about as the every-project entitlement |
-| 6 | Any needed entitlement was declined for the person | Deny, logged as `denied` |
-| 7 | The person holds every needed one (granted, not taken back, not expired) for that scope, or for every project; write covers read | Allow, logged as `allowed` |
+| 6 | Any needed entitlement was declined for the person | Deny, logged as `denied`. A declined delete is spent by this try, so the next delete is asked about again |
+| 7 | The person holds every needed one (granted, not taken back, not expired) for that scope, or for every project; write covers read. Nobody holds **Deleting branches and repositories** | Allow, logged as `allowed` |
 | 8 | An "allow once" is waiting for each one still missing | Allow and use it up, logged as `allowed-once` |
 | 9 | Anything else | Ask the manager (or the other owners), wait up to `waitSeconds`, then go back to step 6; still unanswered: Wait, logged as `waiting`; the agent stops |
 
@@ -90,7 +91,7 @@ It holds command lines and file paths, which can be sensitive in themselves; it 
 
 - This is a check on what the agent is about to do, made inside the agent. It is not a wall around the files: a program the agent was allowed to run can do more than its command line shows. Filesystem write is the entitlement that says "this person's agent may run arbitrary commands", and should be allowed with that in mind.
 - Without a project, "read" and "write" are for all of GitHub the server's credentials reach and all files the server's user can reach. A project's grant narrows that to its folder and repository as far as the agent's calls show it (above).
-- Deleting is part of write: there is no separate "delete" entitlement, so whoever may change files or push may also remove them.
+- **Deleting a branch, a tag or a repository asks every time.** `git push --delete` (or `-d`, `origin :branch`, `--mirror`, `--prune`), `git branch -d`/`-D`, `git tag -d`, `gh repo delete`, and a `DELETE` to GitHub's API for a repository, branch or tag need **Deleting branches and repositories** beside the write they are part of, even for someone who holds that write always. It has **Allow once** and **Decline** and no **Allow always**: nobody holds it, and it can't be asked for ahead of time. A **Decline** stops that one delete; the next is asked about again. A manager can allow it once when they hold GitHub write or Filesystem write themselves (for that project or every one); otherwise it falls to an owner. Deleting other things (files, an issue comment, a label) is still part of write. An owner's own agent is not held, as for the others, unless owners are checked.
 - Only the full agent is checked. The restricted member and researcher agents have no file tools or shell to check.
 
 ## Managers
@@ -164,7 +165,7 @@ All under the encrypted `/v1/` API.
 | `PATCH /v1/entitlements/<id>` | owner | Any of the same fields. |
 | `DELETE /v1/entitlements/<id>` | owner | Retire it. |
 | `POST /v1/entitlements/<id>/request` | anyone | `{ "confirmed": true, "note" }` |
-| `POST /v1/entitlements/<id>/people/<user id>` | their manager or an owner | `{ "decision": "grant" \| "once" \| "deny" \| "revoke", "reason" }` (`once` for built-in ones) |
+| `POST /v1/entitlements/<id>/people/<user id>` | their manager or an owner | `{ "decision": "grant" \| "once" \| "deny" \| "revoke", "reason" }` (`once` for built-in ones; **Deleting branches and repositories** takes only `once` or `deny`) |
 | `GET /v1/entitlements/<id>/history` | owner | Every step, newest first. |
 | `GET /v1/entitlements/actions` | owner | The agent action log, newest first (`limit`, `before`, `user`). |
 | `PUT /v1/people/<user id>/manager` | their manager or an owner | `{ "managerId" }` |

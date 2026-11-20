@@ -118,15 +118,15 @@ test("editing, retiring and a person leaving close access without deleting anyth
 
 test("built-in entitlements are on every server, can't be retired or renamed, and are asked for by use", () => {
   const { store, file, done } = setup();
-  assert.deepEqual(store.list().map(e => [e.name, e.capability]), [["Filesystem read", "fs-read"], ["Filesystem write", "fs-write"], ["GitHub read", "github-read"], ["GitHub write", "github-write"], ["Social media", "social"]]);
-  assert.deepEqual(NATIVE.map(n => n.capability).sort(), ["fs-read", "fs-write", "github-read", "github-write"]);
+  assert.deepEqual(store.list().map(e => [e.name, e.capability]), [["Deleting branches and repositories", "delete"], ["Filesystem read", "fs-read"], ["Filesystem write", "fs-write"], ["GitHub read", "github-read"], ["GitHub write", "github-write"], ["Social media", "social"]]);
+  assert.deepEqual(NATIVE.map(n => n.capability).sort(), ["delete", "fs-read", "fs-write", "github-read", "github-write"]);
   const github = store.get("native-github-write");
   assert.deepEqual(github.hosts, ["github.com", "*.github.com", "*.githubusercontent.com"]);
   fails(() => store.retire(github.id, "usr_ana"), 400);
   fails(() => store.update(github.id, { name: "Git" }, "usr_ana"), 400);
   assert.deepEqual(store.update(github.id, { hosts: ["github.com"], name: "GitHub write" }, "usr_ana").hosts, ["github.com"], "an owner can still say which hosts it opens");
   store.create({ name: "Jira", hosts: ["jira.example.gov"] }, "usr_ana");
-  assert.deepEqual(store.list().map(e => e.name), ["Filesystem read", "Filesystem write", "GitHub read", "GitHub write", "Social media", "Jira"], "built-in ones first");
+  assert.deepEqual(store.list().map(e => e.name), ["Deleting branches and repositories", "Filesystem read", "Filesystem write", "GitHub read", "GitHub write", "Social media", "Jira"], "built-in ones first");
   fails(() => store.use("usr_pat", "sudo"), 400);
 
   // The first use files a request with what the agent was about to do; repeats change nothing but that line.
@@ -140,7 +140,7 @@ test("built-in entitlements are on every server, can't be retired or renamed, an
   assert.equal(store.use("usr_gone", "fs-read").verdict, "deny", "someone who isn't on the server is refused");
   // Reopening the file adds no second copy and keeps the request.
   const reopened = createEntitlements(file);
-  assert.equal(reopened.list().filter(e => e.native).length, 5, "the four asked for by use, and Social media");
+  assert.equal(reopened.list().filter(e => e.native).length, 6, "the five asked for by use, and Social media");
   // Social media is built in but asked for by hand: it opens no hosts, the agent can't use it, and there is no "once".
   const socialMedia = reopened.get(SOCIAL_ENTITLEMENT.id);
   assert.deepEqual([socialMedia.name, socialMedia.native, socialMedia.byRequest, socialMedia.hosts], ["Social media", true, true, []]);
@@ -366,4 +366,62 @@ test("with owners checked, an owner's own request is another owner's to decide; 
     store.use("usr_ben", "fs-write", "Run: a command");
     assert.equal(store.decide("native-fs-write", "usr_ben", { decision: "grant", by: "usr_ben" }).grant.status, "granted");
   } finally { store.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("deleting a branch or a repository asks every time: allowed once, never always, even for someone who holds write", () => {
+  const { store, done } = setup();
+  const id = "native-delete";
+  const del = store.get(id);
+  assert.deepEqual([del.native, del.onceOnly, del.hosts], [true, true, []]);
+  // Pat holds GitHub write for good; a push goes through without asking.
+  store.use("usr_pat", "github-write", "Run: git push");
+  store.decide("native-github-write", "usr_pat", { decision: "grant", by: "usr_ana" });
+  assert.equal(store.use("usr_pat", "github-write", "Run: git push").verdict, "allow");
+  // Deleting still asks.
+  const first = store.use("usr_pat", "delete", "Run: git push --delete origin old");
+  assert.deepEqual([first.verdict, first.fresh], ["wait", true], "holding write doesn't cover a delete");
+  // It can't be allowed always, or asked for ahead of time, by anyone.
+  fails(() => store.decide(id, "usr_pat", { decision: "grant", by: "usr_ana" }), 400, "once_only");
+  fails(() => store.request(id, "usr_sam", { confirmed: true }), 400, "asked_by_use");
+  // Jo manages Pat but holds no write, so it falls to an owner.
+  fails(() => store.decide(id, "usr_pat", { decision: "once", by: "usr_jo" }), 403, "not_held");
+  store.decide(id, "usr_pat", { decision: "once", by: "usr_ana" });
+  assert.deepEqual([store.use("usr_pat", "delete", "Run: git push --delete origin old").verdict, store.grant(id, "usr_pat").status], ["allow", "used"]);
+  const next = store.use("usr_pat", "delete", "Run: gh repo delete example-org/example-app");
+  assert.deepEqual([next.verdict, next.fresh], ["wait", true], "the next delete asks again");
+  assert.equal(store.holds(id, "usr_pat"), false, "nobody holds it");
+  // A no stops that delete only; the next one is asked about again.
+  store.decide(id, "usr_pat", { decision: "deny", by: "usr_ana" });
+  assert.equal(store.use("usr_pat", "delete", "Run: gh repo delete example-org/example-app", { consume: false }).verdict, "deny", "looking doesn't spend the no");
+  assert.equal(store.use("usr_pat", "delete", "Run: gh repo delete example-org/example-app").verdict, "deny", "that try is refused");
+  const after = store.use("usr_pat", "delete", "Run: git push origin :old");
+  assert.deepEqual([after.verdict, after.fresh], ["wait", true], "and the next delete is a new question");
+  // A manager who holds a write can allow their report's delete once (Jo is given GitHub write by the owner).
+  store.use("usr_jo", "github-write", "Run: git push");
+  store.decide("native-github-write", "usr_jo", { decision: "grant", by: "usr_ana" });
+  store.decide(id, "usr_pat", { decision: "once", by: "usr_jo" });
+  assert.equal(store.use("usr_pat", "delete").verdict, "allow");
+  // Filesystem write counts too, for a local branch: Jo gives up GitHub write and holds Filesystem write instead.
+  store.decide("native-github-write", "usr_jo", { decision: "revoke", by: "usr_ana" });
+  store.use("usr_sam", "delete", "Run: git branch -D old");
+  fails(() => store.decide(id, "usr_sam", { decision: "once", by: "usr_jo" }), 403, "not_held");
+  store.use("usr_jo", "fs-write", "Run: touch x");
+  store.decide("native-fs-write", "usr_jo", { decision: "grant", by: "usr_ana" });
+  assert.equal(store.decide(id, "usr_sam", { decision: "once", by: "usr_jo" }).grant.status, "once");
+  done();
+});
+
+test("in a project, a delete asks every time even with write held for every project", () => {
+  const { store, done } = setup();
+  const project = { id: "example-app", name: "Example app" };
+  store.use("usr_pat", "github-write", "Run: git push");
+  store.decide("native-github-write", "usr_pat", { decision: "grant", by: "usr_ana" });
+  assert.equal(store.use("usr_pat", "github-write", "Run: git push", { project }).verdict, "allow");
+  const asked = store.use("usr_pat", "delete", "Run: git push origin :old", { project });
+  assert.deepEqual([asked.verdict, asked.entitlement.id, asked.entitlement.onceOnly], ["wait", "native-delete@example-app", true]);
+  fails(() => store.decide("native-delete@example-app", "usr_pat", { decision: "grant", by: "usr_ana" }), 400, "once_only");
+  store.decide("native-delete@example-app", "usr_pat", { decision: "once", by: "usr_ana" });
+  assert.equal(store.use("usr_pat", "delete", "", { project }).verdict, "allow");
+  assert.equal(store.use("usr_pat", "delete", "", { project }).verdict, "wait");
+  done();
 });

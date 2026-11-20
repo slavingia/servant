@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
-from hermes_capabilities import FS_READ as R, FS_WRITE as W, GH_READ as GR, GH_WRITE as GW, command_needs, describe, in_order, targets, tool_needs
+from hermes_capabilities import DELETE as D, FS_READ as R, FS_WRITE as W, GH_READ as GR, GH_WRITE as GW, command_needs, describe, in_order, targets, tool_needs
 
 
 class CommandNeeds(unittest.TestCase):
@@ -32,10 +32,24 @@ class CommandNeeds(unittest.TestCase):
 
     def test_changing_github(self):
         self.check({GW}, "git push origin main", "git push", "gh pr create --fill", "gh pr merge 12", "gh issue create -t x", "gh issue comment 3 -b hi", "gh release create v1",
-                   "gh api -X POST repos/example-org/example-app/issues", "gh api repos/example-org/example-app/issues -f title=x", "gh api --method=DELETE repos/x/y", "gh api -XPATCH repos/x/y",
-                   "gh workflow run build.yml", "gh repo delete x", "gh unknown thing", "gh secret set X")
+                   "gh api -X POST repos/example-org/example-app/issues", "gh api repos/example-org/example-app/issues -f title=x", "gh api -XPATCH repos/x/y",
+                   "gh workflow run build.yml", "gh unknown thing", "gh secret set X")
         self.check({GW, W}, "git commit -am x && git push", "curl -X POST https://api.github.com/repos/x/y/issues", "bash -c 'git push'", "echo $(gh pr merge 1)")
         self.check({GW, R}, "git status; git push")
+
+    def test_deleting_a_branch_a_tag_or_a_repository_asks_for_delete_beside_the_write(self):
+        self.check({GW, D}, "git push --delete origin feature", "git push origin --delete feature", "git push -d origin feature", "git push origin :feature",
+                   "git push origin +:refs/heads/feature", "git push --mirror backup", "git push --prune origin", "gh repo delete example-org/example-app --yes",
+                   "gh api -X DELETE repos/example-org/example-app", "gh api --method DELETE repos/example-org/example-app/git/refs/heads/feature",
+                   "gh api -XDELETE repos/example-org/example-app/branches/feature", "gh api --method=DELETE repos/x/y")
+        self.check({W, D}, "git branch -D feature", "git branch -d feature", "git branch --delete feature", "git tag -d v1", "git branch -vD old")
+        self.check({GW, W, D}, "bash -c 'git push --delete origin x'", "echo $(gh repo delete x --yes)", "curl -X DELETE https://api.github.com/repos/example-org/example-app")
+        self.check({GW, D, R}, "git status && git push origin :old")
+        # Ordinary pushes and branch work, and deleting something smaller than a branch, do not.
+        self.check({GW}, "git push origin main", "git push -u origin feature", "git push --force-with-lease origin feature", "gh pr close 3 --delete-branch=false",
+                   "gh api -X DELETE repos/example-org/example-app/issues/comments/9", "gh api -X DELETE repos/example-org/example-app/labels/bug")
+        self.check({W}, "git branch new", "git branch -m old new", "git tag v2", "git checkout -b feature")
+        self.assertEqual(in_order({R, GR, W, GW, D}), [D, GW, W, GR, R], "the delete is asked about first")
 
     def test_a_wrong_guess_asks_for_more_never_less(self):
         # Anything this reader cannot follow is able to change files.
