@@ -931,6 +931,12 @@ async function handleReview(req, res, url, cfg) {
   const state = readState();
   const chat = share && state.chats[share.chatId];
   const sharer = share && state.users[share.createdBy];
+  // The code of the invite that came with a share, while it can still be used; else "".
+  const liveInvite = current => {
+    const code = reviews.joinCode(current.id);
+    const invite = code ? readState().invites[sha256(normalizeCode(code))] : null;
+    return invite && !invite.usedAt && !invite.revokedAt && invite.expiresAt > now() ? code : "";
+  };
   const ofApp = share?.kind === "app";
   // A share only works while its chat, its prototype and the person who shared it are all still here. A share of a
   // project's app works while the app is on the server and the person who shared it can still see the project.
@@ -941,7 +947,9 @@ async function handleReview(req, res, url, cfg) {
     if (method !== "GET" && method !== "HEAD") { res.writeHead(405, { Allow: "GET, HEAD" }); res.end(); return true; }
     const nonce = crypto.randomBytes(16).toString("base64");
     res.writeHead(open ? 200 : 404, reviewPageHeaders(nonce));
-    res.end(method === "HEAD" ? undefined : reviewPage({ nonce, theme: cfg.theme, ended: !open, title: share?.title, sharedBy: sharer?.name, masked: share ? maskEmail(share.email) : "", serverName: cfg.name, app: ofApp }));
+    res.end(method === "HEAD" ? undefined : reviewPage({ nonce, theme: cfg.theme, ended: !open, title: share?.title, sharedBy: sharer?.name, masked: share ? maskEmail(share.email) : "", serverName: cfg.name, app: ofApp,
+      // The prototype shows as soon as the link is opened; the code is for commenting, and for joining when invited.
+      prototype: open ? (ofApp ? `/a/${share.projectId}/` : `/p/${share.folder}/`) : "", invited: open && !!liveInvite(share) }));
     return true;
   }
   if (!open) return refuse(404, "not_found", `This link doesn't work. Ask for the ${ofApp ? "app" : "prototype"} to be shared with you again`);
@@ -955,7 +963,10 @@ async function handleReview(req, res, url, cfg) {
   // The reviewer is told when their comment was handed to the agent, and nothing about what came of it.
   const view = c => ({ id: c.id, page: c.page, x: c.x, y: c.y, anchor: c.anchor, text: c.text, createdAt: c.createdAt, ...(c.askedAt ? { asked: true } : {}) });
   const what = ofApp ? "app preview" : "prototype";
-  const opened = current => ({ prototype: ofApp ? `/a/${current.projectId}/` : `/p/${current.folder}/`, ...(ofApp ? { app: true } : {}), title: current.title, comments: reviews.comments({ shareId: current.id }).map(view) });
+  // An invite onto the server that came with the share (an owner's choice), offered only here, after the person has
+  // confirmed the address is theirs, and only while it is unused and not out of date.
+  const joinFor = current => { const code = liveInvite(current); return code ? joinWebLink(code, cfg) || pairLink(code, cfg) : null; };
+  const opened = current => { const join = joinFor(current); return { prototype: ofApp ? `/a/${current.projectId}/` : `/p/${current.folder}/`, ...(ofApp ? { app: true } : {}), title: current.title, comments: reviews.comments({ shareId: current.id }).map(view), ...(join ? { join, team: cfg.name } : {}) }; };
   try {
     // The code always goes to the address the prototype was shared with. The visitor never chooses where it is sent.
     if (method === "POST" && parts[2] === "code") {
@@ -968,6 +979,10 @@ async function handleReview(req, res, url, cfg) {
       const given = await body();
       emailVerifier.check({ id: given.challenge, code: given.code, inviteKey: `review:${share.id}` });
       const session = reviews.startSession(share.id);
+      // They proved the address is theirs. An invite that came with the share remembers it, so joining with that
+      // invite gives them an account with this work email on it and does not ask for a second code.
+      const code = liveInvite(share);
+      if (code) mutateState(s => { const invite = s.invites[sha256(normalizeCode(code))]; if (invite) invite.verifiedEmail = share.email; });
       return json(200, { session: session.secret, expiresAt: session.expiresAt, ...opened(share) });
     }
     if (parts[2] === "comments") {
@@ -1046,17 +1061,22 @@ function reviewCommented(share, comment, sharer, cfg) {
  * request; the share belongs to the chat's own person, so comments arrive in their chat whoever sent the link.
  * Resolves to the share, or throws { status, code, message }.
  */
+/**
+ * A footnote for someone who has never seen Servant: what it is, in two or three sentences, at the end of a message
+ * or an email that invites them to review a prototype. With `joining`, it also says what joining would add.
+ */
+export const servantFootnote = (team, joining) => `What is Servant? It is where ${team} works: secure team messaging with an AI agent that builds and changes prototypes like this one. Reviewing needs no account or install; your comments go straight to the person who built it.${joining ? " If you join, you can ask the agent for changes yourself, build prototypes of your own and talk with the team, in a browser or the phone and Mac apps." : ""}`;
 // The access level called "Business owner" (usage.mjs AGENT_TIERS): where someone invited to review a prototype starts.
 const BUSINESS_OWNER_TIER = 2;
-async function sharePrototype(chat, email, asker, cfg, { autoWork = false, name = "", join = "" } = {}) {
+async function sharePrototype(chat, email, asker, cfg, { autoWork = false, name = "", joinCode = "" } = {}) {
   const reviews = prototypeReviews();
   const origin = publicOrigin(cfg), settings = emailSettings(cfg);
   if (!origin) throw requestError(400, "not_set_up", "This server has no public address yet, so there is no link to send. Ask an owner to set it up");
   if (!settings.mailer?.command && !globalThis.__servantEmailSend) throw requestError(400, "not_set_up", "This server can't send email yet, so the link can't be sent. Ask an owner to set up email");
-  const made = reviews.share({ chatId: chat.id, folder: chat.vibeFolder, title: chat.title, email, by: chat.userId, domains: reviewDomains(settings), autoWork });
+  const made = reviews.share({ chatId: chat.id, folder: chat.vibeFolder, title: chat.title, email, by: chat.userId, domains: reviewDomains(settings), autoWork, joinCode });
   try {
     await sendMail({ to: made.share.email, code: "", minutes: 0, subject: `${asker.name} shared a prototype with you: ${made.share.title}`,
-      text: `${name ? `Hi ${name},\n\n` : ""}${asker.name} shared the prototype "${made.share.title}" with you on ${cfg.name} and would like your comments.\n\nOpen it here: ${origin}/review/${made.token}\n\nYou'll be asked to confirm this email address with a code. Then right-click anywhere on the prototype to leave a comment.${join ? `\n\nTo use the rest of Servant with the team, join here: ${join}\nThat link works once, for a week.` : ""}\n\nIf you weren't expecting this, ignore this email.` }, settings);
+      text: `${name ? `Hi ${name},\n\n` : ""}${asker.name} shared the prototype "${made.share.title}" with you on ${cfg.name} and would like your comments.\n\nOpen it here: ${origin}/review/${made.token}\n\nIt opens straight away, with nothing to install. To leave a comment, confirm this email address with the code that page offers to send you, then right-click anywhere on the prototype.${joinCode ? `\n\nYou have also been invited to join the team in Servant. Once you have typed that code, Join ${cfg.name} is on the same page if you would like to do more than review. The invitation is good for a week.` : ""}\n\n${servantFootnote(cfg.name, !!joinCode)}\n\nIf you weren't expecting this, ignore this email.` }, settings);
   } catch (error) {
     // A link nobody received is ended, so it can't be found later by someone else.
     reviews.end(made.share.id, chat.id, asker.id);
@@ -1136,16 +1156,14 @@ async function handleTokenApi(req, res, url, parts, cfg) {
           const address = normalizeEmail(person.email);
           const member = inviting && address ? Object.values(users).find(u => !isRemoved(u) && u.email && u.email.toLowerCase() === address) : null;
           // A single-use invite in their name, good for a week. Made only once the address is known to be allowed.
-          let join = "";
-          if (inviting && !member && address && emailAllowed(address, reviewDomains(emailSettings(cfg)))) {
-            const code = createInvite({ name, role: "member", agentTier: BUSINESS_OWNER_TIER, createdBy: user.id });
-            join = joinWebLink(code, cfg) || pairLink(code, cfg);
-          }
-          const share = await sharePrototype(chat, person.email, user, cfg, { name, join });
+          let joinCode = "";
+          if (inviting && !member && address && emailAllowed(address, reviewDomains(emailSettings(cfg)))) joinCode = createInvite({ name, role: "member", agentTier: BUSINESS_OWNER_TIER, createdBy: user.id });
+          const share = await sharePrototype(chat, person.email, user, cfg, { name, joinCode });
           // Something to paste into a chat or an email of your own, beside the one Servant sent. The name is used
           // here and in the greeting of that email; it is not kept.
-          const message = `${name ? `Hi ${name.split(" ")[0]}, ` : ""}I've shared the prototype "${chat.title}" with you for review: ${share.link}\n\nIt will ask you to confirm your email (${share.email}) with a code. Then right-click anywhere on the prototype to leave a comment.${join ? `\n\nTo use the rest of Servant with the team, join here (works once, for a week): ${join}` : ""}`;
-          results.push({ email: share.email, ...(name ? { name } : {}), sent: true, link: share.link, ...(join ? { join } : {}), ...(member ? { alreadyMember: true } : {}), message });
+          const message = `${name ? `Hi ${name.split(" ")[0]}, ` : ""}I've shared the prototype "${chat.title}" with you for review: ${share.link}\n\nIt opens straight away. To leave a comment, confirm your email (${share.email}) with the code that page offers to send you, then right-click anywhere on the prototype.${joinCode ? `\n\nYou're also invited to join the team in Servant. Once you've typed that code, "Join ${cfg.name}" is on the same page if you'd like to do more than review. The invitation is good for a week.` : ""}\n\n${servantFootnote(cfg.name, !!joinCode)}`;
+          // One link. The invite onto the server is not in the message: it is offered on the review page, after the code.
+          results.push({ email: share.email, ...(name ? { name } : {}), sent: true, link: share.link, ...(joinCode ? { invited: true } : {}), ...(member ? { alreadyMember: true } : {}), message });
         } catch (error) { if (!error?.status) throw error; results.push({ email: String(person.email).slice(0, 254), ...(name ? { name } : {}), sent: false, error: error.message }); }
       }
       return send(res, results.some(r => r.sent) ? 201 : 400, { prototype: { id: chat.id, title: chat.title, by: users[chat.userId].name }, results });
@@ -1668,6 +1686,8 @@ async function handle(req, res, cfg) {
         throw problem;
       }
       // A confirmed work email that already belongs to someone signs in as them (a new device), not a second person (#41).
+      // An invite from a prototype review whose reviewer confirmed their address there carries that address.
+      if (!verifiedEmail && typeof invite.verifiedEmail === "string" && !invite.userId && !invite.reusable) verifiedEmail = invite.verifiedEmail;
       const byEmail = verifiedEmail && !invite.userId
         ? Object.values(state.users).find(u => !isRemoved(u) && u.email && u.email.toLowerCase() === verifiedEmail.toLowerCase())
         : null;
@@ -2220,7 +2240,7 @@ async function handle(req, res, cfg) {
           catch (e) { if (!e.status) throw e; return fail(res, e.status, e.code, e.message); }
           try {
             await sendMail({ to: made.share.email, code: "", minutes: 0, subject: `${current.name} shared an app preview with you: ${title}`,
-              text: `${current.name} shared the app preview "${title}" with you on ${cfg.name} and would like your comments. It runs in your browser with sample data.\n\nOpen it here: ${origin}/review/${made.token}\n\nYou'll be asked to confirm this email address with a code. Then right-click anywhere on the app to leave a comment.\n\nIf you weren't expecting this, ignore this email.` }, settings);
+              text: `${current.name} shared the app preview "${title}" with you on ${cfg.name} and would like your comments. It runs in your browser with sample data.\n\nOpen it here: ${origin}/review/${made.token}\n\nIt opens straight away. To leave a comment, confirm this email address with the code that page offers to send you, then right-click anywhere on the app.\n\nIf you weren't expecting this, ignore this email.` }, settings);
           } catch (error) {
             reviews.endApp(made.share.id, pid, current.id);
             console.error("[servant] app review share email failed:", error?.message || error);

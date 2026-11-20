@@ -1,6 +1,6 @@
 # Sharing a prototype with a business owner
 
-Someone who builds a prototype in a Prototyping chat can send it to a business owner for comments. The business owner does not need the app or an account: a link arrives by email, they confirm a code sent to the same address, see the prototype full screen in their browser, and right-click the part they want to talk about.
+Someone who builds a prototype in a Prototyping chat can send it to a business owner for comments. The business owner does not need the app or an account: a link arrives by email, and opening it shows the prototype full screen in their browser straight away. To leave a comment they confirm a code sent to the same address, then right-click the part they want to talk about.
 
 Two people, two places. The person who built the prototype lives in its chat: they share it, preview it, edit it, work on it with the agent, and that is where every comment arrives, for them to decide what to do with. The business owner only ever sees the prototype and leaves comments on it. A comment is not filed anywhere else: it does not become a to-do.
 
@@ -25,9 +25,11 @@ It needs the server to have a public address (`publicUrl`) and a mailer (`emailV
 ## For the business owner
 
 1. The email says who shared what, with a link.
-2. The page shows who shared it and a masked address ("j***@example.gov") and offers to email a code. The code always goes to the address the prototype was shared with; the page never asks for one.
-3. With the code entered, the prototype fills the window, with nothing around it but a small bar at the bottom. **Right-click** anywhere (on a phone, press and hold) to open a box at that spot, write the comment and save it. A numbered pin stays where it was made; pressing a pin, or the count in the bar ("2 comments"), opens the list of their comments over the side of the prototype, and **Close** puts it away. **Comment on this page** in the bar does the same without a mouse, for the page as a whole.
+2. The link opens the prototype at once, filling the window. A box in the corner says who shared it and that a code, emailed to a masked address ("j***@example.gov"), lets them comment. The code always goes to the address the prototype was shared with; the page never asks for one. **Hide** puts the box away and a small button brings it back. A right-click before the code brings the box up rather than a comment.
+3. With the code entered, the box goes and a small bar appears at the bottom. **Right-click** anywhere (on a phone, press and hold) to open a box at that spot, write the comment and save it. A numbered pin stays where it was made; pressing a pin, or the count in the bar ("2 comments"), opens the list of their comments over the side of the prototype, and **Close** puts it away. **Comment on this page** in the bar does the same without a mouse, for the page as a whole.
 4. Coming back in the same browser tab needs no new code for twelve hours.
+
+When a server owner invited them onto the server along with the share ([access-tokens.md](access-tokens.md#a-message-to-copy-and-inviting-someone-onto-the-server)), the bar also has **Join <team>** once the code is confirmed. It is optional: the prototype is theirs to review either way.
 
 They see only their own comments, not other reviewers', and nothing else on the server. Under a comment that was handed to the agent the page says **Sent to the team's agent**; it does not say what came of it.
 
@@ -58,14 +60,14 @@ A comment is words from someone outside the server, and the agent that builds pr
 
 Two emails leave the server through the owner's mailer command, both to the address the sharer typed:
 
-- the invitation: the sharer's name, the server's name, the prototype's title and the link;
+- the invitation: the sharer's name, the server's name, the prototype's title and the link, and a short footnote on what Servant is for someone who has never seen it;
 - the code: the prototype's title, the sharer's name and the six-digit code.
 
 The alert to the sharer carries the prototype's title, the reviewer's address and the start of the comment, like any other alert, and the id of the prototype's chat so a tap opens it ([notifications.md](notifications.md)).
 
 ## Limits to know
 
-- **The review page is gated; the prototype's own address is not.** Prototypes have always been viewable by anyone who has their `/p/<folder>/` address, which is long and random and never listed. The review page does not show that address before the code is confirmed, but a business owner who has confirmed could copy it from their browser and pass it on. Treat a shared prototype as something its reviewers can show to others.
+- **Anyone with the link can see the prototype.** Opening the link shows it with no code (decided by the maintainer on 2026-11-20, so a reviewer is looking at the thing within a second of clicking). That matches how prototypes already were: each has always been viewable by anyone who has its `/p/<folder>/` address, which is long and random and never listed. So a forwarded invitation shows the prototype to whoever it was forwarded to. Treat a shared prototype as something its reviewers can show to others. What the code still protects is **speaking as the reviewer**: nobody can leave a comment under that address, see that person's comments, or join the server with their invite, without the code sent to it.
 - Confirming a code proves the visitor can read that inbox. It does not prove who they are beyond that.
 - Codes work for ten minutes and once; five wrong tries end a code; sends and wrong tries are limited per address, and requests per network address.
 - Comments are tied to a spot on the page as it was. If the prototype changes, a pin may no longer sit on the thing it was about; the words under the pointer are kept with the comment for that reason.

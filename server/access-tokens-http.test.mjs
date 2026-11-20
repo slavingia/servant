@@ -136,13 +136,17 @@ test("see prototypes and send one for review; a server owner can do it for the p
   // Each one that went out comes back with its link and a message to paste; one that didn't has neither.
   const [ok, refused] = sent.json.results;
   assert.match(ok.link, /^https:\/\/team\.example\.gov\/review\/[A-Za-z0-9_-]+$/);
-  assert.equal(ok.message, `I've shared the prototype "Refund tracker" with you for review: ${ok.link}\n\nIt will ask you to confirm your email (jo.park@example.gov) with a code. Then right-click anywhere on the prototype to leave a comment.`);
+  // It ends with a footnote on what Servant is, for someone who has never seen it.
+  const ABOUT = "What is Servant? It is where Example team works: secure team messaging with an AI agent that builds and changes prototypes like this one. Reviewing needs no account or install; your comments go straight to the person who built it.";
+  assert.equal(ok.message, `I've shared the prototype "Refund tracker" with you for review: ${ok.link}\n\nIt opens straight away. To leave a comment, confirm your email (jo.park@example.gov) with the code that page offers to send you, then right-click anywhere on the prototype.\n\n${ABOUT}`);
+  assert.equal(mail[0].text.includes(`\n\n${ABOUT}\n\nIf you weren't expecting this, ignore this email.`), true, "and so does the email Servant sends");
   assert.deepEqual(["link" in refused, "message" in refused], [false, false]);
   assert.equal(mail[0].text.includes(ok.link), true, "the same link the email carries");
-  // The link opens nothing by itself: the prototype still needs a code sent to that address.
+  // The link shows the prototype at once. Commenting is what needs a code sent to that address.
   const page = await fetch(ok.link.replace("https://team.example.gov", base));
   assert.equal(page.status, 200);
-  assert.equal((await page.text()).includes(FOLDER), false, "the review page does not give the prototype away before the code");
+  assert.equal((await page.text()).includes(`data-prototype="/p/${FOLDER}/"`), true);
+  assert.equal((await fetch(`${ok.link.replace("https://team.example.gov", base)}/comments`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ page: "index.html", x: 0, y: 0, text: "Not me" }) })).status, 401, "nobody comments as that person without the code");
   assert.equal((await fetch(`${ok.link.replace("https://team.example.gov", base)}/comments`)).status, 401);
   assert.deepEqual(mail.map(m => [m.to, m.subject]), [["jo.park@example.gov", "Ana Ruiz shared a prototype with you: Refund tracker"]]);
   assert.match(mail[0].text, /https:\/\/team\.example\.gov\/review\/[A-Za-z0-9_-]+/);
@@ -164,26 +168,49 @@ test("see prototypes and send one for review; a server owner can do it for the p
   assert.equal((await shell(people.ana.token, "POST", "/prototypes/cht_proto/shares", { people: [{ name: "Jo Park", email: "jo.park@example.gov" }], invite: "yes" })).status, 400);
   const invited = await shell(people.ana.token, "POST", "/prototypes/cht_proto/shares", { people: [{ name: "Jo Park", email: "jo.park@example.gov" }, { name: "Sam Outside", email: "sam@example.com" }], invite: true });
   const [jo, outside] = invited.json.results;
-  assert.match(jo.join, /^https:\/\/team\.example\.gov\/join\?code=/);
-  assert.equal(jo.message.endsWith(`\n\nTo use the rest of Servant with the team, join here (works once, for a week): ${jo.join}`), true);
-  assert.equal(mail[0].text.includes(`To use the rest of Servant with the team, join here: ${jo.join}`), true);
-  assert.deepEqual([outside.sent, "join" in outside, mail.length], [false, false, 1], "no invite is made for an address that can't be shared with");
-  // Joining with it makes Jo a member who starts as a business owner, invited by Ana. The link works once.
+  // One link. The invite onto the server is not in the message or the email: only word that it is waiting on the page.
+  assert.deepEqual([jo.invited, "join" in jo, JSON.stringify(invited.json).includes("/join?"), mail[0].text.includes("/join?")], [true, false, false, false]);
+  // When they are invited too, the footnote says what joining adds.
+  const JOINING = " If you join, you can ask the agent for changes yourself, build prototypes of your own and talk with the team, in a browser or the phone and Mac apps.";
+  assert.equal(jo.message, `Hi Jo, I've shared the prototype "Refund tracker" with you for review: ${jo.link}\n\nIt opens straight away. To leave a comment, confirm your email (jo.park@example.gov) with the code that page offers to send you, then right-click anywhere on the prototype.\n\nYou're also invited to join the team in Servant. Once you've typed that code, "Join Example team" is on the same page if you'd like to do more than review. The invitation is good for a week.\n\n${ABOUT}${JOINING}`);
+  assert.equal(mail[0].text.includes(`Join Example team is on the same page if you would like to do more than review. The invitation is good for a week.\n\n${ABOUT}${JOINING}\n\nIf you weren't expecting this`), true);
+  assert.deepEqual([outside.sent, "invited" in outside, mail.length], [false, false, 1], "no invite is made for an address that can't be shared with");
+
+  // Jo opens the one link, confirms the code, and lands on the prototype. Only then is joining offered.
+  const local = jo.link.replace("https://team.example.gov", base);
+  const before = await (await fetch(local)).text();
+  assert.equal(before.includes("/join?"), false, "no way to join before the address is confirmed");
+  assert.match(before, /Do more with Example team/, "only word that there is more");
+  mail.splice(0);
+  const asked = await (await fetch(`${local}/code`, { method: "POST" })).json();
+  const verified = await (await fetch(`${local}/verify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ challenge: asked.challenge, code: mail[0].code }) })).json();
+  assert.equal(verified.prototype, `/p/${FOLDER}/`, "straight to the prototype");
+  assert.match(verified.join, /^https:\/\/team\.example\.gov\/join\?code=/);
+  assert.equal(verified.team, "Example team");
+  assert.match(before, /<a class="join" id="join" target="_blank" rel="noopener" hidden><\/a>/, "the page has a place for it, hidden until then");
+  // Joining with it makes Jo a member who starts as a business owner, invited by Ana. It works once, and the page stops offering it.
   const { TERMS_VERSION, TERMS_ITEMS } = await import("./terms.mjs");
-  const code = new URL(jo.join).searchParams.get("code");
+  const code = new URL(verified.join).searchParams.get("code");
   const pair = body => testFetch(directory, `${base}/v1/pair`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const joined = await pair({ code, device: "Browser", terms: { version: TERMS_VERSION, items: TERMS_ITEMS } });
   assert.equal(joined.status, 201);
   const account = await joined.json();
   assert.deepEqual([account.user.name, account.user.role], ["Jo Park", "member"]);
+  // The address they confirmed on the review page is on their account: no second code when they join.
+  const me = await (await testFetch(directory, `${base}/v1/me`, { headers: { Authorization: `Bearer ${account.token}` } })).json();
+  assert.equal(me.user.emailVerified, true);
   const listed = (await app("ana", "GET", "people")).body.people.find(p => p.id === account.user.id);
   assert.deepEqual([listed.agentTier, listed.vibeCoder], [2, true], "a business owner, able to prototype");
   assert.equal((await pair({ code, device: "Browser", terms: { version: TERMS_VERSION, items: TERMS_ITEMS } })).status >= 400, true, "used once");
+  const again = await (await fetch(`${local}/comments`, { headers: { Authorization: `Bearer ${verified.session}` } })).json();
+  assert.deepEqual(["join" in again, again.prototype], [false, `/p/${FOLDER}/`], "still their prototype to review; nothing left to join");
+  // A share with no invite never offers one, and the share's own listing never carries the code.
+  assert.equal(JSON.stringify((await app("pat", "GET", "chats/cht_proto/prototype/shares")).body).includes(code), false);
   // The app's own Share never returns the link: there it is still only in the email.
   assert.equal(JSON.stringify((await app("pat", "GET", "chats/cht_proto/prototype/shares")).body).includes("/review/"), false);
   // The share is Pat's: it is in Pat's share sheet, and comments will arrive in Pat's chat.
   assert.deepEqual((await app("pat", "GET", "chats/cht_proto/prototype/shares")).body.shares.filter(s => !s.endedAt).map(s => s.email), ["jo.park@example.gov"]);
-  assert.deepEqual((await shell(people.pat.token, "GET", "/prototypes")).json.prototypes[0].sharedWith, [{ email: "jo.park@example.gov", opened: false, comments: 0 }]);
+  assert.deepEqual((await shell(people.pat.token, "GET", "/prototypes")).json.prototypes[0].sharedWith, [{ email: "jo.park@example.gov", opened: true, comments: 0 }]);
   // The app's own Share still works the same way, through the same code.
   mail.splice(0);
   assert.equal((await app("pat", "POST", "chats/cht_proto/prototype/shares", { email: "sam.lee@example.gov" })).status, 201);

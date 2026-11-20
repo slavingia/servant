@@ -117,7 +117,19 @@ test("the review page shows nothing typed by a person as markup, and loads nothi
   const html = reviewPage({ nonce: "abc", title: `<img src=x onerror=alert(1)> "Refunds"`, sharedBy: "Ana <b>Ruiz</b>", masked: "j***@example.gov", serverName: "Example & team" });
   assert.equal(html.includes("<img src=x"), false);
   assert.equal(html.includes("<b>Ruiz</b>"), false);
-  assert.ok(html.includes("Ana &lt;b&gt;Ruiz&lt;/b&gt; shared a prototype with you"));
+  assert.ok(html.includes("Ana &lt;b&gt;Ruiz&lt;/b&gt; would like your comments"));
+  // The prototype is in the page from the start, and the code step is a box in the corner, hidden until the script shows it.
+  const shown = reviewPage({ nonce: "abc", title: "Refunds", sharedBy: "Ana Ruiz", masked: "j***@example.gov", serverName: "Example team", prototype: `/p/proto-1/"><script>x</script>` });
+  assert.ok(shown.includes('data-prototype="/p/proto-1/&quot;&gt;&lt;script&gt;x&lt;/script&gt;"'), "its address is escaped like everything else");
+  assert.match(shown, /<aside class="corner stack" id="gate" aria-label="Leave comments" hidden>/);
+  assert.match(shown, /Have a look around\. To leave a comment, we'll email you a code to type here\./);
+  assert.match(shown, /<div class="bar" role="group" aria-label="Comments" id="bar" hidden>/, "no comment controls until the code");
+  // Invited onto the server too: the box says what the code adds, and still shows no way in before it.
+  const invited = reviewPage({ nonce: "abc", title: "Refunds", sharedBy: "Ana Ruiz", masked: "j***@example.gov", serverName: "Example team", prototype: "/p/proto-1/", invited: true });
+  assert.match(invited, /<h2>Do more with Example team<\/h2>/);
+  assert.match(invited, /you are invited to join Example team\. Have a look around\. To comment on the prototype, or to join and do more, we'll email you a code to type here\./);
+  assert.match(invited, /<a class="join" id="join" target="_blank" rel="noopener" hidden><\/a>/);
+  assert.equal(invited.includes("/join?"), false);
   assert.ok(html.includes("j***@example.gov"));
   assert.ok(html.includes('<script nonce="abc">') && html.includes('<style nonce="abc">'));
   assert.equal(/ style="/.test(html), false, "no inline styles: the policy would drop them");

@@ -41,7 +41,7 @@ Invoke-RestMethod "$Servant/me" -Headers $Headers
 | `GET /api/v1` | The guide. No token needed; it names nobody on the server. |
 | `GET /api/v1/me` | Who the token acts as. |
 | `GET /api/v1/prototypes?q=words` | Prototypes you can see: yours, ones shared with everyone, and all of them if you own the server. |
-| `POST /api/v1/prototypes/<id>/shares` | `{ "emails": [...] }` or `{ "people": [{ "name", "email" }] }`, one to ten: sends each the review link ([prototype-reviews.md](prototype-reviews.md)) and returns, for each, the `link` and a `message` to paste. With `"invite": true` (owners), also a `join` link. |
+| `POST /api/v1/prototypes/<id>/shares` | `{ "emails": [...] }` or `{ "people": [{ "name", "email" }] }`, one to ten: sends each the review link ([prototype-reviews.md](prototype-reviews.md)) and returns, for each, the `link` and a `message` to paste. With `"invite": true` (owners), the person can also join the team from the review page. |
 | `POST /api/v1/agent` | `{ "text": "…" }` starts a new private chat with your agent; add `"chatId"` to continue one of yours. Answers at once; the agent works in the background. |
 | `GET /api/v1/agent/<chatId>` | Whether the agent is still working, whether it is waiting for an approval, and the messages with its replies. |
 
@@ -51,11 +51,15 @@ A prototype is shared by the person who made it, or by a **server owner on their
 
 ### A message to copy, and inviting someone onto the server
 
-Each person the link was sent to comes back with the review `link` and a `message` ready to paste into a chat or an email of your own, beside the email Servant sent: "Hi Jo, I've shared the prototype "Refund tracker" with you for review: … It will ask you to confirm your email with a code…". A name, when given, is used to greet them there and in Servant's email; it is not kept.
+Each person the link was sent to comes back with the review `link` and a `message` ready to paste into a chat or an email of your own, beside the email Servant sent: "Hi Jo, I've shared the prototype "Refund tracker" with you for review: … It will ask you to confirm your email with a code…". A name, when given, is used to greet them there and in Servant's email; it is not kept. Both end with a footnote for someone who has never seen Servant: what it is, that reviewing needs no account or install, and, when they are invited too, what joining adds.
 
-The review link is returned only here, to the person who asked for it; the app's own share sheet never shows it. It opens nothing by itself: the prototype still needs a code confirmed from the address it was shared with.
+The review link is returned only here, to the person who asked for it; the app's own share sheet never shows it. It shows the prototype to whoever opens it, as a prototype's own address always has; commenting as that person, and joining with their invite, still need the code sent to the address it was shared with.
 
-With `"invite": true`, a **server owner** also invites each person onto the server in the same request, for someone who has no account and may want more than the full-screen prototype. Names are required. Each gets a single-use invite in their name, good for a week, that starts them as a member at the **Business owner** access level, with the owner who invited them deciding their entitlement requests. The `join` link is in the result, in the message and in Servant's email. No invite is made for an address a prototype can't be shared with, or for someone who is already a member (`alreadyMember`). Unlike the review link, **whoever has a join link can use it once**: send it only to the person it is for.
+With `"invite": true`, a **server owner** also invites each person onto the server in the same request, for someone who has no account and may want more than the full-screen prototype. Names are required.
+
+It is still **one link**, and it opens on the prototype straight away. A box in the corner says they are invited: when they type the code emailed to them, right there, they can comment, and the page offers **Join <team>** for anyone who wants to go further. Because they already confirmed the address, joining puts that work email on their account without asking for a second code. The invite is single use, in their name, good for a week, and starts them as a member at the **Business owner** access level, with the owner who invited them deciding their entitlement requests. The message and the email say the invitation is waiting on that page; neither carries a join link, and the result says only `invited: true`. So nobody can join with a forwarded message: the invite is shown only to someone who confirmed the address it was sent to.
+
+No invite is made for an address a prototype can't be shared with, or for someone who is already a member (`alreadyMember`). Once it is used or out of date, the page stops offering it and the prototype stays open to review.
 
 Bringing people onto a server is an owner's job in the app (Invite people), and it is here: anyone else's token is refused `invite`.
 

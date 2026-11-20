@@ -195,8 +195,17 @@ try {
   const blocked = [];
   reviewer.on('console', message => { if (/Content Security Policy|Refused to/.test(message.text())) blocked.push(message.text()); });
   await reviewer.goto(link);
-  await reviewer.getByRole('heading', { name: 'Pat Tester shared a prototype with you' }).waitFor();
-  assert.equal(await reviewer.locator('iframe').getAttribute('src'), null, 'the prototype is not loaded before the code');
+  // The prototype is on screen at once, full window. The code is asked for in a box in the corner, and only to do more.
+  await reviewer.frameLocator('#frame').getByRole('button', { name: 'Pay now' }).waitFor();
+  await reviewer.getByRole('heading', { name: 'Pat Tester would like your comments' }).waitFor();
+  assert.equal(await reviewer.locator('#bar').isVisible(), false, 'no comment controls until the code');
+  // A right-click before the code asks for it rather than opening a comment box.
+  await reviewer.frameLocator('#frame').getByRole('button', { name: 'Pay now' }).click({ button: 'right' });
+  await reviewer.getByText('Confirm your email with a code to leave a comment', { exact: true }).waitFor();
+  assert.equal(await reviewer.getByRole('dialog', { name: 'Leave a comment' }).isVisible(), false);
+  // The box can be put away and brought back.
+  await reviewer.getByRole('button', { name: 'Hide this box' }).click();
+  await reviewer.getByRole('button', { name: 'Leave a comment', exact: true }).click();
   await shot(reviewer, 'review-confirm-desktop.png');
   await reviewer.getByRole('button', { name: 'Email me a code' }).click();
   await reviewer.getByLabel('Six-digit code').waitFor();
@@ -204,10 +213,11 @@ try {
   assert.equal(mail[0].to, 'jo.park@example.gov');
   const code = mail.splice(0)[0].code;
   await reviewer.getByLabel('Six-digit code').fill(code === '000000' ? '111111' : '000000');
-  await reviewer.getByRole('button', { name: 'See the prototype' }).click();
+  await reviewer.getByRole('button', { name: 'Confirm', exact: true }).click();
   await reviewer.getByText("That code isn't right. Check it and try again", { exact: true }).waitFor();
   await reviewer.getByLabel('Six-digit code').fill(code);
-  await reviewer.getByRole('button', { name: 'See the prototype' }).click();
+  await reviewer.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await reviewer.locator('#gate').waitFor({ state: 'hidden' });
 
   // 3. They see the prototype and right-click the part they want to talk about.
   const frame = reviewer.frameLocator('#frame');
@@ -250,7 +260,7 @@ try {
   // The same page on a phone.
   const small = watch(await (await browser.newContext({ viewport: phone, reducedMotion: 'reduce' })).newPage());
   await small.goto(link);
-  await small.getByRole('heading', { name: 'Pat Tester shared a prototype with you' }).waitFor();
+  await small.getByRole('heading', { name: 'Pat Tester would like your comments' }).waitFor();
   await shot(small, 'review-confirm-phone.png');
 
   // 4. The comments are with the share, for the prototype's chat. Nothing is filed in To-dos.
@@ -359,11 +369,12 @@ try {
     const appContext = await browser.newContext({ viewport: desktop, reducedMotion: 'reduce' });
     const visitor = watch(await appContext.newPage());
     await visitor.goto(invite.text.match(/http:\/\/127\.0\.0\.1:\d+\/review\/[A-Za-z0-9_-]+/)[0]);
-    await visitor.getByRole('heading', { name: 'Pat Tester shared an app preview with you' }).waitFor();
+    await visitor.getByRole('heading', { name: 'Pat Tester would like your comments' }).waitFor();
     await visitor.getByRole('button', { name: 'Email me a code' }).click();
     for (let i = 0; i < 80 && mail.length === mailed; i++) await delay(250);
     await visitor.getByLabel('Six-digit code').fill(mail.splice(mailed)[0].code);
-    await visitor.getByRole('button', { name: 'See the app' }).click();
+    await visitor.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await visitor.locator('#gate').waitFor({ state: 'hidden' });
     const appFrame = visitor.frameLocator('#frame');
     await appFrame.getByRole('button', { name: 'Make a payment' }).click({ button: 'right' });
     await visitor.getByRole('dialog', { name: 'Leave a comment' }).waitFor();

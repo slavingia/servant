@@ -77,9 +77,10 @@ test("share by work email, confirm a code, see the prototype, comment; the comme
   // The link alone: who shared what, a masked address, and neither the prototype nor where it lives.
   const page = await visit(link);
   assert.equal(page.status, 200);
-  assert.ok(page.text.includes("Pat Tester shared a prototype with you") && page.text.includes("j***@example.gov"));
-  assert.equal(page.text.includes(FOLDER), false);
-  assert.equal(page.text.includes("jo.park@"), false);
+  assert.ok(page.text.includes("Pat Tester would like your comments") && page.text.includes("j***@example.gov"));
+  // The prototype is on screen as soon as the link is opened; commenting is what the code is for.
+  assert.ok(page.text.includes(`data-prototype="/p/${FOLDER}/"`));
+  assert.equal(page.text.includes("jo.park@"), false, "the address is still only shown masked");
   assert.match(page.headers.get("content-security-policy"), /frame-ancestors 'none'/);
   assert.equal((await visit(`${link}/comments`)).status, 401);
   assert.equal((await visit(`${link}/comments`, { session: "made-up" })).status, 401);
@@ -320,7 +321,7 @@ test("a project's app preview is shared the same way; comments come back to the 
   const [invite] = mail.splice(0);
   assert.deepEqual([invite.to, invite.subject], ["jo.park@example.gov", "Pat Tester shared an app preview with you: Example app preview"]);
   const link = linkIn(invite);
-  assert.match((await visit(link)).text, /Pat Tester shared an app preview with you/);
+  assert.match((await visit(link)).text, /Pat Tester would like your comments[\s\S]*data-app="1"|data-prototype="\/a\/example-app\/" data-app="1"/);
   const asked = await visit(`${link}/code`, { method: "POST" });
   const [codeMail] = mail.splice(0);
   assert.match(codeMail.text, /^Your code to see the app preview "Example app preview" that Pat Tester shared with you is \d{6}\./);
