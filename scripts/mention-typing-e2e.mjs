@@ -141,6 +141,17 @@ try {
   await page.keyboard.press('ControlOrMeta+a');
   assert.notEqual(await picture('hide'), unselected, 'selected text is highlighted in a box that holds a mention');
   await page.keyboard.press('End');
+  // The report's last line: the name was still in the box on coming back to the chat. The draft is there, the box
+  // has the keyboard and the caret is after the draft, so the next words follow it. The caret used to be before it.
+  await page.getByRole('button', { name: 'Home', exact: true }).first().click();
+  await page.getByRole('button', { name: /^(Pat Tester, Jo Park|Jo Park, Pat Tester)/ }).first().click();
+  const again = page.locator('[data-testid="composer-input"]:visible').first();
+  await again.waitFor();
+  await delay(500);
+  const back = await again.evaluate(node => ({ value: node.value, focused: document.activeElement === node, start: node.selectionStart, end: node.selectionEnd }));
+  assert.deepEqual(back, { value, focused: true, start: value.length, end: value.length }, 'back in the chat: the draft, the keyboard, and the caret after the draft');
+  await page.keyboard.type(' today', { delay: 40 });
+  assert.equal(await again.inputValue(), `${value} today`, 'typing continues after the saved draft');
   assert.deepEqual(pageErrors, [], 'no uncaught browser errors');
   console.log(`mention typing e2e (${how}): OK`);
 } catch (error) {

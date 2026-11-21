@@ -11,6 +11,7 @@ import { accountId, api, ServerError, type Conversation, type Person, type Post,
 import { useDictation } from "../lib/dictation";
 import { insertDictation } from "../lib/dictation-text";
 import { activeMention, agentMentionNames, AGENT_HANDLES, insertMention, mentionMatches, mentionText } from "../lib/mentions";
+import { caretAfterDraft, type DraftBox } from "../lib/composer-caret";
 import { parseSlash, queuedMessage, slashMatches } from "../lib/slash-commands";
 import { SUGGESTIONS_MAX_HEIGHT, SUGGESTION_ROW_HEIGHT, activeOption, suggestionKey, suggestionsHeight } from "../lib/suggestion-list";
 import { backInBox } from "../lib/send-queue";
@@ -524,11 +525,13 @@ export function Composer({
   // A pending glossary lookup must not send after leaving this chat or account.
   const sendScope = useRef(0);
   useLayoutEffect(() => () => { sendScope.current++; }, [draftKey, projectId, glossaryAccount?.serverUrl, glossaryAccount?.serverKey, glossaryAccount?.user.id, glossaryAccount?.token]);
+  // Counts the saved drafts that arrived after the box opened, so the caret can be put after each (below).
+  const [restored, setRestored] = useState(0);
   useEffect(() => {
     if (!draftKey) return;
     let live = true;
     // After a restart the saved copy arrives a moment later; never overwrite typing.
-    void loadDrafts().then(() => { const saved = getDraft(draftKey); if (live && saved) setText(current => current || saved); });
+    void loadDrafts().then(() => { const saved = getDraft(draftKey); if (live && saved) { setText(current => current || saved); setRestored(count => count + 1); } });
     return () => { live = false; };
   }, [draftKey]);
   useEffect(() => { if (draftKey) setDraft(draftKey, text); }, [draftKey, text]);
@@ -608,6 +611,16 @@ export function Composer({
     // Only when the box opens with a message in it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // A saved draft opens the same way. In a browser the caret was before its first word, so on coming back to a
+  // chat the next words went in front of the draft, and in front of an @mention left in the box (composer-caret.ts).
+  useEffect(() => {
+    if (Platform.OS !== "web" || initial) return;
+    const frame = requestAnimationFrame(() => {
+      const node = input.current as unknown as (DraftBox & { ownerDocument?: { activeElement?: unknown } }) | null;
+      caretAfterDraft(node, !!node && node.ownerDocument?.activeElement === node);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [restored, initial]);
   const [copiedSelected, setCopiedSelected] = useState(false);
   // The phone's own Copy toolbar did not appear for some people, so highlighted text also gets a Copy button.
   const copySelected = async () => {
