@@ -646,7 +646,7 @@ class EntitlementCheckTest(unittest.TestCase):
         self.assertIsNone(get_pre_tool_call_block_message("terminal", {"command": "git push"}, session_id="not_servants"), "another session is left alone")
         self.verdict["value"] = {"verdict": "allow"}
         self.assertIsNone(get_pre_tool_call_block_message("write_file", {"path": "notes.md", "content": "x"}, task_id="servant_check_session"))
-        self.assertEqual(self.asked[-1], {"token": "token-for-pat", "needs": ["fs-write"], "detail": "Write notes.md"})
+        self.assertEqual(self.asked[-1], {"token": "token-for-pat", "needs": ["fs-write"], "detail": "Write notes.md", "paths": ["notes.md"]})
         self.server.shutdown()
         self.server.server_close()
         refused = get_pre_tool_call_block_message("read_file", {"path": "README.md"}, session_id="servant_check_session")

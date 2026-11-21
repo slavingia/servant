@@ -123,6 +123,29 @@ def shell_env(token, port, extra_env):
     return env
 
 
+def _factory_module(terminal_tool):
+    """Where the environment factory lives: terminal_tool itself, or (Hermes v0.23+) its backends module, which
+    callers import from at call time, so wrapping it there takes effect."""
+    if hasattr(terminal_tool, "_create_environment"):
+        return terminal_tool
+    try:
+        from tools import terminal_tool_backends
+    except Exception:
+        return terminal_tool
+    return terminal_tool_backends
+
+
+def _cleanup(terminal_tool):
+    cleanup = getattr(terminal_tool, "cleanup_vm", None)
+    if callable(cleanup):
+        return cleanup
+    try:
+        from tools import terminal_tool_lifecycle
+    except Exception:
+        return None
+    return getattr(terminal_tool_lifecycle, "cleanup_vm", None)
+
+
 def install(terminal_tool=None):
     """Wrap Hermes's environment factory once. Returns False (and changes nothing) when this Hermes doesn't have the pieces."""
     global _installed
@@ -131,10 +154,12 @@ def install(terminal_tool=None):
     with _lock:
         if _installed:
             return True
-        needed = ("_create_environment", "_LocalEnvironment", "register_task_env_overrides", "_task_env_overrides", "_active_environments", "_env_lock")
-        if any(not hasattr(terminal_tool, name) for name in needed):
+        factory = _factory_module(terminal_tool)
+        if any(not hasattr(factory, name) for name in ("_create_environment", "_LocalEnvironment")):
             return False
-        original = terminal_tool._create_environment
+        if any(not hasattr(terminal_tool, name) for name in ("register_task_env_overrides", "_task_env_overrides", "_active_environments", "_env_lock")):
+            return False
+        original = factory._create_environment
         try:
             signature = inspect.signature(original)
         except (TypeError, ValueError):
@@ -148,10 +173,10 @@ def install(terminal_tool=None):
             with _lock:
                 env = dict(_shells.get(task_id) or {}) if task_id else {}
             if bound.arguments.get("env_type") == "local" and env:
-                return terminal_tool._LocalEnvironment(cwd=bound.arguments.get("cwd") or "", timeout=bound.arguments.get("timeout") or 60, env=env)
+                return factory._LocalEnvironment(cwd=bound.arguments.get("cwd") or "", timeout=bound.arguments.get("timeout") or 60, env=env)
             return original(*args, **kwargs)
 
-        terminal_tool._create_environment = create_environment
+        factory._create_environment = create_environment
         _installed = True
         return True
 
@@ -162,7 +187,7 @@ def _close_shell(session_id, terminal_tool):
         live = terminal_tool._active_environments.get(session_id)
     if live is None:
         return True
-    cleanup = getattr(terminal_tool, "cleanup_vm", None)
+    cleanup = _cleanup(terminal_tool)
     if not callable(cleanup):
         return False
     try:

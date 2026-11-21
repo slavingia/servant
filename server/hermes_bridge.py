@@ -95,13 +95,27 @@ def resolve_bare_image_paths(text):
     return BARE_IMAGE_PATH_RE.sub(inline, text)
 
 
+def _session_store_hook():
+    """The adapter's sync session-store getter: _ensure_store from v0.23, _ensure_session_db before."""
+    for name in ("_ensure_store", "_ensure_session_db"):
+        if callable(getattr(APIServerAdapter, name, None)):
+            return name
+    return None
+
+
+def _session_db(adapter):
+    return getattr(adapter, _session_store_hook())()
+
+
 def verify_contract():
     """Fail on missing private adapter hooks rather than advertising support."""
     for name in ("_handle_runs", "_handle_get_run", "_handle_run_events", "_handle_run_approval",
                  "_handle_stop_run", "_handle_capabilities", "_conversation_history_for_session",
-                 "_create_agent", "_ensure_session_db", "_check_auth"):
+                 "_create_agent", "_check_auth"):
         if not callable(getattr(APIServerAdapter, name, None)):
             raise RuntimeError(f"Incompatible Hermes: missing {name}")
+    if _session_store_hook() is None:
+        raise RuntimeError("Incompatible Hermes: missing _ensure_store (or _ensure_session_db)")
     from run_agent import AIAgent
     required = {"enabled_toolsets", "skip_memory", "skip_context_files", "load_soul_identity", "session_db"}
     if not required.issubset(inspect.signature(AIAgent.__init__).parameters):
@@ -205,7 +219,7 @@ def make_member_agent(adapter, kwargs):
     selected.update({
         "model": model, "quiet_mode": True, "verbose_logging": False,
         "enabled_toolsets": [], "skip_memory": True, "skip_context_files": True,
-        "load_soul_identity": False, "session_db": adapter._ensure_session_db(),
+        "load_soul_identity": False, "session_db": _session_db(adapter),
         "platform": "api_server", "max_iterations": 20,
     })
     if "skip_background_review" in params:
@@ -241,7 +255,7 @@ def make_researcher_agent(adapter, kwargs):
     selected.update({
         "model": model, "quiet_mode": True, "verbose_logging": False,
         "enabled_toolsets": list(RESEARCHER["allowedToolsets"]), "skip_memory": True, "skip_context_files": True,
-        "load_soul_identity": False, "session_db": adapter._ensure_session_db(),
+        "load_soul_identity": False, "session_db": _session_db(adapter),
         "platform": "api_server", "max_iterations": 30,
     })
     if "skip_background_review" in params:

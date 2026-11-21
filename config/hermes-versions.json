@@ -11,6 +11,10 @@
     {
       "tag": "v0.22.5",
       "commit": "bf0203a794a07aac3ff764972ab9087baa4e4f4e"
+    },
+    {
+      "tag": "v0.23.3",
+      "commit": "caafe5389ae585ef77387a962aee05b1bcf17029"
     }
   ]
 }
