@@ -1080,14 +1080,17 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   // asks, a forwarded quote) shows whole lines instead of one and a half.
   input: { ...typography.body, minHeight: 44, maxHeight: 144, paddingHorizontal: space.sm, paddingTop: space.sm, paddingBottom: space.xs, color: colors.ink, backgroundColor: colors.background, ...(Platform.OS === "web" ? { fieldSizing: "content" } : {}) } as object,
   // The colored copy behind the box, and the box made see-through over it (caret stays visible).
-  // The blue copy lies over the box (it is positioned, the box is not), so it must let clicks through: on the
-  // web it otherwise took every click and hid the caret once a mention was typed (#82).
+  // The copy is positioned, so a browser draws it over a box that is not: the box is positioned too (inputOverlay)
+  // and comes later, which puts it on top as it already is on a phone. The copy also lets clicks through, so a
+  // click can never land on it instead of the box (#82).
   inputMirror: { position: "absolute", top: 0, left: 0, right: 0, color: colors.ink, backgroundColor: colors.background, overflow: "hidden", pointerEvents: "none" },
   // The composer's border already shows focus; the browser's own ring would draw a line inside it.
   // Not "transparent": on Android that is the integer 0, which React Native reads as "no color set",
   // so the real text drew in the default dark color over the blue copy (doubled, bolder text).
   // One step of alpha is invisible and not zero.
-  inputOverlay: { color: "#00000001", backgroundColor: "transparent", ...(Platform.OS === "web" ? { caretColor: colors.ink, outlineStyle: "none" } as object : {}) },
+  // Positioned, so on the web the box is drawn over the copy: under it, the caret and the highlight of selected
+  // text were hidden behind the copy's background as soon as the box held an @mention.
+  inputOverlay: { position: "relative", color: "#00000001", backgroundColor: "transparent", ...(Platform.OS === "web" ? { caretColor: colors.ink, outlineStyle: "none" } as object : {}) },
   send: { minHeight: 44, minWidth: 44, paddingHorizontal: space.sm, borderRadius: radius.sm, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   sendTarget: { minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center" },
   sendDisabled: { backgroundColor: colors.subtle },

@@ -129,6 +129,18 @@ try {
   console.log(JSON.stringify({ how, value, ...state }));
   assert.match(value, /^@(Pat-Tester|Jo-Park) can you look$/, 'typing after a picked mention lands in the box');
   assert.ok(state.focused, 'the box keeps focus');
+  // #82 also said "no caret": the blue copy was drawn over the box and hid it. A caret blinks, so pictures of the
+  // box taken a moment apart differ only when one is drawn. Selected text is highlighted, or it is not, the same way.
+  const at = await box.boundingBox();
+  const clip = { x: Math.floor(at.x), y: Math.floor(at.y), width: Math.ceil(at.width), height: Math.ceil(at.height) };
+  const picture = async caret => (await page.screenshot({ clip, caret })).toString('base64');
+  const blink = new Set();
+  for (let i = 0; i < 8; i++) { blink.add(await picture('initial')); await delay(170); }
+  assert.ok(blink.size > 1, 'a caret shows in a box that holds a mention');
+  const unselected = await picture('hide');
+  await page.keyboard.press('ControlOrMeta+a');
+  assert.notEqual(await picture('hide'), unselected, 'selected text is highlighted in a box that holds a mention');
+  await page.keyboard.press('End');
   assert.deepEqual(pageErrors, [], 'no uncaught browser errors');
   console.log(`mention typing e2e (${how}): OK`);
 } catch (error) {
