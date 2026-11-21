@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Platform, StyleSheet, Text, View } from "react-native";
 import { isBannerHidden } from "../lib/banner";
 import { hideBanner, useHiddenBanner } from "../lib/banner-hidden";
 import { useSession } from "../lib/session";
@@ -25,6 +25,8 @@ export function ServerBanner({ topInset = 0 }: { topInset?: number }) {
 const styles = StyleSheet.create({
   // The close sits over the right edge so the bar keeps its height and the words stay centered.
   root: { paddingHorizontal: ICON_TARGET, paddingBottom: space.sm },
-  text: { ...typography.bodyStrong, textAlign: "center" },
+  // In a browser, words that wrap are split into lines of about the same length. Filled line by line, a message a
+  // little wider than the bar left its last word alone on a second line under the rest.
+  text: { ...typography.bodyStrong, textAlign: "center", ...(Platform.OS === "web" ? { textWrap: "balance" } as object : {}) },
   close: { position: "absolute", right: 0, bottom: 0, justifyContent: "center" },
 });
