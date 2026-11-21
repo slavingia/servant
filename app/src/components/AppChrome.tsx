@@ -10,6 +10,8 @@ import { Sidebar } from "./Sidebar";
 import { ServerBanner } from "./ServerBanner";
 import { OfflineBanner } from "./OfflineBanner";
 import { useLiveList } from "../lib/live";
+import { bannerShown } from "../lib/banner";
+import { useHiddenBanner } from "../lib/banner-hidden";
 
 
 const ChromeHeightContext = createContext(0);
@@ -32,7 +34,10 @@ export function AppChrome({ enabled, children }: { enabled: boolean; children: R
   const contentInsets = useMemo(() => enabled ? { ...insets, top: 0 } : insets, [enabled, insets]);
 
   const { unreachable } = useLiveList();
-  const hasBanner = Boolean(account?.banner?.message) || unreachable;
+  // A banner the person hid paints nothing, so the status bar strip must come back. Counting a hidden banner as
+  // shown left the page under the clock and battery on phones.
+  const hiddenBanner = useHiddenBanner();
+  const hasBanner = bannerShown(account?.banner?.message, hiddenBanner) || unreachable;
   if (enabled && wide) {
     // Desktop: a persistent sidebar beside the navigator, like Slack or ChatGPT.
     return (

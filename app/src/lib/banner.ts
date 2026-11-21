@@ -10,3 +10,6 @@ export function bannerFromServer(raw: unknown): Banner | undefined {
 
 /** True when this device hid this exact message; a new message shows again. */
 export const isBannerHidden = (message: string, hiddenMessage: string | null) => hiddenMessage === message;
+
+/** Whether the server banner is on screen: there is a message and this device hasn't hidden it. */
+export const bannerShown = (message: string | undefined, hiddenMessage: string | null) => Boolean(message) && !isBannerHidden(message!, hiddenMessage);

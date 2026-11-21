@@ -21,9 +21,12 @@ test("every pull to refresh is the ball", () => {
   assert.ok(found >= 10, "the lists that refresh use it");
 });
 
-test("the system spinner is there to do the pull, but drawn invisible", () => {
+test("Android draws the ball over an invisible system spinner; iOS keeps the system spinner, with no view beside it", () => {
   const control = fs.readFileSync(path.join(src, "components/BallRefreshControl.tsx"), "utf8");
-  assert.match(control, /tintColor="transparent"/);
   assert.match(control, /colors=\{\["transparent"\]\} progressBackgroundColor="transparent"/);
   assert.match(control, /<ServeLoader size=\{BALL\} immediate/);
+  // A view returned beside the iOS control became list content and pushed every tab's title under the clock.
+  const ios = control.slice(control.indexOf('Platform.OS === "ios"'), control.indexOf('Platform.OS === "android"'));
+  assert.match(ios, /return <RefreshControl \{\.\.\.rest\} refreshing=\{refreshing\} tintColor=\{colors\.blue\} \/>;/);
+  assert.doesNotMatch(ios, /<>|<View/);
 });
