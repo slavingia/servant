@@ -279,7 +279,12 @@ apart.
   Enter sends what was typed until an arrow key has chosen a command
   (`lib/suggestion-list.ts`). Attachment previews remain inside the box. Agent chats accept photos and videos
   through the same composer; channel and direct messages also accept files.
-  Editing adds a clear label and Cancel action.
+  Editing adds a clear label and Cancel action. An `@name` in the field is blue:
+  a colored copy of the text sits under a see-through field, and the field is
+  the one on top, so its caret and the highlight of selected text show. A name
+  in the copy differs by color alone; any change of weight or size moves the
+  words away from the caret (`composer-mention-mirror.test.ts`). A field that
+  opens with a saved draft has its caret after the draft (`composer-caret.ts`).
 - `Attachments` and `MediaGalleryProvider`: images from people and the agent
   share prominent inline previews; video cards have a clear play action and file
   details. One picture's place has the picture's own shape from the first frame
