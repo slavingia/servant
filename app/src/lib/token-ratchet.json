@@ -23,7 +23,7 @@
     "app/pair.tsx": 1,
     "components/DeepWorkSwitch.tsx": 1,
     "components/MessageText.tsx": 4,
-    "components/Messaging.tsx": 5,
+    "components/Messaging.tsx": 4,
     "components/Presence.tsx": 1,
     "components/Sidebar.tsx": 2,
     "components/VideoMedia.tsx": 1,

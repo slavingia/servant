@@ -1026,7 +1026,10 @@ const useStyles = createThemedStyles(({ colors }) => StyleSheet.create({
   agentTag: { ...typography.captionStrong, color: colors.blueDark, backgroundColor: colors.blueSoft, paddingHorizontal: space.xxs, borderRadius: radius.sm, overflow: "hidden" },
   time: { ...typography.meta, color: colors.muted, flexShrink: 0 },
   body: { ...typography.body, color: colors.ink },
-  mention: { color: colors.blue, fontWeight: "600" },
+  // An @name in the colored copy under the message box: its color and nothing that changes how wide it is. In a
+  // heavier weight every name pushed the words after it two points along, away from the box's own text, so the
+  // caret and the highlight of selected text were drawn short of the words they belong to.
+  mention: { color: colors.blue },
   link: { color: colors.blue, textDecorationLine: "underline" },
   deleted: { ...typography.body, color: colors.muted, fontStyle: "italic" },
   edited: { ...typography.caption, color: colors.muted, marginTop: space.xxs },

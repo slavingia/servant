@@ -27,3 +27,16 @@ test("the box is drawn over its colored copy, so the caret and selected text sho
   const boxAt = source.indexOf("highlight && styles.inputOverlay");
   assert.ok(copyAt > 0 && boxAt > copyAt, "the copy comes first in the markup, so the box is the one on top");
 });
+
+// With the caret showing, it sat inside the last letter: an @name was drawn heavier in the copy than it is in the
+// box, so every name pushed the words after it about two points along, away from the text the caret belongs to.
+// (Measured in a browser: 4.1 points after two names, 0 once the copy differs by color alone.)
+test("an @name in the colored copy takes up exactly the room it does in the box", () => {
+  const copy = source.match(/<Text aria-hidden[^>]*styles\.inputMirror\]\}>([\s\S]*?)<\/Text> : null\}/)?.[1];
+  assert.ok(copy, "the colored copy is found");
+  assert.match(copy, /part\.mention \? <Text key=\{i\} style=\{styles\.mention\}>/, "names in the copy use the mention style");
+  const style = source.match(/\n  mention:\s*\{([^}]*)\}/)?.[1];
+  assert.ok(style, "mention style exists");
+  assert.match(style, /color:\s*colors\.blue/, "a name is told apart by its color");
+  assert.doesNotMatch(style, /fontWeight|fontSize|fontFamily|fontStyle|letterSpacing|padding|margin/, "and by nothing that changes its width");
+});
