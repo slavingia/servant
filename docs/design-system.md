@@ -135,7 +135,10 @@ workspace mark, `selected` for the open page, `pressed`, and `track` for a
 switch that is off. Do not write out a white of your own there. In a browser the
 sidebar's list draws its scrollbar from the same scale (`onBrandScrollbar`: a
 `muted` thumb and no track, at the width the system gives it), so the system's
-light gray bar does not show on the navy. `APP_ICON_COLOR`
+light gray bar does not show on the navy. When the list has rows past an end
+(scrolled under the search field, or more than fits above the Deep work switch),
+it draws a hairline in `border` at that end, so rows go under an edge
+(`list-edges.ts`). `APP_ICON_COLOR`
 is the app icon's navy from `app.json`; it does not follow a workspace color.
 Welcome and sign-in have no logo or band: they open on the page title. A
 chart's legend shows each color beside what

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View, type PressableStateCallbackType } from "react-native";
 import { router, useGlobalSearchParams, usePathname, type Href } from "expo-router";
 import { api, type Conversation } from "../lib/server";
@@ -12,6 +12,7 @@ import { useChannelSort } from "../lib/channel-sort-store";
 import { useSession } from "../lib/session";
 import { openingConversation } from "../lib/conversation-cache";
 import { destinationGroups, placeIsOpen } from "../lib/destinations";
+import { listEdges, NO_EDGES, sameEdges } from "../lib/list-edges";
 import { useFeatures } from "../lib/features";
 import { useSessionExpiry } from "../lib/session-expiry";
 import { onBrandScrollbar, onBrandTint, radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
@@ -72,6 +73,17 @@ export function Sidebar() {
   const [channelsOpen, setChannelsOpen] = useState(true);
   const [dmsOpen, setDmsOpen] = useState(true);
   const [naming, setNaming] = useState(false);
+  // Rows scrolled past an end of the list go under a line drawn there (list-edges.ts). The state is set only when
+  // an end gains or loses rows, so scrolling itself draws nothing again.
+  const scrolled = useRef({ offset: 0, viewport: 0, content: 0, edges: NO_EDGES });
+  const [edges, setEdges] = useState(NO_EDGES);
+  const measured = (change: { offset?: number; viewport?: number; content?: number }) => {
+    const list = Object.assign(scrolled.current, change);
+    const now = listEdges(list.offset, list.viewport, list.content);
+    if (sameEdges(list.edges, now)) return;
+    list.edges = now;
+    setEdges(now);
+  };
   // Projects change rarely: re-read the list as you move around rather than on a timer.
   const projects = useProjects();
   // What this server uses (features.ts): sections and entries for the rest never render.
@@ -98,7 +110,11 @@ export function Sidebar() {
         </Pressable> : null}
       </View>
       <View style={styles.search}><Omnibar variant="sidebar" /></View>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+      <View style={[styles.list, edges.above && styles.rowsAbove, edges.below && styles.rowsBelow]}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} scrollEventThrottle={16}
+        onScroll={event => measured({ offset: event.nativeEvent.contentOffset.y })}
+        onLayout={event => measured({ viewport: event.nativeEvent.layout.height })}
+        onContentSizeChange={(_width, height) => measured({ content: height })}>
         <EmailNudge compact />
         {/* Every place comes from the one list (destinations.ts), in its order; the three groups are named for a screen reader and drawn as one list. */}
         {destinationGroups("sidebar", viewer).map(entry => <View key={entry.group} role="group" aria-label={entry.title}>
@@ -124,6 +140,7 @@ export function Sidebar() {
           {!features.channels && archivedCount ? <NavItem quiet icon="archive" label="Archived" count={archivedCount} countMuted selected={pathname === "/archived-channels"} onPress={() => go(pathname, "/archived-channels")} /> : null}
         </Section> : null}
       </ScrollView>
+      </View>
       {/* Your Deep work switch (deep-work.ts), just above your name. */}
       <DeepWorkSwitch onNavy />
       <Pressable accessibilityRole="button" accessibilityLabel={`${account.user.name}${connected && deepWork ? ", Deep work" : ""}, your profile and settings`} onPress={() => go(pathname, "/you")}
@@ -228,6 +245,11 @@ const useStyles = createThemedStyles(({ colors: theme }) => { const colors = { .
   workspaceName: { ...typography.bodyStrong, color: colors.ink, flex: 1, minWidth: 0 },
   iconButton: { width: 32, height: 32, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
   search: { paddingHorizontal: space.sm, paddingBottom: space.sm },
+  // The list's frame: a line at an end that has rows past it. The lines are always there and only take a color,
+  // so the list does not move by a point when one appears.
+  list: { flex: 1, minHeight: 0, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: "transparent" },
+  rowsAbove: { borderTopColor: onBrandTint.border },
+  rowsBelow: { borderBottomColor: onBrandTint.border },
   // In a browser the list's scrollbar is drawn in the sidebar's own colors (theme-colors.ts), not the system's light gray.
   scroll: { flex: 1, ...(Platform.OS === "web" ? { scrollbarColor: onBrandScrollbar } as object : {}) },
   scrollContent: { paddingHorizontal: space.xs, paddingBottom: space.md },
