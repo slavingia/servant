@@ -5,7 +5,7 @@ import { APP_FONT } from "./fonts";
 import { createAvatarTones, createColors, normalizeTheme, resolveColorScheme, type ColorScheme, type ThemeColors } from "./theme-colors";
 
 export type { ColorScheme, ThemeColors } from "./theme-colors";
-export { APP_ICON_COLOR, onBrandTint } from "./theme-colors";
+export { APP_ICON_COLOR, onBrandScrollbar, onBrandTint } from "./theme-colors";
 
 // Shared type, space and shape stay constant across appearances.
 // `stack` is the gap between things stacked one above another on a page (the onboarding tour uses it throughout).

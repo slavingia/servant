@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View, type PressableStateCallbackType } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View, type PressableStateCallbackType } from "react-native";
 import { router, useGlobalSearchParams, usePathname, type Href } from "expo-router";
 import { api, type Conversation } from "../lib/server";
 import * as Clipboard from "expo-clipboard";
@@ -14,7 +14,7 @@ import { openingConversation } from "../lib/conversation-cache";
 import { destinationGroups, placeIsOpen } from "../lib/destinations";
 import { useFeatures } from "../lib/features";
 import { useSessionExpiry } from "../lib/session-expiry";
-import { onBrandTint, radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
+import { onBrandScrollbar, onBrandTint, radius, space, typography, useTheme, createThemedStyles } from "../lib/theme";
 import { AppIcon, type AppIconName } from "./AppIcon";
 import { Avatar, dmPeer } from "./Messaging";
 import { NewProjectDialog } from "./NewProjectDialog";
@@ -228,7 +228,8 @@ const useStyles = createThemedStyles(({ colors: theme }) => { const colors = { .
   workspaceName: { ...typography.bodyStrong, color: colors.ink, flex: 1, minWidth: 0 },
   iconButton: { width: 32, height: 32, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
   search: { paddingHorizontal: space.sm, paddingBottom: space.sm },
-  scroll: { flex: 1 },
+  // In a browser the list's scrollbar is drawn in the sidebar's own colors (theme-colors.ts), not the system's light gray.
+  scroll: { flex: 1, ...(Platform.OS === "web" ? { scrollbarColor: onBrandScrollbar } as object : {}) },
   scrollContent: { paddingHorizontal: space.xs, paddingBottom: space.md },
   item: { minHeight: 32, flexDirection: "row", alignItems: "center", gap: space.xs, paddingHorizontal: space.xs, borderRadius: radius.md },
   hovered: { backgroundColor: colors.subtle },

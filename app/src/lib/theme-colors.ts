@@ -80,6 +80,12 @@ export const onBrandTint = {
   track: "rgba(255,255,255,0.3)",
 } as const;
 
+// A list's scrollbar on the brand color (the wide layout's sidebar), as CSS `scrollbar-color`: thumb, then track.
+// Where a browser draws scrollbars that take room (Windows), it drew its own light gray bar down the navy. The
+// thumb is the supporting-label white, which brandSurface below keeps readable on any brand color, and there is
+// no track, so the brand color shows through. The bar keeps the width the person's system gives it.
+export const onBrandScrollbar = `${onBrandTint.muted} transparent`;
+
 export const darkColors: ThemeColors = {
   ...lightColors,
   blue: "#80C7FF",
