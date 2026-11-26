@@ -52,8 +52,8 @@ test("the working line is calm: plain steps, no clock, and it stands still for R
   assert.match(live, /AccessibilityInfo\.announceForAccessibility\(line\)/, "VoiceOver has no live regions, so the line is spoken");
 });
 
-test("the live line breathes between our green and blue, in a chat and in the chat list", () => {
-  assert.match(live, /color: colors\.green \}/);
+test("the live line breathes between our two blues, in a chat and in the chat list", () => {
+  assert.match(live, /color: colors\.blueDark \}/);
   assert.match(live, /color: colors\.blue, opacity: breath \}/);
   assert.match(live, /useNativeDriver: native/);
   assert.match(steps, /<LiveStatus text=\{line\} style=\{styles\.line\} announce \/>/, "the chat's own live line uses it, not muted gray");

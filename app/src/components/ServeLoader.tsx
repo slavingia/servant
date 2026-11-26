@@ -1,10 +1,12 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { AccessibilityInfo, Animated, Easing, Platform, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
-import Svg, { ClipPath, Circle, Defs, Ellipse, G, Path, RadialGradient, Stop } from "react-native-svg";
+import Svg, { ClipPath, Circle, Defs, Ellipse, Path, RadialGradient, Stop } from "react-native-svg";
 import { BOX, LOADER_DELAY_MS, LOADER_FADE_MS, SERVE_LOOP_MS, serveKeyframes } from "../lib/serve-loop";
-import { SERVANT_BALL } from "../lib/theme-colors";
+import { useTheme } from "../lib/theme";
+import { BALL_SHADOW } from "../lib/theme-colors";
 
-// What the app shows while something loads: the icon's tennis ball, bouncing a few times, served away into the
+// What the app shows while something loads: the icon's ball, in the primary color with a white S so it shows on
+// any page (the icon's own ball is white), bouncing a few times, served away into the
 // distance until it is tiny, rallied back and caught on the bounce, over and over. Its shadow stays on the
 // ground and grows paler and smaller as the ball rises or goes away. Nothing is drawn behind it.
 //
@@ -49,6 +51,7 @@ function useReduceMotion() {
 export function ServeLoader({ size = "small", accessibilityLabel = "Loading", style, testID, immediate = false, still = false }: Props) {
   const d = typeof size === "number" ? size : SIZES[size];
   const id = useId().replace(/[^a-zA-Z0-9]/g, "");
+  const { colors } = useTheme();
   const reduced = useReduceMotion() || still;
   const [t] = useState(() => new Animated.Value(0));
   const keys = useMemo(() => serveKeyframes(), []);
@@ -109,9 +112,9 @@ export function ServeLoader({ size = "small", accessibilityLabel = "Loading", st
           <Svg width="100%" height="100%" viewBox="0 0 110 30">
             <Defs>
               <RadialGradient id={`s${id}`} cx="50%" cy="50%" rx="50%" ry="50%">
-                <Stop offset="0" stopColor={SERVANT_BALL.shadow} stopOpacity={0.4} />
-                <Stop offset="0.6" stopColor={SERVANT_BALL.shadow} stopOpacity={0.18} />
-                <Stop offset="1" stopColor={SERVANT_BALL.shadow} stopOpacity={0} />
+                <Stop offset="0" stopColor={BALL_SHADOW} stopOpacity={0.4} />
+                <Stop offset="0.6" stopColor={BALL_SHADOW} stopOpacity={0.18} />
+                <Stop offset="1" stopColor={BALL_SHADOW} stopOpacity={0} />
               </RadialGradient>
             </Defs>
             <Ellipse cx={55} cy={15} rx={55} ry={15} fill={`url(#s${id})`} />
@@ -121,19 +124,10 @@ export function ServeLoader({ size = "small", accessibilityLabel = "Loading", st
           <Animated.View style={[styles.fill, spinMotion]}>
             <Svg width="100%" height="100%" viewBox="0 0 100 100">
               <Defs>
-                <RadialGradient id={`b${id}`} cx="34%" cy="30%" rx="75%" ry="75%" fx="34%" fy="30%">
-                  <Stop offset="0" stopColor={SERVANT_BALL.light} />
-                  <Stop offset="0.55" stopColor={SERVANT_BALL.mid} />
-                  <Stop offset="1" stopColor={SERVANT_BALL.dark} />
-                </RadialGradient>
                 <ClipPath id={`c${id}`}><Circle cx={50} cy={50} r={50} /></ClipPath>
               </Defs>
-              <Circle cx={50} cy={50} r={50} fill={`url(#b${id})`} />
-              {/* The seam's groove: a wider dark green line, nudged away from the light, peeking out below the white */}
-              <G clipPath={`url(#c${id})`}>
-                <Path d={SEAM} transform="translate(1.2 1.6)" stroke={SERVANT_BALL.seamShadow} strokeOpacity={0.5} strokeWidth={8} strokeLinecap="round" fill="none" />
-              </G>
-              <Path d={SEAM} stroke={SERVANT_BALL.seam} strokeWidth={8} strokeLinecap="round" fill="none" clipPath={`url(#c${id})`} />
+              <Circle cx={50} cy={50} r={50} fill={colors.primary} />
+              <Path d={SEAM} stroke={colors.onPrimary} strokeWidth={8} strokeLinecap="round" fill="none" clipPath={`url(#c${id})`} />
             </Svg>
           </Animated.View>
         </Animated.View>
