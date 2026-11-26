@@ -18,9 +18,9 @@ import { BALL_SHADOW } from "../lib/theme-colors";
 
 const hidden = Platform.OS === "web" ? { "aria-hidden": true } as const : { accessible: false, accessibilityElementsHidden: true, importantForAccessibility: "no-hide-descendants" } as const;
 
-// The icon's S, in a 100-unit ball: in at the top right, over the top, down through the middle, out at the
-// bottom left. Measured from icon.png's seam.
-const SEAM = "M92 20 C80 5 52 3 42 17 C33 30 44 41 50 50 C56 59 67 70 58 83 C48 97 20 95 8 80";
+// The icon's S, in a 100-unit ball: the same path as the seam in assets/icon.svg. Two arcs of one radius that
+// meet at the ball's middle, as in a yin-yang, turned 45 degrees; each end runs off the ball's edge.
+const SEAM = "M88.18 11.82 A27 27 0 0 0 50 50 A27 27 0 0 1 11.82 88.18";
 const SIZES = { small: 24, large: 40 };
 /** Room under the resting ball for its shadow, in diameters. */
 const FLOOR = 0.16;

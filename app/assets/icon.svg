@@ -4,7 +4,9 @@
     ball-shadow    soft shadow under the ball
     ball           white ball, lit from the upper left and a little cooler toward its lower right (gradient stops)
     seam           the S, in the field's own navy: the same gradient as the field, so it reads as cut through the ball
-  The seam is drawn in a 100-unit box (the ball is the circle at 50,50 radius 50), like ServeLoader.tsx.
+  The seam is drawn in a 100-unit box (the ball is the circle at 50,50 radius 50), and ServeLoader.tsx draws the same path.
+  It is two arcs of one radius (27) that meet at the ball's middle, as in a yin-yang, turned 45 degrees so it reads as
+  an S. The radius is a little over a quarter of the ball, so each end runs off the ball's edge, as a tennis ball's seam does.
 
   After editing:  node scripts/render-icon.mjs && python3 scripts/make-icons.py
 -->
@@ -29,6 +31,6 @@
 <circle id="ball-shadow" cx="512" cy="562" r="420" fill="url(#ball-shadow-gradient)"/>
 <circle id="ball" cx="511.5" cy="511.5" r="320" fill="url(#ball-gradient)"/>
 <g id="seam-layers" transform="translate(191.5 191.5) scale(6.4)">
-  <path id="seam" d="M94.2 20 C79 5.4 52.8 5.1 43.4 19 C36.2 29.9 44 42.6 50 50 C56 57.4 63.8 70.1 56.6 81 C47.2 94.9 21 94.6 5.8 80" fill="none" stroke="url(#seam-gradient)" stroke-width="7.3" stroke-linecap="round" clip-path="url(#ball-clip)"/>
+  <path id="seam" d="M88.18 11.82 A27 27 0 0 0 50 50 A27 27 0 0 1 11.82 88.18" fill="none" stroke="url(#seam-gradient)" stroke-width="8" stroke-linecap="round" clip-path="url(#ball-clip)"/>
 </g>
 </svg>

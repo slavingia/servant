@@ -53,3 +53,16 @@ test("the icon is a white ball whose S is the field's navy, and the app's ball a
     if (file !== "LiveStatus.tsx") assert.match(source, /colors\.primary\b[\s\S]*colors\.onPrimary\b|colors\.onPrimary\b[\s\S]*colors\.primary\b/, `${file} is the primary color with onPrimary on it`);
   }
 });
+
+test("the seam is two equal arcs through the ball's middle, and the loading ball draws the same one", () => {
+  const svg = fs.readFileSync(path.join(app, "assets/icon.svg"), "utf8");
+  const seam = svg.match(/id="seam" d="([^"]+)"/)![1]!;
+  const arcs = seam.match(/^M([\d.]+) ([\d.]+) A([\d.]+) \3 0 0 0 50 50 A\3 \3 0 0 1 ([\d.]+) ([\d.]+)$/);
+  assert.ok(arcs, `${seam} is two arcs of one radius that meet at 50,50`);
+  const [x1, y1, r, x2, y2] = arcs.slice(1).map(Number) as [number, number, number, number, number];
+  // The ends are opposite each other, a full arc's width from the middle, and past the ball's edge (radius 50).
+  assert.ok(Math.abs(x1 + x2 - 100) < 0.01 && Math.abs(y1 + y2 - 100) < 0.01);
+  assert.ok(Math.abs(Math.hypot(x1 - 50, y1 - 50) - 2 * r) < 0.01 && 2 * r > 50);
+  const loader = fs.readFileSync(path.join(app, "src/components/ServeLoader.tsx"), "utf8");
+  assert.equal(loader.match(/const SEAM = "([^"]+)"/)![1], seam);
+});
