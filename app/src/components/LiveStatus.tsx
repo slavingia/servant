@@ -18,11 +18,11 @@ export function useReduceMotion() {
 
 // VoiceOver has no live regions: a new line is spoken, but not more often than this.
 const ANNOUNCE_EVERY = 4000;
-// One slow breath from our green to our blue and back.
+// One slow breath from one of our blues to the other and back.
 const BREATH = 1400;
 
-// What the agent is doing right now ("Thinking…", "Searching the web…"). The words breathe between our green and
-// blue to say it's alive; each new line fades and rises in. The color comes from the theme, not the caller, so
+// What the agent is doing right now ("Thinking…", "Searching the web…"). The words breathe between our two
+// blues to say it's alive; each new line fades and rises in. The color comes from the theme, not the caller, so
 // it reads the same in a chat, the chat list and dark mode. Reduce Motion gets the same words in blue, still.
 // `announce` speaks each new line to a screen reader, for the one line a person is waiting on.
 export function LiveStatus({ text, style, announce = false }: { text: string; style?: StyleProp<TextStyle>; announce?: boolean }) {
@@ -54,9 +54,9 @@ export function LiveStatus({ text, style, announce = false }: { text: string; st
     // The live region is this box, which stays put: the line inside is a new element each time, and a screen
     // reader only speaks changes inside something it already knows.
     <View aria-live="polite" accessibilityLiveRegion="polite" style={styles.wrap}>
-      {/* A new key per line remounts it, so every change fades in fresh. Green underneath, the same words in blue
-          on top, and only the blue copy's opacity moves, so the native driver can run it. */}
-      <FadeIn key={line} still={still} text={line} style={[style, { color: colors.green }]}>
+      {/* A new key per line remounts it, so every change fades in fresh. One blue (blueDark) underneath, the same words in the other
+          (blue) on top, and only the top copy's opacity moves, so the native driver can run it. */}
+      <FadeIn key={line} still={still} text={line} style={[style, { color: colors.blueDark }]}>
         <Animated.Text aria-hidden importantForAccessibility="no-hide-descendants"
           style={[style, styles.over, { color: colors.blue, opacity: breath }]}>{line}</Animated.Text>
       </FadeIn>

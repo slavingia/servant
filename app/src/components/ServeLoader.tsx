@@ -1,10 +1,12 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { AccessibilityInfo, Animated, Easing, Platform, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
-import Svg, { ClipPath, Circle, Defs, Ellipse, G, Path, RadialGradient, Stop } from "react-native-svg";
+import Svg, { ClipPath, Circle, Defs, Ellipse, Path, RadialGradient, Stop } from "react-native-svg";
 import { BOX, LOADER_DELAY_MS, LOADER_FADE_MS, SERVE_LOOP_MS, serveKeyframes } from "../lib/serve-loop";
-import { SERVANT_BALL } from "../lib/theme-colors";
+import { useTheme } from "../lib/theme";
+import { BALL_SHADOW } from "../lib/theme-colors";
 
-// What the app shows while something loads: the icon's tennis ball, bouncing a few times, served away into the
+// What the app shows while something loads: the icon's ball, in the primary color with a white S so it shows on
+// any page (the icon's own ball is white), bouncing a few times, served away into the
 // distance until it is tiny, rallied back and caught on the bounce, over and over. Its shadow stays on the
 // ground and grows paler and smaller as the ball rises or goes away. Nothing is drawn behind it.
 //
@@ -16,9 +18,9 @@ import { SERVANT_BALL } from "../lib/theme-colors";
 
 const hidden = Platform.OS === "web" ? { "aria-hidden": true } as const : { accessible: false, accessibilityElementsHidden: true, importantForAccessibility: "no-hide-descendants" } as const;
 
-// The icon's S, in a 100-unit ball: in at the top right, over the top, down through the middle, out at the
-// bottom left. Measured from icon.png's seam.
-const SEAM = "M92 20 C80 5 52 3 42 17 C33 30 44 41 50 50 C56 59 67 70 58 83 C48 97 20 95 8 80";
+// The icon's S, in a 100-unit ball: the same path as the seam in assets/icon.svg. Two arcs of one radius that
+// meet at the ball's middle, as in a yin-yang, turned 45 degrees; each end runs off the ball's edge.
+const SEAM = "M88.18 11.82 A27 27 0 0 0 50 50 A27 27 0 0 1 11.82 88.18";
 const SIZES = { small: 24, large: 40 };
 /** Room under the resting ball for its shadow, in diameters. */
 const FLOOR = 0.16;
@@ -49,6 +51,7 @@ function useReduceMotion() {
 export function ServeLoader({ size = "small", accessibilityLabel = "Loading", style, testID, immediate = false, still = false }: Props) {
   const d = typeof size === "number" ? size : SIZES[size];
   const id = useId().replace(/[^a-zA-Z0-9]/g, "");
+  const { colors } = useTheme();
   const reduced = useReduceMotion() || still;
   const [t] = useState(() => new Animated.Value(0));
   const keys = useMemo(() => serveKeyframes(), []);
@@ -109,9 +112,9 @@ export function ServeLoader({ size = "small", accessibilityLabel = "Loading", st
           <Svg width="100%" height="100%" viewBox="0 0 110 30">
             <Defs>
               <RadialGradient id={`s${id}`} cx="50%" cy="50%" rx="50%" ry="50%">
-                <Stop offset="0" stopColor={SERVANT_BALL.shadow} stopOpacity={0.4} />
-                <Stop offset="0.6" stopColor={SERVANT_BALL.shadow} stopOpacity={0.18} />
-                <Stop offset="1" stopColor={SERVANT_BALL.shadow} stopOpacity={0} />
+                <Stop offset="0" stopColor={BALL_SHADOW} stopOpacity={0.4} />
+                <Stop offset="0.6" stopColor={BALL_SHADOW} stopOpacity={0.18} />
+                <Stop offset="1" stopColor={BALL_SHADOW} stopOpacity={0} />
               </RadialGradient>
             </Defs>
             <Ellipse cx={55} cy={15} rx={55} ry={15} fill={`url(#s${id})`} />
@@ -121,19 +124,10 @@ export function ServeLoader({ size = "small", accessibilityLabel = "Loading", st
           <Animated.View style={[styles.fill, spinMotion]}>
             <Svg width="100%" height="100%" viewBox="0 0 100 100">
               <Defs>
-                <RadialGradient id={`b${id}`} cx="34%" cy="30%" rx="75%" ry="75%" fx="34%" fy="30%">
-                  <Stop offset="0" stopColor={SERVANT_BALL.light} />
-                  <Stop offset="0.55" stopColor={SERVANT_BALL.mid} />
-                  <Stop offset="1" stopColor={SERVANT_BALL.dark} />
-                </RadialGradient>
                 <ClipPath id={`c${id}`}><Circle cx={50} cy={50} r={50} /></ClipPath>
               </Defs>
-              <Circle cx={50} cy={50} r={50} fill={`url(#b${id})`} />
-              {/* The seam's groove: a wider dark green line, nudged away from the light, peeking out below the white */}
-              <G clipPath={`url(#c${id})`}>
-                <Path d={SEAM} transform="translate(1.2 1.6)" stroke={SERVANT_BALL.seamShadow} strokeOpacity={0.5} strokeWidth={8} strokeLinecap="round" fill="none" />
-              </G>
-              <Path d={SEAM} stroke={SERVANT_BALL.seam} strokeWidth={8} strokeLinecap="round" fill="none" clipPath={`url(#c${id})`} />
+              <Circle cx={50} cy={50} r={50} fill={colors.primary} />
+              <Path d={SEAM} stroke={colors.onPrimary} strokeWidth={8} strokeLinecap="round" fill="none" clipPath={`url(#c${id})`} />
             </Svg>
           </Animated.View>
         </Animated.View>

@@ -62,10 +62,10 @@ export type ThemeColors = typeof lightColors;
 // workspace color.
 export const APP_ICON_COLOR = "#112E51";
 
-// The tennis ball in the app icon (app/assets/icon.png, measured): lit from the top left, its seam a white S.
-// Like the 🎾 emoji, a dark green groove runs beside the seam on the side away from the light, so it reads round.
-// The loading ball draws it, and its shadow, on whatever is behind it, in both appearances.
-export const SERVANT_BALL = { light: "#F3FD8C", mid: "#DFEF53", dark: "#C9DC3A", seam: "#FFFFFF", seamShadow: "#5E7F12", shadow: "#000000" };
+// The ball in the app icon (app/assets/icon.png) is white with its S in the field's navy. In the app the same
+// ball is drawn the other way round, so it shows on a white page: `primary` with the S in `onPrimary`, like a
+// filled button (ServeLoader, SendBall). This is the shadow it rests on, the same in both appearances.
+export const BALL_SHADOW = "#000000";
 
 // White at set strengths on the brand color: the wide layout's sidebar and the phone's header bar, which are the
 // same in light and dark. One scale, so a row under the pointer, the open page and the search field are the same

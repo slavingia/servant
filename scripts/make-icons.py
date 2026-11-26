@@ -3,7 +3,7 @@
 
     python3 scripts/make-icons.py            # reads and writes app/assets/
 
-The source is app/assets/icon.png: a tennis ball on a navy field whose seam is a white S. icon.png is itself drawn
+The source is app/assets/icon.png: a white ball on a navy field whose seam is an S in the field's navy. icon.png is itself drawn
 from the layered app/assets/icon.svg by scripts/render-icon.mjs: edit the SVG, render, then run this.
 Everything else is cut from it, so the files cannot drift apart:
 
@@ -30,8 +30,8 @@ BALL_RADIUS = 320.0
 FIELD_CENTRE = (512.0, 420.0)
 # An adaptive icon is a 108 dp canvas of which a 72 dp circle or rounded square is shown: two thirds.
 ADAPTIVE_SCALE = 72 / 108
-# The seam is the only part of the ball with much blue in it.
-SEAM_BLUE = 200
+# The seam is the only dark part of the white ball: anything darker than this (0 to 255) is seam.
+SEAM_DARK = 150
 # A browser tab draws the icon 16 pixels wide: the ball is drawn this much larger there.
 FAVICON_SCALE = 1.3
 
@@ -97,7 +97,7 @@ def main(directory):
     save(Image.fromarray(background.round().clip(0, 255).astype(np.uint8), "RGB"), "android-icon-background.png", directory)
 
     # One flat shape: the ball with the seam cut out of it.
-    seam = inward(np.clip((rgb[..., 2] - (SEAM_BLUE - 40)) / 80, 0, 1), from_ball)
+    seam = inward(np.clip((SEAM_DARK + 40 - rgb.mean(-1)) / 80, 0, 1), from_ball)
     shape = Image.fromarray((ball * (1 - seam) * 255).round().astype(np.uint8), "L")
     white = Image.new("L", (SIZE, SIZE), 255)
     mark = Image.merge("RGBA", (white, white, white, shape))
