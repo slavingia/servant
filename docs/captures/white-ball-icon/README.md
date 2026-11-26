@@ -32,3 +32,7 @@ To-dos with every answer from the server held back, so the page stays loading. R
 | Dark | ![The same ball on the dark page](before/loading-dark.png) | ![The same blue ball on the dark page](after/loading-dark.png) |
 
 The agent's live line ("Thinking…") is not captured: it needs an agent mid-reply, and the test server has none. Its change is the color under the words, `green` to `blueDark`, covered by `agent-reply-controls.test.ts`.
+
+## While a message is being sent
+
+Not captured. The message box holds only for a send with files, an edit or a command; a plain message frees it at once, and two attempts to hold one open in the browser showed the ordinary button. Before, the button was replaced by a grey system spinner for that moment. Now it stays filled with its arrow, or the stop square when a reply is already running (`agent-reply-controls.test.ts`).

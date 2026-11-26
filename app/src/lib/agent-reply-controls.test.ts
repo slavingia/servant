@@ -100,3 +100,12 @@ test("how long is left is words and a bar with no number on it: a slow tick, sti
   assert.match(bar, /const native = Platform\.OS !== "web";/);
   assert.match(bar, /Animated\.timing\(at, \{ toValue: progress, duration: 600, easing: Easing\.out\(Easing\.quad\), useNativeDriver: native \}\)/);
 });
+
+test("the Send button stays a filled button while a message is being sent: no spinner takes its place", () => {
+  const button = composer.slice(composer.indexOf('testID={canStop ? "composer-stop" : "composer-send"}'));
+  const drawn = button.slice(0, button.indexOf("</Pressable>"));
+  assert.doesNotMatch(drawn, /ActivityIndicator|ServeLoader/);
+  // Filled, not the grey of nothing to send, and the stop square when a reply is already running.
+  assert.match(drawn, /<SendBall mark=\{canStop \|\| \(busy && !!onStop\) \? "stop" : "send"\} off=\{off && !canStop && !busy\}/);
+  assert.match(drawn, /accessibilityLabel=\{busy \? "Sending message"/, "a screen reader is still told it is sending");
+});

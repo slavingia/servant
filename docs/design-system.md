@@ -405,7 +405,10 @@ queue" sits beside the button), and with nothing typed the button shows a solid
 square and stops the reply. It keeps the `primary` fill instead of the red
 outline of `danger`: it is the same button in the same place, on screen for as
 long as the agent works, and a red control there would shout through every
-reply. Do not add a Stop or Steer button to the stream.
+reply. Do not add a Stop or Steer button to the stream. While a message is being
+sent the button keeps its fill and its mark (the arrow, or the square when a
+reply is already running); it does not turn into a spinner. The agent's live
+line is what says it is working.
 
 ## Pages the server renders
 

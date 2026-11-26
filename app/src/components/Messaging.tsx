@@ -2,7 +2,7 @@ import { memo, useId, useLayoutEffect, useEffect, useRef, useState, type Compone
 import { useProjectGlossary } from "../lib/use-project-glossary";
 import { findUnknownAbbreviations } from "../lib/abbreviations";
 import { lexiconApi } from "../lib/lexicon-api";
-import { ActivityIndicator, Alert, Image, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type PressableProps } from "react-native";
+import { Alert, Image, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type PressableProps } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -944,8 +944,9 @@ export function Composer({
             accessibilityActions={holdHint ? [{ name: "longpress", label: "Send after the current reply" }] : undefined} onAccessibilityAction={event => { if (event.nativeEvent.actionName === "longpress" && ready()) void send("queue"); }}
             disabled={busy || picking} style={({ pressed }) => sendLabel === "Send" || canStop || busy ? styles.sendTarget : [styles.send, off && !canStop && styles.sendDisabled, pressed && (!off || canStop) && { backgroundColor: colors.primaryPressed }]}>
             {({ pressed }) => sendLabel === "Send" || canStop || busy
-              ? busy ? <ActivityIndicator size="small" color={colors.muted} />
-                : <SendBall mark={canStop ? "stop" : "send"} off={off && !canStop} pressed={pressed} offFill={colors.subtle} offInk={colors.muted} />
+              // While a message is on its way the button stays as it was, filled, with no spinner in its place: the
+              // arrow, or the stop square when a reply is already running (what it is again once this is sent).
+              ? <SendBall mark={canStop || (busy && !!onStop) ? "stop" : "send"} off={off && !canStop && !busy} pressed={pressed && !busy} offFill={colors.subtle} offInk={colors.muted} />
               : <Text style={[styles.sendText, off && { color: colors.muted }]}>{sendLabel}</Text>}
           </Pressable>
         </View>
